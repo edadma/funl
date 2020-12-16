@@ -162,7 +162,7 @@ object BasicDAL extends DAL {
 
   relation(
     Symbol("div"),
-    IntType -> ((l: Number, r: Number) => boolean(r.intValue % l.intValue == 0)),
+    IntType -> ((l, r) => boolean(r.intValue % l.intValue == 0)),
     LongType -> ((l: Number, r: Number) => boolean(r.longValue % l.longValue == 0)),
     BigIntType -> ((l: Number, r: Number) => boolean(toBigInt(r) % toBigInt(l) == 0)),
   )
@@ -536,19 +536,10 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   def compute(op: Symbol, left: Number, right: Number): Number =
     compute(op, DALNumber(left), DALNumber(right), DALNumber.apply).n
 
-  def compute(oper: Operator, left: Number, right: Number): Number =
-    compute(oper, DALNumber(left), DALNumber(right), DALNumber.apply).n
-
   def relate(op: String, left: Number, right: Number): Boolean = relate(Symbol(op), left, right)
 
   def relate(op: Symbol, left: Number, right: Number): Boolean =
     relate(op, DALNumber(left), DALNumber(right))
-
-  def relate(oper: Operator, left: Number, right: Number): Boolean =
-    relate(oper, DALNumber(left), DALNumber(right))
-
-  def operator(op: Symbol, left: DALNumber, right: DALNumber): Operator =
-    opmap(left.typ, op, right.typ)
 
   def relate(op: Symbol, left: DALNumber, right: DALNumber): Boolean = {
     val (t, r) = opmap(left.typ, op, right.typ)(left.n, right.n)
@@ -557,12 +548,6 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       sys.error(s"operation '$op' is not a relation")
     else
       r.asInstanceOf[Boolean]
-  }
-
-  def relate(oper: Operator, left: DALNumber, right: DALNumber): Boolean = {
-    val (t, r) = oper(left.n, right.n)
-
-    r.asInstanceOf[Boolean]
   }
 
   def compute[R <: DALNumber](op: Symbol, left: DALNumber, right: DALNumber, cons: (Type, Number) => R): R = {
@@ -579,8 +564,6 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
 
     cons(t, r.asInstanceOf[Number])
   }
-
-  def perform(oper: Operator, left: Number, right: Number): Any = oper(left, right)._2
 
 }
 

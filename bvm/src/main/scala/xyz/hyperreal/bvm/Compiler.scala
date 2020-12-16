@@ -2,7 +2,8 @@
 package xyz.hyperreal.bvm
 
 import scala.collection.immutable.{ArraySeq, TreeMap}
-import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet, LinkedHashMap, LinkedHashSet, ListBuffer}
+import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.util.parsing.input.Position
 
 class Compiler(constants: Map[String, Any],
@@ -20,13 +21,13 @@ class Compiler(constants: Map[String, Any],
                           arity: Int,
                           fixups: ArrayBuffer[Int],
                           var entry: Int,
-                          parts: LinkedHashMap[Position, FunctionPart])
+                          parts: mutable.LinkedHashMap[Position, FunctionPart])
       extends Decl
 
   case class FunctionPart(var entry: Int, localdecls: Namespace)
 
   class Scope(val scopenum: Int) {
-    val symbols = new HashMap[String, Decl]
+    val symbols = new mutable.HashMap[String, Decl]
 
     override def toString = s"<$scopenum, $symbols>"
   }
@@ -35,12 +36,12 @@ class Compiler(constants: Map[String, Any],
     var scopenum = 0
     var scopes: List[Scope] = Nil
 
-    def enterScope: Unit = {
+    def enterScope(): Unit = {
       scopenum += 1
       scopes = new Scope(scopenum) :: scopes
     }
 
-    def exitScope: Unit = {
+    def exitScope(): Unit = {
       val cur = scopes.head
 
       for ((k, v) <- cur.symbols if !k.head.isDigit) {
@@ -58,17 +59,17 @@ class Compiler(constants: Map[String, Any],
 
     def get(n: String): Option[Decl] = getscope(n) map (_.symbols(n))
 
-    def contains(n: String) = get(n) isDefined
+    def contains(n: String): Boolean = get(n) isDefined
 
-    def put(n: String, d: Decl) = scopes.head.symbols(n) = d
+    def put(n: String, d: Decl): Unit = scopes.head.symbols(n) = d
 
-    def countvars = scopes map (_.symbols.values.count(_.isInstanceOf[VarDecl])) sum
+    def countvars: Int = scopes map (_.symbols.values.count(_.isInstanceOf[VarDecl])) sum
 
-    def duplicate(name: String) = scopes.head.symbols contains name
+    def duplicate(name: String): Boolean = scopes.head.symbols contains name
 
-    def getinner(name: String) = scopes.head.symbols get name
+    def getinner(name: String): Option[Decl] = scopes.head.symbols get name
 
-    override def toString = scopes.toString
+    override def toString: String = scopes.toString
   }
 
   private var globals: Namespace = _
@@ -96,7 +97,7 @@ class Compiler(constants: Map[String, Any],
   case class DeclVarResult(d: Decl, space: Symbol, idx: Int) extends VarResult
   case object NoneVarResult extends VarResult
 
-  private def show(namespaces: List[Namespace]) = {
+  private def show(namespaces: List[Namespace]): Unit = {
     for ((n, i) <- namespaces zipWithIndex) {
       println(s"namespace $i")
 
@@ -136,11 +137,11 @@ class Compiler(constants: Map[String, Any],
     else
       globals getscope name
 
-  protected def sourceExplicitsExtension(explicits: AST => Unit) = {}
+  protected def sourceExplicitsExtension(explicits: AST => Unit): Unit = {}
 
-  protected def sourceDeclsExtension(decls: AST => Unit) = {}
+  protected def sourceDeclsExtension(decls: AST => Unit): Unit = {}
 
-  protected def sourceEmitExtension(emit: AST => Unit) = {}
+  protected def sourceEmitExtension(emit: AST => Unit): Unit = {}
 
   protected def explicitsExtension: PartialFunction[(AST, AST => Unit), Any] = {
     case null => ()
@@ -150,14 +151,14 @@ class Compiler(constants: Map[String, Any],
     case null => ()
   }
 
-  private def decls(ast: AST, namespaces: List[Namespace], structvars: HashSet[String] = null): Unit = {
+  private def decls(ast: AST, namespaces: List[Namespace], structvars: mutable.HashSet[String] = null): Unit = {
     def declarations = if (namespaces nonEmpty) namespaces.head else globals
 
     def varnum = declarations.countvars
 
     def duplicate(name: String) = declarations.duplicate(name)
 
-    def declare(name: String, decl: Decl) = declarations.put(name, decl)
+    def declare(name: String, decl: Decl): Unit = declarations.put(name, decl)
 
     def explicits(ast: AST): Unit =
       ast match {
@@ -175,16 +176,16 @@ class Compiler(constants: Map[String, Any],
               f.last = pos
             case Some(_) => problem(pos, s"duplicate symbol: $oname")
             case None =>
-              declare(name, FunctionDecl(pos, pos, -1, arity, new ArrayBuffer, -1, LinkedHashMap(pos -> part)))
+              declare(name, FunctionDecl(pos, pos, -1, arity, new ArrayBuffer, -1, mutable.LinkedHashMap(pos -> part)))
           }
         case ValAST(struc, _, expr) =>
-          decls(struc, namespaces, structvars = new HashSet[String])
+          decls(struc, namespaces, structvars = new mutable.HashSet[String])
           _decls(expr)
         case VarAST(pos, name, oname, _) =>
           if (duplicate(name))
             problem(pos, s"duplicate symbol '$oname'")
 
-          declare(name, VarDecl(varnum, true))
+          declare(name, VarDecl(varnum, declared = true))
         case DataAST(pos, tname, constructors) =>
           if (duplicate(tname))
             problem(pos, s"duplicate symbol '$tname'")
@@ -207,20 +208,20 @@ class Compiler(constants: Map[String, Any],
     def _decls(ast: AST): Unit =
       ast match {
         case SourceAST(s) =>
-          globals.enterScope
+          globals.enterScope()
           sourceExplicitsExtension(explicits)
           s foreach explicits
           sourceDeclsExtension(_decls)
           s foreach _decls
-          globals.exitScope
+          globals.exitScope()
         case DeclarationBlockAST(s) => s foreach _decls
         case DefAST(_, f @ FunctionExpressionAST(name, pos, parms, _, parts, where)) =>
           val FunctionDecl(first, last, mark, _, fixups, _, fparts) = variable(name, namespaces)
           val FunctionPart(_, localdecls) = fparts(pos)
 
-          val dvars = new HashSet[String]
+          val dvars = new mutable.HashSet[String]
 
-          localdecls.enterScope
+          localdecls.enterScope()
 
           for (p <- parms.reverse)
             decls(p, localdecls :: namespaces, dvars)
@@ -234,7 +235,7 @@ class Compiler(constants: Map[String, Any],
             decls(body, localdecls :: namespaces)
           }
 
-          localdecls.exitScope
+          localdecls.exitScope()
 
           val newname = s"${getscope(name, namespaces).scopenum}$name"
 
@@ -248,7 +249,7 @@ class Compiler(constants: Map[String, Any],
           val newname = s"${getscope(name, namespaces).scopenum}$name"
 
           v.name = newname
-        case DataAST(pos, tname, constructors)                                          =>
+        case _: DataAST                                                                 =>
         case VariableStructureAST(_, "_", _) | LiteralStructureAST(_) | NilStructureAST =>
         case v @ VariableStructureAST(pos, name, oname) =>
           getvariable(name, namespaces) match {
@@ -258,7 +259,7 @@ class Compiler(constants: Map[String, Any],
             case Some(_) if (structvars ne null) && (structvars contains name) =>
             case Some(_)                                                       => problem(pos, s"duplicate symbol '$oname'")
             case None =>
-              declare(name, VarDecl(varnum, true))
+              declare(name, VarDecl(varnum, declared = true))
 
               if (structvars ne null)
                 structvars += name
@@ -298,7 +299,7 @@ class Compiler(constants: Map[String, Any],
           getvariable(alias, namespaces) match {
             case Some(_) => problem(pos, s"duplicate symbol '$alias'")
             case None =>
-              declare(alias, VarDecl(varnum, true))
+              declare(alias, VarDecl(varnum, declared = true))
               _decls(s)
           }
 
@@ -306,14 +307,14 @@ class Compiler(constants: Map[String, Any],
 
           n.alias = newname
         case BlockExpressionAST(s) =>
-          declarations.enterScope
+          declarations.enterScope()
           s foreach explicits
           s foreach _decls
-          declarations.exitScope
+          declarations.exitScope()
         case v @ VariableExpressionAST(pos, name, _) =>
           findvariable(name, namespaces) match {
             case NoneVarResult =>
-              declare(name, VarDecl(varnum, false))
+              declare(name, VarDecl(varnum, declared = false))
 
               findscope(name, namespaces) match {
                 case Some(s) =>
@@ -343,7 +344,7 @@ class Compiler(constants: Map[String, Any],
                 case None    => problem(pos, s"*** BUG ***: $oname")
               }
           }
-        case AssignmentExpressionAST(lhs, _, _, rhs) =>
+        case AssignmentExpressionAST(lhs, _, rhs) =>
           lhs foreach { case (_, e) => _decls(e) }
           rhs foreach { case (_, e) => _decls(e) }
         case ScanAssignmentExpressionAST(_, lhs, rhs) =>
@@ -357,11 +358,11 @@ class Compiler(constants: Map[String, Any],
           body foreach _decls
           els foreach _decls
         case ForExpressionAST(_, gen, body, els) =>
-          declarations.enterScope
+          declarations.enterScope()
           gen foreach _decls
           _decls(body)
           els foreach _decls
-          declarations.exitScope
+          declarations.exitScope()
         case WhileExpressionAST(_, cond, body, els) =>
           _decls(cond)
           body foreach _decls
@@ -369,15 +370,15 @@ class Compiler(constants: Map[String, Any],
         case BreakExpressionAST(_, _, expr) => expr foreach _decls
         case RepeatExpressionAST(_, body)   => _decls(body)
         case ListComprehensionExpressionAST(ComprehensionAST(expr, gen)) =>
-          declarations.enterScope
+          declarations.enterScope()
           gen foreach _decls
           _decls(expr)
-          declarations.exitScope
+          declarations.exitScope()
         case SetComprehensionExpressionAST(ComprehensionAST(expr, gen)) =>
-          declarations.enterScope
+          declarations.enterScope()
           gen foreach _decls
           _decls(expr)
-          declarations.exitScope
+          declarations.exitScope()
 //				case IteratorExpressionAST( structure, _, traversable, filter ) =>
 //					_decls( structure )
 //					_decls( traversable )
@@ -415,17 +416,17 @@ class Compiler(constants: Map[String, Any],
         case ApplyExpressionAST(_, f, _, args, _) =>
           _decls(f)
           args foreach { case (_, e) => _decls(e) }
-        case UnaryExpressionAST(_, _, _, expr) => _decls(expr)
-        case BinaryExpressionAST(_, left, _, _, _, right) =>
+        case UnaryExpressionAST(_, _, expr) => _decls(expr)
+        case BinaryExpressionAST(_, left, _, _, right) =>
           _decls(left)
           _decls(right)
-        case InterpolationExpressionAST(l)                                     => l foreach _decls
-        case NotExpressionAST(expr)                                            => _decls(expr)
-        case LeftSectionExpressionAST(_, _: LiteralExpressionAST, _, _, _, _)  =>
-        case LeftSectionExpressionAST(_, _, lambda, _, _, _)                   => _decls(lambda)
-        case RightSectionExpressionAST(_, _, _, _: LiteralExpressionAST, _, _) =>
-        case RightSectionExpressionAST(_, _, _, _, lambda, _)                  => _decls(lambda)
-        case DotExpressionAST(_, expr, _, _)                                   => _decls(expr)
+        case InterpolationExpressionAST(l)                                  => l foreach _decls
+        case NotExpressionAST(expr)                                         => _decls(expr)
+        case LeftSectionExpressionAST(_, _: LiteralExpressionAST, _, _, _)  =>
+        case LeftSectionExpressionAST(_, lambda, _, _, _)                   => _decls(lambda)
+        case RightSectionExpressionAST(_, _, _: LiteralExpressionAST, _, _) =>
+        case RightSectionExpressionAST(_, _, _, lambda, _)                  => _decls(lambda)
+        case DotExpressionAST(_, expr, _, _)                                => _decls(expr)
         case ScanExpressionAST(_, subject, expr) =>
           _decls(subject)
           _decls(expr)
@@ -458,7 +459,7 @@ class Compiler(constants: Map[String, Any],
   private def unify(struc: StructureAST,
                     pos: Position,
                     namespaces: List[Namespace],
-                    vars: HashSet[String] = new HashSet): Unit = {
+                    vars: mutable.HashSet[String] = new mutable.HashSet): Unit = {
     def _unify(struc: StructureAST, pos: Position): Unit =
       struc match {
         case TupleStructureAST(_, args) =>
@@ -582,7 +583,7 @@ class Compiler(constants: Map[String, Any],
     _indexes(struc)
   }
 
-  private def removeDuplicates(l: List[Int]) = LinkedHashSet(l: _*).toList
+  private def removeDuplicates(l: List[Int]) = mutable.LinkedHashSet(l: _*).toList
 
   private def frameSameData(c: => Unit): Unit = {
     val ptr = code.length
@@ -669,7 +670,7 @@ class Compiler(constants: Map[String, Any],
           //					code += PopRetInst
           code += BindingsInst
 
-          val uvars = new HashSet[String]
+          val uvars = new mutable.HashSet[String]
 
           for (p <- parms.reverse)
             unify(p, null, localdecls :: namespaces, uvars)
@@ -730,9 +731,9 @@ class Compiler(constants: Map[String, Any],
               }
 
               if (namespaces isEmpty)
-                code += SetGlobalInst(idx, true)
+                code += SetGlobalInst(idx, VariableAssignable = true)
               else
-                code += SetLocalInst(idx, true)
+                code += SetLocalInst(idx, VariableAssignable = true)
 
               d.set = true
             case _ => problem(pos, "*** BUG ***")
@@ -748,9 +749,9 @@ class Compiler(constants: Map[String, Any],
                 code += PushInst(undefined)
 
                 if (space == Symbol("global"))
-                  code += SetGlobalInst(idx, true)
+                  code += SetGlobalInst(idx, VariableAssignable = true)
                 else
-                  code += SetLocalInst(idx, true)
+                  code += SetLocalInst(idx, VariableAssignable = true)
 
                 d.set = true
               }
@@ -850,12 +851,11 @@ class Compiler(constants: Map[String, Any],
 
           _emit(expr)
           code += DupInst
-
-          if (namespaces isEmpty)
-            code += SetGlobalInst(idx, false)
-          else
-            code += SetLocalInst(idx, false)
-        case AssignmentExpressionAST(lhs, op, fmap, rhs) =>
+          code += (if (namespaces isEmpty)
+                     SetGlobalInst(idx, VariableAssignable = false)
+                   else
+                     SetLocalInst(idx, VariableAssignable = false))
+        case AssignmentExpressionAST(lhs, op, rhs) =>
           val len = lhs.length
 
           if (len > rhs.length)
@@ -868,13 +868,12 @@ class Compiler(constants: Map[String, Any],
 
           for ((_, r) <- rhs) {
             _emit(r)
-            emitderef
+            emitderef()
           }
 
           code += AssignmentInst(len,
                                  lhs map { case (p, _) => p } toVector,
                                  if (op == Symbol("")) null else op,
-                                 fmap,
                                  rhs map { case (p, _) => p } toVector)
         case ScanAssignmentExpressionAST(lpos, lhs, rhs) =>
           _emit(lhs)
@@ -882,23 +881,23 @@ class Compiler(constants: Map[String, Any],
           code += BeginScanInst(lpos)
           _emit(rhs)
           code += EndScanInst
-          code += AssignmentInst(1, Vector(lpos), null, null, null)
+          code += AssignmentInst(1, Vector(lpos), null, null)
         case ReversableAssignmentExpressionAST(lpos, lhs, rhs) =>
           _emit(lhs)
           code += DupInst
           code += DataBacktractInst(lpos)
           _emit(rhs)
-          code += AssignmentInst(1, Vector(lpos), null, null, null)
-        case UnaryExpressionAST(op, func, pos, expr) =>
+          code += AssignmentInst(1, Vector(lpos), null, null)
+        case UnaryExpressionAST(op, pos, expr) =>
           _emit(expr)
-          code += UnaryInst(op, func, pos)
+          code += UnaryInst(op, pos)
         case GenerateExpressionAST(pos, collection) =>
           _emit(collection)
           code += GeneratorInst
-        case BinaryExpressionAST(lpos, left, op, func, rpos, right) =>
+        case BinaryExpressionAST(lpos, left, op, rpos, right) =>
           _emit(left)
           _emit(right)
-          code += BinaryInst(lpos, op, func, rpos)
+          code += BinaryInst(lpos, op, rpos)
         case BlockExpressionAST(l) =>
           l.init foreach {
             case s: DeclarationStatementAST => _emit(s)
@@ -1177,23 +1176,23 @@ class Compiler(constants: Map[String, Any],
           frameSameData { _emit(ForExpressionAST(None, gen, ComprehensionBodyAST(expr), None)) }
           code += ToListInst
         case SetComprehensionExpressionAST(ComprehensionAST(expr, gen)) =>
-          code += PushFunctionInst((_: VM) => new HashSet)
+          code += PushFunctionInst((_: VM) => new mutable.HashSet)
           frameSameData { _emit(ForExpressionAST(None, gen, ComprehensionBodyAST(expr), None)) }
           code += ToSetInst
         case ComprehensionBodyAST(expr) =>
           comment("--- comprehension body start ---")
           _emit(expr)
-          code += AssignmentInst(1, Vector(null), Symbol("+"), null, Vector(null))
+          code += AssignmentInst(1, Vector(null), Symbol("+"), Vector(null))
           comment("--- comprehension body end ---")
-        case FailExpressionAST              => code += FailInst
-        case SectionExpressionAST(op, func) => code += PushInst(SectionOperation(op, func))
-        case LeftSectionExpressionAST(pos, LiteralExpressionAST(v), _, op, func, _) =>
-          code += PushInst(LeftSectionOperation(pos, v, op, func))
-        case LeftSectionExpressionAST(pos, _, lambda, op, func, _) =>
+        case FailExpressionAST        => code += FailInst
+        case SectionExpressionAST(op) => code += PushInst(SectionOperation(op))
+        case LeftSectionExpressionAST(pos, LiteralExpressionAST(v), _, op, _) =>
+          code += PushInst(LeftSectionOperation(pos, v, op))
+        case LeftSectionExpressionAST(pos, _, lambda, op, _) =>
           _emit(lambda)
-        case RightSectionExpressionAST(op, func, pos, LiteralExpressionAST(v), _, _) =>
-          code += PushInst(RightSectionOperation(op, func, pos, v))
-        case RightSectionExpressionAST(op, func, pos, _, lambda, _) =>
+        case RightSectionExpressionAST(op, pos, LiteralExpressionAST(v), _, _) =>
+          code += PushInst(RightSectionOperation(op, pos, v))
+        case RightSectionExpressionAST(op, pos, _, lambda, _) =>
           _emit(lambda)
         case ReturnExpressionAST(expr) => //todo: local variables should be dereferenced before being returned (pg. 126)
           for (_ <- 1 to markNesting)
@@ -1259,7 +1258,7 @@ class Compiler(constants: Map[String, Any],
           code += ChangeMarkInst(start - code.length - 1)
         case DereferenceExpressionAST(expr) =>
           _emit(expr)
-          emitderef
+          emitderef()
         case MatchExpressionAST(expr) =>
           _emit(expr)
           code += NativeInst { vm =>
@@ -1318,7 +1317,7 @@ class Compiler(constants: Map[String, Any],
     _emit(ast)
   }
 
-  private def emitderef: Unit =
+  private def emitderef(): Unit =
     code.last match {
       case PushInst(_) =>
       case _           => code += DerefInst
@@ -1554,7 +1553,7 @@ class Compiler(constants: Map[String, Any],
       case EmptyPattern           => /* no code generated */
     }
 
-  def compile(ast: AST) = {
+  def compile(ast: AST): Compilation = {
     val captureTrees = { //todo: needs to be done differently to support regex macro expressions
       var count = 0
       var level = 0

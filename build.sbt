@@ -10,7 +10,8 @@ ThisBuild / scalacOptions ++= Seq(
 lazy val root = (project in file("."))
   .dependsOn(bvm)
   .settings(
-    name := "funl"
+    name := "funl",
+    libraryDependencies += "xyz.hyperreal" %% "indentation-lexical" % "0.9"
   )
 
 lazy val bvm = project

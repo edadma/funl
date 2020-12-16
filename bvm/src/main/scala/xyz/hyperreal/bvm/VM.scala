@@ -8,7 +8,7 @@ import scala.annotation.tailrec
 import scala.collection.immutable.{ArraySeq, TreeMap}
 import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableSeq}
 import util.parsing.input.Position
-import xyz.hyperreal.dal.{Operator, BasicDAL}
+import xyz.hyperreal.dal.BasicDAL
 
 import scala.collection.mutable
 
@@ -275,7 +275,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
     (clear(Pattern.DOTALL) && (set(Pattern.UNIX_LINES) && current != '\n' || clear(Pattern.UNIX_LINES) && !TERMINATOR_CLASS(
       current))) || set(Pattern.DOTALL)
 
-  protected def binaryOperation(lpos: Position, op: Symbol, func: Operator, rpos: Position): Unit = {
+  protected def binaryOperation(lpos: Position, op: Symbol, rpos: Position): Unit = {
     val r = derefp
     val l = derefp
 
@@ -300,18 +300,18 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               else if (!r.isInstanceOf[Number])
                 problem(rpos, s"not a number: ${display(r)}")
               else
-                push(BasicDAL.compute(func, l.asInstanceOf[Number], r.asInstanceOf[Number]))
+                push(BasicDAL.compute(op, l.asInstanceOf[Number], r.asInstanceOf[Number]))
           }
       case Symbol("==") | Symbol("!=") =>
         if ((l, r) match {
-              case (a: Number, b: Number) => BasicDAL.relate(func, a, b)
+              case (a: Number, b: Number) => BasicDAL.relate(op, a, b)
               case _                      => if (op == Symbol("==")) l == r else l != r
             })
           push(r)
         else
           fail()
       case Symbol("<") | Symbol(">") | Symbol("<=") | Symbol(">=") | Symbol("div") =>
-        if (BasicDAL.relate(func, l.asInstanceOf[Number], r.asInstanceOf[Number]))
+        if (BasicDAL.relate(op, l.asInstanceOf[Number], r.asInstanceOf[Number]))
           push(r)
         else
           fail()
@@ -331,18 +331,18 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
         else if (!r.isInstanceOf[Number])
           problem(rpos, s"not a number: ${display(r)}")
         else
-          push(BasicDAL.perform(func, l.asInstanceOf[Number], r.asInstanceOf[Number]))
+          push(BasicDAL.compute(op, l.asInstanceOf[Number], r.asInstanceOf[Number]))
     }
   }
 
   protected def callIndirect(callable: Any, fpos: Position, apos: Position, ps: List[Position], argc: Int): Unit = {
     callable match {
-      case SectionOperation(op, func) =>
+      case SectionOperation(op) =>
         if (argc != 2)
           problem(apos, s"wrong number of arguments for a section: found $argc, expected 2")
 
-        binaryOperation(ps.head, op, func, ps.tail.head)
-      case LeftSectionOperation(lpos, l, op, func) =>
+        binaryOperation(ps.head, op, ps.tail.head)
+      case LeftSectionOperation(lpos, l, op) =>
         if (argc != 1)
           problem(apos, s"wrong number of arguments for a left section: found $argc, expected 1")
 
@@ -350,13 +350,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
         push(l)
         push(r)
-        binaryOperation(lpos, op, func, ps.head)
-      case RightSectionOperation(op, func, rpos, r) =>
+        binaryOperation(lpos, op, ps.head)
+      case RightSectionOperation(op, rpos, r) =>
         if (argc != 1)
           problem(apos, s"wrong number of arguments for a right section: found $argc, expected 1")
 
         push(r)
-        binaryOperation(ps.head, op, func, rpos)
+        binaryOperation(ps.head, op, rpos)
       case FunctionReference(entry, name, arity, locals) =>
         if (argc != arity)
           problem(apos, s"wrong number of arguments for '$name': found $argc, expected $arity")
@@ -872,7 +872,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
             push(derefp.asInstanceOf[Map[Any, Any]] + (k -> v))
           case DerefInst => push(derefp)
-          case AssignmentInst(len, lpos, op, func, rpos) =>
+          case AssignmentInst(len, lpos, op, rpos) =>
             val rhs = for (_ <- 1 to len) yield derefp
             val lhs = for (_ <- 1 to len) yield pop
 
@@ -922,7 +922,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                               if (!rhs(i).isInstanceOf[Number])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
 
-                              if (BasicDAL.relate(func, n, rhs(i).asInstanceOf[Number]))
+                              if (BasicDAL.relate(op, n, rhs(i).asInstanceOf[Number]))
                                 l.value = rhs(i)
                               else {
                                 fail()
@@ -946,7 +946,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                               if (!rhs(i).isInstanceOf[Number])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
                               else
-                                l.value = BasicDAL.compute(func, n, rhs(i).asInstanceOf[Number])
+                                l.value = BasicDAL.compute(op, n, rhs(i).asInstanceOf[Number])
                             case _ => problem(lpos(i), "illegal assignment")
                           }
 
@@ -960,7 +960,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             }
 
             assignment()
-          case UnaryInst(op, func, pos) =>
+          case UnaryInst(op, pos) =>
             val v = pop
             val d = deref(v)
 
@@ -972,16 +972,16 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               case Symbol("++*") | Symbol("--*") | Symbol("*++") | Symbol("*--") if !v.isInstanceOf[Assignable] =>
                 problem(pos, "not an l-value")
               case Symbol("++*") | Symbol("--*") =>
-                val res = BasicDAL.compute(func, d.asInstanceOf[Number], 1)
+                val res = BasicDAL.compute(op, d.asInstanceOf[Number], 1)
 
                 v.asInstanceOf[Assignable].value = res
                 push(res)
               case Symbol("*++") | Symbol("*--") =>
-                v.asInstanceOf[Assignable].value = BasicDAL.compute(func, d.asInstanceOf[Number], 1)
+                v.asInstanceOf[Assignable].value = BasicDAL.compute(op, d.asInstanceOf[Number], 1)
                 push(d)
             }
-          case BinaryInst(lpos, op, func, rpos) =>
-            binaryOperation(lpos, op, func, rpos)
+          case BinaryInst(lpos, op, rpos) =>
+            binaryOperation(lpos, op, rpos)
           case GeneratorInst =>
             def generate(g: GeneratorTemp): Unit = {
               if (g.it.hasNext) {
@@ -1262,9 +1262,9 @@ case class ArgList(array: Any*)
 case class Frame(locals: List[Array[Any]], ret: Int)
 case class FunctionReference(var entry: Int, name: String, arity: Int, context: List[Array[Any]])
 
-case class SectionOperation(op: Symbol, func: Operator)
-case class LeftSectionOperation(lpos: Position, l: Any, op: Symbol, func: Operator)
-case class RightSectionOperation(op: Symbol, func: Operator, rpos: Position, r: Any)
+case class SectionOperation(op: Symbol)
+case class LeftSectionOperation(lpos: Position, l: Any, op: Symbol)
+case class RightSectionOperation(op: Symbol, rpos: Position, r: Any)
 
 case class NativeMethod(o: Any, m: List[Method])
 
@@ -1376,8 +1376,7 @@ case class SetLocalsInst(idx: List[Int]) extends VMInst
 case class SetGlobalInst(idx: Int, VariableAssignable: Boolean) extends VMInst
 case class SetGlobalsInst(idx: List[Int]) extends VMInst
 case class GlobalsInst(globalc: Int) extends VMInst
-case class AssignmentInst(len: Int, lpos: Vector[Position], op: Symbol, func: Operator, rpos: Vector[Position])
-    extends VMInst
+case class AssignmentInst(len: Int, lpos: Vector[Position], op: Symbol, rpos: Vector[Position]) extends VMInst
 case object DerefInst extends VMInst
 case class ConcatenateInst(parts: Int) extends VMInst
 case class TupleInst(arity: Int) extends VMInst
@@ -1399,8 +1398,8 @@ case class ErrorInst(pos: Position, error: String) extends VMInst
 case class CallingErrorInst(error: String) extends VMInst
 case object SetInst extends VMInst
 case object MapInst extends VMInst
-case class BinaryInst(lpos: Position, op: Symbol, func: Operator, rpos: Position) extends VMInst
-case class UnaryInst(op: Symbol, func: Operator, pos: Position) extends VMInst
+case class BinaryInst(lpos: Position, op: Symbol, rpos: Position) extends VMInst
+case class UnaryInst(op: Symbol, pos: Position) extends VMInst
 //case object PopRetInst extends VMInst
 case object FunctionReturnInst extends VMInst
 case class MarkInst(disp: Int) extends VMInst

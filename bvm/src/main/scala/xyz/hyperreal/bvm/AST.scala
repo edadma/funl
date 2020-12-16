@@ -2,8 +2,6 @@ package xyz.hyperreal.bvm
 
 import util.parsing.input.Position
 
-import xyz.hyperreal.dal.Operator
-
 trait AST
 
 case class SourceAST(statements: List[StatementAST]) extends AST
@@ -71,17 +69,11 @@ case class BracketExpressionAST(epos: Position, f: ExpressionAST, apos: Position
     extends ExpressionAST
 case class LiteralExpressionAST(v: Any) extends ExpressionAST
 case class VariableExpressionAST(pos: Position, var name: String, oname: String) extends ExpressionAST
-case class BinaryExpressionAST(lpos: Position,
-                               left: ExpressionAST,
-                               op: Symbol,
-                               func: Operator,
-                               rpos: Position,
-                               right: ExpressionAST)
+case class BinaryExpressionAST(lpos: Position, left: ExpressionAST, op: Symbol, rpos: Position, right: ExpressionAST)
     extends ExpressionAST
-case class UnaryExpressionAST(op: Symbol, func: Operator, pos: Position, expr: ExpressionAST) extends ExpressionAST
+case class UnaryExpressionAST(op: Symbol, pos: Position, expr: ExpressionAST) extends ExpressionAST
 case class AssignmentExpressionAST(lhs: List[(Position, ExpressionAST)],
                                    op: Symbol,
-                                   func: Operator,
                                    rhs: List[(Position, ExpressionAST)])
     extends ExpressionAST
 case class ScanAssignmentExpressionAST(lpos: Position, lhs: ExpressionAST, rhs: ExpressionAST) extends ExpressionAST
@@ -127,16 +119,14 @@ case class BreakExpressionAST(pos: Position, label: Option[String], expr: Option
 case class ContinueExpressionAST(pos: Position, label: Option[String]) extends ExpressionAST
 case class ReturnExpressionAST(expr: ExpressionAST) extends ExpressionAST
 case class YieldExpressionAST(expr: ExpressionAST, result: Option[ExpressionAST]) extends ExpressionAST
-case class SectionExpressionAST(op: Symbol, func: Operator) extends ExpressionAST
+case class SectionExpressionAST(op: Symbol) extends ExpressionAST
 case class LeftSectionExpressionAST(pos: Position,
                                     expr: ExpressionAST,
                                     lambda: FunctionExpressionAST,
                                     op: Symbol,
-                                    func: Operator,
                                     var closure: Option[Boolean] = None)
     extends ExpressionAST
 case class RightSectionExpressionAST(op: Symbol,
-                                     func: Operator,
                                      pos: Position,
                                      expr: ExpressionAST,
                                      lambda: FunctionExpressionAST,
