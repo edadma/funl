@@ -498,11 +498,19 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
     "not" ~> notExpression ^^ NotExpressionAST |
       assignmentExpression
 
+  def operator(s: String): Symbol =
+    Symbol(s match {
+      case "<:="               => "<"
+      case "!="                => "!="
+      case _ if s endsWith "=" => s dropRight 1
+      case _                   => s
+    })
+
   lazy val assignmentExpression: PackratParser[ExpressionAST] =
     rep1sep(pos ~ lvalueExpression, ",") ~ assignment ~ (rep1sep(pos ~ assignmentExpression, ",") | pos ~ blockExpression ^^ (List(
       _))) ^^ {
       case lhs ~ op ~ rhs =>
-        AssignmentExpressionAST(lhs map { case p ~ e => (p, e) }, Symbol(op dropRight 1), rhs map {
+        AssignmentExpressionAST(lhs map { case p ~ e => (p, e) }, operator(op), rhs map {
           case p ~ e                                 => (p, e)
         })
     } |
@@ -562,7 +570,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
       partialFunctionExpression |
       comparisonExpression
 
-  lazy val partialFunctionExpression =
+  lazy val partialFunctionExpression: Parser[PartialFunctionExpressionAST] =
     Indent ~> rep1(lambdaExpression <~ Newline) <~ Dedent ^^ PartialFunctionExpressionAST
 
   lazy val parameters: PackratParser[(List[StructureAST], Boolean)] =
@@ -608,13 +616,13 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
   lazy val comparisonExpression: PackratParser[ExpressionAST] =
     pos ~ comparisonExpression ~ ("==" | "!=" | "<" | ">" | "<=" | ">=") ~ pos ~ alternationExpression ^^ {
       case pl ~ l ~ op ~ pr ~ r =>
-        val s = Symbol(op)
+        val s = operator(op)
 
         BinaryExpressionAST(pl, l, s, pr, r)
     } |
       pos ~ alternationExpression ~ ("in" | "not" ~ "in" ^^^ "notin") ~ pos ~ alternationExpression ^^ {
         case pl ~ l ~ op ~ pr ~ r =>
-          val s = Symbol(op)
+          val s = operator(op)
 
           BinaryExpressionAST(pl, l, s, pr, r)
       } |
@@ -675,24 +683,24 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
       } |
       pos ~ (additiveExpression <~ "..+") ~ pos ~ additiveExpression ~ opt("by" ~> pos ~ additiveExpression) ^^ {
         case pf ~ f ~ pt ~ t ~ Some(pb ~ b) =>
-          RangeExpressionAST(pf, f, pt, BinaryExpressionAST(null, f, Symbol("+"), null, t), pb, b, inclusive = false)
+          RangeExpressionAST(pf, f, pt, BinaryExpressionAST(null, f, operator("+"), null, t), pb, b, inclusive = false)
         case pf ~ f ~ pt ~ t ~ None =>
           RangeExpressionAST(pf,
                              f,
                              pt,
-                             BinaryExpressionAST(null, f, Symbol("+"), null, t),
+                             BinaryExpressionAST(null, f, operator("+"), null, t),
                              null,
                              LiteralExpressionAST(1),
                              inclusive = false)
       } |
       pos ~ (additiveExpression <~ "..-") ~ pos ~ additiveExpression ~ opt("by" ~> pos ~ additiveExpression) ^^ {
         case pf ~ f ~ pt ~ t ~ Some(pb ~ b) =>
-          RangeExpressionAST(pf, f, pt, BinaryExpressionAST(null, f, Symbol("-"), null, t), pb, b, inclusive = false)
+          RangeExpressionAST(pf, f, pt, BinaryExpressionAST(null, f, operator("-"), null, t), pb, b, inclusive = false)
         case pf ~ f ~ pt ~ t ~ None =>
           RangeExpressionAST(pf,
                              f,
                              pt,
-                             BinaryExpressionAST(null, f, Symbol("-"), null, t),
+                             BinaryExpressionAST(null, f, operator("-"), null, t),
                              null,
                              LiteralExpressionAST(-1),
                              inclusive = false)
@@ -714,7 +722,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
   lazy val additiveExpression: PackratParser[ExpressionAST] =
     pos ~ additiveExpression ~ ("+" | "-") ~ pos ~ multiplicativeExpression ^^ {
       case pl ~ l ~ o ~ pr ~ r =>
-        val s = Symbol(o)
+        val s = operator(o)
 
         BinaryExpressionAST(pl, l, s, pr, r)
     } |
@@ -723,20 +731,20 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
   lazy val multiplicativeExpression: PackratParser[ExpressionAST] =
     pos ~ multiplicativeExpression ~ ("*" | "/" | """\""" | "%" | "\\%" | "//" | "mod" | "div" | "rotateright" | "rotateleft" | ">>>" | "<<") ~ pos ~ exponentialExpression ^^ {
       case pl ~ l ~ o ~ pr ~ r =>
-        val s = Symbol(o)
+        val s = operator(o)
 
         BinaryExpressionAST(pl, l, s, pr, r)
     } |
       pos ~ multiplicativeExpression ~ pos ~ applyExpression ^^ {
         case pl ~ l ~ pr ~ r =>
-          BinaryExpressionAST(pl, l, Symbol("adj"), pr, r)
+          BinaryExpressionAST(pl, l, operator("*"), pr, r)
       } |
       exponentialExpression
 
   lazy val exponentialExpression: PackratParser[ExpressionAST] =
     pos ~ unaryExpression ~ "^" ~ pos ~ exponentialExpression ^^ {
       case pl ~ l ~ _ ~ pr ~ r =>
-        BinaryExpressionAST(pl, l, Symbol("^"), pr, r)
+        BinaryExpressionAST(pl, l, operator("^"), pr, r)
     } |
       unaryExpression
 
@@ -744,7 +752,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
     "-" ~> pos ~ incrementExpression ^^ {
       case _ ~ LiteralExpressionAST(n: Number) =>
         LiteralExpressionAST(BasicDAL.negate(n))
-      case p ~ v => UnaryExpressionAST(Symbol("-"), p, v)
+      case p ~ v => UnaryExpressionAST(operator("-"), p, v)
     } |
       "." ~> incrementExpression ^^ DereferenceExpressionAST |
       incrementExpression |
@@ -783,7 +791,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
       } |
       primaryExpression
 
-  lazy val mapEntry = keyExpression ~ (":" ~> expression) ^^ {
+  lazy val mapEntry: Parser[(ExpressionAST, ExpressionAST)] = keyExpression ~ (":" ~> expression) ^^ {
     case VariableExpressionAST(_, k, _) ~ v => LiteralExpressionAST(k) -> v
     case k ~ v                              => (k, v)
   }
@@ -887,7 +895,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
       } |
       "(" ~> expression <~ ")"
 
-  lazy val infix =
+  lazy val infix: Parser[String] =
     "+" | "-" | "*" | "/" | """\""" | "\\%" | "//" | "^" | "%" |
       "mod" | "div" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "in" | "not" ~ "in" ^^^ "notin" |
       ":" //todo: add support for ranges

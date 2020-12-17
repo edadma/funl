@@ -91,7 +91,7 @@ object BasicDAL extends DAL {
   )
 
   operation(
-    Symbol("%"),
+    Symbol("mod"),
     IntType -> ((l: Number, r: Number) => (IntType, l.intValue % r.intValue: Number)),
     LongType -> ((l: Number, r: Number) => maybeDemote(toBigInt(l) % toBigInt(r))),
     BigIntType -> ((l: Number, r: Number) => maybeDemote(toBigInt(l) % toBigInt(r))),
@@ -165,6 +165,13 @@ object BasicDAL extends DAL {
     IntType -> ((l, r) => boolean(r.intValue % l.intValue == 0)),
     LongType -> ((l: Number, r: Number) => boolean(r.longValue % l.longValue == 0)),
     BigIntType -> ((l: Number, r: Number) => boolean(toBigInt(r) % toBigInt(l) == 0)),
+  )
+
+  operation(
+    Symbol("\\"),
+    IntType -> ((l, r) => (IntType, r.intValue / l.intValue: Number)),
+    LongType -> ((l: Number, r: Number) => (LongType, r.longValue / l.longValue: Number)),
+    BigIntType -> ((l: Number, r: Number) => (BigIntType, toBigInt(r) / toBigInt(l))),
   )
 
   operation(
@@ -559,10 +566,11 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       cons(t, r.asInstanceOf[Number])
   }
 
-  def compute[R <: DALNumber](oper: Operator, left: DALNumber, right: DALNumber, cons: (Type, Number) => R): R = {
-    val (t, r) = oper(left.n, right.n)
+  def perform(op: Symbol, left: Number, right: Number): Any = {
+    val DALNumber(lt, ln) = DALNumber(left)
+    val DALNumber(rt, rn) = DALNumber(right)
 
-    cons(t, r.asInstanceOf[Number])
+    opmap(lt, op, rt)(ln, rn)._2
   }
 
 }

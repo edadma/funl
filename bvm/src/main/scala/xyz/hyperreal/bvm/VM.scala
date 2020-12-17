@@ -320,18 +320,14 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case s: List[Any] => push(l :: s)
           case _            => problem(rpos, s"not a list: ${display(r)}")
         }
-      case Symbol("in") | Symbol("notin") =>
-//			case 'adj =>
-//				if (!l.isInstanceOf[Number]) {
-//
-//				}
+      case Symbol("in") | Symbol("notin") => // todo: implement 'in'
       case _ =>
         if (!l.isInstanceOf[Number])
           problem(lpos, s"not a number: ${display(l)}")
         else if (!r.isInstanceOf[Number])
           problem(rpos, s"not a number: ${display(r)}")
         else
-          push(BasicDAL.compute(op, l.asInstanceOf[Number], r.asInstanceOf[Number]))
+          push(BasicDAL.perform(op, l.asInstanceOf[Number], r.asInstanceOf[Number]))
     }
   }
 
@@ -946,7 +942,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                               if (!rhs(i).isInstanceOf[Number])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
                               else
-                                l.value = BasicDAL.compute(op, n, rhs(i).asInstanceOf[Number])
+                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[Number])
                             case _ => problem(lpos(i), "illegal assignment")
                           }
 
@@ -960,7 +956,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             }
 
             assignment()
-          case UnaryInst(op, pos) =>
+          case UnaryInst(op, pos) => //todo: reimplement all '*' operations so that UnaryInst only represents a single DAL operation
             val v = pop
             val d = deref(v)
 
@@ -977,7 +973,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 v.asInstanceOf[Assignable].value = res
                 push(res)
               case Symbol("*++") | Symbol("*--") =>
-                v.asInstanceOf[Assignable].value = BasicDAL.compute(op, d.asInstanceOf[Number], 1)
+                v.asInstanceOf[Assignable].value =
+                  BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[Number], 1)
                 push(d)
             }
           case BinaryInst(lpos, op, rpos) =>
