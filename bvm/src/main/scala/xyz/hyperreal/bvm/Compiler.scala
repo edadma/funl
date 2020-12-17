@@ -84,7 +84,7 @@ class Compiler(constants: Map[String, Any],
 
   private def getvariableall(name: String, namespaces: List[Namespace]) = getdeclarations(namespaces) get name
 
-  private def variableall(name: String, namespaces: List[Namespace]) = getvariableall(name, namespaces) get
+  //private def variableall(name: String, namespaces: List[Namespace]) = getvariableall(name, namespaces) get
 
   private def getvariable(name: String, namespaces: List[Namespace]) = getdeclarations(namespaces) getinner name
 
@@ -97,18 +97,18 @@ class Compiler(constants: Map[String, Any],
   case class DeclVarResult(d: Decl, space: Symbol, idx: Int) extends VarResult
   case object NoneVarResult extends VarResult
 
-  private def show(namespaces: List[Namespace]): Unit = {
-    for ((n, i) <- namespaces zipWithIndex) {
-      println(s"namespace $i")
-
-      for (s <- n.scopes) {
-        println(s"  scope ${s.scopenum}")
-
-        for ((k, v) <- s.symbols)
-          println(s"    $k -> $v")
-      }
-    }
-  }
+//  private def show(namespaces: List[Namespace]): Unit = {
+//    for ((n, i) <- namespaces zipWithIndex) {
+//      println(s"namespace $i")
+//
+//      for (s <- n.scopes) {
+//        println(s"  scope ${s.scopenum}")
+//
+//        for ((k, v) <- s.symbols)
+//          println(s"    $k -> $v")
+//      }
+//    }
+//  }
 
   private def findvariable(name: String, namespaces: List[Namespace]): VarResult = {
 
@@ -1556,7 +1556,6 @@ class Compiler(constants: Map[String, Any],
   def compile(ast: AST): Compilation = {
     val captureTrees = { //todo: needs to be done differently to support regex macro expressions
       var count = 0
-      var level = 0
       var map = TreeMap[Int, Node]()
 
       def _numberCaptureGroups(pat: AST, buf: ArrayBuffer[Node]): Unit = {

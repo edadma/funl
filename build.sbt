@@ -6,6 +6,8 @@ ThisBuild / scalacOptions ++= Seq(
   "-deprecation", "-feature", "-unchecked",
   "-language:postfixOps", "-language:implicitConversions", "-language:existentials", "-language:dynamics",
   "-Xasync")
+ThisBuild / libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.8" % "test"
+ThisBuild / libraryDependencies += "org.scalacheck" %% "scalacheck" % "1.14.1" % "test"
 
 lazy val root = (project in file("."))
   .dependsOn(bvm)
