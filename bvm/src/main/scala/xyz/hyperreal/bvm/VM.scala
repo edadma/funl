@@ -302,10 +302,10 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               else
                 push(BasicDAL.compute(op, l.asInstanceOf[Number], r.asInstanceOf[Number]))
           }
-      case Symbol("==") | Symbol("!=") =>
+      case Symbol("=") | Symbol("!=") =>
         if ((l, r) match {
               case (a: Number, b: Number) => BasicDAL.relate(op, a, b)
-              case _                      => if (op == Symbol("==")) l == r else l != r
+              case _                      => if (op == Symbol("=")) l == r else l != r
             })
           push(r)
         else
@@ -914,7 +914,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                                 .asInstanceOf[collection.Set[Any]] concat List(rhs(i))
                             case (Symbol("+"), s: String) =>
                               l.value = s + rhs(i)
-                            case (Symbol("<:") | Symbol(">:"), n: Number) =>
+                            case (Symbol("<") | Symbol(">"), n: Number) =>
                               if (!rhs(i).isInstanceOf[Number])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
 
@@ -924,14 +924,14 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                                 fail()
                                 return
                               }
-                            case (Symbol("<:"), s: String) =>
+                            case (Symbol("<"), s: String) =>
                               if (s < String.valueOf(rhs(i)))
                                 l.value = rhs(i)
                               else {
                                 fail()
                                 return
                               }
-                            case (Symbol(">:"), s: String) =>
+                            case (Symbol(">"), s: String) =>
                               if (s > String.valueOf(rhs(i)))
                                 l.value = rhs(i)
                               else {
@@ -943,7 +943,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
                               else
                                 l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[Number])
-                            case _ => problem(lpos(i), "illegal assignment")
+                            case _ => problem(lpos(i), s"illegal assignment: '${op.name}'")
                           }
 
                           res = l.value

@@ -7,6 +7,25 @@ import scala.collection.immutable.ArraySeq
 
 object Main extends App {
   val program =
+    """
+      |var multiple = 2
+      |var lower = 4
+      |var upper = 5
+      |
+      |def
+      |  foldl( f, z, [] )           = z
+      |  foldl( f, z, x:xs )         = foldl( f, f(z, x), xs )
+      |
+      |  map( f, [] )                = []
+      |  map( f, x:xs )              = f( x ) : map( f, xs )
+      |
+      |  filter( p, [] )             = []
+      |  filter( p, x:xs ) | p( x )  = x : filter( p, xs )
+      |  filter( p, _:xs )           = filter( p, xs )
+      |
+      |;;write( foldl((+), 0, map((*multiple), filter((lower<), 3..6))) )
+      |write( filter((lower<), 3..6) )
+      |""".stripMargin
 //    """
 //     |def f( a )
 //     |  def g( b ) = a + b
@@ -17,13 +36,13 @@ object Main extends App {
 //     |
 //     |write( f(3) )
 // 		""".stripMargin
-    """
-      |var c
-			|
-			|"aasdf" ? c = (capture("g1", rep(string("a"))))
-			|
-			|write(c)
-    """.stripMargin
+//    """
+//      |var c
+//			|
+//			|"aasdf" ? c = (capture("g1", rep(string("a"))))
+//			|
+//			|write(c)
+//    """.stripMargin
 
   val parser = new FunLParser
   val ast = parser.parseFromString(program, parser.source).asInstanceOf[AST]

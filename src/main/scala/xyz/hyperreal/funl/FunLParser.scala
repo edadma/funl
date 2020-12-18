@@ -501,7 +501,10 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
   def operator(s: String): Symbol =
     Symbol(s match {
       case "<:="               => "<"
+      case ">:="               => ">"
       case "!="                => "!="
+      case "<="                => "<="
+      case ">="                => ">="
       case _ if s endsWith "=" => s dropRight 1
       case _                   => s
     })
@@ -831,11 +834,11 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
       } |
       "undefined" ^^^ LiteralExpressionAST(undefined) |
       "(" ~> infix <~ ")" ^^ { o =>
-        SectionExpressionAST(Symbol(o))
+        SectionExpressionAST(operator(o))
       } |
       "(" ~> pos ~ applyExpression ~ infix <~ ")" ^^ {
         case p ~ e ~ o =>
-          val s = Symbol(o)
+          val s = operator(o)
 
           LeftSectionExpressionAST(
             p,
@@ -855,7 +858,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
       } |
       "(" ~> infix ~ pos ~ applyExpression <~ ")" ^^ {
         case o ~ p ~ e =>
-          val s = Symbol(o)
+          val s = operator(o)
 
           RightSectionExpressionAST(
             s,

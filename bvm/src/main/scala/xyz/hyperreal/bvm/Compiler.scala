@@ -423,7 +423,7 @@ class Compiler(constants: Map[String, Any],
         case InterpolationExpressionAST(l)                                  => l foreach _decls
         case NotExpressionAST(expr)                                         => _decls(expr)
         case LeftSectionExpressionAST(_, _: LiteralExpressionAST, _, _, _)  =>
-        case LeftSectionExpressionAST(_, lambda, _, _, _)                   => _decls(lambda)
+        case LeftSectionExpressionAST(_, _, lambda, _, _)                   => _decls(lambda)
         case RightSectionExpressionAST(_, _, _: LiteralExpressionAST, _, _) =>
         case RightSectionExpressionAST(_, _, _, lambda, _)                  => _decls(lambda)
         case DotExpressionAST(_, expr, _, _)                                => _decls(expr)
