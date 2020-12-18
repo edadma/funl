@@ -557,7 +557,10 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       r.asInstanceOf[Boolean]
   }
 
-  def compute[R <: DALNumber](op: Symbol, left: DALNumber, right: DALNumber, cons: (Type, Number) => R): R = {
+  def compute(op: Symbol,
+              left: DALNumber,
+              right: DALNumber,
+              cons: (Type, Number) => DALNumber = DALNumber.apply): DALNumber = {
     val (t, r) = opmap(left.typ, op, right.typ)(left.n, right.n)
 
     if (t eq null)
