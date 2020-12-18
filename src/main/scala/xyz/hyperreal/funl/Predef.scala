@@ -1,11 +1,11 @@
 package xyz.hyperreal.funl
 
-import java.io.{DataInputStream, FileInputStream}
+import java.io.{DataInputStream, FileInputStream, PrintStream}
 import java.time.{LocalDate, LocalDateTime, LocalTime, ZonedDateTime}
 import scala.util.parsing.input.Position
 import scala.collection.immutable
 import scala.collection.mutable
-import scala.collection.mutable.{ArrayBuffer, HashSet, LinkedHashMap}
+import scala.collection.mutable.ArrayBuffer
 import scala.math.BigInt
 import scala.util.Random.{nextDouble, nextInt, setSeed}
 import xyz.hyperreal.numbers_jvm.ComplexBigInt
@@ -35,7 +35,7 @@ object Predef {
   }
 
   def native(name: String,
-             partialFunction: PartialFunction[(VM, Any), Any]): (String, (VM, Position, List[Position], Any) => Any) = {
+             partialFunction: PartialFunction[(VM, Any), Any]): (String, (VM, Position, List[Position], Any) => Any) =
     (name, (vm: VM, pos: Position, ps: List[Position], args: Any) => {
       val arglist = argsderef(args)
       val fargs = (vm, arglist)
@@ -45,7 +45,6 @@ object Predef {
       else
         problem(pos, s"$name(): invalid arguments: $arglist")
     })
-  }
 
   val constants =
     Map(
@@ -153,29 +152,29 @@ object Predef {
       },
       "set" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()            => new HashSet[Any]
-          case a: ArgList           => HashSet(a.array: _*)
-          case init: Array[Any]     => HashSet[Any](init.toIndexedSeq: _*)
-          case init: Array[Byte]    => HashSet[Any](init.toIndexedSeq: _*)
-          case init: Array[Int]     => HashSet[Any](init.toIndexedSeq: _*)
-          case x: Seq[Any]          => HashSet(x: _*)
-          case x: IterableOnce[Any] => HashSet(x.iterator.to(Seq): _*)
-          case _                    => HashSet(args)
+          case ArgList()            => new mutable.HashSet[Any]
+          case a: ArgList           => mutable.HashSet(a.array: _*)
+          case init: Array[Any]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
+          case init: Array[Byte]    => mutable.HashSet[Any](init.toIndexedSeq: _*)
+          case init: Array[Int]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
+          case x: Seq[Any]          => mutable.HashSet(x: _*)
+          case x: IterableOnce[Any] => mutable.HashSet(x.iterator.to(Seq): _*)
+          case _                    => mutable.HashSet(args)
         }
       },
       "tuple" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()        => new HashSet[Any]
+          case ArgList()        => new mutable.HashSet[Any] //todo: shouldn't this be () (Unit)?
           case a: Array[Any]    => new Tuple(immutable.ArraySeq.from(a))
           case s: Iterable[Any] => new Tuple(immutable.ArraySeq.from(s))
         }
       },
       "table" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()               => new LinkedHashMap[Any, Any]
-          case m: collection.Map[_, _] => LinkedHashMap(m.toSeq: _*)
+          case ArgList()               => new mutable.LinkedHashMap[Any, Any]
+          case m: collection.Map[_, _] => mutable.LinkedHashMap(m.toSeq: _*)
           case s: Iterable[_] if s.head.isInstanceOf[Tuple] =>
-            LinkedHashMap(s.asInstanceOf[Iterable[Tuple]].toSeq map (v => (v.element(0), v.element(1))): _*)
+            mutable.LinkedHashMap(s.asInstanceOf[Iterable[Tuple]].toSeq map (v => (v.element(0), v.element(1))): _*)
         }
       },
       "move" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
@@ -504,7 +503,7 @@ object Predef {
       "stdin" -> ((_: VM) => Console.in),
       "stdout" -> ((_: VM) =>
         new Assignable {
-          val value = Console.out
+          val value: PrintStream = Console.out
 
           def value_=(v: Any): Unit = {
             v match {

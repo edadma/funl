@@ -1,7 +1,4 @@
-//@
 package xyz.hyperreal.bvm
-
-import java.lang.reflect.{Method, Modifier}
 
 import scala.math.ScalaNumber
 import scala.annotation.tailrec
@@ -440,23 +437,6 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               problem(apos, s"index out of range: $n")
           case _ => problem(apos, "expected a string or (small) integer")
         }
-      case f: Native =>
-        val list = (for (_ <- 1 to argc) yield derefp).reverse toList
-
-//				println( list, list map (_.getClass) )//dbg
-        if (f.applicable(list))
-          push(f(this, list))
-        else
-          problem(pos, "wrong number or type of arguments for native function: " + f)
-      case NativeMethod(o, m) =>
-        val args = (for (_ <- 1 to argc) yield derefp).reverse.toList //todo: efficiency
-
-        m.find(cm => assignable(args, cm.getParameterTypes)) match {
-          case None =>
-            problem(apos, s"no methods with matching signatures for: ${m.head.getName}: ${args mkString ", "}")
-          case Some(cm) =>
-            push(cm.invoke(o, rewrap(args, cm.getParameterTypes): _*))
-        }
       case s: collection.Set[_] =>
         push(s.asInstanceOf[collection.Set[Any]](derefp))
       case p: Product => push(p.productElement(derefp.asInstanceOf[Int]))
@@ -563,30 +543,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   case Some(n) => push(r.element(n))
                 }
               case m: MutableMap[_, _] =>
-//								if (m.asInstanceOf[collection.Map[Any, Any]].contains( field.name ))
                 push(new MutableMapAssignable(m.asInstanceOf[MutableMap[Any, Any]], field.name))
-//								else
-//									undefined		//problem( apos, s"key not found: ${field.name}" )
               case m: collection.Map[_, _] =>
                 push(
                   m.asInstanceOf[collection.Map[Any, Any]]
-                    .getOrElse(field.name, undefined /*problem(apos, s"key not found: ${field.name}")*/ ))
-              case null => problem(epos, "null value")
-              case o =>
-                val c = o.getClass
-
-                try {
-                  push(c.getField(field.name).get(o))
-                } catch {
-                  case _: NoSuchFieldException =>
-                    val methods = c.getMethods.toList.filter(m =>
-                      m.getName == field.name && (m.getModifiers & Modifier.STATIC) != Modifier.STATIC)
-
-                    if (methods isEmpty)
-                      problem(apos, s"object method '$field' not found: $o")
-
-                    push(NativeMethod(o, methods))
-                }
+                    .getOrElse(field.name, undefined))
+              case null        => problem(epos, "null value")
+              case `undefined` => problem(epos, "undefined value")
             }
           case ReturnInst =>
             ip = pop.asInstanceOf[Return].ret
@@ -1077,8 +1040,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   problem(fpos, s"expected start value to be a number: $o")
               }
 
-            push(
-              LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b.asInstanceOf[Number]).asInstanceOf[Number]))
+            push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b.asInstanceOf[Number])))
           case CommentInst(_) =>
           case EmptyInst      => push(derefp.asInstanceOf[Seq[_]].isEmpty)
           case HaltInst       => ip = HALT
@@ -1262,8 +1224,6 @@ case class FunctionReference(var entry: Int, name: String, arity: Int, context: 
 case class SectionOperation(op: Symbol)
 case class LeftSectionOperation(lpos: Position, l: Any, op: Symbol)
 case class RightSectionOperation(op: Symbol, rpos: Position, r: Any)
-
-case class NativeMethod(o: Any, m: List[Method])
 
 case class RecordConstructor(typename: String, name: String, fields: List[Symbol]) {
   val arity: Int = fields.length
