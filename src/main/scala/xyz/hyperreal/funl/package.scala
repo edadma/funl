@@ -21,10 +21,8 @@ package object funl {
           args: Any = null): Any = {
     val parser = new FunLParser
     val ast = parser.parseFromString(program, parser.source).asInstanceOf[AST]
-    val code = new Compiler(Predef.constants ++ Predef.natives ++ constants,
-                            Predef.sysvars ++ sysvars,
-                            Predef.macros,
-                            comments = true).compile(ast)
+    val code = new Compiler(Predef.constants ++ constants, Predef.sysvars ++ sysvars, Predef.macros, comments = true)
+      .compile(ast)
     val vm = new VM(code, ArraySeq(), false, false, args)
 
     vm.execute

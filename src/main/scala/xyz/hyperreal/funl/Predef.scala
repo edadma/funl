@@ -1,19 +1,16 @@
-//@
 package xyz.hyperreal.funl
 
 import java.io.{DataInputStream, FileInputStream}
 import java.time.{LocalDate, LocalDateTime, LocalTime, ZonedDateTime}
-
 import scala.util.parsing.input.Position
-
 import scala.collection.immutable
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, HashSet, LinkedHashMap}
 import scala.math.BigInt
 import scala.util.Random.{nextDouble, nextInt, setSeed}
 import xyz.hyperreal.numbers_jvm.ComplexBigInt
-import xyz.hyperreal.dal.BasicDAL
 import xyz.hyperreal.bvm._
+import xyz.hyperreal.dal.BasicDAL
 
 object Predef {
 
@@ -37,11 +34,33 @@ object Predef {
     }
   }
 
-  val natives: Map[String, Native] =
-    Native(Natives) map (n => n.name -> n) toMap
+  def native(name: String,
+             partialFunction: PartialFunction[(VM, Any), Any]): (String, (VM, Position, List[Position], Any) => Any) = {
+    (name, (vm: VM, pos: Position, ps: List[Position], args: Any) => {
+      val arglist = argsderef(args)
+      val fargs = (vm, arglist)
+
+      if (partialFunction.isDefinedAt(fargs))
+        partialFunction(fargs)
+      else
+        problem(pos, s"$name(): invalid arguments: $arglist")
+    })
+  }
 
   val constants =
     Map(
+      native("toInt", { case (vm: VM, v: String)    => v.toInt }),
+      native("toLong", { case (vm: VM, v: String)   => v.toLong }),
+      native("toBigInt", { case (vm: VM, v: String) => BigInt(v) }),
+      native("toFloat", { case (vm: VM, v: String)  => v.toDouble }),
+      native("eval", { case (vm: VM, expr: String)  => xyz.hyperreal.funl.run(expr) }),
+      native("sqrt", { case (vm: VM, n: Number)     => BasicDAL.sqrtFunction(n) }),
+      native("abs", { case (vm: VM, n: Number)      => BasicDAL.absFunction(n) }),
+      native("exp", { case (vm: VM, n: Number)      => BasicDAL.expFunction(n) }),
+      native("ln", { case (vm: VM, n: Number)       => BasicDAL.lnFunction(n) }),
+      native("sin", { case (vm: VM, n: Number)      => BasicDAL.sinFunction(n) }),
+      native("cos", { case (vm: VM, n: Number)      => BasicDAL.cosFunction(n) }),
+      native("tan", { case (vm: VM, n: Number)      => BasicDAL.tanFunction(n) }),
       "None" -> None,
       "alphanum" -> ALPHANUM_CLASS,
       "digits" -> DIGIT_CLASS,
