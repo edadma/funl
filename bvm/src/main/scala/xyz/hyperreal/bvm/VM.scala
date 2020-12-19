@@ -15,7 +15,13 @@ object VM {
   private val VM_STATE = -2
 }
 
-class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchored: Boolean, val args: Any) {
+class VM(code: Compilation,
+         captureTrees: ArraySeq[Node],
+         scan: Boolean,
+         anchored: Boolean,
+         val args: Any,
+         cons: (VMObject, VMObject) => VMConst,
+         nil: VMObject) {
   import VM._
 
   var seq: CharSequence = _

@@ -30,3 +30,8 @@ trait VMInstance extends VMObject {
 }
 
 trait VMNumber extends VMObject with AbstractDALNumber {}
+
+trait VMConst {
+  val head: VMObject
+  val tail: VMConst
+}

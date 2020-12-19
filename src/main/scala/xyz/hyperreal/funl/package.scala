@@ -23,7 +23,14 @@ package object funl {
     val ast = parser.parseFromString(program, parser.source).asInstanceOf[AST]
     val code = new Compiler(Predef.constants ++ constants, Predef.sysvars ++ sysvars, Predef.macros, comments = true)
       .compile(ast)
-    val vm = new VM(code, ArraySeq(), false, false, args, ListClass)
+    val vm = new VM(
+      code,
+      ArraySeq(),
+      false,
+      false,
+      args,
+      (a: VMObject, b: VMObject) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlObject]),
+      NilObject)
 
     vm.execute
   }
