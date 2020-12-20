@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-import xyz.hyperreal.dal.AbstractDALNumber
+import xyz.hyperreal.dal.TypedNumber
 
 trait VMType {
   val name: String
@@ -31,11 +31,11 @@ trait VMInstance extends VMObject {
   val outer: Option[VMInstance]
 }
 
-trait VMNumber extends VMObject with AbstractDALNumber
+trait VMNumber extends VMObject with TypedNumber
 
-trait VMList extends VMInstance
+trait VMList extends VMObject
 
-trait VMConst extends VMList {
+trait VMConst extends VMList with VMInstance {
   val head: VMObject
   val tail: VMObject
 }

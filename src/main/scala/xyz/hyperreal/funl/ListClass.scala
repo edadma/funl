@@ -1,6 +1,9 @@
 package xyz.hyperreal.funl
 
-import xyz.hyperreal.bvm.{VMClass, VMConst, VMInstance, VMMember, VMType}
+import xyz.hyperreal.bvm.{VMClass, VMConst, VMInstance, VMList, VMMember, VMType}
+
+import scala.annotation.tailrec
+import scala.collection.mutable.ListBuffer
 
 object ListClass extends FunlClass {
   val name: String = "List"
@@ -16,11 +19,32 @@ object ConsClass extends FunlClass {
   val members: Map[Symbol, VMMember] = Map()
 }
 
-object NilObject extends FunlObject {
+trait FunlList extends VMList
+
+object NilObject extends FunlObject with FunlList {
   val clas: VMClass = ListClass
+  val outer: Option[VMInstance] = None
+
+  override def toString: String = "[]"
 }
 
-class ConsObject(val head: FunlObject, val tail: FunlObject) extends FunlInstance with VMConst {
+class ConsObject(val head: FunlObject, val tail: FunlList) extends FunlInstance with FunlList with VMConst {
   val clas: VMClass = ConsClass
   val outer: Option[VMInstance] = None
+
+  override def toString: String = {
+    val buf = new ListBuffer[FunlObject]
+
+    @tailrec
+    def elem(l: FunlList): Unit =
+      l match {
+        case NilObject =>
+        case c: ConsObject =>
+          buf += c.head
+          elem(c.tail)
+      }
+
+    elem(this)
+    buf.mkString("[", ", ", "]")
+  }
 }

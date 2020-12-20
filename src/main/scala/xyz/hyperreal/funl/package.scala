@@ -3,13 +3,11 @@ package xyz.hyperreal
 import java.io.ByteArrayOutputStream
 import scala.util.parsing.input.Position
 import xyz.hyperreal.bvm._
-import xyz.hyperreal.dal.{AbstractDALNumber, Type}
+import xyz.hyperreal.dal.{TypedNumber, Type}
 
 import scala.collection.immutable.ArraySeq
 
 package object funl {
-
-  case class FunlNumber(typ: Type, n: Number) extends AbstractDALNumber
 
   def problem(pos: Position, error: String): Nothing =
     if (pos eq null)
@@ -30,9 +28,9 @@ package object funl {
                     false,
                     false,
                     args,
-                    (a, b) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlObject]),
+                    (a, b) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlList]),
                     NilObject,
-                    FunlNumber)
+                    new FunlNumber(_, _))
 
     vm.execute
   }

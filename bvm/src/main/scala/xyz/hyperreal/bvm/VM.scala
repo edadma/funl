@@ -5,7 +5,7 @@ import scala.annotation.tailrec
 import scala.collection.immutable.{ArraySeq, TreeMap}
 import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableSeq}
 import util.parsing.input.Position
-import xyz.hyperreal.dal.{BasicDAL, DALNumber, Type}
+import xyz.hyperreal.dal.{BasicDAL, DAL, Type}
 
 import scala.collection.mutable
 
@@ -22,8 +22,7 @@ class VM(code: Compilation,
          val args: Any,
          cons: (VMObject, VMObject) => VMConst,
          nil: VMList,
-         number: Number => VMNumber,
-         dalnumber: (Type, Number) => VMNumber) {
+         number: (Type, Number) => VMNumber) {
   import VM._
 
   var seq: CharSequence = _
@@ -722,7 +721,7 @@ class VM(code: Compilation,
             flags &= ~clearmask
           case PushInst(a) =>
             a match {
-              case n: Number => push(number(n))
+              case n: Number => push(number(DAL.numberType(n), n))
               case _         => push(a)
             }
           case PushFunctionInst(compute) => push(compute(this))
