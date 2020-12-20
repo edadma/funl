@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-import scala.collection.mutable.{Buffer, Seq => MutableSeq, Map => MutableMap}
+import scala.collection.mutable
 
 trait Assignable {
 
@@ -12,13 +12,12 @@ trait Assignable {
 
 class VariableAssignable(var value: Any) extends Assignable
 
-class MutableSeqAssignable(seq: MutableSeq[Any], index: Int)
-    extends Assignable {
-  def value = seq(index)
+class MutableSeqAssignable(seq: mutable.Seq[Any], index: Int) extends Assignable {
+  def value: Any = seq(index)
 
-  def value_=(v: Any) = {
+  def value_=(v: Any): Unit = {
     seq match {
-      case buf: Buffer[Any] if buf.length <= index =>
+      case buf: mutable.Buffer[Any] if buf.length <= index =>
         buf.appendAll(Iterator.fill(index - buf.length + 1)(null))
       case _ =>
     }
@@ -27,9 +26,8 @@ class MutableSeqAssignable(seq: MutableSeq[Any], index: Int)
   }
 }
 
-class MutableMapAssignable(map: MutableMap[Any, Any], key: Any)
-    extends Assignable {
-  def value = map.getOrElse(key, undefined)
+class MutableMapAssignable(map: mutable.Map[Any, Any], key: Any) extends Assignable {
+  def value: Any = map.getOrElse(key, undefined)
 
-  def value_=(v: Any) = map(key) = v
+  def value_=(v: Any): Unit = map(key) = v
 }

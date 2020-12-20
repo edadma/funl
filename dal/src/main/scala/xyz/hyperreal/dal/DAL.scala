@@ -560,13 +560,13 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   def compute(op: Symbol,
               left: DALNumber,
               right: DALNumber,
-              cons: (Type, Number) => DALNumber = DALNumber.apply): DALNumber = {
+              dalnumber: (Type, Number) => DALNumber = DALNumber.apply): DALNumber = {
     val (t, r) = opmap(left.typ, op, right.typ)(left.n, right.n)
 
     if (t eq null)
       sys.error(s"operation '$op' does not return number")
     else
-      cons(t, r.asInstanceOf[Number])
+      dalnumber(t, r.asInstanceOf[Number])
   }
 
   def perform(op: Symbol, left: Number, right: Number): Any = {

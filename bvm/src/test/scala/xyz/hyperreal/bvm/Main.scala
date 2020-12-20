@@ -3,6 +3,8 @@ package xyz.hyperreal.bvm
 
 import scala.util.parsing.input.Position
 
+import Testing._
+
 object Main extends App {
 
   val constants =

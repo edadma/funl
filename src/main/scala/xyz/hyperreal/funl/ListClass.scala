@@ -1,6 +1,6 @@
 package xyz.hyperreal.funl
 
-import xyz.hyperreal.bvm.{VMClass, VMConst, VMMember, VMType}
+import xyz.hyperreal.bvm.{VMClass, VMConst, VMInstance, VMMember, VMType}
 
 object ListClass extends FunlClass {
   val name: String = "List"
@@ -20,6 +20,7 @@ object NilObject extends FunlObject {
   val clas: VMClass = ListClass
 }
 
-class ConsObject(val head: FunlObject, val tail: FunlObject) extends FunlObject with VMConst {
+class ConsObject(val head: FunlObject, val tail: FunlObject) extends FunlInstance with VMConst {
   val clas: VMClass = ConsClass
+  val outer: Option[VMInstance] = None
 }

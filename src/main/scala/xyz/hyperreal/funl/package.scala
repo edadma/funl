@@ -1,13 +1,15 @@
 package xyz.hyperreal
 
 import java.io.ByteArrayOutputStream
-
 import scala.util.parsing.input.Position
 import xyz.hyperreal.bvm._
+import xyz.hyperreal.dal.{AbstractDALNumber, Type}
 
 import scala.collection.immutable.ArraySeq
 
 package object funl {
+
+  case class FunlNumber(typ: Type, n: Number) extends AbstractDALNumber
 
   def problem(pos: Position, error: String): Nothing =
     if (pos eq null)
@@ -23,14 +25,14 @@ package object funl {
     val ast = parser.parseFromString(program, parser.source).asInstanceOf[AST]
     val code = new Compiler(Predef.constants ++ constants, Predef.sysvars ++ sysvars, Predef.macros, comments = true)
       .compile(ast)
-    val vm = new VM(
-      code,
-      ArraySeq(),
-      false,
-      false,
-      args,
-      (a: VMObject, b: VMObject) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlObject]),
-      NilObject)
+    val vm = new VM(code,
+                    ArraySeq(),
+                    false,
+                    false,
+                    args,
+                    (a, b) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlObject]),
+                    NilObject,
+                    FunlNumber)
 
     vm.execute
   }

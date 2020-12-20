@@ -5,7 +5,7 @@ import scala.annotation.tailrec
 import scala.collection.immutable.{ArraySeq, TreeMap}
 import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableSeq}
 import util.parsing.input.Position
-import xyz.hyperreal.dal.BasicDAL
+import xyz.hyperreal.dal.{BasicDAL, DALNumber, Type}
 
 import scala.collection.mutable
 
@@ -21,7 +21,9 @@ class VM(code: Compilation,
          anchored: Boolean,
          val args: Any,
          cons: (VMObject, VMObject) => VMConst,
-         nil: VMObject) {
+         nil: VMList,
+         number: Number => VMNumber,
+         dalnumber: (Type, Number) => VMNumber) {
   import VM._
 
   var seq: CharSequence = _
@@ -718,7 +720,11 @@ class VM(code: Compilation,
           case SetFlagsInst(setmask, clearmask) =>
             flags |= setmask
             flags &= ~clearmask
-          case PushInst(a)               => push(a)
+          case PushInst(a) =>
+            a match {
+              case n: Number => push(number(n))
+              case _         => push(a)
+            }
           case PushFunctionInst(compute) => push(compute(this))
           case PushFunctionReferenceInst(entry, name, arity, fidx) =>
             push(
@@ -816,18 +822,18 @@ class VM(code: Compilation,
               case _ =>
             }
           case ListInst(len) =>
-            var l: List[Any] = Nil
+            var l: VMList = nil
 
             for (_ <- 1 to len)
-              l = derefp :: l
+              l = cons(derefp.asInstanceOf[VMObject], l.asInstanceOf[VMObject])
 
             push(l)
           case SetInst =>
             val elem = derefp
 
             push(derefp.asInstanceOf[Set[Any]] + elem)
-          case ListHeadInst            => push(derefp.asInstanceOf[Seq[Any]].head)
-          case ListTailInst            => push(derefp.asInstanceOf[Seq[Any]].tail)
+          case ListHeadInst            => push(derefp.asInstanceOf[VMConst].head)
+          case ListTailInst            => push(derefp.asInstanceOf[VMConst].tail)
           case EqInst                  => push(derefp == derefp)
           case ErrorInst(p, error)     => problem(p, error)
           case CallingErrorInst(error) => problem(pos, error)
