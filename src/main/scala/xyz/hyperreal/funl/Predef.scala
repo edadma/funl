@@ -441,15 +441,15 @@ object Predef {
           case _              => problem(ps.headOption.getOrElse(apos), "max( a1, a2, ... )")
         }
       },
-      "sum" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
-        argsderef(args) match {
-          case ArgList() =>
-            problem(ps.headOption.getOrElse(apos), "sum( a1, a2, ... )")
-          case l: Iterable[_] => l.asInstanceOf[Iterable[Number]].iterator.sum(NUMERIC)
-          case args: ArgList  => args.array.asInstanceOf[Iterable[Number]].sum(NUMERIC)
-          case _              => problem(ps.headOption.getOrElse(apos), "sum( a1, a2, ... )")
-        }
-      },
+//      "sum" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
+//        argsderef(args) match {
+//          case ArgList() =>
+//            problem(ps.headOption.getOrElse(apos), "sum( a1, a2, ... )")
+//          case l: Iterable[_] => l.asInstanceOf[Iterable[Number]].iterator.sum(NUMERIC)
+//          case args: ArgList  => args.array.asInstanceOf[Iterable[Number]].sum(NUMERIC)
+//          case _              => problem(ps.headOption.getOrElse(apos), "sum( a1, a2, ... )")
+//        }
+//      },
       "rnd" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
           case ArgList()                         => nextDouble().asInstanceOf[Number]

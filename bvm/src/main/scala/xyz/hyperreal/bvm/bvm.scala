@@ -113,7 +113,6 @@ package object bvm {
   def display(a: Any): String =
     a match {
       case a: Array[_] => (a map display).mkString("Array(", ", ", ")")
-      case l: List[_]  => (l map displayQuoted).mkString("[", ", ", "]")
       case s: LazyList[_] =>
         val howMany = 100
         val bunch = s take (howMany + 1)
@@ -137,30 +136,30 @@ package object bvm {
       case _ => String.valueOf(a)
     }
 
-  val NUMERIC: Numeric[Number] =
-    new Numeric[Number] {
-      def parseString(str: String): Option[Number] = sys.error("shouldn't call Numeric.parseString()")
-
-      def compare(x: Number, y: Number): Int = naturalCompare(x, y)
-
-      def fromInt(x: Int): Integer = Integer.valueOf(x)
-
-      def minus(x: Number, y: Number): Number = BasicDAL.compute(Symbol("-"), x, y)
-
-      def negate(x: Number): Number = BasicDAL.negate(x)
-
-      def plus(x: Number, y: Number): Number = BasicDAL.compute(Symbol("+"), x, y)
-
-      def times(x: Number, y: Number): Number = BasicDAL.compute(Symbol("*"), x, y)
-
-      def toDouble(x: Number): Double = x.asInstanceOf[Number].doubleValue
-
-      def toFloat(x: Number): Float = x.asInstanceOf[Number].floatValue
-
-      def toInt(x: Number): Int = x.asInstanceOf[Number].intValue
-
-      def toLong(x: Number): Long = x.asInstanceOf[Number].longValue
-    }
+//  val NUMERIC: Numeric[Number] =
+//    new Numeric[Number] {
+//      def parseString(str: String): Option[Number] = sys.error("shouldn't call Numeric.parseString()")
+//
+//      def compare(x: Number, y: Number): Int = naturalCompare(x, y)
+//
+//      def fromInt(x: Int): Integer = Integer.valueOf(x)
+//
+//      def minus(x: Number, y: Number): Number = BasicDAL.compute(Symbol("-"), x, y)
+//
+//      def negate(x: Number): Number = BasicDAL.negate(x)
+//
+//      def plus(x: Number, y: Number): Number = BasicDAL.compute(Symbol("+"), x, y)
+//
+//      def times(x: Number, y: Number): Number = BasicDAL.compute(Symbol("*"), x, y)
+//
+//      def toDouble(x: Number): Double = x.asInstanceOf[Number].doubleValue
+//
+//      def toFloat(x: Number): Float = x.asInstanceOf[Number].floatValue
+//
+//      def toInt(x: Number): Int = x.asInstanceOf[Number].intValue
+//
+//      def toLong(x: Number): Long = x.asInstanceOf[Number].longValue
+//    }
 
   val ORDERING: Ordering[Any] = (x: Any, y: Any) => naturalCompare(x, y)
 

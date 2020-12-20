@@ -30,7 +30,7 @@ package object funl {
                     args,
                     (a, b) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlList]),
                     NilObject,
-                    new FunlNumber(_, _))
+                    FunlNumber.apply)
 
     vm.execute
   }

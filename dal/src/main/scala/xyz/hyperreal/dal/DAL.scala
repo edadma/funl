@@ -205,15 +205,18 @@ object BasicDAL extends DAL {
     BigDecType -> ((l: Number, r: Number) => (IntType, toBigDecimal(l) compare toBigDecimal(r): Number))
   )
 
-  def negate(n: Number): Number =
-    n match {
-      case a: boxed.Integer => -a
-      case a: boxed.Long    => -a
-      case a: BigInt        => -a
-      case a: Rational      => -a
-      case a: boxed.Double  => -a
-      case a: BigDecimal    => -a
+  def negate(typ: Type, n: Number): (Type, Number) =
+    (typ, n) match {
+      case (IntType, a: boxed.Integer)   => (IntType, -a)
+      case (LongType, a: boxed.Long)     => (LongType, -a)
+      case (BigIntType, a: BigInt)       => (BigIntType, -a)
+      case (RationalType, a: Rational)   => (RationalType, -a)
+      case (DoubleType, a: boxed.Double) => (DoubleType, -a)
+      case (BigDecType, a: BigDecimal)   => (BigDecType, -a)
     }
+
+  def negate(n: TypedNumber, number: ((Type, Number)) => TypedNumber = DALNumber.apply): TypedNumber =
+    number(negate(n.typ, n.value))
 
   def invert(n: Number): (Type, Number) =
     n match {
@@ -540,35 +543,44 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   def compute(op: String, left: Number, right: Number): Number = compute(Symbol(op), left, right)
 
   def compute(op: Symbol, left: Number, right: Number): Number =
-    compute(op, DALNumber(left), DALNumber(right), DALNumber.apply).n
+    compute(op, DALNumber(left), DALNumber(right), DALNumber.apply).value
 
   def relate(op: String, left: Number, right: Number): Boolean = relate(Symbol(op), left, right)
 
   def relate(op: Symbol, left: Number, right: Number): Boolean = relate(op, DALNumber(left), DALNumber(right))
 
   def relate(op: Symbol, left: TypedNumber, right: TypedNumber): Boolean = {
-    val (t, r) = opmap(left.typ, op, right.typ)(left.n, right.n)
+    val (t, r) = opmap(left.typ, op, right.typ)(left.value, right.value)
 
-    if (t ne null)
+    if (t != null)
       sys.error(s"operation '$op' is not a relation")
     else
       r.asInstanceOf[Boolean]
   }
 
-  def compute(op: Symbol,
-              left: TypedNumber,
-              right: TypedNumber,
-              number: (Type, Number) => TypedNumber = DALNumber.apply): TypedNumber = {
-    val (t, r) = opmap(left.typ, op, right.typ)(left.n, right.n)
+  def compute[T <: TypedNumber](op: Symbol,
+                                left: TypedNumber,
+                                right: TypedNumber,
+                                number: ((Type, Number)) => T /*= DALNumber.apply*/ ): T = {
+    val n @ (t, r) = opmap(left.typ, op, right.typ)(left.value, right.value)
 
-    if (t eq null)
+    if (t == null)
       sys.error(s"operation '$op' does not return number")
     else
-      number(t, r.asInstanceOf[Number])
+      number(n.asInstanceOf[(Type, Number)])
   }
 
   def perform(op: Symbol, left: Number, right: Number): Any =
     opmap(DAL.numberType(left), op, DAL.numberType(right))(left, right)._2
+
+  def perform(op: Symbol,
+              left: TypedNumber,
+              right: TypedNumber,
+              number: ((Type, Number)) => TypedNumber = DALNumber.apply): Any =
+    opmap(left.typ, op, right.typ)(left.value, right.value) match {
+      case (null, b: java.lang.Boolean) => b
+      case n                            => number(n.asInstanceOf[(Type, Number)])
+    }
 
 }
 
@@ -586,9 +598,11 @@ object DAL {
 
 }
 
-case class DALNumber(typ: Type, n: Number) extends TypedNumber
+case class DALNumber(typ: Type, value: Number) extends TypedNumber
 
 object DALNumber {
+
+  def apply(n: (Type, Number)): TypedNumber = DALNumber(n._1, n._2)
 
   def apply(n: Int) = new DALNumber(IntType, n)
 
@@ -608,7 +622,7 @@ object DALNumber {
 
 trait TypedNumber {
   val typ: Type
-  val n: Number
+  val value: Number
 }
 
 abstract class Type

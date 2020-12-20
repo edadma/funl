@@ -10,8 +10,12 @@ object NumberClass extends FunlClass {
   val members: Map[Symbol, VMMember] = Map()
 }
 
-class FunlNumber(val typ: Type, val n: Number) extends FunlObject with VMNumber {
+object FunlNumber {
+  def apply(n: (Type, Number)) = new FunlNumber(n._1, n._2)
+}
+
+class FunlNumber(val typ: Type, val value: Number) extends FunlObject with VMNumber {
   val clas: VMClass = NumberClass
 
-  override def toString: String = n.toString
+  override def toString: String = value.toString
 }
