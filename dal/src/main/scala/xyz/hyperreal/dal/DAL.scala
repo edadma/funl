@@ -458,21 +458,6 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
 
   protected def boolean(b: Boolean): (Type, Boolean) = (null, b)
 
-  protected def toBigInt(a: Number): BigInt =
-    a match {
-      case bi: BigInt       => bi
-      case i: boxed.Integer => BigInt(i)
-      case _                => sys.error("can't convert from " + a)
-    }
-
-  protected def toRational(a: Number): Rational =
-    a match {
-      case r: Rational      => r
-      case bi: BigInt       => Rational(bi)
-      case i: boxed.Integer => Rational(i)
-      case _                => sys.error("can't convert from " + a)
-    }
-
   protected def maybeDemote(n: Double): (Type, Number) =
     if (n.isValidInt)
       (IntType, n.toInt.asInstanceOf[Number])
@@ -571,7 +556,7 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   }
 
   def perform(op: Symbol, left: Number, right: Number): Any =
-    opmap(DAL.numberType(left), op, DAL.numberType(right))(left, right)._2
+    opmap(numberType(left), op, numberType(right))(left, right)._2
 
   def perform(op: Symbol,
               left: TypedNumber,
@@ -580,20 +565,6 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
     opmap(left.typ, op, right.typ)(left.value, right.value) match {
       case (null, b: java.lang.Boolean) => b
       case n                            => number(n.asInstanceOf[(Type, Number)])
-    }
-
-}
-
-object DAL {
-
-  def numberType(n: Number): Type =
-    n match {
-      case _: boxed.Integer => IntType
-      case _: boxed.Long    => LongType
-      case _: BigInt        => BigIntType
-      case _: Rational      => RationalType
-      case _: boxed.Double  => DoubleType
-      case _: BigDecimal    => BigDecType
     }
 
 }
@@ -616,7 +587,7 @@ object DALNumber {
 
   def apply(n: BigDecimal) = new DALNumber(BigDecType, n)
 
-  def apply(n: Number): DALNumber = new DALNumber(DAL.numberType(n), n)
+  def apply(n: Number): DALNumber = new DALNumber(numberType(n), n)
 
 }
 

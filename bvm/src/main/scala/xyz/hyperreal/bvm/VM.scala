@@ -5,8 +5,9 @@ import scala.annotation.tailrec
 import scala.collection.immutable.{ArraySeq, TreeMap}
 import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableSeq}
 import util.parsing.input.Position
-import xyz.hyperreal.dal.{BasicDAL, DAL, IntType, Type, TypedNumber}
+import xyz.hyperreal.dal.{BasicDAL, IntType, Type, numberType, toBigInt}
 
+import java.{lang => boxed}
 import scala.collection.mutable
 
 object VM {
@@ -727,7 +728,7 @@ class VM(code: Compilation,
             flags &= ~clearmask
           case PushInst(a) =>
             a match {
-              case n: Number => push(number(DAL.numberType(n), n))
+              case n: Number => push(number(numberType(n), n))
               case _         => push(a)
             }
           case PushFunctionInst(compute) => push(compute(this))
@@ -1005,43 +1006,31 @@ class VM(code: Compilation,
 //									fail
 //						}
           case RangeInst(pf, pt, pb, inclusive) =>
-            def bigint(n: Number) =
-              n match {
-                case b: BigInt => b
-                case _         => BigInt(n.intValue)
-              }
-
-            def bigdecimal(n: Number) =
-              n match {
-                case d: BigDecimal => d
-                case _             => BigDecimal(n.intValue)
-              }
-
             val b =
               derefp match {
-                case n: Number => n
+                case n: VMNumber => n.value
                 case v =>
                   problem(pb, s"expected a number as range end value: ${display(v)}")
               }
             val t =
               derefp match {
-                case n: Number => n
+                case n: VMNumber => n.value
                 case v =>
                   problem(pt, s"expected a number as range end value: ${display(v)}")
               }
 
-            derefp match {
-              case i: Int if inclusive => push(i to t.intValue by b.intValue)
-              case i: Int              => push(i until t.intValue by b.intValue)
-              case d: Double if inclusive =>
+            derefp.asInstanceOf[VMNumber].value match {
+              case i: boxed.Integer if inclusive => push(i.toInt to t.intValue by b.intValue)
+              case i: boxed.Integer              => push(i.toInt until t.intValue by b.intValue)
+              case d: boxed.Double if inclusive =>
                 push(BigDecimal(d) to t.doubleValue by b.doubleValue)
-              case d: Double =>
+              case d: boxed.Double =>
                 push(BigDecimal(d) until t.doubleValue by b.doubleValue)
-              case i: BigInt if inclusive => push(i to bigint(t) by bigint(b))
-              case i: BigInt              => push(i until bigint(t) by bigint(b))
+              case i: BigInt if inclusive => push(i to toBigInt(t) by toBigInt(b))
+              case i: BigInt              => push(i until toBigInt(t) by toBigInt(b))
               case d: BigDecimal if inclusive =>
-                push(d to bigdecimal(t) by bigdecimal(b))
-              case d: BigDecimal => push(d until bigdecimal(t) by bigdecimal(b))
+                push(d to BasicDAL.toBigDecimal(t) by BasicDAL.toBigDecimal(b))
+              case d: BigDecimal => push(d until BasicDAL.toBigDecimal(t) by BasicDAL.toBigDecimal(b))
               case v =>
                 problem(pf, s"expected a number (real and not a fraction) as the range initial value: ${display(v)}")
             }

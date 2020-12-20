@@ -1,6 +1,8 @@
 package xyz.hyperreal
 
+import xyz.hyperreal.numbers_jvm.Rational
 import math.{sqrt => sqr, _}
+import java.{lang => boxed}
 
 package object dal {
   type Operator = (Number, Number) => (Type, AnyRef)
@@ -117,4 +119,29 @@ package object dal {
     else
       _pow(b, e)
   }
+
+  def numberType(n: Number): Type =
+    n match {
+      case _: boxed.Integer => IntType
+      case _: boxed.Long    => LongType
+      case _: BigInt        => BigIntType
+      case _: Rational      => RationalType
+      case _: boxed.Double  => DoubleType
+      case _: BigDecimal    => BigDecType
+    }
+
+  def toBigInt(a: Number): BigInt =
+    a match {
+      case bi: BigInt       => bi
+      case i: boxed.Integer => BigInt(i)
+      case _                => sys.error("can't convert from " + a)
+    }
+
+  def toRational(a: Number): Rational =
+    a match {
+      case r: Rational      => r
+      case bi: BigInt       => Rational(bi)
+      case i: boxed.Integer => Rational(i)
+      case _                => sys.error("can't convert from " + a)
+    }
 }

@@ -32,7 +32,14 @@ object Main extends App {
   val ast = parser.parseFromString(program, parser.source).asInstanceOf[AST]
   val compiler = new Compiler(Predef.constants, Predef.sysvars, Predef.macros, comments = true)
   val code = compiler.compile(ast)
-  val vm = new VM(code, ArraySeq(), false, true, args)
+  val vm = new VM(code,
+                  ArraySeq(),
+                  false,
+                  true,
+                  args,
+                  (a, b) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlList]),
+                  NilObject,
+                  FunlNumber.apply)
 
 //	println( code.functions, code.variables )
   println(ast)

@@ -1,1 +1,2 @@
-write('asdf')
+for i <- 1..3
+  write(i)
