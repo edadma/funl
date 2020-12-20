@@ -392,9 +392,9 @@ class VM(code: Compilation,
               case None    => problem(apos, s"not a field of record '${r.name}'")
               case Some(n) => push(r.element(n))
             }
-          case n: Integer =>
-            if (0 <= n && n < r.arity)
-              push(r.element(n))
+          case n: VMNumber if n.typ == IntType =>
+            if (0 <= n.value.intValue && n.value.intValue < r.arity)
+              push(r.element(n.value.intValue))
             else
               problem(apos, s"index out of range: $n")
           case _ => problem(apos, "expected a string or integer")
@@ -919,11 +919,11 @@ class VM(code: Compilation,
                                 fail()
                                 return
                               }
-                            case (_, n: Number) =>
-                              if (!rhs(i).isInstanceOf[Number])
+                            case (_, n: VMNumber) =>
+                              if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
                               else
-                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[Number])
+                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[VMNumber], number)
                             case _ => problem(lpos(i), s"illegal assignment: '${op.name}'")
                           }
 
@@ -962,7 +962,7 @@ class VM(code: Compilation,
             }
           case BinaryInst(lpos, op, rpos) =>
             binaryOperation(lpos, op, rpos)
-          case GeneratorInst =>
+          case GeneratorInst => // todo: create Iterable, Range types
             def generate(g: GeneratorTemp): Unit = {
               if (g.it.hasNext) {
                 push(g)
