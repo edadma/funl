@@ -11,7 +11,7 @@ object Testing {
           macros: Map[String, List[AST] => AST],
           args: Any*): Any = {
     val code = new Compiler(constants, sysvars, macros, comments = true).compile(ast)
-    val vm = new VM(code, ArraySeq(), false, false, args, VMConstObject, VMNil)
+    val vm = new VM(code, ArraySeq(), false, false, args, VMConstObject, VMNilObject)
 
     vm.execute
   }

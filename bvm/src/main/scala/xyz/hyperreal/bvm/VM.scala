@@ -27,7 +27,7 @@ class VM(code: Compilation,
          scan: Boolean,
          anchored: Boolean,
          val args: Any,
-         cons: (VMObject, VMList) => VMConst,
+         cons: (VMObject, VMList) => VMCons,
          nil: VMList,
          number: ((Type, Number)) => VMNumber) {
   import VM._
@@ -838,8 +838,8 @@ class VM(code: Compilation,
             val elem = derefp
 
             push(derefp.asInstanceOf[Set[Any]] + elem)
-          case ListHeadInst            => push(derefp.asInstanceOf[VMConst].head)
-          case ListTailInst            => push(derefp.asInstanceOf[VMConst].tail)
+          case ListHeadInst            => push(derefp.asInstanceOf[VMCons].head)
+          case ListTailInst            => push(derefp.asInstanceOf[VMCons].tail)
           case EqInst                  => push(derefp == derefp)
           case ErrorInst(p, error)     => problem(p, error)
           case CallingErrorInst(error) => problem(pos, error)
