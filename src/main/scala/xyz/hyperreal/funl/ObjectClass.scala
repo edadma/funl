@@ -1,6 +1,6 @@
 package xyz.hyperreal.funl
 
-import xyz.hyperreal.bvm.{VMClass, VMInstance, VMMember, VMObject, VMType}
+import xyz.hyperreal.bvm.{VMClass, /*VMInstance,*/ VMMember, VMObject, VMType}
 
 abstract class FunlClass extends VMClass
 
@@ -13,4 +13,6 @@ object ObjectClass extends FunlClass {
 
 abstract class FunlObject extends VMObject
 
-abstract class FunlInstance extends FunlObject with VMInstance
+abstract class FunlInstance extends FunlObject /*with VMInstance*/ {
+  val outer: Option[FunlInstance]
+}

@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-import xyz.hyperreal.dal.TypedNumber
+import xyz.hyperreal.dal.{Type, TypedNumber}
 
 import java.util.NoSuchElementException
 
@@ -40,34 +40,39 @@ trait VMObject {
 
 }
 
-trait VMInstance extends VMObject {
-  val outer: Option[VMInstance]
-}
+//trait VMInstance extends VMObject {
+//  val outer: Option[VMInstance]
+//}
 
 trait VMNumber extends VMObject with TypedNumber
 
+trait VMIterable extends VMObject {
+  override val isIterable: Boolean = true
+}
+
 trait VMList extends VMObject
 
-trait VMCons extends VMList with VMInstance { consThis =>
+trait VMCons extends VMList /*with VMInstance*/ with VMIterable { consThis =>
   val head: VMObject
   val tail: VMList
 
-  override val isIterable: Boolean = true
   override val isSequence: Boolean = true
 
   override def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
       var cur: VMList = consThis
 
-      def hasNext: Boolean = !cur.isInstanceOf[VMNil]
+      def hasNext: Boolean = cur.isInstanceOf[VMCons]
 
       def next(): VMObject = {
-        if (!hasNext) throw new NoSuchElementException("iterable has no more elements")
+        cur match {
+          case c: VMCons =>
+            val res = c.head
 
-        val res = cur
-
-        cur = cur.asInstanceOf[VMCons].tail
-        res
+            cur = c.tail
+            res
+          case _ => throw new NoSuchElementException("iterable has no more elements")
+        }
       }
     }
 
@@ -76,7 +81,7 @@ trait VMCons extends VMList with VMInstance { consThis =>
   override def length: Int = iterator.length
 }
 
-trait VMNil extends VMList with VMInstance
+trait VMNil extends VMList //with VMInstance
 
 object VMObjectClass extends VMClass {
   val parent: VMClass = null
@@ -100,11 +105,22 @@ object VMConstClass extends VMClass {
 }
 
 class VMConsObject(val head: VMObject, val tail: VMList) extends VMCons {
-  val outer: Option[VMInstance] = None
+//  val outer: Option[VMInstance] = None
   val clas: VMClass = VMConstClass
 }
 
 object VMNilObject extends VMNil {
   val clas: VMClass = VMListClass
-  val outer: Option[VMInstance] = None
+//  val outer: Option[VMInstance] = None
+}
+
+object VMNumberClass extends VMClass {
+  val parent: VMClass = VMObjectClass
+  val name: String = "Number"
+  val extending: List[VMType] = Nil
+  val members: Map[Symbol, VMMember] = Map()
+}
+
+class VMNumberObject(val typ: Type, val value: Number) extends VMNumber {
+  val clas: VMClass = VMNumberClass
 }

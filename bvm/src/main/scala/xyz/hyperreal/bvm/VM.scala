@@ -14,12 +14,7 @@ object VM {
   private val HALT = -1
   private val MATCH_FAIL = -1
   private val VM_STATE = -2
-  private val ONE =
-    new VMNumber {
-      val clas: VMClass = null
-      val typ: Type = IntType
-      val value: Number = 1
-    }
+  private val ONE = new VMNumberObject(IntType, 1)
 }
 
 class VM(code: Compilation,
@@ -28,7 +23,7 @@ class VM(code: Compilation,
          anchored: Boolean,
          val args: Any,
          cons: (VMObject, VMList) => VMCons,
-         nil: VMList,
+         nil: VMNil,
          number: ((Type, Number)) => VMNumber) {
   import VM._
 
@@ -983,10 +978,10 @@ class VM(code: Compilation,
                 generate(
                   GeneratorTemp(
                     ms.indices.iterator map (new MutableSeqAssignable(ms.asInstanceOf[MutableSeq[Any]], _))))
-              case t: Iterable[_]   => generate(GeneratorTemp(t.iterator))
-              case it: Iterator[_]  => generate(GeneratorTemp(it))
-              case g: GeneratorTemp => generate(g)
-              case v                => push(v)
+              case o: VMObject if o.isIterable => generate(GeneratorTemp(o.iterator))
+              case it: Iterator[_]             => generate(GeneratorTemp(it))
+              case g: GeneratorTemp            => generate(g)
+              case v                           => push(v)
             }
 //					case IteratorInst( pos ) =>
 //						derefp match {
