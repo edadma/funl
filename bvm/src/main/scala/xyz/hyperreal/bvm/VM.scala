@@ -22,9 +22,7 @@ class VM(code: Compilation,
          scan: Boolean,
          anchored: Boolean,
          val args: Any,
-         cons: (VMObject, VMList) => VMCons,
-         nil: VMNil,
-         number: ((Type, Number)) => VMNumber) {
+         interface: VMInterface) {
   import VM._
 
   var seq: CharSequence = _
@@ -306,7 +304,7 @@ class VM(code: Compilation,
               else if (!r.isInstanceOf[VMNumber])
                 problem(rpos, s"not a number: ${display(r)}")
               else
-                push(BasicDAL.compute(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], number))
+                push(BasicDAL.compute(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], interface.number))
           }
       case Symbol("=") | Symbol("!=") =>
         if ((l, r) match {
@@ -323,7 +321,7 @@ class VM(code: Compilation,
           fail()
       case Symbol(":") =>
         r match {
-          case s: VMList => push(cons(l.asInstanceOf[VMObject], s))
+          case s: VMList => push(interface.cons(l.asInstanceOf[VMObject], s))
           case _         => problem(rpos, s"not a list: ${display(r)}")
         }
       case Symbol("in") | Symbol("notin") => // todo: implement 'in'
@@ -333,7 +331,7 @@ class VM(code: Compilation,
         else if (!r.isInstanceOf[VMNumber])
           problem(rpos, s"not a number: ${display(r)}")
         else
-          push(BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], number))
+          push(BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], interface.number))
     }
   }
 
@@ -723,7 +721,7 @@ class VM(code: Compilation,
             flags &= ~clearmask
           case PushInst(a) =>
             a match {
-              case n: Number => push(number(numberType(n), n))
+              case n: Number => push(interface.number(numberType(n), n))
               case _         => push(a)
             }
           case PushFunctionInst(compute) => push(compute(this))
@@ -823,10 +821,10 @@ class VM(code: Compilation,
               case _ =>
             }
           case ListInst(len) =>
-            var l: VMList = nil
+            var l: VMList = interface.nil
 
             for (_ <- 1 to len)
-              l = cons(derefp.asInstanceOf[VMObject], l)
+              l = interface.cons(derefp.asInstanceOf[VMObject], l)
 
             push(l)
           case SetInst =>
@@ -918,7 +916,7 @@ class VM(code: Compilation,
                               if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
                               else
-                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[VMNumber], number)
+                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[VMNumber], interface.number)
                             case _ => problem(lpos(i), s"illegal assignment: '${op.name}'")
                           }
 
@@ -942,17 +940,17 @@ class VM(code: Compilation,
             val n = d.asInstanceOf[VMNumber]
 
             op match {
-              case Symbol("-") => push(BasicDAL.negate(n, number))
+              case Symbol("-") => push(BasicDAL.negate(n, interface.number))
               case Symbol("++*") | Symbol("--*") | Symbol("*++") | Symbol("*--") if !v.isInstanceOf[Assignable] =>
                 problem(pos, "not an l-value")
               case Symbol("++*") | Symbol("--*") =>
-                val res = BasicDAL.compute(op, d.asInstanceOf[VMNumber], ONE, number)
+                val res = BasicDAL.compute(op, d.asInstanceOf[VMNumber], ONE, interface.number)
 
                 v.asInstanceOf[Assignable].value = res
                 push(res)
               case Symbol("*++") | Symbol("*--") =>
                 v.asInstanceOf[Assignable].value =
-                  BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, number)
+                  BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, interface.number)
                 push(d)
             }
           case BinaryInst(lpos, op, rpos) =>
@@ -1014,21 +1012,8 @@ class VM(code: Compilation,
                   problem(pt, s"expected a number as range end value: ${display(v)}")
               }
 
-            derefp.asInstanceOf[VMNumber].value match {
-              case i: boxed.Integer if inclusive => push(i.toInt to t.intValue by b.intValue)
-              case i: boxed.Integer              => push(i.toInt until t.intValue by b.intValue)
-              case d: boxed.Double if inclusive =>
-                push(BigDecimal(d) to t.doubleValue by b.doubleValue)
-              case d: boxed.Double =>
-                push(BigDecimal(d) until t.doubleValue by b.doubleValue)
-              case i: BigInt if inclusive => push(i to toBigInt(t) by toBigInt(b))
-              case i: BigInt              => push(i until toBigInt(t) by toBigInt(b))
-              case d: BigDecimal if inclusive =>
-                push(d to BasicDAL.toBigDecimal(t) by BasicDAL.toBigDecimal(b))
-              case d: BigDecimal => push(d until BasicDAL.toBigDecimal(t) by BasicDAL.toBigDecimal(b))
-              case v =>
-                problem(pf, s"expected a number (real and not a fraction) as the range initial value: ${display(v)}")
-            }
+            push(interface.range(derefp.asInstanceOf[VMNumber].value, t, b, inclusive))
+          //                problem(pf, s"expected a number (real and not a fraction) as the range initial value: ${display(v)}")
           case UnboundedLazyListInst(fpos, bpos) =>
             val b =
               derefp match {
@@ -1043,7 +1028,7 @@ class VM(code: Compilation,
                   problem(fpos, s"expected start value to be a number: $o")
               }
 
-            push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, number)))
+            push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, interface.number)))
           case CommentInst(_) =>
           case EmptyInst      => push(derefp.asInstanceOf[Seq[_]].isEmpty)
           case HaltInst       => ip = HALT
