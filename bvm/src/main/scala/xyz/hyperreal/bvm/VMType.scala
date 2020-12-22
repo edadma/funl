@@ -50,9 +50,13 @@ trait VMIterable extends VMObject {
   override val isIterable: Boolean = true
 }
 
-trait VMList extends VMObject
+trait VMSequence extends VMIterable {
+  override val isSequence: Boolean = true
+}
 
-trait VMCons extends VMList /*with VMInstance*/ with VMIterable { consThis =>
+trait VMList extends VMObject with VMSequence
+
+trait VMCons extends VMList /*with VMInstance*/ { consThis =>
   val head: VMObject
   val tail: VMList
 
@@ -81,7 +85,18 @@ trait VMCons extends VMList /*with VMInstance*/ with VMIterable { consThis =>
   override def length: Int = iterator.length
 }
 
-trait VMNil extends VMList //with VMInstance
+trait VMNil extends VMList { //with VMInstance
+  override def iterator: Iterator[VMObject] =
+    new Iterator[VMObject] {
+      def hasNext: Boolean = false
+
+      def next(): VMObject = throw new NoSuchElementException("nil has no elements")
+    }
+
+  override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
+
+  override def length: Int = 0
+}
 
 object VMObjectClass extends VMClass {
   val parent: VMClass = null
