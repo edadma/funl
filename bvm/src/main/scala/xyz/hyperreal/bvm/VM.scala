@@ -392,6 +392,17 @@ class VM(code: Compilation,
               problem(apos, s"index out of range: $n")
           case _ => problem(apos, "expected a string or integer")
         }
+      case s: VMObject if s.isSequence =>
+        if (argc != 1)
+          problem(apos, "a function application with one argument was expected")
+
+        derefp match {
+          case idx: VMNumber if idx.typ == IntType && (idx.value.intValue < 0 || idx.value.intValue >= s.length) =>
+            problem(ps.head, s"sequence (of length ${s.length}) index out of range: $idx")
+          case idx: VMNumber if idx.typ == IntType =>
+            push(s.apply(idx.value.intValue))
+          case idx => problem(ps.head, s"expected integer sequence index: $idx")
+        }
       case a: Array[Any] =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
