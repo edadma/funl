@@ -97,12 +97,12 @@ object Predef {
         argsderef(args) match {
           case ArgList() => mutable.ArraySeq()
           case n: Double if n.isValidInt =>
-            mutable.ArraySeq.fill[Any](n.toInt)(undefined)
+            mutable.ArraySeq.fill[Any](n.toInt)(VMUndefined)
           case n: Double =>
             problem(apos, s"array: given size is not integral: $n")
-          case n: Int => mutable.ArraySeq.fill[Any](n)(undefined)
+          case n: Int => mutable.ArraySeq.fill[Any](n)(VMUndefined)
           case ArgList(n1: Int, n2: Int) =>
-            mutable.ArraySeq.fill[Any](n1, n2)(undefined)
+            mutable.ArraySeq.fill[Any](n1, n2)(VMUndefined)
           case ArgList(n: Int, f: Function[_, _]) =>
             mutable.ArraySeq.tabulate[Any](n)(f.asInstanceOf[Int => Any])
           case ArgList(n1: Int, n2: Int, f: Function2[_, _, _]) =>
@@ -500,17 +500,17 @@ object Predef {
       "datetime" -> ((_: VM) => LocalDateTime.now),
       "zoneddatetime" -> ((_: VM) => ZonedDateTime.now),
       "stdin" -> ((_: VM) => Console.in),
-      "stdout" -> ((_: VM) =>
-        new Assignable {
-          val value: PrintStream = Console.out
-
-          def value_=(v: Any): Unit = {
-            v match {
-              case a: Array[Byte] => Console.out.write(a)
-              case o: AnyRef      => Console.out.println(o)
-            }
-          }
-        }),
+//      "stdout" -> ((_: VM) =>//todo: system variables
+//        new Assignable {
+//          val value: PrintStream = Console.out
+//
+//          def value_=(v: Any): Unit = {
+//            v match {
+//              case a: Array[Byte] => Console.out.write(a)
+//              case o: AnyRef      => Console.out.println(o)
+//            }
+//          }
+//        }),
       "stderr" -> ((_: VM) => Console.err),
       "user" -> (
           (_: VM) =>

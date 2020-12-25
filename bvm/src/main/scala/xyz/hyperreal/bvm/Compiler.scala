@@ -726,7 +726,7 @@ class Compiler(constants: Map[String, Any],
           variable(name, namespaces) match {
             case d @ VarDecl(idx, _, _) =>
               init match {
-                case None       => code += PushInst(undefined)
+                case None       => code += PushInst(VMUndefined)
                 case Some(expr) => _emit(expr)
               }
 
@@ -746,7 +746,7 @@ class Compiler(constants: Map[String, Any],
               problem(pos, s"illegal forward reference to symbol '$oname'")
             case DeclVarResult(d @ VarDecl(idx, declared, set), space, fidx) =>
               if (!declared && !set && fidx == 0) {
-                code += PushInst(undefined)
+                code += PushInst(VMUndefined)
 
                 if (space == Symbol("global"))
                   code += SetGlobalInst(idx, VariableAssignable = true)
@@ -1270,21 +1270,21 @@ class Compiler(constants: Map[String, Any],
         case DefinedExpressionAST(expr) =>
           _emit(expr)
           code += DupInst
-          code += PushInst(undefined)
+          code += PushInst(VMUndefined)
           code += EqInst
           code += BranchIfNotInst(1)
           code += FailInst
         case UndefinedExpressionAST(expr) =>
           _emit(expr)
           code += DupInst
-          code += PushInst(undefined)
+          code += PushInst(VMUndefined)
           code += EqInst
           code += BranchIfInst(1)
           code += FailInst
         case DefinedOptionExpressionAST(expr) =>
           _emit(expr)
           code += DupInst
-          code += PushInst(undefined)
+          code += PushInst(VMUndefined)
           code += EqInst
           code += BranchIfNotInst(3)
           code += DropInst

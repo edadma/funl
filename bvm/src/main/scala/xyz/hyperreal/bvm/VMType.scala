@@ -1,7 +1,5 @@
 package xyz.hyperreal.bvm
 
-import xyz.hyperreal.dal.{Type, TypedNumber, numberType}
-
 import java.util.NoSuchElementException
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
@@ -75,26 +73,6 @@ object VMClassClass extends VMClass {
   val extending: List[VMType] = List(parent)
   val members: Map[Symbol, VMMember] = Map()
   val clas: VMClass = VMClassClass
-}
-
-object VMNumberClass extends VMClass {
-  val name: String = "Number"
-  val parent: VMClass = VMObjectClass
-  val extending: List[VMType] = List(parent)
-  val members: Map[Symbol, VMMember] = Map()
-  val clas: VMClass = VMClassClass
-}
-
-object VMNumber {
-  def apply(n: (Type, Number)) = new VMNumber(n._1, n._2)
-
-  def apply(n: Number) = new VMNumber(numberType(n), n)
-}
-
-class VMNumber(val typ: Type, val value: Number) extends VMObjectNotSeq with TypedNumber {
-  val clas: VMClass = VMNumberClass
-
-  override def toString: String = value.toString
 }
 
 trait VMIterable extends VMObject {
@@ -211,4 +189,52 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList with VMI
     elem(this)
     buf.mkString("[", ", ", "]")
   }
+}
+
+object VMUnitClass extends VMClass {
+  val parent: VMClass = VMObjectClass
+  val name: String = "Unit"
+  val extending: List[VMType] = List(VMObjectClass)
+  val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
+}
+
+object VMVoid extends VMObjectNotSeq {
+  val clas: VMClass = VMUnitClass
+  val outer: Option[VMInstance] = None
+
+  override def toString: String = "()"
+}
+
+object VMUndefined extends VMObjectNotSeq {
+  val clas: VMClass = null
+  val outer: Option[VMInstance] = None
+
+  override def toString: String = "undefined"
+}
+
+object VMBooleanClass extends VMClass {
+  val parent: VMClass = VMObjectClass
+  val name: String = "Boolean"
+  val extending: List[VMType] = List(VMObjectClass)
+  val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
+}
+
+object VMTrue extends VMObjectNotSeq {
+  val clas: VMClass = VMBooleanClass
+  val outer: Option[VMInstance] = None
+
+  override def toString: String = "true"
+}
+
+object VMFalse extends VMObjectNotSeq {
+  val clas: VMClass = VMBooleanClass
+  val outer: Option[VMInstance] = None
+
+  override def toString: String = "false"
+}
+
+object VMBoolean {
+  def apply(b: Boolean): VMObject = if (b) VMTrue else VMFalse
 }

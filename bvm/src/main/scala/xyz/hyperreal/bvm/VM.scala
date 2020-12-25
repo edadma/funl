@@ -14,7 +14,9 @@ object VM {
   private val HALT = -1
   private val MATCH_FAIL = -1
   private val VM_STATE = -2
-  private val ONE = new VMNumber(IntType, 1)
+
+  val ONE = new VMNumber(IntType, 1)
+  val MINUS_ONE = new VMNumber(IntType, -1)
 }
 
 class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchored: Boolean, val args: Any) {
@@ -328,7 +330,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
         else if (!r.isInstanceOf[VMNumber])
           problem(rpos, s"not a number: ${display(r)}")
         else
-          push(BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply))
+          push(
+            BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply))
     }
   }
 
@@ -377,7 +380,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           problem(apos, "a function application with one argument was expected")
 
         derefp match {
-          case s: String =>
+          case VMString(s) =>
             r.stringMap get s match {
               case None    => problem(apos, s"not a field of record '${r.name}'")
               case Some(n) => push(r(n))
@@ -400,7 +403,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             push(s.apply(idx.value.intValue))
           case idx => problem(ps.head, s"expected integer sequence index: $idx")
         }
-      case a: Array[Any] =>
+      case a: Array[VMObject] =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
 
@@ -418,28 +421,28 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case idx: Int if idx < 0 || idx >= ms.length =>
             problem(ps.head, s"sequence (of length ${ms.length}) index out of range: $idx")
           case idx: Int =>
-            push(new MutableSeqAssignable(ms.asInstanceOf[MutableSeq[Any]], idx))
+            push(new MutableSeqAssignable(ms.asInstanceOf[MutableSeq[VMObject]], idx))
           case idx => problem(ps.head, s"expected integer sequence index: $idx")
         }
       case m: MutableMap[_, _] =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
 
-        val arg = derefp
+        val arg = derefpo
 
 //        if (m.asInstanceOf[MutableMap[Any, Any]].contains(arg))
-        push(new MutableMapAssignable(m.asInstanceOf[MutableMap[Any, Any]], arg))
+        push(new MutableMapAssignable(m.asInstanceOf[MutableMap[VMObject, VMObject]], arg))
 //        else
 //          push(undefined)
       case m: collection.Map[_, _] =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
 
-        val arg = derefp
+        val arg = derefpo
 
         push(
-          m.asInstanceOf[collection.Map[Any, Any]]
-            .getOrElse(arg, undefined /*problem(apos, s"key not found: ${display(arg)}")*/ ))
+          m.asInstanceOf[collection.Map[VMObject, VMObject]]
+            .getOrElse(arg, VMUndefined /*problem(apos, s"key not found: ${display(arg)}")*/ ))
       case s: collection.Seq[Any] =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
@@ -558,13 +561,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   case Some(n) => push(r(n))
                 }
               case m: MutableMap[_, _] =>
-                push(new MutableMapAssignable(m.asInstanceOf[MutableMap[Any, Any]], field.name))
+                push(new MutableMapAssignable(m.asInstanceOf[MutableMap[VMObject, VMObject]], VMString(field.name)))
               case m: collection.Map[_, _] =>
                 push(
-                  m.asInstanceOf[collection.Map[Any, Any]]
-                    .getOrElse(field.name, undefined))
-              case null        => problem(epos, "null value")
-              case `undefined` => problem(epos, "undefined value")
+                  m.asInstanceOf[collection.Map[VMObject, VMObject]]
+                    .getOrElse(VMString(field.name), VMUndefined))
+              case null          => problem(epos, "null value")
+              case `VMUndefined` => problem(epos, "undefined value")
             }
           case ReturnInst =>
             ip = pop.asInstanceOf[Return].ret
@@ -742,10 +745,10 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                                 else frame.locals.tails.drop(fidx).next()))
           case LocalInst(fidx, idx, _) => push(frame.locals(fidx)(idx))
           case SetLocalInst(idx, variable) =>
-            frame.locals.head(idx) = if (variable) new VariableAssignable(derefp) else derefp
+            frame.locals.head(idx) = if (variable) new VariableAssignable(derefpo) else derefp
           case GlobalInst(idx, _) => push(globals(idx))
           case SetGlobalInst(idx, variable) =>
-            globals(idx) = if (variable) new VariableAssignable(derefp) else derefp
+            globals(idx) = if (variable) new VariableAssignable(derefpo) else derefp
           case SetGlobalsInst(idxs) =>
             for ((gi, i) <- idxs zipWithIndex)
               globals(gi) = bindings(i)
@@ -845,13 +848,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case ErrorInst(p, error)     => problem(p, error)
           case CallingErrorInst(error) => problem(pos, error)
           case MapInst =>
-            val v = derefp
-            val k = derefp
+            val v = derefpo
+            val k = derefpo
 
-            push(derefp.asInstanceOf[Map[Any, Any]] + (k -> v))
+            push(derefp.asInstanceOf[Map[VMObject, VMObject]] + (k -> v))
           case DerefInst => push(derefp)
           case AssignmentInst(len, lpos, op, rpos) =>
-            val rhs = for (_ <- 1 to len) yield derefp
+            val rhs = for (_ <- 1 to len) yield derefpo
             val lhs = for (_ <- 1 to len) yield pop
 
             def assignment(): Unit = {
@@ -862,7 +865,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   lhs(i) match {
                     case l: Assignable =>
                       rhs(i) match {
-                        case `undefined` =>
+                        case `VMUndefined` =>
                           problem(rpos(i), "'undefined' may not be assigned to a variable")
                         case r =>
                           l.value = r
@@ -889,31 +892,31 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                       lhs(i) match {
                         case l: Assignable =>
                           (op, l.value) match {
-                            case (Symbol("+"), seq: collection.Seq[Any]) =>
-                              l.value = seq :+ rhs(i)
-                            case (Symbol("+"), set: collection.Set[_]) =>
-                              l.value = set
-                                .asInstanceOf[collection.Set[Any]] concat List(rhs(i))
-                            case (Symbol("+"), s: String) =>
-                              l.value = s + rhs(i)
-                            case (Symbol("<") | Symbol(">"), n: Number) =>
-                              if (!rhs(i).isInstanceOf[Number])
+//                            case (Symbol("+"), seq: collection.Seq[VMObject]) =>//todo: sequence append
+//                              l.value = seq :+ rhs(i)
+//                            case (Symbol("+"), set: collection.Set[_]) =>
+//                              l.value = set
+//                                .asInstanceOf[collection.Set[Any]] concat List(rhs(i))
+                            case (Symbol("+"), VMString(s)) =>
+                              l.value = VMString(s + rhs(i))
+                            case (Symbol("<") | Symbol(">"), n: VMNumber) =>
+                              if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
 
-                              if (BasicDAL.relate(op, n, rhs(i).asInstanceOf[Number]))
+                              if (BasicDAL.relate(op, n, rhs(i).asInstanceOf[VMNumber]))
                                 l.value = rhs(i)
                               else {
                                 fail()
                                 return
                               }
-                            case (Symbol("<"), s: String) =>
+                            case (Symbol("<"), VMString(s)) =>
                               if (s < String.valueOf(rhs(i)))
                                 l.value = rhs(i)
                               else {
                                 fail()
                                 return
                               }
-                            case (Symbol(">"), s: String) =>
+                            case (Symbol(">"), VMString(s)) =>
                               if (s > String.valueOf(rhs(i)))
                                 l.value = rhs(i)
                               else {
@@ -924,7 +927,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                               if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
                               else
-                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[VMNumber], VMNumber.apply)
+                                l.value = BasicDAL
+                                  .perform(op, n, rhs(i).asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply)
                             case _ => problem(lpos(i), s"illegal assignment: '${op.name}'")
                           }
 
@@ -977,13 +981,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             derefp match {
               case s: String =>
                 generate(GeneratorTemp(s.iterator map (_.toString)))
-              case a: Array[_] =>
-                generate(
-                  GeneratorTemp(a.indices.iterator map (new MutableSeqAssignable(a.asInstanceOf[Array[Any]], _))))
-              case ms: MutableSeq[_] =>
-                generate(
-                  GeneratorTemp(
-                    ms.indices.iterator map (new MutableSeqAssignable(ms.asInstanceOf[MutableSeq[Any]], _))))
+//              case a: Array[_] =>//todo: arrays/mutable sequences
+//                generate(
+//                  GeneratorTemp(a.indices.iterator map (new MutableSeqAssignable(a.asInstanceOf[Array[Any]], _))))
+//              case ms: MutableSeq[_] =>
+//                generate(
+//                  GeneratorTemp(
+//                    ms.indices.iterator map (new MutableSeqAssignable(ms.asInstanceOf[MutableSeq[Any]], _))))
               case o: VMObject if o.isIterable => generate(GeneratorTemp(o.iterator))
               case it: Iterator[_]             => generate(GeneratorTemp(it))
               case g: GeneratorTemp            => generate(g)
@@ -1228,10 +1232,6 @@ case class LeftSectionOperation(lpos: Position, l: Any, op: Symbol)
 case class RightSectionOperation(op: Symbol, rpos: Position, r: Any)
 
 case object Fail
-
-object undefined {
-  override def toString = "undefined"
-}
 
 private case class Node(n: String, branches: List[Node])
 

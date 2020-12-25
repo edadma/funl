@@ -27,8 +27,8 @@ package object bvm {
   val LineBreakPattern: PatternAST = Pattern.compiledSubpattern(
     FlagConditionalPattern(
       UNIX_LINES,
-      StringPattern(LiteralExpressionAST("\n")),
-      AlternationPattern(List(StringPattern(LiteralExpressionAST("\r\n")), ClassPattern(TERMINATOR_CLASS)))
+      StringPattern(LiteralExpressionAST(VMString("\n"))),
+      AlternationPattern(List(StringPattern(LiteralExpressionAST(VMString("\r\n"))), ClassPattern(TERMINATOR_CLASS)))
     ))
   val BeginningOfLinePattern: PatternAST = Pattern.compiledSubpattern(
     FlagConditionalPattern(
@@ -93,7 +93,7 @@ package object bvm {
 
   def displayQuoted(a: Any): String =
     a match {
-      case s: String =>
+      case VMString(s) =>
         var t = s
 
         for ((k, v) <- List("\\" -> "\\\\",
@@ -128,11 +128,7 @@ package object bvm {
         m.toList.map({ case (k, v) => displayQuoted(k) + ": " + displayQuoted(v) }).mkString("{", ", ", "}")
       case t: Vector[_]   => t.map(display).mkString("<", ", ", ">")
       case t: ArraySeq[_] => t.map(display).mkString("<", ", ", ">")
-      case p: Product if p.productArity > 0 && !p.productPrefix.startsWith("Tuple") =>
-        p.productPrefix + '(' + p.productIterator.map(display).mkString(", ") + ')'
-      case p: Product if p.productArity == 0 => p.productPrefix
-      //			case Some( a ) => "Some(" + display(a) + ")"
-      case _ => String.valueOf(a)
+      case _              => String.valueOf(a)
     }
 
 //  val NUMERIC: Numeric[Number] =

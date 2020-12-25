@@ -4,20 +4,20 @@ import scala.collection.mutable
 
 trait Assignable {
 
-  def value: Any
+  def value: VMObject
 
-  def value_=(v: Any): Unit
+  def value_=(v: VMObject): Unit
 
 }
 
-class VariableAssignable(var value: Any) extends Assignable
+class VariableAssignable(var value: VMObject) extends Assignable
 
-class MutableSeqAssignable(seq: mutable.Seq[Any], index: Int) extends Assignable {
-  def value: Any = seq(index)
+class MutableSeqAssignable(seq: mutable.Seq[VMObject], index: Int) extends Assignable {
+  def value: VMObject = seq(index)
 
-  def value_=(v: Any): Unit = {
+  def value_=(v: VMObject): Unit = {
     seq match {
-      case buf: mutable.Buffer[Any] if buf.length <= index =>
+      case buf: mutable.Buffer[VMObject] if buf.length <= index =>
         buf.appendAll(Iterator.fill(index - buf.length + 1)(null))
       case _ =>
     }
@@ -26,8 +26,8 @@ class MutableSeqAssignable(seq: mutable.Seq[Any], index: Int) extends Assignable
   }
 }
 
-class MutableMapAssignable(map: mutable.Map[Any, Any], key: Any) extends Assignable {
-  def value: Any = map.getOrElse(key, undefined)
+class MutableMapAssignable(map: mutable.Map[VMObject, VMObject], key: VMObject) extends Assignable {
+  def value: VMObject = map.getOrElse(key, VMUndefined)
 
-  def value_=(v: Any): Unit = map(key) = v
+  def value_=(v: VMObject): Unit = map(key) = v
 }

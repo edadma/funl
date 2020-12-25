@@ -67,7 +67,7 @@ case class ApplyExpressionAST(epos: Position,
 case class DotExpressionAST(epos: Position, expr: ExpressionAST, apos: Position, field: Symbol) extends ExpressionAST
 case class BracketExpressionAST(epos: Position, f: ExpressionAST, apos: Position, arg: ExpressionAST)
     extends ExpressionAST
-case class LiteralExpressionAST(v: Any) extends ExpressionAST
+case class LiteralExpressionAST(v: VMObject) extends ExpressionAST
 case class VariableExpressionAST(pos: Position, var name: String, oname: String) extends ExpressionAST
 case class BinaryExpressionAST(lpos: Position, left: ExpressionAST, op: Symbol, rpos: Position, right: ExpressionAST)
     extends ExpressionAST
@@ -157,7 +157,7 @@ case class WhereClauseAST(where: List[DeclarationStatementAST]) extends AST
 trait StructureAST extends AST
 case class NamedStructureAST(pos: Position, var alias: String, s: StructureAST) extends StructureAST
 case class TypeStructureAST(s: StructureAST, typename: String) extends StructureAST
-case class LiteralStructureAST(v: Any) extends StructureAST
+case class LiteralStructureAST(v: VMObject) extends StructureAST
 case class VariableStructureAST(pos: Position, var name: String, oname: String) extends StructureAST
 case class TupleStructureAST(pos: Position, args: List[StructureAST]) extends StructureAST
 case class AlternationStructureAST(l: List[StructureAST]) extends StructureAST

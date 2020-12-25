@@ -488,17 +488,17 @@ class FunLTests extends FreeSpec with ScalaCheckPropertyChecks with Matchers {
   "elements" in {
     runCapture(
       """
-				|data record( a, b )
-				|val r = record( 123, 456 )
+				|data record(a, b)
+				|val r = record(123, 456)
 				|val m = {a: 123, "b": 456}
 				|
-				|write( r.a, r.b, r, r("b"), r(1) )
-				|write( m.a, m.b, m, m("a") )
-				|write( [3, 4, 5](1) )
+				|write(r.a, r.b, r, r("b"), r(1))
+				|write(m.a, m.b, m, m("a"))
+				|write([3, 4, 5](1))
 			""".stripMargin
     ) shouldBe
       """
-				|123, 456, record( 123, 456 ), 456, 456
+				|123, 456, record(123, 456), 456, 456
 				|123, 456, {"a": 123, "b": 456}, 123
 				|4
 			""".stripMargin.trim

@@ -555,12 +555,13 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   def perform(op: Symbol, left: Number, right: Number): Any =
     opmap(numberType(left), op, numberType(right))(left, right)._2
 
-  def perform(op: Symbol,
-              left: TypedNumber,
-              right: TypedNumber,
-              number: ((Type, Number)) => TypedNumber = DALNumber.apply): Any =
+  def perform[T](op: Symbol,
+                 left: TypedNumber,
+                 right: TypedNumber,
+                 number: ((Type, Number)) => T,
+                 boolean: Boolean => T): T =
     opmap(left.typ, op, right.typ)(left.value, right.value) match {
-      case (null, b: java.lang.Boolean) => b
+      case (null, b: java.lang.Boolean) => boolean(b)
       case n                            => number(n.asInstanceOf[(Type, Number)])
     }
 
