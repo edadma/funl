@@ -10,6 +10,7 @@ object VMRangeClass extends VMClass {
   val name: String = "Range"
   val extending: List[VMType] = List(parent)
   val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
 }
 
 class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean) extends VMObject with VMIterable {

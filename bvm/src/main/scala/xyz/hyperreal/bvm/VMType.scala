@@ -21,12 +21,14 @@ abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-abstract class VMClass extends VMType {
+abstract class VMClass extends VMObject with VMType {
   val name: String
   val parent: VMClass
 
   def canBuild: Boolean = false
   def build(from: Iterator[VMObject]): VMObject = sys.error("can't build from iterator")
+
+  override def toString: String = s"class $name"
 }
 
 trait VMBuilder extends VMClass {
@@ -54,11 +56,20 @@ trait VMInstance extends VMObject {
   val outer: Option[VMInstance]
 }
 
+object VMClassClass extends VMClass {
+  val name: String = "Class"
+  val parent: VMClass = VMObjectClass
+  val extending: List[VMType] = List(parent)
+  val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
+}
+
 object VMNumberClass extends VMClass {
   val name: String = "Number"
   val parent: VMClass = VMObjectClass
   val extending: List[VMType] = List(parent)
   val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
 }
 
 object VMNumber {
@@ -104,6 +115,7 @@ object VMObjectClass extends VMClass {
   val name: String = "Object"
   val extending: List[VMType] = Nil
   val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
 }
 
 object VMListClass extends VMClass with VMBuilder {
@@ -129,6 +141,8 @@ object VMListClass extends VMClass with VMBuilder {
 
     list
   }
+
+  val clas: VMClass = VMClassClass
 }
 
 object VMConsClass extends VMClass {
@@ -136,6 +150,7 @@ object VMConsClass extends VMClass {
   val name: String = "Cons"
   val extending: List[VMType] = List(VMListClass)
   val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
 }
 
 class VMConsObject(val head: VMObject, var tail: VMList) extends VMList with VMInstance {
