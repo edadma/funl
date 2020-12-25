@@ -1225,7 +1225,11 @@ case object Reverse extends Mode
 case class ArgList(array: Any*)
 
 case class Frame(locals: List[Array[Any]], ret: Int)
+
 case class FunctionReference(var entry: Int, name: String, arity: Int, context: List[Array[Any]])
+    extends VMObjectNotSeq {
+  val clas: VMClass = null //todo: function objects
+}
 
 case class SectionOperation(op: Symbol)
 case class LeftSectionOperation(lpos: Position, l: Any, op: Symbol)
