@@ -1,2 +1,1 @@
-for i <- 3..7
-  write(i)
+write(max(3, 5))

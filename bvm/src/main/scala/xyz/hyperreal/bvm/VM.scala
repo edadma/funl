@@ -14,15 +14,10 @@ object VM {
   private val HALT = -1
   private val MATCH_FAIL = -1
   private val VM_STATE = -2
-  private val ONE = new VMNumberObject(IntType, 1)
+  private val ONE = new VMNumber(IntType, 1)
 }
 
-class VM(code: Compilation,
-         captureTrees: ArraySeq[Node],
-         scan: Boolean,
-         anchored: Boolean,
-         val args: Any,
-         interface: VMInterface) {
+class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchored: Boolean, val args: Any) {
   import VM._
 
   var seq: CharSequence = _
@@ -304,7 +299,7 @@ class VM(code: Compilation,
               else if (!r.isInstanceOf[VMNumber])
                 problem(rpos, s"not a number: ${display(r)}")
               else
-                push(BasicDAL.compute(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], interface.number))
+                push(BasicDAL.compute(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply))
           }
       case Symbol("=") | Symbol("!=") =>
         if ((l, r) match {
@@ -321,7 +316,7 @@ class VM(code: Compilation,
           fail()
       case Symbol(":") =>
         r match {
-          case s: VMList => push(interface.cons(l.asInstanceOf[VMObject], s))
+          case s: VMList => push(new VMConsObject(l.asInstanceOf[VMObject], s))
           case _         => problem(rpos, s"not a list: ${display(r)}")
         }
       case Symbol("in") | Symbol("notin") => // todo: implement 'in'
@@ -331,7 +326,7 @@ class VM(code: Compilation,
         else if (!r.isInstanceOf[VMNumber])
           problem(rpos, s"not a number: ${display(r)}")
         else
-          push(BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], interface.number))
+          push(BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply))
     }
   }
 
@@ -732,7 +727,7 @@ class VM(code: Compilation,
             flags &= ~clearmask
           case PushInst(a) =>
             a match {
-              case n: Number => push(interface.number(numberType(n), n))
+              case n: Number => push(VMNumber(numberType(n), n))
               case _         => push(a)
             }
           case PushFunctionInst(compute) => push(compute(this))
@@ -832,18 +827,18 @@ class VM(code: Compilation,
               case _ =>
             }
           case ListInst(len) =>
-            var l: VMList = interface.nil
+            var l: VMList = VMNil
 
             for (_ <- 1 to len)
-              l = interface.cons(derefp.asInstanceOf[VMObject], l)
+              l = new VMConsObject(derefp.asInstanceOf[VMObject], l)
 
             push(l)
           case SetInst =>
             val elem = derefp
 
             push(derefp.asInstanceOf[Set[Any]] + elem)
-          case ListHeadInst            => push(derefp.asInstanceOf[VMCons].head)
-          case ListTailInst            => push(derefp.asInstanceOf[VMCons].tail)
+          case ListHeadInst            => push(derefp.asInstanceOf[VMConsObject].head)
+          case ListTailInst            => push(derefp.asInstanceOf[VMConsObject].tail)
           case EqInst                  => push(derefp == derefp)
           case ErrorInst(p, error)     => problem(p, error)
           case CallingErrorInst(error) => problem(pos, error)
@@ -927,7 +922,7 @@ class VM(code: Compilation,
                               if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
                               else
-                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[VMNumber], interface.number)
+                                l.value = BasicDAL.perform(op, n, rhs(i).asInstanceOf[VMNumber], VMNumber.apply)
                             case _ => problem(lpos(i), s"illegal assignment: '${op.name}'")
                           }
 
@@ -951,17 +946,17 @@ class VM(code: Compilation,
             val n = d.asInstanceOf[VMNumber]
 
             op match {
-              case Symbol("-") => push(BasicDAL.negate(n, interface.number))
+              case Symbol("-") => push(BasicDAL.negate(n, VMNumber.apply _))
               case Symbol("++*") | Symbol("--*") | Symbol("*++") | Symbol("*--") if !v.isInstanceOf[Assignable] =>
                 problem(pos, "not an l-value")
               case Symbol("++*") | Symbol("--*") =>
-                val res = BasicDAL.compute(op, d.asInstanceOf[VMNumber], ONE, interface.number)
+                val res = BasicDAL.compute(op, d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
 
                 v.asInstanceOf[Assignable].value = res
                 push(res)
               case Symbol("*++") | Symbol("*--") =>
                 v.asInstanceOf[Assignable].value =
-                  BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, interface.number)
+                  BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
                 push(d)
             }
           case BinaryInst(lpos, op, rpos) =>
@@ -1023,7 +1018,7 @@ class VM(code: Compilation,
                   problem(pt, s"expected a number as range end value: ${display(v)}")
               }
 
-            push(interface.range(derefp.asInstanceOf[VMNumber].value, t, b, inclusive))
+            push(new VMRangeObject(derefp.asInstanceOf[VMNumber].value, t, b, inclusive))
           //                problem(pf, s"expected a number (real and not a fraction) as the range initial value: ${display(v)}")
           case UnboundedLazyListInst(fpos, bpos) =>
             val b =
@@ -1039,7 +1034,7 @@ class VM(code: Compilation,
                   problem(fpos, s"expected start value to be a number: $o")
               }
 
-            push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, interface.number)))
+            push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, VMNumber.apply)))
           case CommentInst(_) =>
           case EmptyInst      => push(derefp.asInstanceOf[Seq[_]].isEmpty)
           case HaltInst       => ip = HALT
@@ -1089,7 +1084,7 @@ class VM(code: Compilation,
 
             push(derefp.asInstanceOf[Vector[Any]] :+ elem)
           case ToListInst =>
-            push(derefp.asInstanceOf[IterableOnce[Any]].iterator.to(List))
+            push(VMListClass.build(derefp.asInstanceOf[VMObject].iterator))
           case ToSetInst =>
             push(derefp.asInstanceOf[IterableOnce[Any]].iterator.to(Set))
           case BracketInst(epos, apos) =>
@@ -1257,7 +1252,7 @@ class Record(val name: String, elems: IndexedSeq[Any], val symbolMap: Map[Symbol
 
   def element(idx: Int): Any = elems(idx)
 
-  override def toString: String = if (arity == 0) name else s"$name( ${elems mkString ", "} )"
+  override def toString: String = if (arity == 0) name else s"$name(${elems mkString ", "})"
 }
 
 class Tuple(elems: IndexedSeq[Any]) extends TupleLike {

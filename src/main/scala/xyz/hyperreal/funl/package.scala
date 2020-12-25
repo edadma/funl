@@ -28,11 +28,7 @@ package object funl {
       ArraySeq(),
       false,
       false,
-      args,
-      VMInterface((a, b) => new ConsObject(a.asInstanceOf[FunlObject], b.asInstanceOf[FunlList]),
-                  NilObject,
-                  FunlNumber.apply,
-                  RangeObject)
+      args
     )
 
     vm.execute

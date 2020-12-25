@@ -165,7 +165,7 @@ package object bvm {
 
   def naturalCompare(x: Any, y: Any): Int =
     (x, y) match {
-      case (a: Number, b: Number) =>
+      case (a: VMNumber, b: VMNumber) =>
         if (BasicDAL.relate(Symbol("<"), a, b))
           -1
         else if (BasicDAL.relate(Symbol(">"), a, b))

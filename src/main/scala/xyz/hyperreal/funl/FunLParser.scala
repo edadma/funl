@@ -754,7 +754,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
   lazy val unaryExpression: PackratParser[ExpressionAST] =
     "-" ~> pos ~ incrementExpression ^^ {
       case _ ~ LiteralExpressionAST(n: Number) =>
-        LiteralExpressionAST(FunlNumber(BasicDAL.negate(numberType(n), n)))
+        LiteralExpressionAST(VMNumber(BasicDAL.negate(numberType(n), n)))
       case p ~ v => UnaryExpressionAST(operator("-"), p, v)
     } |
       "." ~> incrementExpression ^^ DereferenceExpressionAST |
@@ -882,7 +882,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
       "{" ~ "}" ^^^ LiteralExpressionAST(Set()) |
       "{" ~ ":" ~ "}" ^^^ LiteralExpressionAST(Map()) |
       pos ~ ident ^^ { case p ~ n => VariableExpressionAST(p, n, n) } |
-      "[" ~ "]" ^^^ LiteralExpressionAST(NilObject) |
+      "[" ~ "]" ^^^ LiteralExpressionAST(VMNil) |
       "[" ~> rep1sep(expression, ",") <~ "]" ^^ { l =>
         ListExpressionAST(l)
       } |

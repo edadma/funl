@@ -215,7 +215,7 @@ object BasicDAL extends DAL {
       case (BigDecType, a: BigDecimal)   => (BigDecType, -a)
     }
 
-  def negate(n: TypedNumber, number: ((Type, Number)) => TypedNumber = DALNumber.apply): TypedNumber =
+  def negate[T <: TypedNumber](n: TypedNumber, number: ((Type, Number)) => T): T =
     number(negate(n.typ, n.value))
 
   def invert(n: Number): (Type, Number) =
@@ -543,11 +543,8 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       r.asInstanceOf[Boolean]
   }
 
-  def compute[T <: TypedNumber](op: Symbol,
-                                left: TypedNumber,
-                                right: TypedNumber,
-                                number: ((Type, Number)) => T /*= DALNumber.apply*/ ): T = {
-    val n @ (t, r) = opmap(left.typ, op, right.typ)(left.value, right.value)
+  def compute[T <: TypedNumber](op: Symbol, left: TypedNumber, right: TypedNumber, number: ((Type, Number)) => T): T = {
+    val n @ (t, _) = opmap(left.typ, op, right.typ)(left.value, right.value)
 
     if (t == null)
       sys.error(s"operation '$op' does not return number")

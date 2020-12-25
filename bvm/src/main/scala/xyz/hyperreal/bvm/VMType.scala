@@ -3,6 +3,8 @@ package xyz.hyperreal.bvm
 import xyz.hyperreal.dal.{Type, TypedNumber}
 
 import java.util.NoSuchElementException
+import scala.annotation.tailrec
+import scala.collection.mutable.ListBuffer
 
 trait VMType {
   val name: String
@@ -10,20 +12,28 @@ trait VMType {
   val members: Map[Symbol, VMMember]
 }
 
-trait VMMember {
+abstract class VMMember {
   //val clas: VMClass
   val name: String
 }
 
-trait VMNativeMethod extends VMMember {
+abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-trait VMClass extends VMType {
+abstract class VMClass extends VMType {
+  val name: String
   val parent: VMClass
+
+  def canBuild: Boolean = false
+  def build(from: Iterator[VMObject]): VMObject = sys.error("can't build from iterator")
 }
 
-trait VMObject {
+trait VMBuilder extends VMClass {
+  override def canBuild: Boolean = true
+}
+
+abstract class VMObject {
   val clas: VMClass
 
   def toString: String
@@ -40,11 +50,26 @@ trait VMObject {
 
 }
 
-//trait VMInstance extends VMObject {
-//  val outer: Option[VMInstance]
-//}
+trait VMInstance extends VMObject {
+  val outer: Option[VMInstance]
+}
 
-trait VMNumber extends VMObject with TypedNumber
+object VMNumberClass extends VMClass {
+  val name: String = "Number"
+  val parent: VMClass = VMObjectClass
+  val extending: List[VMType] = List(parent)
+  val members: Map[Symbol, VMMember] = Map()
+}
+
+object VMNumber {
+  def apply(n: (Type, Number)) = new VMNumber(n._1, n._2)
+}
+
+class VMNumber(val typ: Type, val value: Number) extends VMObject with TypedNumber {
+  val clas: VMClass = VMNumberClass
+
+  override def toString: String = value.toString
+}
 
 trait VMIterable extends VMObject {
   override val isIterable: Boolean = true
@@ -56,21 +81,78 @@ trait VMSequence extends VMIterable {
 
 trait VMList extends VMObject with VMSequence
 
-trait VMCons extends VMList /*with VMInstance*/ { consThis =>
-  val head: VMObject
-  val tail: VMList
+object VMNil extends VMList with VMInstance {
+  val clas: VMClass = VMListClass
+  val outer: Option[VMInstance] = None
+
+  override def iterator: Iterator[VMObject] =
+    new Iterator[VMObject] {
+      def hasNext: Boolean = false
+
+      def next(): VMObject = throw new NoSuchElementException("nil has no elements")
+    }
+
+  override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
+
+  override def length: Int = 0
+
+  override def toString: String = "[]"
+}
+
+object VMObjectClass extends VMClass {
+  val parent: VMClass = null
+  val name: String = "Object"
+  val extending: List[VMType] = Nil
+  val members: Map[Symbol, VMMember] = Map()
+}
+
+object VMListClass extends VMClass with VMBuilder {
+  val parent: VMClass = VMObjectClass
+  val name: String = "List"
+  val extending: List[VMType] = List(parent)
+  val members: Map[Symbol, VMMember] = Map()
+
+  override def build(from: Iterator[VMObject]): VMObject = {
+    var list: VMList = VMNil
+    var last: VMConsObject = null
+
+    while (from.hasNext) {
+      if (last eq null) {
+        last = new VMConsObject(from.next(), null)
+        list = last
+      } else
+        last.tail = new VMConsObject(from.next(), last)
+    }
+
+    if (last ne null)
+      last.tail = VMNil
+
+    list
+  }
+}
+
+object VMConsClass extends VMClass {
+  val parent: VMClass = VMListClass
+  val name: String = "Cons"
+  val extending: List[VMType] = List(VMListClass)
+  val members: Map[Symbol, VMMember] = Map()
+}
+
+class VMConsObject(val head: VMObject, var tail: VMList) extends VMList with VMInstance {
+  val outer: Option[VMInstance] = None
+  val clas: VMClass = VMConsClass
 
   override val isSequence: Boolean = true
 
   override def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
-      var cur: VMList = consThis
+      var cur: VMList = VMConsObject.this
 
-      def hasNext: Boolean = cur.isInstanceOf[VMCons]
+      def hasNext: Boolean = cur.isInstanceOf[VMConsObject]
 
       def next(): VMObject = {
         cur match {
-          case c: VMCons =>
+          case c: VMConsObject =>
             val res = c.head
 
             cur = c.tail
@@ -83,59 +165,20 @@ trait VMCons extends VMList /*with VMInstance*/ { consThis =>
   override def apply(idx: Int): VMObject = iterator.drop(idx).next()
 
   override def length: Int = iterator.length
-}
 
-trait VMNil extends VMList { //with VMInstance
-  override def iterator: Iterator[VMObject] =
-    new Iterator[VMObject] {
-      def hasNext: Boolean = false
+  override def toString: String = {
+    val buf = new ListBuffer[VMObject]
 
-      def next(): VMObject = throw new NoSuchElementException("nil has no elements")
-    }
+    @tailrec
+    def elem(l: VMList): Unit =
+      l match {
+        case VMNil =>
+        case c: VMConsObject =>
+          buf += c.head
+          elem(c.tail)
+      }
 
-  override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
-
-  override def length: Int = 0
-}
-
-object VMObjectClass extends VMClass {
-  val parent: VMClass = null
-  val name: String = "Object"
-  val extending: List[VMType] = Nil
-  val members: Map[Symbol, VMMember] = Map()
-}
-
-object VMListClass extends VMClass {
-  val parent: VMClass = VMObjectClass
-  val name: String = "List"
-  val extending: List[VMType] = Nil
-  val members: Map[Symbol, VMMember] = Map()
-}
-
-object VMConstClass extends VMClass {
-  val parent: VMClass = VMListClass
-  val name: String = "Const"
-  val extending: List[VMType] = List(VMListClass)
-  val members: Map[Symbol, VMMember] = Map()
-}
-
-class VMConsObject(val head: VMObject, val tail: VMList) extends VMCons {
-//  val outer: Option[VMInstance] = None
-  val clas: VMClass = VMConstClass
-}
-
-object VMNilObject extends VMNil {
-  val clas: VMClass = VMListClass
-//  val outer: Option[VMInstance] = None
-}
-
-object VMNumberClass extends VMClass {
-  val parent: VMClass = VMObjectClass
-  val name: String = "Number"
-  val extending: List[VMType] = Nil
-  val members: Map[Symbol, VMMember] = Map()
-}
-
-class VMNumberObject(val typ: Type, val value: Number) extends VMNumber {
-  val clas: VMClass = VMNumberClass
+    elem(this)
+    buf.mkString("[", ", ", "]")
+  }
 }

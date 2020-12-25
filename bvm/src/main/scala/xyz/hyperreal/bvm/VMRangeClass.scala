@@ -1,26 +1,20 @@
-package xyz.hyperreal.funl
+package xyz.hyperreal.bvm
 
-import xyz.hyperreal.bvm.{VMClass, VMIterable, VMMember, VMObject, VMType}
 import xyz.hyperreal.dal.{BasicDAL, numberType, toBigInt}
 
+import scala.collection.immutable.AbstractSeq
 import java.{lang => boxed}
-import scala.collection.immutable.{AbstractSeq, StrictOptimizedSeqOps}
 
-object RangeClass extends FunlClass {
-  val parent: VMClass = ObjectClass
+object VMRangeClass extends VMClass {
+  val parent: VMClass = VMObjectClass
   val name: String = "Range"
   val extending: List[VMType] = List(parent)
   val members: Map[Symbol, VMMember] = Map()
 }
 
-case class RangeObject(start: Number, end: Number, step: Number, inclusive: Boolean)
-    extends FunlObject
-    with VMIterable {
-  val clas: VMClass = RangeClass
-  val range: AbstractSeq[Any]
-    with IndexedSeq[Any]
-    with StrictOptimizedSeqOps[Any, IndexedSeq, IndexedSeq[Any]]
-    with Serializable =
+class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean) extends VMObject with VMIterable {
+  val clas: VMClass = VMRangeClass
+  val range: AbstractSeq[Any] with IndexedSeq[Any] =
     start match {
       case i: boxed.Integer if inclusive => i.toInt to end.intValue by step.intValue
       case i: boxed.Integer              => i.toInt until end.intValue by step.intValue
@@ -39,6 +33,7 @@ case class RangeObject(start: Number, end: Number, step: Number, inclusive: Bool
     }
 
   override def iterator: Iterator[VMObject] =
-    range.iterator.map(n => FunlNumber((numberType(n.asInstanceOf[Number]), n.asInstanceOf[Number])))
+    range.iterator.map(n => VMNumber((numberType(n.asInstanceOf[Number]), n.asInstanceOf[Number])))
 
+  override def toString: String = range.toString
 }

@@ -13,7 +13,7 @@ class Compilation(val functions: Map[String, (Int, Int)],
   def length = code.length
 
   var matcherConstructor: (Boolean, Boolean, Any) => VM =
-    (scan: Boolean, anchored: Boolean, args: Any) => new VM(this, captureTrees, scan, anchored, null, null)
+    (scan: Boolean, anchored: Boolean, args: Any) => new VM(this, captureTrees, scan, anchored, null)
 
   def matches(subject: CharSequence, scan: Boolean = true, anchored: Boolean = false) = {
     val m = matcher(scan = scan, anchored = anchored)
