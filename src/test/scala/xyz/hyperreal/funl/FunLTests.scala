@@ -251,7 +251,7 @@ class FunLTests extends FreeSpec with ScalaCheckPropertyChecks with Matchers {
       """
 				|write( {x\2 | x <- 1..5} )
 			""".stripMargin
-    ) shouldBe "{0, 1, 2}"
+    ) shouldBe "{1, 0, 2}"
   }
 
   "nested every" in {

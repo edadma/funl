@@ -169,9 +169,9 @@ object BasicDAL extends DAL {
 
   operation(
     Symbol("\\"),
-    IntType -> ((l, r) => (IntType, r.intValue / l.intValue: Number)),
-    LongType -> ((l: Number, r: Number) => (LongType, r.longValue / l.longValue: Number)),
-    BigIntType -> ((l: Number, r: Number) => (BigIntType, toBigInt(r) / toBigInt(l))),
+    IntType -> ((l, r) => (IntType, l.intValue / r.intValue: Number)),
+    LongType -> ((l: Number, r: Number) => (LongType, l.longValue / r.longValue: Number)),
+    BigIntType -> ((l: Number, r: Number) => (BigIntType, toBigInt(l) / toBigInt(r))),
   )
 
   operation(
