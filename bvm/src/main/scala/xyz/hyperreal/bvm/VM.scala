@@ -1086,7 +1086,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
             push(derefp.asInstanceOf[Vector[Any]] :+ elem)
           case ToListInst =>
-            push(VMListClass.build(derefp.asInstanceOf[VMObject].iterator))
+            val it =
+              derefp match {
+                case i: Iterable[VMObject] => i.iterator
+                case o: VMObject           => o.iterator
+              }
+
+            push(VMListClass.build(it))
           case ToSetInst =>
             push(derefp.asInstanceOf[IterableOnce[Any]].iterator.to(Set))
           case BracketInst(epos, apos) =>
@@ -1220,12 +1226,6 @@ case class FunctionReference(var entry: Int, name: String, arity: Int, context: 
 case class SectionOperation(op: Symbol)
 case class LeftSectionOperation(lpos: Position, l: Any, op: Symbol)
 case class RightSectionOperation(op: Symbol, rpos: Position, r: Any)
-
-case class RecordConstructor(typename: String, name: String, fields: List[Symbol]) {
-  val arity: Int = fields.length
-  val symbolMap = Map(fields zipWithIndex: _*)
-  val stringMap = Map(fields map (_.name) zipWithIndex: _*)
-}
 
 case object Fail
 

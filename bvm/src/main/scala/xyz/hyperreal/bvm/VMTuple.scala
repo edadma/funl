@@ -20,6 +20,15 @@ trait TupleLike extends VMSequence {
     }
 }
 
+class RecordConstructor(val typename: String, val name: String, val fields: List[Symbol]) extends VMObjectNotSeq {
+  val arity: Int = fields.length
+  val symbolMap = Map(fields zipWithIndex: _*)
+  val stringMap = Map(fields map (_.name) zipWithIndex: _*)
+  val clas: VMClass = null //todo: fix
+
+  override def toString: String = s"RecordConstructor($typename, $name, $fields)"
+}
+
 class VMRecord(val name: String,
                elems: IndexedSeq[VMObject],
                val symbolMap: Map[Symbol, Int],

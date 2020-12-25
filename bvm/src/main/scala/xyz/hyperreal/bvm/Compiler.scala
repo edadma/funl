@@ -199,7 +199,7 @@ class Compiler(constants: Map[String, Any],
             if (duplicate(cname))
               problem(pos, s"duplicate symbol '$cname'")
             else
-              declare(cname, RecordDecl(RecordConstructor(tname, cname, fields)))
+              declare(cname, RecordDecl(new RecordConstructor(tname, cname, fields)))
         case DeclarationBlockAST(s)                             => s foreach explicits
         case t if explicitsExtension isDefinedAt (t, explicits) => explicitsExtension(t, explicits)
         case _                                                  =>

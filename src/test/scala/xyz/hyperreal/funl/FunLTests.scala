@@ -570,7 +570,7 @@ class FunLTests extends FreeSpec with ScalaCheckPropertyChecks with Matchers {
 				|
 				|write( fac4, constructor, x, num )
 			""".stripMargin
-    ) shouldBe "24, RecordConstructor(num, num, [Symbol(v)]), undefined, RecordConstructor(num, num, [Symbol(asdf)])"
+    ) shouldBe "24, RecordConstructor(num, num, List(Symbol(v))), undefined, RecordConstructor(num, num, List(Symbol(asdf)))"
   }
 
   "nested compound expression declaration" in {
