@@ -21,7 +21,7 @@ abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-abstract class VMClass extends VMObject with VMType {
+abstract class VMClass extends VMObjectNotSeq with VMType {
   val name: String
   val parent: VMClass
 
@@ -40,6 +40,19 @@ abstract class VMObject {
 
   def toString: String
 
+  val isIterable: Boolean
+
+  def iterator: Iterator[VMObject]
+
+  val isSequence: Boolean
+
+  def apply(idx: Int): VMObject
+
+  def length: Int
+
+}
+
+abstract class VMObjectNotSeq extends VMObject {
   val isIterable: Boolean = false
 
   def iterator: Iterator[VMObject] = sys.error("no iterator method")
@@ -76,18 +89,18 @@ object VMNumber {
   def apply(n: (Type, Number)) = new VMNumber(n._1, n._2)
 }
 
-class VMNumber(val typ: Type, val value: Number) extends VMObject with TypedNumber {
+class VMNumber(val typ: Type, val value: Number) extends VMObjectNotSeq with TypedNumber {
   val clas: VMClass = VMNumberClass
 
   override def toString: String = value.toString
 }
 
 trait VMIterable extends VMObject {
-  override val isIterable: Boolean = true
+  val isIterable: Boolean = true
 }
 
 trait VMSequence extends VMIterable {
-  override val isSequence: Boolean = true
+  val isSequence: Boolean = true
 }
 
 trait VMList extends VMObject with VMSequence

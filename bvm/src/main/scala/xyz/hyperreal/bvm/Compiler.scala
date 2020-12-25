@@ -761,7 +761,7 @@ class Compiler(constants: Map[String, Any],
               else
                 code += GlobalInst(idx, name)
             case DeclVarResult(RecordDecl(c), _, _) =>
-              code += PushInst(if (c.arity == 0) new Record(c.name, Vector(), c.symbolMap, c.stringMap) else c)
+              code += PushInst(if (c.arity == 0) new VMRecord(c.name, Vector(), c.symbolMap, c.stringMap) else c)
             case DeclVarResult(f @ FunctionDecl(_, _, _, arity, _, -1, _), _, fidx) =>
               f.fixups += code.length
               code += PushFunctionReferenceInst(-1, name, arity, fidx)

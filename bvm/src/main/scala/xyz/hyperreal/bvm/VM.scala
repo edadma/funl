@@ -133,6 +133,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
   def derefp: Any = deref(pop)
 
+  def derefpo: VMObject = derefp.asInstanceOf[VMObject]
+
   def derefpi: Int = derefp.asInstanceOf[Int]
 
   def derefps: String = derefp.asInstanceOf[String]
@@ -364,13 +366,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
         if (argc != c.arity)
           problem(apos, s"expecting ${c.arity} arguments")
 
-        val args = new Array[Any](c.arity)
+        val args = new Array[VMObject](c.arity)
 
         for (i <- c.arity - 1 to 0 by -1)
-          args(i) = derefp
+          args(i) = derefpo
 
-        push(new Record(c.name, ArraySeq.from(args), c.symbolMap, c.stringMap))
-      case r: Record =>
+        push(new VMRecord(c.name, ArraySeq.from(args), c.symbolMap, c.stringMap))
+      case r: VMRecord =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
 
@@ -378,11 +380,11 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case s: String =>
             r.stringMap get s match {
               case None    => problem(apos, s"not a field of record '${r.name}'")
-              case Some(n) => push(r.element(n))
+              case Some(n) => push(r(n))
             }
           case n: VMNumber if n.typ == IntType =>
-            if (0 <= n.value.intValue && n.value.intValue < r.arity)
-              push(r.element(n.value.intValue))
+            if (0 <= n.value.intValue && n.value.intValue < r.length)
+              push(r(n.value.intValue))
             else
               problem(apos, s"index out of range: $n")
           case _ => problem(apos, "expected a string or integer")
@@ -549,11 +551,11 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             callIndirect(derefp, fpos, apos, ps, argc)
           case DotOperatorInst(epos, apos, field) =>
             derefp match {
-              case r: Record =>
+              case r: VMRecord =>
                 r.symbolMap get field match {
                   case None =>
                     problem(apos, s"'$field' not a field of record '${r.name}'")
-                  case Some(n) => push(r.element(n))
+                  case Some(n) => push(r(n))
                 }
               case m: MutableMap[_, _] =>
                 push(new MutableMapAssignable(m.asInstanceOf[MutableMap[Any, Any]], field.name))
@@ -762,14 +764,14 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
             push(buf.toString)
           case TupleInst(arity) =>
-            val a = new Array[Any](arity)
+            val a = new Array[VMObject](arity)
 
             for (i <- arity - 1 to 0 by -1)
-              a(i) = derefp
+              a(i) = derefpo
 
             push(new Tuple(ArraySeq.from(a)))
           case TupleElementInst(n) =>
-            push(derefp.asInstanceOf[TupleLike].element(n))
+            push(derefp.asInstanceOf[TupleLike](n))
           case DupInst => push(top)
           case DupUnderInst =>
             val t = pop
@@ -800,7 +802,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 val arity = l.length
 
                 dereft match {
-                  case t: Tuple if t.arity == arity =>
+                  case t: Tuple if t.length == arity =>
                   case _: Tuple =>
                     fail() //problem( tpos, s"arity mismatch: expected arity of $arity, but actual arity was ${t.arity}" )
                   case _ =>
@@ -820,7 +822,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 }
               case RecordStructureAST(_, name, args) =>
                 dereft match {
-                  case r: Record if r.name == name && r.arity == args.length =>
+                  case r: VMRecord if r.name == name && r.length == args.length =>
                   case _ =>
                     fail() //problem( tpos, s"expected a record: '$name'" )//todo: fail with reason???
                 }
@@ -830,7 +832,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             var l: VMList = VMNil
 
             for (_ <- 1 to len)
-              l = new VMConsObject(derefp.asInstanceOf[VMObject], l)
+              l = new VMConsObject(derefpo, l)
 
             push(l)
           case SetInst =>
@@ -1223,44 +1225,6 @@ case class RecordConstructor(typename: String, name: String, fields: List[Symbol
   val arity: Int = fields.length
   val symbolMap = Map(fields zipWithIndex: _*)
   val stringMap = Map(fields map (_.name) zipWithIndex: _*)
-}
-
-trait TupleLike extends Iterable[Any] {
-  def arity: Int
-
-  def element(idx: Int): Any
-
-  def iterator: Iterator[Any] =
-    new Iterator[Any] {
-      private var idx = 0
-
-      def hasNext: Boolean = idx < arity
-
-      def next(): Any =
-        if (hasNext) {
-          val res = element(idx)
-
-          idx += 1
-          res
-        }
-    }
-}
-
-class Record(val name: String, elems: IndexedSeq[Any], val symbolMap: Map[Symbol, Int], val stringMap: Map[String, Int])
-    extends TupleLike {
-  val arity: Int = elems.length
-
-  def element(idx: Int): Any = elems(idx)
-
-  override def toString: String = if (arity == 0) name else s"$name(${elems mkString ", "})"
-}
-
-class Tuple(elems: IndexedSeq[Any]) extends TupleLike {
-  val arity: Int = elems.length
-
-  def element(idx: Int): Any = elems(idx)
-
-  override def toString = s"(${elems mkString ", "})"
 }
 
 case object Fail

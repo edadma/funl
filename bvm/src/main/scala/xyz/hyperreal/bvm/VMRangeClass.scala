@@ -13,7 +13,7 @@ object VMRangeClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean) extends VMObject with VMIterable {
+class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean) extends VMSequence {
   val clas: VMClass = VMRangeClass
   val range: AbstractSeq[Any] with IndexedSeq[Any] =
     start match {
@@ -37,4 +37,12 @@ class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean
     range.iterator.map(n => VMNumber((numberType(n.asInstanceOf[Number]), n.asInstanceOf[Number])))
 
   override def toString: String = range.toString
+
+  def apply(idx: Int): VMObject = {
+    val n = range(idx)
+
+    VMNumber((numberType(n.asInstanceOf[Number]), n.asInstanceOf[Number]))
+  }
+
+  def length: Int = range.length
 }
