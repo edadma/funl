@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-import xyz.hyperreal.dal.{Type, TypedNumber}
+import xyz.hyperreal.dal.{Type, TypedNumber, numberType}
 
 import java.util.NoSuchElementException
 import scala.annotation.tailrec
@@ -87,6 +87,8 @@ object VMNumberClass extends VMClass {
 
 object VMNumber {
   def apply(n: (Type, Number)) = new VMNumber(n._1, n._2)
+
+  def apply(n: Number) = new VMNumber(numberType(n), n)
 }
 
 class VMNumber(val typ: Type, val value: Number) extends VMObjectNotSeq with TypedNumber {
@@ -172,7 +174,7 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList with VMI
 
   override val isSequence: Boolean = true
 
-  override def iterator: Iterator[VMObject] =
+  def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
       var cur: VMList = VMConsObject.this
 
@@ -190,9 +192,9 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList with VMI
       }
     }
 
-  override def apply(idx: Int): VMObject = iterator.drop(idx).next()
+  def apply(idx: Int): VMObject = iterator.drop(idx).next()
 
-  override def length: Int = iterator.length
+  def length: Int = iterator.length
 
   override def toString: String = {
     val buf = new ListBuffer[VMObject]

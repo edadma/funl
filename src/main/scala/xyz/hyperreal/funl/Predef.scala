@@ -164,9 +164,8 @@ object Predef {
       },
       "tuple" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()        => new mutable.HashSet[Any] //todo: shouldn't this be () (Unit)?
-          case a: Array[Any]    => new Tuple(immutable.ArraySeq.from(a))
-          case s: Iterable[Any] => new Tuple(immutable.ArraySeq.from(s))
+          case ArgList()                   => new mutable.HashSet[Any] //todo: shouldn't this be () (Unit)?
+          case a: VMObject if a.isIterable => new Tuple(immutable.ArraySeq.from(a.iterator))
         }
       },
       "table" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
@@ -174,7 +173,7 @@ object Predef {
           case ArgList()               => new mutable.LinkedHashMap[Any, Any]
           case m: collection.Map[_, _] => mutable.LinkedHashMap(m.toSeq: _*)
           case s: Iterable[_] if s.head.isInstanceOf[Tuple] =>
-            mutable.LinkedHashMap(s.asInstanceOf[Iterable[Tuple]].toSeq map (v => (v.element(0), v.element(1))): _*)
+            mutable.LinkedHashMap(s.asInstanceOf[Iterable[Tuple]].toSeq map (v => (v(0), v(1))): _*)
         }
       },
       "move" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
@@ -530,7 +529,8 @@ object Predef {
           "version" -> System.getProperty("java.version"),
           "home" -> System.getProperty("java.home")
         )),
-      "vmscaninfo" -> ((vm: VM) => new Tuple(immutable.ArraySeq(vm.seq, vm.scanpos + 1))),
+      "vmscaninfo" -> ((vm: VM) =>
+        new Tuple(immutable.ArraySeq(new VMString(vm.seq.toString), VMNumber(vm.scanpos + 1)))),
       "vmstacksize" -> ((vm: VM) => vm.getdata.size),
       "rndi" -> ((_: VM) => BigInt(rnd)),
       "rnd" -> ((_: VM) => rnd / p32)

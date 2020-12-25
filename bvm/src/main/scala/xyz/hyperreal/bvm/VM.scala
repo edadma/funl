@@ -948,7 +948,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val n = d.asInstanceOf[VMNumber]
 
             op match {
-              case Symbol("-") => push(BasicDAL.negate(n, VMNumber.apply _))
+              case Symbol("-") => push(BasicDAL.negate(n, VMNumber.apply(_)))
               case Symbol("++*") | Symbol("--*") | Symbol("*++") | Symbol("*--") if !v.isInstanceOf[Assignable] =>
                 problem(pos, "not an l-value")
               case Symbol("++*") | Symbol("--*") =>

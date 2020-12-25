@@ -33,10 +33,8 @@ class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean
         sys.error(s"expected a number (real and not a fraction) as the range initial value: $start")
     }
 
-  override def iterator: Iterator[VMObject] =
+  def iterator: Iterator[VMObject] =
     range.iterator.map(n => VMNumber((numberType(n.asInstanceOf[Number]), n.asInstanceOf[Number])))
-
-  override def toString: String = range.toString
 
   def apply(idx: Int): VMObject = {
     val n = range(idx)
@@ -45,4 +43,6 @@ class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean
   }
 
   def length: Int = range.length
+
+  override def toString: String = range.toString
 }
