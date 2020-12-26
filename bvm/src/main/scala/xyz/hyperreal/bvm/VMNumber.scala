@@ -16,7 +16,7 @@ object VMNumber {
   def apply(n: Number) = new VMNumber(numberType(n), n)
 }
 
-class VMNumber(val typ: Type, val value: Number) extends VMNonIterableObject with TypedNumber {
+case class VMNumber(typ: Type, value: Number) extends VMNonIterableObject with TypedNumber {
   val clas: VMClass = VMNumberClass
 
   override def hashCode: Int = value.hashCode

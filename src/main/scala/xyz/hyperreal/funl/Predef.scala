@@ -5,12 +5,12 @@ import java.time.{LocalDate, LocalDateTime, LocalTime, ZonedDateTime}
 import scala.util.parsing.input.Position
 import scala.collection.immutable
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
 import scala.math.BigInt
 import scala.util.Random.{nextDouble, nextInt, setSeed}
 import xyz.hyperreal.numbers_jvm.ComplexBigInt
 import xyz.hyperreal.bvm._
-import xyz.hyperreal.dal.BasicDAL
+import xyz.hyperreal.dal.{BasicDAL, IntType}
+import java.{lang => boxed}
 
 object Predef {
 
@@ -176,7 +176,7 @@ object Predef {
       },
       "move" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
-          case n: Int =>
+          case VMNumber(IntType, n: boxed.Integer) =>
             val pos = vm.scanpos + n
 
             if (pos < 0 || pos > vm.seq.length)
@@ -201,10 +201,10 @@ object Predef {
       "tab" -> ((vm: VM,
                  apos: Position,
                  ps: List[Position],
-                 args: Any) => vm.tabToPosition(deref(args).asInstanceOf[Int])),
+                 args: Any) => vm.tabToPosition(deref(args).asInstanceOf[VMNumber].value.intValue)),
       "pos" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
-          case n: Int =>
+          case VMNumber(IntType, n: boxed.Integer) =>
             if (n < -vm.seq.length || n > vm.seq.length + 1)
               Fail
             else {
@@ -226,8 +226,8 @@ object Predef {
                   ps: List[Position],
                   args: Any) =>
                    argsderef(args) match {
-                     case str: String                        => find(vm, str, vm.seq.toString, vm.scanpos)
-                     case ArgList(str: String, subj: String) => find(vm, str, subj, 0)
+                     case VMString(str)                          => find(vm, str, vm.seq.toString, vm.scanpos)
+                     case ArgList(VMString(str), VMString(subj)) => find(vm, str, subj, 0)
                    }),
       "cset" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         val list =
@@ -246,8 +246,8 @@ object Predef {
           }
         val set =
           q match {
-            case c: CSet   => c
-            case s: String => new CSet(s)
+            case c: CSet     => c
+            case s: VMString => new CSet(s)
           }
 
         s.indexWhere(set, f) match {

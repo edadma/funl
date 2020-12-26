@@ -7,8 +7,6 @@ import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableS
 import util.parsing.input.Position
 import xyz.hyperreal.dal.{BasicDAL, IntType, numberType}
 
-import scala.collection.mutable
-
 object VM {
   private val HALT = -1
   private val MATCH_FAIL = -1
@@ -1043,8 +1041,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case EmptyInst      => push(derefp.asInstanceOf[Seq[_]].isEmpty)
           case HaltInst       => ip = HALT
           case BeginScanInst(spos) =>
-            derefp match {
-              case s: String =>
+            derefpo match {
+              case VMString(s) =>
                 val (oldseq, oldscanpos, oldptr) = (seq, scanpos, ptr)
 
                 pushChoice(_ => {

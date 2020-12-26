@@ -26,8 +26,6 @@ abstract class VMClass extends VMImmutableUniqueNonIterableObject with VMType {
   def canBuild: Boolean = false
   def build(from: Iterator[VMObject]): VMObject = sys.error("can't build from iterator")
 
-  override def hashCode: Int = super.hashCode()
-  override def equals(obj: Any): Boolean = super.equals(obj)
   override def toString: String = s"class $name"
 }
 
