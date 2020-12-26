@@ -5,9 +5,8 @@ import scala.annotation.tailrec
 import scala.collection.immutable.{ArraySeq, TreeMap}
 import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableSeq}
 import util.parsing.input.Position
-import xyz.hyperreal.dal.{BasicDAL, IntType, Type, numberType, toBigInt}
+import xyz.hyperreal.dal.{BasicDAL, IntType, numberType}
 
-import java.{lang => boxed}
 import scala.collection.mutable
 
 object VM {
@@ -861,7 +860,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               var res: Any = null
 
               for (i <- len - 1 to 0 by -1)
-                if (op eq null)
+                if (op eq null) {
                   lhs(i) match {
                     case l: Assignable =>
                       rhs(i) match {
@@ -872,21 +871,20 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                           res = l.value
                       }
                     case o => problem(lpos(i), s"not an l-value: $o")
-                  } else
+                  }
+                } else
                   (op, deref(lhs(i))) match {
-                    case (Symbol("-"), s: mutable.Shrinkable[_]) =>
-                      s.asInstanceOf[mutable.Shrinkable[Any]] -= rhs(i)
+                    case (Symbol("-"), s: VMObject) if s.isMutable =>
+                      s remove rhs(i)
                       res = s
-                    case (Symbol("--"), s: mutable.Shrinkable[_]) =>
-                      s.asInstanceOf[mutable.Shrinkable[Any]] --= rhs(i)
-                        .asInstanceOf[IterableOnce[Any]]
+                    case (Symbol("--"), s: VMObject) if s.isMutable =>
+                      s removeSeq rhs(i)
                       res = s
-                    case (Symbol("+"), g: mutable.Growable[_]) =>
-                      g.asInstanceOf[mutable.Growable[Any]] += rhs(i)
+                    case (Symbol("+"), g: VMObject) if g.isMutable =>
+                      g append rhs(i)
                       res = g
-                    case (Symbol("++"), g: mutable.Growable[_]) =>
-                      g.asInstanceOf[mutable.Growable[Any]] ++= rhs(i)
-                        .asInstanceOf[IterableOnce[Any]]
+                    case (Symbol("++"), g: VMObject) if g.isMutable =>
+                      g appendSeq rhs(i)
                       res = g
                     case _ =>
                       lhs(i) match {
@@ -1089,14 +1087,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val elem = derefp
 
             push(derefp.asInstanceOf[Vector[Any]] :+ elem)
-          case ToListInst =>
-            val it =
-              derefp match {
-                case i: Iterable[VMObject] => i.iterator
-                case o: VMObject           => o.iterator
-              }
-
-            push(VMListClass.build(it))
+          case ToListInst => push(VMListClass.build(derefpo.iterator))
           case ToSetInst =>
             push(derefp.asInstanceOf[IterableOnce[Any]].iterator.to(Set))
           case BracketInst(epos, apos) =>

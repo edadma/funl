@@ -35,6 +35,7 @@ trait VMBuilder extends VMClass {
 
 abstract class VMObject {
   val clas: VMClass
+  val outer: Option[VMObject] = None
 
   def toString: String
 
@@ -48,6 +49,15 @@ abstract class VMObject {
 
   def length: Int
 
+  val isMutable: Boolean
+
+  def append(elem: VMObject): Unit
+
+  def appendSeq(seq: VMObject): Unit
+
+  def remove(elem: VMObject): Unit
+
+  def removeSeq(seq: VMObject): Unit
 }
 
 abstract class VMObjectNotSeq extends VMObject {
@@ -61,10 +71,15 @@ abstract class VMObjectNotSeq extends VMObject {
 
   def length: Int = sys.error("no length method")
 
-}
+  val isMutable: Boolean = false
 
-trait VMInstance extends VMObject {
-  val outer: Option[VMInstance]
+  def append(elem: VMObject): Unit = sys.error("can't append element method")
+
+  def appendSeq(seq: VMObject): Unit = sys.error("can't append sequence method")
+
+  def remove(elem: VMObject): Unit = sys.error("can't remove element method")
+
+  def removeSeq(seq: VMObject): Unit = sys.error("can't remove sequence method")
 }
 
 object VMClassClass extends VMClass {
@@ -81,13 +96,26 @@ trait VMIterable extends VMObject {
 
 trait VMSequence extends VMIterable {
   val isSequence: Boolean = true
+  val isMutable: Boolean = false
+
+  def append(elem: VMObject): Unit = sys.error("can't append element method")
+
+  def appendSeq(seq: VMObject): Unit = sys.error("can't append sequence method")
+
+  def remove(elem: VMObject): Unit = sys.error("can't remove element method")
+
+  def removeSeq(seq: VMObject): Unit = sys.error("can't remove sequence method")
+}
+
+trait VMMutable extends VMIterable {
+  val isSequence: Boolean = true
+  val isMutable: Boolean = true
 }
 
 trait VMList extends VMObject with VMSequence
 
-object VMNil extends VMList with VMInstance {
+object VMNil extends VMList {
   val clas: VMClass = VMListClass
-  val outer: Option[VMInstance] = None
 
   override def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
@@ -111,86 +139,6 @@ object VMObjectClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-object VMListClass extends VMClass with VMBuilder {
-  val parent: VMClass = VMObjectClass
-  val name: String = "List"
-  val extending: List[VMType] = List(parent)
-  val members: Map[Symbol, VMMember] = Map()
-
-  override def build(from: Iterator[VMObject]): VMObject = {
-    var list: VMList = VMNil
-    var last: VMConsObject = null
-
-    while (from.hasNext) {
-      if (last eq null) {
-        last = new VMConsObject(from.next(), null)
-        list = last
-      } else
-        last.tail = new VMConsObject(from.next(), last)
-    }
-
-    if (last ne null)
-      last.tail = VMNil
-
-    list
-  }
-
-  val clas: VMClass = VMClassClass
-}
-
-object VMConsClass extends VMClass {
-  val parent: VMClass = VMListClass
-  val name: String = "Cons"
-  val extending: List[VMType] = List(VMListClass)
-  val members: Map[Symbol, VMMember] = Map()
-  val clas: VMClass = VMClassClass
-}
-
-class VMConsObject(val head: VMObject, var tail: VMList) extends VMList with VMInstance {
-  val outer: Option[VMInstance] = None
-  val clas: VMClass = VMConsClass
-
-  override val isSequence: Boolean = true
-
-  def iterator: Iterator[VMObject] =
-    new Iterator[VMObject] {
-      var cur: VMList = VMConsObject.this
-
-      def hasNext: Boolean = cur.isInstanceOf[VMConsObject]
-
-      def next(): VMObject = {
-        cur match {
-          case c: VMConsObject =>
-            val res = c.head
-
-            cur = c.tail
-            res
-          case _ => throw new NoSuchElementException("iterable has no more elements")
-        }
-      }
-    }
-
-  def apply(idx: Int): VMObject = iterator.drop(idx).next()
-
-  def length: Int = iterator.length
-
-  override def toString: String = {
-    val buf = new ListBuffer[VMObject]
-
-    @tailrec
-    def elem(l: VMList): Unit =
-      l match {
-        case VMNil =>
-        case c: VMConsObject =>
-          buf += c.head
-          elem(c.tail)
-      }
-
-    elem(this)
-    buf.mkString("[", ", ", "]")
-  }
-}
-
 object VMUnitClass extends VMClass {
   val parent: VMClass = VMObjectClass
   val name: String = "Unit"
@@ -201,14 +149,12 @@ object VMUnitClass extends VMClass {
 
 object VMVoid extends VMObjectNotSeq {
   val clas: VMClass = VMUnitClass
-  val outer: Option[VMInstance] = None
 
   override def toString: String = "()"
 }
 
 object VMUndefined extends VMObjectNotSeq {
   val clas: VMClass = null
-  val outer: Option[VMInstance] = None
 
   override def toString: String = "undefined"
 }
@@ -223,14 +169,12 @@ object VMBooleanClass extends VMClass {
 
 object VMTrue extends VMObjectNotSeq {
   val clas: VMClass = VMBooleanClass
-  val outer: Option[VMInstance] = None
 
   override def toString: String = "true"
 }
 
 object VMFalse extends VMObjectNotSeq {
   val clas: VMClass = VMBooleanClass
-  val outer: Option[VMInstance] = None
 
   override def toString: String = "false"
 }
