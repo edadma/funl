@@ -1,5 +1,6 @@
 package xyz.hyperreal.bvm
 
+import java.util.NoSuchElementException
 import scala.annotation.tailrec
 
 object VMListClass extends VMClass with VMBuilder {
@@ -13,15 +14,16 @@ object VMListClass extends VMClass with VMBuilder {
     var last: VMConsObject = null
 
     while (from.hasNext) {
-      if (last eq null) {
-        last = new VMConsObject(from.next(), null)
-        list = last
-      } else
-        last.tail = new VMConsObject(from.next(), last)
-    }
+      val next = new VMConsObject(from.next(), VMNil)
 
-    if (last ne null)
-      last.tail = VMNil
+      if (last eq null)
+        list = next
+      else
+        last.tail = next
+
+      last = next
+
+    }
 
     list
   }
@@ -48,7 +50,7 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList {
 
       def hasNext: Boolean = cur.isInstanceOf[VMConsObject]
 
-      def next(): VMObject = {
+      def next(): VMObject =
         cur match {
           case c: VMConsObject =>
             val res = c.head
@@ -57,30 +59,30 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList {
             res
           case _ => throw new NoSuchElementException("iterable has no more elements")
         }
-      }
     }
 
   def apply(idx: Int): VMObject = iterator.drop(idx).next()
 
   def length: Int = iterator.length
 
-  override def toString: String = {
-    val buf = new StringBuilder
+  override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")
+}
 
-    @tailrec
-    def elem(l: VMList): Unit =
-      l match {
-        case VMNil =>
-        case c: VMConsObject =>
-          buf ++= c.head.toString
+trait VMList extends VMObject with VMSequence
 
-          if (c.tail != VMNil)
-            buf ++= ", "
+object VMNil extends VMList {
+  val clas: VMClass = VMListClass
 
-          elem(c.tail)
-      }
+  override def iterator: Iterator[VMObject] =
+    new Iterator[VMObject] {
+      def hasNext: Boolean = false
 
-    elem(this)
-    s"[$buf]"
-  }
+      def next(): VMObject = throw new NoSuchElementException("nil has no elements")
+    }
+
+  override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
+
+  override def length: Int = 0
+
+  override def toString: String = "[]"
 }

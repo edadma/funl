@@ -112,25 +112,6 @@ trait VMMutable extends VMIterable {
   val isMutable: Boolean = true
 }
 
-trait VMList extends VMObject with VMSequence
-
-object VMNil extends VMList {
-  val clas: VMClass = VMListClass
-
-  override def iterator: Iterator[VMObject] =
-    new Iterator[VMObject] {
-      def hasNext: Boolean = false
-
-      def next(): VMObject = throw new NoSuchElementException("nil has no elements")
-    }
-
-  override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
-
-  override def length: Int = 0
-
-  override def toString: String = "[]"
-}
-
 object VMObjectClass extends VMClass {
   val parent: VMClass = null
   val name: String = "Object"
