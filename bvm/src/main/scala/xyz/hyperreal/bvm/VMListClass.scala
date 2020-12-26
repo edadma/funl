@@ -1,7 +1,6 @@
 package xyz.hyperreal.bvm
 
 import java.util.NoSuchElementException
-import scala.annotation.tailrec
 
 object VMListClass extends VMClass with VMBuilder {
   val parent: VMClass = VMObjectClass
@@ -22,7 +21,6 @@ object VMListClass extends VMClass with VMBuilder {
         last.tail = next
 
       last = next
-
     }
 
     list

@@ -2,20 +2,20 @@ package xyz.hyperreal.bvm
 
 import scala.collection.mutable.ArrayBuffer
 
-object VMArrayClass extends VMClass with VMBuilder {
+object VMBufferClass extends VMClass with VMBuilder {
   val parent: VMClass = VMObjectClass
-  val name: String = "Array"
+  val name: String = "Buffer"
   val extending: List[VMType] = List(parent)
   val members: Map[Symbol, VMMember] = Map()
   val clas: VMClass = VMClassClass
 
-  override def build(from: Iterator[VMObject]): VMObject = new VMArray(from to ArrayBuffer)
+  override def build(from: Iterator[VMObject]): VMObject = new VMBuffer(from to ArrayBuffer)
 }
 
-class VMArray private[bvm] (buf: ArrayBuffer[VMObject]) extends VMMutable {
+class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMMutable {
   def this() = this(new ArrayBuffer[VMObject])
 
-  val clas: VMClass = VMArrayClass
+  val clas: VMClass = VMBufferClass
 
   override val isSequence: Boolean = true
 
@@ -33,5 +33,5 @@ class VMArray private[bvm] (buf: ArrayBuffer[VMObject]) extends VMMutable {
 
   def removeSeq(seq: VMObject): Unit = buf --= seq.iterator
 
-  override def toString: String = buf.mkString("array(", ", ", ")")
+  override def toString: String = buf.mkString("Buffer(", ", ", ")")
 }

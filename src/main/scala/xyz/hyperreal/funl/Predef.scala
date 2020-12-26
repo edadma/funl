@@ -120,16 +120,14 @@ object Predef {
       },
       "buffer" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()         => new ArrayBuffer[Any]
-          case n: Int            => ArrayBuffer.fill[Any](n)(null)
-          case init: Array[Any]  => ArrayBuffer[Any](init.toIndexedSeq: _*)
-          case init: Array[Byte] => ArrayBuffer[Any](init.toIndexedSeq: _*)
-          case init: Array[Int]  => ArrayBuffer[Any](init.toIndexedSeq: _*)
-          case init: Seq[_] if init.nonEmpty && init.head.isInstanceOf[Seq[Any]] =>
-            ArrayBuffer[Any](init map (e => ArrayBuffer[Any](e.asInstanceOf[Seq[Any]]: _*)): _*)
-          case init: Seq[Any] => ArrayBuffer[Any](init.toIndexedSeq: _*)
-          case init: IterableOnce[Any] =>
-            ArrayBuffer[Any](init.iterator.to(Seq): _*)
+          case ArgList() => new VMBuffer
+          case n: Int =>
+            val res = new VMBuffer
+
+            for (_ <- 1 to n) res.append(null)
+
+            res
+          case init: VMObject if init.isIterable => VMBufferClass.build(init.iterator)
         }
       },
       "seq" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>

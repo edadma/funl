@@ -1172,7 +1172,7 @@ class Compiler(constants: Map[String, Any],
           code += PushInst(())
           comment("--- generator unify end ---")
         case ListComprehensionExpressionAST(ComprehensionAST(expr, gen)) =>
-          code += PushFunctionInst((_: VM) => new VMArray)
+          code += PushFunctionInst((_: VM) => new VMBuffer)
           frameSameData { _emit(ForExpressionAST(None, gen, ComprehensionBodyAST(expr), None)) }
           code += ToListInst
         case SetComprehensionExpressionAST(ComprehensionAST(expr, gen)) =>
