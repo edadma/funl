@@ -16,8 +16,15 @@ object VMNumber {
   def apply(n: Number) = new VMNumber(numberType(n), n)
 }
 
-class VMNumber(val typ: Type, val value: Number) extends VMObjectNotSeq with TypedNumber {
+class VMNumber(val typ: Type, val value: Number) extends VMNonIterableObject with TypedNumber {
   val clas: VMClass = VMNumberClass
+
+  override def hashCode: Int = value.hashCode
+
+  override def equals(obj: Any): Boolean = obj match {
+    case n: VMNumber => value == n.value
+    case _           => false
+  }
 
   override def toString: String = value.toString
 }

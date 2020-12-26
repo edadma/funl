@@ -249,9 +249,9 @@ class FunLTests extends FreeSpec with ScalaCheckPropertyChecks with Matchers {
   "set comprehension" in {
     runCapture(
       """
-				|write( {x\2 | x <- 1..5} )
+				|write({x\2 | x <- 1..5})
 			""".stripMargin
-    ) shouldBe "{1, 0, 2}"
+    ) shouldBe "{0, 1, 2}"
   }
 
   "nested every" in {

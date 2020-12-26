@@ -9,10 +9,10 @@ object VMBufferClass extends VMClass with VMBuilder {
   val members: Map[Symbol, VMMember] = Map()
   val clas: VMClass = VMClassClass
 
-  override def build(from: Iterator[VMObject]): VMObject = new VMBuffer(from to ArrayBuffer)
+  override def build(iterator: Iterator[VMObject]): VMObject = new VMBuffer(iterator to ArrayBuffer)
 }
 
-class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMMutable {
+class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMMutableSequence {
   def this() = this(new ArrayBuffer[VMObject])
 
   val clas: VMClass = VMBufferClass

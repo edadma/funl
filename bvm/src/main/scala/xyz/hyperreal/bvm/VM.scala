@@ -1088,8 +1088,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
             push(derefp.asInstanceOf[Vector[Any]] :+ elem)
           case ToListInst => push(VMListClass.build(derefpo.iterator))
-          case ToSetInst =>
-            push(derefp.asInstanceOf[IterableOnce[Any]].iterator.to(Set))
+          case ToSetInst  => push(VMSetClass.build(derefpo.iterator))
           case BracketInst(epos, apos) =>
             val arg = derefp
 
@@ -1218,7 +1217,7 @@ case class ArgList(array: Any*)
 case class Frame(locals: List[Array[Any]], ret: Int)
 
 case class FunctionReference(var entry: Int, name: String, arity: Int, context: List[Array[Any]])
-    extends VMObjectNotSeq {
+    extends VMImmutableUniqueNonIterableObject {
   val clas: VMClass = null //todo: function objects
 }
 

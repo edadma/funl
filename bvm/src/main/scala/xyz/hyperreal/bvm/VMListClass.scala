@@ -8,12 +8,12 @@ object VMListClass extends VMClass with VMBuilder {
   val extending: List[VMType] = List(parent)
   val members: Map[Symbol, VMMember] = Map()
 
-  override def build(from: Iterator[VMObject]): VMObject = {
+  override def build(iterator: Iterator[VMObject]): VMObject = {
     var list: VMList = VMNil
     var last: VMConsObject = null
 
-    while (from.hasNext) {
-      val next = new VMConsObject(from.next(), VMNil)
+    while (iterator.hasNext) {
+      val next = new VMConsObject(iterator.next(), VMNil)
 
       if (last eq null)
         list = next
@@ -40,8 +40,6 @@ object VMConsClass extends VMClass {
 class VMConsObject(val head: VMObject, var tail: VMList) extends VMList {
   val clas: VMClass = VMConsClass
 
-  override val isSequence: Boolean = true
-
   def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
       var cur: VMList = VMConsObject.this
@@ -66,7 +64,7 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList {
   override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")
 }
 
-trait VMList extends VMObject with VMSequence
+trait VMList extends VMObject with VMImmutableSequence
 
 object VMNil extends VMList {
   val clas: VMClass = VMListClass

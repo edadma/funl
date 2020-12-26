@@ -1176,7 +1176,7 @@ class Compiler(constants: Map[String, Any],
           frameSameData { _emit(ForExpressionAST(None, gen, ComprehensionBodyAST(expr), None)) }
           code += ToListInst
         case SetComprehensionExpressionAST(ComprehensionAST(expr, gen)) =>
-          code += PushFunctionInst((_: VM) => new mutable.HashSet)
+          code += PushFunctionInst((_: VM) => new VMBuffer)
           frameSameData { _emit(ForExpressionAST(None, gen, ComprehensionBodyAST(expr), None)) }
           code += ToSetInst
         case ComprehensionBodyAST(expr) =>

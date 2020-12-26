@@ -13,7 +13,7 @@ object VMRangeClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean) extends VMSequence {
+class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean) extends VMImmutableSequence {
   val clas: VMClass = VMRangeClass
   val range: AbstractSeq[Any] with IndexedSeq[Any] =
     start match {

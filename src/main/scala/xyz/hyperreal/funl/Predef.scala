@@ -589,8 +589,8 @@ object Predef {
           problem(null, "cat() macro can only be applied to pattern expressions")
       },
       "capture" -> {
-        case List(LiteralExpressionAST(name), PatternExpressionAST(pat)) if name.isInstanceOf[String] =>
-          PatternExpressionAST(CapturePattern(name.asInstanceOf[String], pat, null))
+        case List(LiteralExpressionAST(name), PatternExpressionAST(pat)) if name.isInstanceOf[VMString] =>
+          PatternExpressionAST(CapturePattern(name.asInstanceOf[VMString].string, pat, null))
         case _ =>
           problem(null, "capture() macro can only be applied to pattern expressions")
       },
