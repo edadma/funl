@@ -1,6 +1,6 @@
 package xyz.hyperreal.funl
 
-import java.io.{DataInputStream, FileInputStream, PrintStream}
+import java.io.{DataInputStream, FileInputStream}
 import java.time.{LocalDate, LocalDateTime, LocalTime, ZonedDateTime}
 import scala.util.parsing.input.Position
 import scala.collection.immutable
@@ -48,18 +48,18 @@ object Predef {
 
   val constants =
     Map(
-      native("toInt", { case (vm: VM, v: String)    => v.toInt }),
-      native("toLong", { case (vm: VM, v: String)   => v.toLong }),
-      native("toBigInt", { case (vm: VM, v: String) => BigInt(v) }),
-      native("toFloat", { case (vm: VM, v: String)  => v.toDouble }),
-      native("eval", { case (vm: VM, expr: String)  => xyz.hyperreal.funl.run(expr) }),
-      native("sqrt", { case (vm: VM, n: Number)     => BasicDAL.sqrtFunction(n) }),
-      native("abs", { case (vm: VM, n: Number)      => BasicDAL.absFunction(n) }),
-      native("exp", { case (vm: VM, n: Number)      => BasicDAL.expFunction(n) }),
-      native("ln", { case (vm: VM, n: Number)       => BasicDAL.lnFunction(n) }),
-      native("sin", { case (vm: VM, n: Number)      => BasicDAL.sinFunction(n) }),
-      native("cos", { case (vm: VM, n: Number)      => BasicDAL.cosFunction(n) }),
-      native("tan", { case (vm: VM, n: Number)      => BasicDAL.tanFunction(n) }),
+      native("toInt", { case (vm: VM, VMString(s))    => VMNumber(s.toInt) }),
+      native("toLong", { case (vm: VM, VMString(s))   => VMNumber(s.toLong) }),
+      native("toBigInt", { case (vm: VM, VMString(s)) => VMNumber(BigInt(s)) }),
+      native("toFloat", { case (vm: VM, VMString(s))  => VMNumber(s.toDouble) }),
+      native("eval", { case (vm: VM, VMString(s))     => xyz.hyperreal.funl.run(s) }),
+      native("sqrt", { case (vm: VM, VMNumber(_, n))  => VMNumber(BasicDAL.sqrtFunction(n)) }),
+      native("abs", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.absFunction(n)) }),
+      native("exp", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.expFunction(n)) }),
+      native("ln", { case (vm: VM, n: Number)         => VMNumber(BasicDAL.lnFunction(n)) }),
+      native("sin", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.sinFunction(n)) }),
+      native("cos", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.cosFunction(n)) }),
+      native("tan", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.tanFunction(n)) }),
       "None" -> None,
       "alphanum" -> ALPHANUM_CLASS,
       "digits" -> DIGIT_CLASS,
@@ -95,39 +95,41 @@ object Predef {
       },
       "array" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList() => mutable.ArraySeq()
-          case n: Double if n.isValidInt =>
-            mutable.ArraySeq.fill[Any](n.toInt)(VMUndefined)
-          case n: Double =>
-            problem(apos, s"array: given size is not integral: $n")
-          case n: Int => mutable.ArraySeq.fill[Any](n)(VMUndefined)
-          case ArgList(n1: Int, n2: Int) =>
-            mutable.ArraySeq.fill[Any](n1, n2)(VMUndefined)
-          case ArgList(n: Int, f: Function[_, _]) =>
-            mutable.ArraySeq.tabulate[Any](n)(f.asInstanceOf[Int => Any])
-          case ArgList(n1: Int, n2: Int, f: Function2[_, _, _]) =>
-            mutable.ArraySeq
-              .tabulate[Any](n1, n2)(f.asInstanceOf[(Int, Int) => Any])
-          case init: Array[Any]  => mutable.ArraySeq[Any](init.toIndexedSeq: _*)
-          case init: Array[Byte] => mutable.ArraySeq[Any](init.toIndexedSeq: _*)
-          case init: Array[Int]  => mutable.ArraySeq[Any](init.toIndexedSeq: _*)
-          case init: Seq[_] if init.nonEmpty && init.head.isInstanceOf[Seq[Any]] =>
-            mutable.ArraySeq[Any](init.asInstanceOf[Seq[Seq[Any]]] map (e => mutable.ArraySeq[Any](e: _*)): _*)
-          case init: Seq[Any] => mutable.ArraySeq[Any](init: _*)
-          case init: IterableOnce[Any] =>
-            mutable.ArraySeq[Any](init.iterator.to(Seq): _*)
+          case s: VMObject if s.isIterable =>
+            mutable.ArraySeq[VMObject](s.iterator.toIndexedSeq: _*)
+//          case ArgList() => mutable.ArraySeq()
+//          case n: Double if n.isValidInt =>
+//            mutable.ArraySeq.fill[Any](n.toInt)(VMUndefined)
+//          case n: Double =>
+//            problem(apos, s"array: given size is not integral: $n")
+//          case n: Int => mutable.ArraySeq.fill[Any](n)(VMUndefined)
+//          case ArgList(n1: Int, n2: Int) =>
+//            mutable.ArraySeq.fill[Any](n1, n2)(VMUndefined)
+//          case ArgList(n: Int, f: Function[_, _]) =>
+//            mutable.ArraySeq.tabulate[Any](n)(f.asInstanceOf[Int => Any])
+//          case ArgList(n1: Int, n2: Int, f: Function2[_, _, _]) =>
+//            mutable.ArraySeq
+//              .tabulate[Any](n1, n2)(f.asInstanceOf[(Int, Int) => Any])
+//          case init: Array[Any]  => mutable.ArraySeq[Any](init.toIndexedSeq: _*)
+//          case init: Array[Byte] => mutable.ArraySeq[Any](init.toIndexedSeq: _*)
+//          case init: Array[Int]  => mutable.ArraySeq[Any](init.toIndexedSeq: _*)
+//          case init: Seq[_] if init.nonEmpty && init.head.isInstanceOf[Seq[Any]] =>
+//            mutable.ArraySeq[Any](init.asInstanceOf[Seq[Seq[Any]]] map (e => mutable.ArraySeq[Any](e: _*)): _*)
+//          case init: Seq[Any] => mutable.ArraySeq[Any](init: _*)
+//          case init: IterableOnce[Any] =>
+//            mutable.ArraySeq[Any](init.iterator.to(Seq): _*)
         }
       },
       "buffer" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
           case ArgList() => new VMBuffer
-          case n: Int =>
+          case VMNumber(IntType, n: boxed.Integer) =>
             val res = new VMBuffer
 
-            for (_ <- 1 to n) res.append(null)
+            for (_ <- 1 to n) res.addOne(null)
 
             res
-          case init: VMObject if init.isIterable => VMBufferClass.build(init.iterator)
+          case init: VMObject if init.isIterable => VMArrayClass.build(init.iterator)
         }
       },
       "seq" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
@@ -241,13 +243,13 @@ object Predef {
       "upto" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         val (q, s, f) =
           argsderef(args) match {
-            case ArgList(s: Any, subj: String) => (s, subj, 0)
-            case s: Any                        => (s, vm.seq.toString, vm.scanpos)
+            case ArgList(s: Any, VMString(subj)) => (s, subj, 0)
+            case s: Any                          => (s, vm.seq.toString, vm.scanpos)
           }
         val set =
           q match {
             case c: CSet     => c
-            case s: VMString => new CSet(s)
+            case VMString(s) => new CSet(s)
           }
 
         s.indexWhere(set, f) match {
@@ -259,25 +261,25 @@ object Predef {
                 case nextidx =>
                   vm.pushChoice(0, vm => {
                     nextchoice(nextidx)
-                    vm.push(nextidx + 1)
+                    vm.push(VMNumber(nextidx + 1))
                   })
               }
             }
 
             nextchoice(idx)
-            idx + 1
+            VMNumber(idx + 1)
         }
       },
       "many" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         val (q, s, f) =
           argsderef(args) match {
-            case ArgList(s: Any, subj: String) => (s, subj, 0)
-            case s: Any                        => (s, vm.seq.toString, vm.scanpos)
+            case ArgList(s: Any, VMString(subj)) => (s, subj, 0)
+            case s: Any                          => (s, vm.seq.toString, vm.scanpos)
           }
         val set =
           (q match {
-            case c: CSet   => c
-            case s: String => new CSet(s)
+            case c: CSet     => c
+            case VMString(s) => new CSet(s)
           }).complement
 
         s.indexWhere(set, f) match {
@@ -295,13 +297,13 @@ object Predef {
                 case nextidx =>
                   vm.pushChoice(0, vm => {
                     nextchoice(nextidx)
-                    vm.push(nextidx + 1)
+                    vm.push(VMNumber(nextidx + 1))
                   })
               }
             }
 
             nextchoice(idx)
-            idx + 1
+            VMNumber(idx + 1)
         }
       },
       "match" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>

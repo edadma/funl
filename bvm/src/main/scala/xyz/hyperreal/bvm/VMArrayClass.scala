@@ -1,37 +1,34 @@
 package xyz.hyperreal.bvm
 
-import scala.collection.mutable.ArrayBuffer
-
-object VMBufferClass extends VMClass with VMBuilder {
+object VMArrayClass extends VMClass with VMBuilder {
   val parent: VMClass = VMObjectClass
-  val name: String = "Buffer"
+  val name: String = "Array"
   val extending: List[VMType] = List(parent)
   val members: Map[Symbol, VMMember] = Map()
   val clas: VMClass = VMClassClass
 
-  override def build(iterator: Iterator[VMObject]): VMObject = new VMBuffer(iterator to ArrayBuffer)
+  override def build(iterator: Iterator[VMObject]): VMObject = new VMArray(iterator to Array)
 }
 
-class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMMutableSequence {
-  def this() = this(new ArrayBuffer[VMObject])
+class VMArray private[bvm] (array: Array[VMObject]) extends VMNonResizableSequence {
+  def this(size: Int) = this(new Array[VMObject](size))
 
-  val clas: VMClass = VMBufferClass
+  val clas: VMClass = VMArrayClass
 
   override val isSequence: Boolean = true
 
-  def iterator: Iterator[VMObject] = buf.iterator
+  def iterator: Iterator[VMObject] = array.iterator
 
-  def apply(idx: Int): VMObject = buf(idx)
+  def apply(idx: Int): VMObject = array(idx)
 
-  def length: Int = buf.length
+  def length: Int = array.length
 
-  def append(elem: VMObject): Unit = buf += elem
+  def append(elem: VMObject): VMObject = {
+    val array1 = Array.copyAs[VMObject](array, array.length + 1)
 
-  def appendSeq(seq: VMObject): Unit = buf ++= seq.iterator
+    array1(array.length) = elem
+    new VMArray(array1)
+  }
 
-  def remove(elem: VMObject): Unit = buf -= elem
-
-  def removeSeq(seq: VMObject): Unit = buf --= seq.iterator
-
-  override def toString: String = buf.mkString("Buffer(", ", ", ")")
+  override def toString: String = array.mkString("Buffer(", ", ", ")")
 }

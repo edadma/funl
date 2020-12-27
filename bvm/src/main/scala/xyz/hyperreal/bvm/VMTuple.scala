@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-trait TupleLike extends VMImmutableSequence {
+trait TupleLike extends VMNonAppendableNonResizableSequence {
 //  def arity: Int
 
   override def iterator: Iterator[VMObject] =
@@ -21,7 +21,7 @@ trait TupleLike extends VMImmutableSequence {
 }
 
 class RecordConstructor(val typename: String, val name: String, val fields: List[Symbol])
-    extends VMImmutableUniqueNonIterableObject {
+    extends VMNonResizableUniqueNonIterableObject {
   val arity: Int = fields.length
   val symbolMap = Map(fields zipWithIndex: _*)
   val stringMap = Map(fields map (_.name) zipWithIndex: _*)

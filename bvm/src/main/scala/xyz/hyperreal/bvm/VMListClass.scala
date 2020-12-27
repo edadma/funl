@@ -1,6 +1,7 @@
 package xyz.hyperreal.bvm
 
 import java.util.NoSuchElementException
+import scala.collection.mutable.ArrayBuffer
 
 object VMListClass extends VMClass with VMBuilder {
   val parent: VMClass = VMObjectClass
@@ -37,7 +38,7 @@ object VMConsClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-class VMConsObject(val head: VMObject, var tail: VMList) extends VMList {
+case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
   val clas: VMClass = VMConsClass
 
   def iterator: Iterator[VMObject] =
@@ -48,11 +49,9 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList {
 
       def next(): VMObject =
         cur match {
-          case c: VMConsObject =>
-            val res = c.head
-
-            cur = c.tail
-            res
+          case VMConsObject(head, tail) =>
+            cur = tail
+            head
           case _ => throw new NoSuchElementException("iterable has no more elements")
         }
     }
@@ -61,10 +60,18 @@ class VMConsObject(val head: VMObject, var tail: VMList) extends VMList {
 
   def length: Int = iterator.length
 
+  override def append(elem: VMObject): VMObject = {
+    val buf = new ArrayBuffer[VMObject]
+
+    buf ++= iterator
+    buf += elem
+    VMConsClass.build(buf.iterator)
+  }
+
   override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")
 }
 
-trait VMList extends VMObject with VMImmutableSequence
+trait VMList extends VMObject with VMNonResizableSequence
 
 object VMNil extends VMList {
   val clas: VMClass = VMListClass
@@ -79,6 +86,8 @@ object VMNil extends VMList {
   override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
 
   override def length: Int = 0
+
+  override def append(elem: VMObject): VMObject = VMConsObject(elem, VMNil)
 
   override def toString: String = "[]"
 }

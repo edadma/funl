@@ -6,6 +6,7 @@ import scala.collection.immutable.{ArraySeq, TreeMap}
 import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableSeq}
 import util.parsing.input.Position
 import xyz.hyperreal.dal.{BasicDAL, IntType, numberType}
+import java.{lang => boxed}
 
 object VM {
   private val HALT = -1
@@ -872,17 +873,17 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   }
                 } else
                   (op, deref(lhs(i))) match {
-                    case (Symbol("-"), s: VMObject) if s.isMutable =>
-                      s remove rhs(i)
+                    case (Symbol("-"), s: VMObject) if s.isResizable =>
+                      s subtractOne rhs(i)
                       res = s
-                    case (Symbol("--"), s: VMObject) if s.isMutable =>
-                      s removeSeq rhs(i)
+                    case (Symbol("--"), s: VMObject) if s.isResizable =>
+                      s subtractAll rhs(i)
                       res = s
-                    case (Symbol("+"), g: VMObject) if g.isMutable =>
-                      g append rhs(i)
+                    case (Symbol("+"), g: VMObject) if g.isResizable =>
+                      g addOne rhs(i)
                       res = g
-                    case (Symbol("++"), g: VMObject) if g.isMutable =>
-                      g appendSeq rhs(i)
+                    case (Symbol("++"), g: VMObject) if g.isResizable =>
+                      g addAll rhs(i)
                       res = g
                     case _ =>
                       lhs(i) match {
@@ -1091,13 +1092,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val arg = derefp
 
             derefp match {
-              case s: String =>
+              case VMString(s) =>
                 arg match {
-                  case n: Int =>
+                  case VMNumber(IntType, n: boxed.Integer) =>
                     if (n < -s.length || n > s.length || n == 0)
                       problem(apos, s"out of range: $n")
 
-                    push(s.charAt(if (n <= 0) s.length + n else n - 1).toString)
+                    push(VMString(s.charAt(if (n <= 0) s.length + n else n - 1).toString))
                   case x => problem(apos, s"expected integer: $x")
                 }
               case o =>
@@ -1215,7 +1216,7 @@ case class ArgList(array: Any*)
 case class Frame(locals: List[Array[Any]], ret: Int)
 
 case class FunctionReference(var entry: Int, name: String, arity: Int, context: List[Array[Any]])
-    extends VMImmutableUniqueNonIterableObject {
+    extends VMNonResizableUniqueNonIterableObject {
   val clas: VMClass = null //todo: function objects
 }
 

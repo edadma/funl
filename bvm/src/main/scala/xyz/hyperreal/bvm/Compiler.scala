@@ -1263,8 +1263,8 @@ class Compiler(constants: Map[String, Any],
           _emit(expr)
           code += NativeInst { vm =>
             vm.matchString(vm.pop.asInstanceOf[String]) match {
-              case Fail   => vm.fail()
-              case p: Int => vm.push(vm.tabToPosition(p))
+              case Fail        => vm.fail()
+              case p: VMNumber => vm.push(vm.tabToPosition(p.value.intValue()))
             }
           }
         case DefinedExpressionAST(expr) =>

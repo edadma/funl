@@ -1,9 +1,5 @@
 package xyz.hyperreal.bvm
 
-import java.util.NoSuchElementException
-import scala.annotation.tailrec
-import scala.collection.mutable.ListBuffer
-
 trait VMType {
   val name: String
   val extending: List[VMType]
@@ -19,7 +15,7 @@ abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-abstract class VMClass extends VMImmutableUniqueNonIterableObject with VMType {
+abstract class VMClass extends VMNonResizableUniqueNonIterableObject with VMType {
   val name: String
   val parent: VMClass
 
@@ -47,15 +43,17 @@ abstract class VMObject {
 
   def length: Int
 
-  val isMutable: Boolean
+  def append(elem: VMObject): VMObject
 
-  def append(elem: VMObject): Unit
+  val isResizable: Boolean
 
-  def appendSeq(seq: VMObject): Unit
+  def addOne(elem: VMObject): Unit
 
-  def remove(elem: VMObject): Unit
+  def addAll(seq: VMObject): Unit
 
-  def removeSeq(seq: VMObject): Unit
+  def subtractOne(elem: VMObject): Unit
+
+  def subtractAll(seq: VMObject): Unit
 
   def toString: String
 }
@@ -78,11 +76,13 @@ trait VMNonSequence {
   def apply(idx: Int): VMObject = sys.error("no apply method")
 
   def length: Int = sys.error("no length method")
+
+  def append(elem: VMObject): VMObject = sys.error("no append method")
 }
 
-abstract class VMNonSequenceObject extends VMNonUniqueObject with VMNonSequence with VMImmutable
+abstract class VMNonSequenceObject extends VMNonUniqueObject with VMNonSequence with VMNonResizable
 
-abstract class VMNonIterableObject extends VMNonUniqueObject with VMNonIterable with VMImmutable
+abstract class VMNonIterableObject extends VMNonUniqueObject with VMNonIterable with VMNonResizable
 
 object VMClassClass extends VMClass {
   val name: String = "Class"
@@ -92,32 +92,38 @@ object VMClassClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-trait VMImmutable {
-  val isMutable: Boolean = false
+trait VMNonResizable {
+  val isResizable: Boolean = false
 
-  def append(elem: VMObject): Unit = sys.error("can't append element method")
+  def addOne(elem: VMObject): Unit = sys.error("can't add element method")
 
-  def appendSeq(seq: VMObject): Unit = sys.error("can't append sequence method")
+  def addAll(seq: VMObject): Unit = sys.error("can't add sequence method")
 
-  def remove(elem: VMObject): Unit = sys.error("can't remove element method")
+  def subtractOne(elem: VMObject): Unit = sys.error("can't subtract element method")
 
-  def removeSeq(seq: VMObject): Unit = sys.error("can't remove sequence method")
+  def subtractAll(seq: VMObject): Unit = sys.error("can't subtract sequence method")
 }
 
-trait VMImmutableIterable extends VMObject with VMImmutable {
+trait VMNonAppendable {
+  def append(elem: VMObject): VMObject = sys.error("can't append")
+}
+
+trait VMNonResizableIterable extends VMObject with VMNonResizable {
   val isIterable: Boolean = true
 }
 
 trait VMMutableIterable extends VMObject {
   val isIterable: Boolean = true
-  val isMutable: Boolean = true
+  val isResizable: Boolean = true
 }
 
-trait VMImmutableSequence extends VMImmutableIterable {
+trait VMNonResizableSequence extends VMNonResizableIterable {
   val isSequence: Boolean = true
 }
 
-trait VMMutableSequence extends VMMutableIterable {
+trait VMNonAppendableNonResizableSequence extends VMNonResizableSequence with VMNonAppendable
+
+trait VMResizableSequence extends VMMutableIterable {
   val isSequence: Boolean = true
 }
 
@@ -137,15 +143,15 @@ object VMUnitClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-object VMVoid extends VMImmutableUniqueNonIterableObject {
+object VMVoid extends VMNonResizableUniqueNonIterableObject {
   val clas: VMClass = VMUnitClass
 
   override def toString: String = "()"
 }
 
-abstract class VMImmutableUniqueNonIterableObject extends VMObject with VMNonIterable with VMImmutable
+abstract class VMNonResizableUniqueNonIterableObject extends VMObject with VMNonIterable with VMNonResizable
 
-object VMUndefined extends VMImmutableUniqueNonIterableObject {
+object VMUndefined extends VMNonResizableUniqueNonIterableObject {
   val clas: VMClass = null
 
   override def toString: String = "undefined"
@@ -167,14 +173,14 @@ trait VMBoolean {
   override def equals(obj: Any): Boolean = b == obj
 }
 
-object VMTrue extends VMImmutableUniqueNonIterableObject with VMBoolean {
+object VMTrue extends VMNonResizableUniqueNonIterableObject with VMBoolean {
   val clas: VMClass = VMBooleanClass
   val b: Boolean = true
 
   override def toString: String = "true"
 }
 
-object VMFalse extends VMImmutableUniqueNonIterableObject with VMBoolean {
+object VMFalse extends VMNonResizableUniqueNonIterableObject with VMBoolean {
   val clas: VMClass = VMBooleanClass
   val b: Boolean = false
 

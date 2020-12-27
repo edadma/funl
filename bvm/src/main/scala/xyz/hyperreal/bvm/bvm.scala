@@ -167,7 +167,7 @@ package object bvm {
           1
         else
           0
-      case (a: String, b: String)     => a compare b
+      case (VMString(a), VMString(b)) => a compare b
       case (a: Seq[Any], b: Seq[Any]) => lexicographicalCompare(a, b)
       case (a: Product, b: Product) if a.productPrefix == b.productPrefix =>
         lexicographicalCompare(a.productIterator.toSeq, b.productIterator.toSeq)

@@ -11,7 +11,7 @@ object VMSetClass extends VMClass with VMBuilder {
   val clas: VMClass = VMClassClass
 }
 
-class VMSet(set: Set[VMObject]) extends VMImmutableIterable with VMNonSequence {
+class VMSet(set: Set[VMObject]) extends VMNonResizableIterable with VMNonSequence {
   val clas: VMClass = VMSetClass
 
   def iterator: Iterator[VMObject] = set.iterator
@@ -19,7 +19,7 @@ class VMSet(set: Set[VMObject]) extends VMImmutableIterable with VMNonSequence {
   override def toString: String = iterator.map(displayQuoted).mkString("{", ", ", "}")
 }
 
-object VMEmptySet extends VMImmutableIterable with VMNonSequence {
+object VMEmptySet extends VMNonResizableIterable with VMNonSequence {
   val clas: VMClass = VMSetClass
 //  val set: Set[VMObject] = Set.empty
 

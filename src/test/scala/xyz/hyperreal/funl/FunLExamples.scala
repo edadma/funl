@@ -483,7 +483,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
   "fibonacci 1" in {
     runCapture(
       """
-				|def fib( n )
+				|def fib(n)
 				|  result = []
 				|  a, b = 0, 1
 				|
