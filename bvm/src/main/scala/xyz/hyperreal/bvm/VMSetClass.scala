@@ -16,6 +16,8 @@ class VMSet(set: Set[VMObject]) extends VMNonResizableIterable with VMNonSequenc
 
   def iterator: Iterator[VMObject] = set.iterator
 
+  def append(elem: VMObject): VMObject = new VMSet(set + elem)
+
   override def toString: String = iterator.map(displayQuoted).mkString("{", ", ", "}")
 }
 
@@ -24,6 +26,8 @@ object VMEmptySet extends VMNonResizableIterable with VMNonSequence {
 //  val set: Set[VMObject] = Set.empty
 
   override def iterator: Iterator[VMObject] = Set.empty.iterator
+
+  def append(elem: VMObject): VMObject = new VMSet(Set(elem))
 
   override def toString: String = "{}"
 }

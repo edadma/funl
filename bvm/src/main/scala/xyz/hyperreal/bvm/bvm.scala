@@ -82,9 +82,11 @@ package object bvm {
       case _             => a
     }
 
+  def derefo(a: Any): VMObject = deref(a).asInstanceOf[VMObject]
+
   def argsderef(a: Any): Any =
     a match {
-      case a: ArgList => ArgList(a.array map deref: _*)
+      case a: ArgList => ArgList(a.array map derefo: _*)
       case _          => deref(a)
     }
 

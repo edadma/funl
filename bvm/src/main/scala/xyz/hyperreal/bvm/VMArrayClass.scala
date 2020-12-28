@@ -11,7 +11,7 @@ object VMArrayClass extends VMClass with VMBuilder {
 }
 
 class VMArray private[bvm] (array: Array[VMObject]) extends VMNonResizableSequence {
-  def this(size: Int) = this(new Array[VMObject](size))
+  def this(size: Int) = this(Array.fill[VMObject](size)(VMUndefined))
 
   val clas: VMClass = VMArrayClass
 

@@ -62,8 +62,8 @@ object Predef {
       native("tan", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.tanFunction(n)) }),
       "None" -> None,
       "alphanum" -> ALPHANUM_CLASS,
-      "digits" -> DIGIT_CLASS,
-      "letters" -> LETTER_CLASS,
+      "digits" -> new CSet(DIGIT_CLASS),
+      "letters" -> new CSet(LETTER_CLASS),
       "lcase" -> new CSet('a' to 'z'),
       "ucase" -> new CSet('A' to 'Z'),
       "i" -> ComplexBigInt.i,
@@ -95,9 +95,9 @@ object Predef {
       },
       "array" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case s: VMObject if s.isIterable =>
-            mutable.ArraySeq[VMObject](s.iterator.toIndexedSeq: _*)
-//          case ArgList() => mutable.ArraySeq()
+          case s: VMObject if s.isIterable         => VMArrayClass.build(s.iterator)
+          case VMNumber(IntType, n: boxed.Integer) => new VMArray(n)
+          //          case ArgList() => mutable.ArraySeq()
 //          case n: Double if n.isValidInt =>
 //            mutable.ArraySeq.fill[Any](n.toInt)(VMUndefined)
 //          case n: Double =>
@@ -126,34 +126,16 @@ object Predef {
           case VMNumber(IntType, n: boxed.Integer) =>
             val res = new VMBuffer
 
-            for (_ <- 1 to n) res.addOne(null)
+            for (_ <- 1 to n) res.addOne(VMUndefined)
 
             res
           case init: VMObject if init.isIterable => VMArrayClass.build(init.iterator)
         }
       },
-      "seq" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
-        argsderef(args) match {
-          case ArgList()  => immutable.ArraySeq()
-          case a: ArgList => immutable.ArraySeq(a.array: _*)
-          case init: Array[Any] =>
-            immutable.ArraySeq[Any](init.toIndexedSeq: _*)
-          case init: Array[Byte] =>
-            immutable.ArraySeq[Any](init.toIndexedSeq: _*)
-          case init: Array[Int] =>
-            immutable.ArraySeq[Any](init.toIndexedSeq: _*)
-          case init: Seq[_] if init.nonEmpty && init.head.isInstanceOf[Seq[Any]] =>
-            immutable.ArraySeq[Any](init map (e => immutable.ArraySeq[Any](e.asInstanceOf[Seq[Any]]: _*)): _*)
-          case init: Seq[Any] => immutable.ArraySeq[Any](init.toIndexedSeq: _*)
-          case init: IterableOnce[Any] =>
-            immutable.ArraySeq[Any](init.iterator.to(Seq): _*)
-          case _ => immutable.ArraySeq(args)
-        }
-      },
       "set" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()            => new mutable.HashSet[Any]
-          case a: ArgList           => mutable.HashSet(a.array: _*)
+          case ArgList()            => VMEmptyMutableSet
+          case a: ArgList           => VMMutableSetClass.build(a.array.iterator)
           case init: Array[Any]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
           case init: Array[Byte]    => mutable.HashSet[Any](init.toIndexedSeq: _*)
           case init: Array[Int]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
@@ -164,7 +146,6 @@ object Predef {
       },
       "tuple" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()                   => new mutable.HashSet[Any] //todo: shouldn't this be () (Unit)?
           case a: VMObject if a.isIterable => new Tuple(immutable.ArraySeq.from(a.iterator))
         }
       },
@@ -345,9 +326,9 @@ object Predef {
           argsderef(args) match {
             case ArgList() =>
               problem(ps.headOption.getOrElse(apos), "center( src, width, padding )")
-            case s: String                   => (s, 1, " ")
-            case ArgList(s1: String, i: Int) => (s1, i, " ")
-            case ArgList(s1: String, i: Int, s2: String) =>
+            case VMString(s)                                                => (s, 1: boxed.Integer, " ")
+            case ArgList(VMString(s1), VMNumber(IntType, i: boxed.Integer)) => (s1, i, " ")
+            case ArgList(VMString(s1), VMNumber(IntType, i: boxed.Integer), VMString(s2)) =>
               (s1, i, s2.headOption.getOrElse(' ').toString)
           }
 
@@ -365,10 +346,10 @@ object Predef {
         val (src, width, padding) =
           argsderef(args) match {
             case ArgList() =>
-              problem(ps.headOption.getOrElse(apos), "right( src, width, padding )")
-            case s: String                   => (s, 1, " ")
-            case ArgList(s1: String, i: Int) => (s1, i, " ")
-            case ArgList(s1: String, i: Int, s2: String) =>
+              problem(ps.headOption.getOrElse(apos), "right(src, width, padding)")
+            case VMString(s)                                                => (s, 1: boxed.Integer, " ")
+            case ArgList(VMString(s1), VMNumber(IntType, i: boxed.Integer)) => (s1, i, " ")
+            case ArgList(VMString(s1), VMNumber(IntType, i: boxed.Integer), VMString(s2)) =>
               (s1, i, s2.headOption.getOrElse(' ').toString)
           }
 
@@ -451,10 +432,11 @@ object Predef {
 //      },
       "rnd" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()                         => nextDouble().asInstanceOf[Number]
-          case ArgList(l: Int, u: Int) if l <= u => nextInt(u - l) + l
-          case n: Int                            => nextInt(n)
-          case r: collection.immutable.Range =>
+          case ArgList() => nextDouble().asInstanceOf[Number]
+          case ArgList(VMNumber(IntType, l: boxed.Integer), VMNumber(IntType, u: boxed.Integer)) if l <= u =>
+            nextInt(u - l) + l
+          case VMNumber(IntType, n: boxed.Integer) => nextInt(n)
+          case r: collection.immutable.Range => //todo
             nextInt(r.last + 1 - r.start) + r.start
         }
       },

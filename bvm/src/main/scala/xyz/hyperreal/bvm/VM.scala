@@ -464,10 +464,10 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           else if (argc == 0)
             f.asInstanceOf[(VM, Position, List[Position], Any) => Any](this, apos, ps, ArgList())
           else {
-            val args = new Array[Any](argc)
+            val args = new Array[VMObject](argc)
 
             for (i <- argc - 1 to 0 by -1)
-              args(i) = pop
+              args(i) = pop.asInstanceOf[VMObject]
 
             f.asInstanceOf[(VM, Position, List[Position], Any) => Any](this, apos, ps, ArgList(args.toIndexedSeq: _*))
           })
@@ -1211,7 +1211,7 @@ trait Mode
 case object Forward extends Mode
 case object Reverse extends Mode
 
-case class ArgList(array: Any*)
+case class ArgList(array: VMObject*)
 
 case class Frame(locals: List[Array[Any]], ret: Int)
 
