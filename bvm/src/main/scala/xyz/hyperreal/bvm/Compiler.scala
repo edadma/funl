@@ -806,7 +806,7 @@ class Compiler(constants: Map[String, Any],
 
           code += ListInst(l.length) // todo: use ListBuffer approach instead
         case SetExpressionAST(l) =>
-          code += PushInst(Set())
+          code += PushInst(VMEmptySet)
 
           for (e <- l) {
             _emit(e)

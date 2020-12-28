@@ -833,13 +833,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             var l: VMList = VMNil
 
             for (_ <- 1 to len)
-              l = new VMConsObject(derefpo, l)
+              l = VMConsObject(derefpo, l)
 
             push(l)
           case SetInst =>
-            val elem = derefp
+            val elem = derefpo
 
-            push(derefp.asInstanceOf[Set[Any]] + elem)
+            push(derefpo.append(elem))
           case ListHeadInst            => push(derefp.asInstanceOf[VMConsObject].head)
           case ListTailInst            => push(derefp.asInstanceOf[VMConsObject].tail)
           case EqInst                  => push(derefp == derefp)
