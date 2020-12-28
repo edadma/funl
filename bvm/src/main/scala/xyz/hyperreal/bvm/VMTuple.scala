@@ -47,7 +47,9 @@ class VMRecord(val name: String,
   override def toString: String = if (length == 0) name else s"$name(${elems mkString ", "})"
 }
 
-class Tuple(elems: IndexedSeq[VMObject]) extends VMObject with TupleLike {
+class VMTuple(elems: IndexedSeq[VMObject]) extends VMObject with TupleLike {
+  def this(p: Product) = this(p.productIterator.toArray[VMObject])
+
 //  val arity: Int = elems.length
 
   val clas: VMClass = null //todo: figure this out

@@ -39,11 +39,11 @@ abstract class VMObject {
 
   def append(elem: VMObject): VMObject
 
+  def length: Int
+
   val isSequence: Boolean
 
   def apply(idx: Int): VMObject
-
-  def length: Int
 
   val isResizable: Boolean
 
@@ -69,6 +69,8 @@ trait VMNonIterable extends VMNonSequence {
 
   def iterator: Iterator[VMObject] = sys.error("no iterator method")
 
+  def length: Int = sys.error("no length method")
+
   def append(elem: VMObject): VMObject = sys.error("no append method")
 }
 
@@ -76,8 +78,6 @@ trait VMNonSequence {
   val isSequence: Boolean = false
 
   def apply(idx: Int): VMObject = sys.error("no apply method")
-
-  def length: Int = sys.error("no length method")
 }
 
 abstract class VMNonSequenceObject extends VMNonUniqueObject with VMNonSequence with VMNonResizable

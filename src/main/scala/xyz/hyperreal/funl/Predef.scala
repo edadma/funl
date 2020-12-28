@@ -146,15 +146,15 @@ object Predef {
       },
       "tuple" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case a: VMObject if a.isIterable => new Tuple(immutable.ArraySeq.from(a.iterator))
+          case a: VMObject if a.isIterable => new VMTuple(immutable.ArraySeq.from(a.iterator))
         }
       },
       "table" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
           case ArgList()               => new mutable.LinkedHashMap[Any, Any]
           case m: collection.Map[_, _] => mutable.LinkedHashMap(m.toSeq: _*)
-          case s: Iterable[_] if s.head.isInstanceOf[Tuple] =>
-            mutable.LinkedHashMap(s.asInstanceOf[Iterable[Tuple]].toSeq map (v => (v(0), v(1))): _*)
+          case s: Iterable[_] if s.head.isInstanceOf[VMTuple] =>
+            mutable.LinkedHashMap(s.asInstanceOf[Iterable[VMTuple]].toSeq map (v => (v(0), v(1))): _*)
         }
       },
       "move" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
@@ -512,7 +512,7 @@ object Predef {
           "home" -> System.getProperty("java.home")
         )),
       "vmscaninfo" -> ((vm: VM) =>
-        new Tuple(immutable.ArraySeq(new VMString(vm.seq.toString), VMNumber(vm.scanpos + 1)))),
+        new VMTuple(immutable.ArraySeq(new VMString(vm.seq.toString), VMNumber(vm.scanpos + 1)))),
       "vmstacksize" -> ((vm: VM) => vm.getdata.size),
       "rndi" -> ((_: VM) => BigInt(rnd)),
       "rnd" -> ((_: VM) => rnd / p32)

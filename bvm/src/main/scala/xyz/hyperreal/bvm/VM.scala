@@ -770,7 +770,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             for (i <- arity - 1 to 0 by -1)
               a(i) = derefpo
 
-            push(new Tuple(ArraySeq.from(a)))
+            push(new VMTuple(ArraySeq.from(a)))
           case TupleElementInst(n) =>
             push(derefp.asInstanceOf[TupleLike](n))
           case DupInst => push(top)
@@ -803,8 +803,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 val arity = l.length
 
                 dereft match {
-                  case t: Tuple if t.length == arity =>
-                  case _: Tuple =>
+                  case t: VMTuple if t.length == arity =>
+                  case _: VMTuple =>
                     fail() //problem( tpos, s"arity mismatch: expected arity of $arity, but actual arity was ${t.arity}" )
                   case _ =>
                     fail() //problem( tpos, s"type mismatch: expected tuple of arity $arity: $o" )
