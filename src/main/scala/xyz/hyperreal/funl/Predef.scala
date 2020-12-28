@@ -363,8 +363,8 @@ object Predef {
       },
       "float" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
-          case n: Number => n.doubleValue
-          case s: String => s.toDouble
+          case n: VMNumber => n.value.doubleValue
+          case VMString(s) => s.toDouble
           case _ =>
             problem(ps.headOption.getOrElse(apos), s"float: expected a number")
         }

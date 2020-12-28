@@ -1,1 +1,6 @@
-write({x\2 | x <- 1..5})
+data record(a, b)
+val r = record(123, 456)
+val m = {a: 123, "b": 456}
+
+write(r.a, r.b, r, r("b"), r(1))
+write(m.a, m.b, m, m("a"))

@@ -26,7 +26,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 				|hanoi( 5, a, b, c )
 				|write( a, b, c )
 			""".stripMargin
-    ) shouldBe "ArrayBuffer(), ArrayBuffer(5, 4, 3, 2, 1), ArrayBuffer()"
+    ) shouldBe "Buffer(), Buffer(5, 4, 3, 2, 1), Buffer()"
   }
 
   "bmi 1" in {

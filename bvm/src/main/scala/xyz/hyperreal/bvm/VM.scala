@@ -318,7 +318,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           fail()
       case Symbol(":") =>
         r match {
-          case s: VMList => push(new VMConsObject(l.asInstanceOf[VMObject], s))
+          case s: VMList => push(VMConsObject(l.asInstanceOf[VMObject], s))
           case _         => problem(rpos, s"not a list: ${display(r)}")
         }
       case Symbol("in") | Symbol("notin") => // todo: implement 'in'
