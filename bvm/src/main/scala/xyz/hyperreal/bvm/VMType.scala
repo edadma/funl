@@ -39,7 +39,7 @@ abstract class VMObject {
 
   def append(elem: VMObject): VMObject
 
-  def length: Int
+  def size: Int
 
   val isSequence: Boolean
 
@@ -55,6 +55,10 @@ abstract class VMObject {
 
   def subtractAll(seq: VMObject): Unit
 
+  val isMap: Boolean
+
+  def get(key: VMObject): Option[VMObject]
+
   def toString: String
 }
 
@@ -64,12 +68,12 @@ abstract class VMNonUniqueObject extends VMObject {
   def equals(obj: Any): Boolean
 }
 
-trait VMNonIterable extends VMNonSequence {
+trait VMNonIterable extends VMNonSequence with VMNonMap {
   val isIterable: Boolean = false
 
   def iterator: Iterator[VMObject] = sys.error("no iterator method")
 
-  def length: Int = sys.error("no length method")
+  def size: Int = sys.error("no size method")
 
   def append(elem: VMObject): VMObject = sys.error("no append method")
 }
@@ -78,6 +82,12 @@ trait VMNonSequence {
   val isSequence: Boolean = false
 
   def apply(idx: Int): VMObject = sys.error("no apply method")
+}
+
+trait VMNonMap {
+  val isMap: Boolean = false
+
+  def get(key: VMObject): Option[VMObject] = sys.error("no get method")
 }
 
 abstract class VMNonSequenceObject extends VMNonUniqueObject with VMNonSequence with VMNonResizable
@@ -95,13 +105,13 @@ object VMClassClass extends VMClass {
 trait VMNonResizable {
   val isResizable: Boolean = false
 
-  def addOne(elem: VMObject): Unit = sys.error("can't add element method")
+  def addOne(elem: VMObject): Unit = sys.error("can't add element")
 
-  def addAll(seq: VMObject): Unit = sys.error("can't add sequence method")
+  def addAll(seq: VMObject): Unit = sys.error("can't add sequence")
 
-  def subtractOne(elem: VMObject): Unit = sys.error("can't subtract element method")
+  def subtractOne(elem: VMObject): Unit = sys.error("can't subtract element")
 
-  def subtractAll(seq: VMObject): Unit = sys.error("can't subtract sequence method")
+  def subtractAll(seq: VMObject): Unit = sys.error("can't subtract sequence")
 }
 
 trait VMNonAppendable {
@@ -122,6 +132,8 @@ trait VMNonResizableSequence extends VMNonResizableIterable {
 }
 
 trait VMNonAppendableNonResizableSequence extends VMNonResizableSequence with VMNonAppendable
+
+trait VMNonAppendableNonResizableNonMapSequence extends VMNonAppendableNonResizableSequence with VMNonMap
 
 trait VMResizableSequence extends VMMutableIterable {
   val isSequence: Boolean = true

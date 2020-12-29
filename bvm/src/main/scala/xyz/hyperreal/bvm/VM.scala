@@ -384,7 +384,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               case Some(n) => push(r(n))
             }
           case n: VMNumber if n.typ == IntType =>
-            if (0 <= n.value.intValue && n.value.intValue < r.length)
+            if (0 <= n.value.intValue && n.value.intValue < r.size)
               push(r(n.value.intValue))
             else
               problem(apos, s"index out of range: $n")
@@ -395,8 +395,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           problem(apos, "a function application with one argument was expected")
 
         derefp match {
-          case idx: VMNumber if idx.typ == IntType && (idx.value.intValue < 0 || idx.value.intValue >= s.length) =>
-            problem(ps.head, s"sequence (of length ${s.length}) index out of range: $idx")
+          case idx: VMNumber if idx.typ == IntType && (idx.value.intValue < 0 || idx.value.intValue >= s.size) =>
+            problem(ps.head, s"sequence (of length ${s.size}) index out of range: $idx")
           case idx: VMNumber if idx.typ == IntType =>
             push(s.apply(idx.value.intValue))
           case idx => problem(ps.head, s"expected integer sequence index: $idx")
@@ -558,6 +558,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                     problem(apos, s"'$field' not a field of record '${r.name}'")
                   case Some(n) => push(r(n))
                 }
+              case m: VMObject if m.isMap && !m.isResizable => push(m.get(VMString(field.name)).getOrElse(VMUndefined))
               case m: MutableMap[_, _] =>
                 push(new MutableMapAssignable(m.asInstanceOf[MutableMap[VMObject, VMObject]], VMString(field.name)))
               case m: collection.Map[_, _] =>
@@ -803,7 +804,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 val arity = l.length
 
                 dereft match {
-                  case t: VMTuple if t.length == arity =>
+                  case t: VMTuple if t.size == arity =>
                   case _: VMTuple =>
                     fail() //problem( tpos, s"arity mismatch: expected arity of $arity, but actual arity was ${t.arity}" )
                   case _ =>
@@ -823,7 +824,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 }
               case RecordStructureAST(_, name, args) =>
                 dereft match {
-                  case r: VMRecord if r.name == name && r.length == args.length =>
+                  case r: VMRecord if r.name == name && r.size == args.length =>
                   case _ =>
                     fail() //problem( tpos, s"expected a record: '$name'" )//todo: fail with reason???
                 }
@@ -849,7 +850,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val v = derefpo
             val k = derefpo
 
-            push(derefp.asInstanceOf[Map[VMObject, VMObject]] + (k -> v))
+            push(derefpo.append(new VMTuple((k, v))))
           case DerefInst => push(derefp)
           case AssignmentInst(len, lpos, op, rpos) =>
             val rhs = for (_ <- 1 to len) yield derefpo

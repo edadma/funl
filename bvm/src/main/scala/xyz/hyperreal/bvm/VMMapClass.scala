@@ -15,12 +15,16 @@ object VMMapClass extends VMClass with VMBuilder {
 class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VMNonSequence {
   val clas: VMClass = VMMapClass
 
+  val isMap = true
+
+  def get(key: VMObject): Option[VMObject] = map get key
+
   def iterator: Iterator[VMObject] = map.iterator.map(new VMTuple(_))
 
-  override def length: Int = map.size
+  override def size: Int = map.size
 
   def append(elem: VMObject): VMObject =
-    if (elem.isInstanceOf[VMTuple] && elem.length == 2)
+    if (elem.isInstanceOf[VMTuple] && elem.size == 2)
       new VMMap(map + ((elem(0), elem(1))))
     else
       sys.error(s"map entry should be a tuple")
@@ -30,11 +34,14 @@ class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VM
 
 object VMEmptyMap extends VMNonResizableIterable with VMNonSequence {
   val clas: VMClass = VMSetClass
-//  val set: Set[VMObject] = Set.empty
+
+  val isMap = true
+
+  def get(key: VMObject): Option[VMObject] = None
 
   override def iterator: Iterator[VMObject] = Iterator()
 
-  override def length: Int = 0
+  override def size: Int = 0
 
   def append(elem: VMObject): VMObject = new VMSet(Set(elem))
 

@@ -58,7 +58,7 @@ case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
 
   def apply(idx: Int): VMObject = iterator.drop(idx).next()
 
-  def length: Int = iterator.length
+  def size: Int = iterator.length
 
   override def append(elem: VMObject): VMObject = {
     val buf = new ArrayBuffer[VMObject]
@@ -71,7 +71,7 @@ case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
   override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")
 }
 
-trait VMList extends VMObject with VMNonResizableSequence
+trait VMList extends VMObject with VMNonResizableSequence with VMNonMap
 
 object VMNil extends VMList {
   val clas: VMClass = VMListClass
@@ -85,7 +85,7 @@ object VMNil extends VMList {
 
   override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
 
-  override def length: Int = 0
+  override def size: Int = 0
 
   override def append(elem: VMObject): VMObject = VMConsObject(elem, VMNil)
 

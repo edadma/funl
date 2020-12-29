@@ -12,7 +12,7 @@ object VMBufferClass extends VMClass with VMBuilder {
   override def build(iterator: Iterator[VMObject]): VMObject = new VMBuffer(iterator to ArrayBuffer)
 }
 
-class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMResizableSequence {
+class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMResizableSequence with VMNonMap {
   def this() = this(new ArrayBuffer[VMObject])
 
   val clas: VMClass = VMArrayClass
@@ -23,7 +23,7 @@ class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMResizableSequ
 
   def apply(idx: Int): VMObject = buf(idx)
 
-  def length: Int = buf.length
+  def size: Int = buf.length
 
   def addOne(elem: VMObject): Unit = buf += elem
 

@@ -1,8 +1,8 @@
 package xyz.hyperreal.bvm
 
-trait TupleLike extends VMNonAppendableNonResizableSequence {
-//  def arity: Int
+import scala.collection.immutable.ArraySeq
 
+trait TupleLike extends VMNonAppendableNonResizableNonMapSequence {
   override def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
       private var idx = 0
@@ -36,27 +36,24 @@ class VMRecord(val name: String,
                val stringMap: Map[String, Int])
     extends VMObject
     with TupleLike {
-  //  val arity: Int = elems.length
 
   val clas: VMClass = null //todo: figure this out
 
   def apply(idx: Int): VMObject = elems(idx)
 
-  def length: Int = elems.length
+  def size: Int = elems.length
 
-  override def toString: String = if (length == 0) name else s"$name(${elems mkString ", "})"
+  override def toString: String = if (size == 0) name else s"$name(${elems mkString ", "})"
 }
 
 class VMTuple(elems: IndexedSeq[VMObject]) extends VMObject with TupleLike {
-  def this(p: Product) = this(p.productIterator.toArray[VMObject])
-
-//  val arity: Int = elems.length
+  def this(p: Product) = this(p.productIterator.to(ArraySeq).asInstanceOf[ArraySeq[VMObject]])
 
   val clas: VMClass = null //todo: figure this out
 
   def apply(idx: Int): VMObject = elems(idx)
 
-  def length: Int = elems.length
+  def size: Int = elems.length
 
   override def toString = s"(${elems mkString ", "})"
 }

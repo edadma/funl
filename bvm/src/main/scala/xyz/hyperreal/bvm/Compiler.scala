@@ -813,7 +813,7 @@ class Compiler(constants: Map[String, Any],
             code += SetInst
           }
         case MapExpressionAST(l) =>
-          code += PushInst(Map())
+          code += PushInst(VMEmptyMap)
 
           for ((k, v) <- l) {
             _emit(k)
