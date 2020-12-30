@@ -33,6 +33,10 @@ abstract class VMObject {
   val clas: VMClass
   val outer: Option[VMObject] = None
 
+  def isPair: Boolean = isInstanceOf[VMTuple] && size == 2
+
+  def toPair: (VMObject, VMObject) = (apply(0), apply(1))
+
   val isIterable: Boolean
 
   def iterator: Iterator[VMObject]
@@ -76,6 +80,11 @@ trait VMNonIterable extends VMNonSequence with VMNonMap {
   def size: Int = sys.error("no size method")
 
   def append(elem: VMObject): VMObject = sys.error("no append method")
+}
+
+trait VMResizableIterableNonSequence extends VMNonSequence with VMNonAppendable {
+  val isResizable = true
+  val isIterable = true
 }
 
 trait VMNonSequence {
@@ -122,7 +131,7 @@ trait VMNonResizableIterable extends VMObject with VMNonResizable {
   val isIterable: Boolean = true
 }
 
-trait VMMutableIterable extends VMObject {
+trait VMResizableIterable extends VMObject {
   val isIterable: Boolean = true
   val isResizable: Boolean = true
 }
@@ -135,7 +144,7 @@ trait VMNonAppendableNonResizableSequence extends VMNonResizableSequence with VM
 
 trait VMNonAppendableNonResizableNonMapSequence extends VMNonAppendableNonResizableSequence with VMNonMap
 
-trait VMResizableSequence extends VMMutableIterable {
+trait VMResizableSequence extends VMResizableIterable {
   val isSequence: Boolean = true
 }
 
