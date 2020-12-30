@@ -123,8 +123,6 @@ package object bvm {
           (bunch take howMany map display).mkString("[", ", ", ", ...]")
         else
           display(bunch toList)
-      case s: collection.Set[_] if s isEmpty    => "void"
-      case s: collection.Set[_]                 => s.map(display).mkString("{", ", ", "}")
       case m: collection.Map[_, _] if m isEmpty => "{}"
       case m: collection.Map[_, _] =>
         m.toList.map({ case (k, v) => displayQuoted(k) + ": " + displayQuoted(v) }).mkString("{", ", ", "}")

@@ -432,15 +432,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
         push(new MutableMapAssignable(m.asInstanceOf[MutableMap[VMObject, VMObject]], arg))
 //        else
 //          push(undefined)
-      case m: collection.Map[_, _] =>
+      case m: VMObject if m.isMap =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
 
-        val arg = derefpo
-
         push(
-          m.asInstanceOf[collection.Map[VMObject, VMObject]]
-            .getOrElse(arg, VMUndefined /*problem(apos, s"key not found: ${display(arg)}")*/ ))
+          m.get(derefpo)
+            .getOrElse(VMUndefined /*problem(apos, s"key not found: ${display(arg)}")*/ ))
       case s: collection.Seq[Any] =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")

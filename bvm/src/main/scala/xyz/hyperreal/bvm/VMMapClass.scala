@@ -29,11 +29,12 @@ class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VM
     else
       sys.error(s"map entry should be a tuple")
 
-  override def toString: String = iterator.map(displayQuoted).mkString("{", ", ", "}")
+  override def toString: String =
+    map.iterator.map { case (k, v) => s"${displayQuoted(k)}: ${displayQuoted(v)}" }.mkString("{", ", ", "}")
 }
 
 object VMEmptyMap extends VMNonResizableIterable with VMNonSequence {
-  val clas: VMClass = VMSetClass
+  val clas: VMClass = VMMapClass
 
   val isMap = true
 
@@ -43,7 +44,11 @@ object VMEmptyMap extends VMNonResizableIterable with VMNonSequence {
 
   override def size: Int = 0
 
-  def append(elem: VMObject): VMObject = new VMSet(Set(elem))
+  def append(elem: VMObject): VMObject =
+    if (elem.isInstanceOf[VMTuple] && elem.size == 2)
+      new VMMap(Map((elem(0), elem(1))))
+    else
+      sys.error(s"expected tuple")
 
   override def toString: String = "{}"
 }
