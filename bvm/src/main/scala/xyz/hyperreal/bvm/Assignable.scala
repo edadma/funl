@@ -28,8 +28,8 @@ class MutableSeqAssignable(seq: mutable.Seq[VMObject], index: Int) extends Assig
   }
 }
 
-class MutableMapAssignable(map: mutable.Map[VMObject, VMObject], key: VMObject) extends Assignable {
-  def value: VMObject = map.getOrElse(key, VMUndefined)
+class MutableMapAssignable(map: VMObject, key: VMObject) extends Assignable {
+  def value: VMObject = map.get(key).getOrElse(VMUndefined)
 
-  def value_=(v: VMObject): Unit = map(key) = v
+  def value_=(v: VMObject): Unit = map.addOne(new VMTuple((key, v)))
 }

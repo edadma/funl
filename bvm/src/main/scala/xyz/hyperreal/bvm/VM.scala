@@ -422,16 +422,11 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             push(new MutableSeqAssignable(ms.asInstanceOf[MutableSeq[VMObject]], idx))
           case idx => problem(ps.head, s"expected integer sequence index: $idx")
         }
-      case m: MutableMap[_, _] =>
+      case m: VMObject if m.isMap && m.isResizable =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
 
-        val arg = derefpo
-
-//        if (m.asInstanceOf[MutableMap[Any, Any]].contains(arg))
-        push(new MutableMapAssignable(m.asInstanceOf[MutableMap[VMObject, VMObject]], arg))
-//        else
-//          push(undefined)
+        push(new MutableMapAssignable(m, derefpo))
       case m: VMObject if m.isMap =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
@@ -557,8 +552,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   case Some(n) => push(r(n))
                 }
               case m: VMObject if m.isMap && !m.isResizable => push(m.get(VMString(field.name)).getOrElse(VMUndefined))
-              case m: MutableMap[_, _] =>
-                push(new MutableMapAssignable(m.asInstanceOf[MutableMap[VMObject, VMObject]], VMString(field.name)))
+              case m: VMObject if m.isMap && m.isResizable  => push(new MutableMapAssignable(m, VMString(field.name)))
               case m: collection.Map[_, _] =>
                 push(
                   m.asInstanceOf[collection.Map[VMObject, VMObject]]

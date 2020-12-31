@@ -53,23 +53,17 @@ abstract class VMObject {
 
   def addOne(elem: VMObject): Unit
 
-  def addAll(seq: VMObject): Unit
+  def addAll(seq: VMObject): Unit = seq.iterator foreach addOne
 
   def subtractOne(elem: VMObject): Unit
 
-  def subtractAll(seq: VMObject): Unit
+  def subtractAll(seq: VMObject): Unit = seq.iterator foreach subtractOne
 
   val isMap: Boolean
 
   def get(key: VMObject): Option[VMObject]
 
   def toString: String
-}
-
-abstract class VMNonUniqueObject extends VMObject {
-  def hashCode: Int
-
-  def equals(obj: Any): Boolean
 }
 
 trait VMNonIterable extends VMNonSequence with VMNonMap {
@@ -99,9 +93,9 @@ trait VMNonMap {
   def get(key: VMObject): Option[VMObject] = sys.error("no get method")
 }
 
-abstract class VMNonSequenceObject extends VMNonUniqueObject with VMNonSequence with VMNonResizable
+abstract class VMNonSequenceObject extends VMObject with VMNonSequence with VMNonResizable
 
-abstract class VMNonIterableObject extends VMNonUniqueObject with VMNonIterable with VMNonResizable
+abstract class VMNonIterableObject extends VMObject with VMNonIterable with VMNonResizable
 
 object VMClassClass extends VMClass {
   val name: String = "Class"
@@ -116,11 +110,7 @@ trait VMNonResizable {
 
   def addOne(elem: VMObject): Unit = sys.error("can't add element")
 
-  def addAll(seq: VMObject): Unit = sys.error("can't add sequence")
-
   def subtractOne(elem: VMObject): Unit = sys.error("can't subtract element")
-
-  def subtractAll(seq: VMObject): Unit = sys.error("can't subtract sequence")
 }
 
 trait VMNonAppendable {

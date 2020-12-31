@@ -288,25 +288,25 @@ class FunLTests extends FreeSpec with ScalaCheckPropertyChecks with Matchers {
   "mutable maps" in {
     runCapture(
       """
-				|val m = table( {asdf: 3, rtyu: 4} )
+				|val m = map({asdf: 3, rtyu: 4})
 				|
-				|write( m )
+				|write(m)
 				|m.asdf = 5
-				|write( m )
+				|write(m)
 				|m('rtyu') = 6
-				|write( m )
+				|write(m)
         |m.qwer = 7
-        |write( m )
+        |write(m)
         |m('zxcv') = 8
-        |write( m )
+        |write(m)
 			""".stripMargin
     ) shouldBe
       """
-				|{"asdf": 3, "rtyu": 4}
-				|{"asdf": 5, "rtyu": 4}
-				|{"asdf": 5, "rtyu": 6}
-        |{"asdf": 5, "rtyu": 6, "qwer": 7}
-        |{"asdf": 5, "rtyu": 6, "qwer": 7, "zxcv": 8}
+				|MutableMap("asdf": 3, "rtyu": 4)
+				|MutableMap("asdf": 5, "rtyu": 4)
+				|MutableMap("asdf": 5, "rtyu": 6)
+        |MutableMap("asdf": 5, "rtyu": 6, "qwer": 7)
+        |MutableMap("asdf": 5, "rtyu": 6, "qwer": 7, "zxcv": 8)
 			""".stripMargin.trim
   }
 

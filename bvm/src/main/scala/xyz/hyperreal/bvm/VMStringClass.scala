@@ -8,7 +8,7 @@ object VMStringClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-case class VMString(string: String) extends VMNonResizableSequence with VMNonMap {
+case class VMString(string: String) extends VMNonResizableSequence with VMNonMap { //todo: comparable
   val clas: VMClass = VMRangeClass
 
   def iterator: Iterator[VMObject] = string.iterator.map(c => VMString(c.toString))

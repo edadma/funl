@@ -27,11 +27,11 @@ class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMResizableSequ
 
   def addOne(elem: VMObject): Unit = buf += elem
 
-  def addAll(seq: VMObject): Unit = buf ++= seq.iterator
+  override def addAll(seq: VMObject): Unit = buf ++= seq.iterator
 
   def subtractOne(elem: VMObject): Unit = buf -= elem
 
-  def subtractAll(seq: VMObject): Unit = buf --= seq.iterator
+  override def subtractAll(seq: VMObject): Unit = buf --= seq.iterator
 
   def append(elem: VMObject): VMObject = {
     val buf1 = buf.iterator to ArrayBuffer

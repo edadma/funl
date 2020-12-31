@@ -149,12 +149,10 @@ object Predef {
           case a: VMObject if a.isIterable => new VMTuple(immutable.ArraySeq.from(a.iterator))
         }
       },
-      "table" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
+      "map" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()               => new mutable.LinkedHashMap[Any, Any]
-          case m: collection.Map[_, _] => mutable.LinkedHashMap(m.toSeq: _*)
-          case s: Iterable[_] if s.head.isInstanceOf[VMTuple] =>
-            mutable.LinkedHashMap(s.asInstanceOf[Iterable[VMTuple]].toSeq map (v => (v(0), v(1))): _*)
+          case ArgList()                   => new VMMutableMap()
+          case m: VMObject if m.isIterable => VMMutableMapClass.build(m.iterator)
         }
       },
       "move" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>

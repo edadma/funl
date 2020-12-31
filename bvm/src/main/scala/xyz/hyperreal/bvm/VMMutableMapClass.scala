@@ -9,7 +9,7 @@ object VMMutableMapClass extends VMClass with VMBuilder {
   val members: Map[Symbol, VMMember] = Map()
 
   override def build(iterator: Iterator[VMObject]): VMObject =
-    new VMMutableMap(mutable.Map.from(iterator.map(t => (t(0), t(1)))))
+    new VMMutableMap(mutable.Map.from(iterator.map(_.toPair)))
 
   val clas: VMClass = VMClassClass
 }
@@ -17,8 +17,8 @@ object VMMutableMapClass extends VMClass with VMBuilder {
 class VMMutableMap private[bvm] (map: mutable.Map[VMObject, VMObject])
     extends VMObject
     with VMResizableIterableNonSequence {
+  def this() = this(mutable.Map.empty)
   val clas: VMClass = VMMutableMapClass
-
   val isMap = true
 
   def get(key: VMObject): Option[VMObject] = map get key
@@ -27,38 +27,16 @@ class VMMutableMap private[bvm] (map: mutable.Map[VMObject, VMObject])
 
   def size: Int = map.size
 
-  def addOne(elem: VMObject): Unit = ???
+  def addOne(elem: VMObject): Unit =
+    if (elem.isPair) map += elem.toPair
+    else sys.error(s"not a tuple: $elem")
 
-  def addAll(seq: VMObject): Unit = ???
+  def subtractOne(elem: VMObject): Unit = map -= elem
 
-  def subtractOne(elem: VMObject): Unit = ???
+  override def hashCode: Int = map.hashCode
 
-  def subtractAll(seq: VMObject): Unit = ???
+  override def equals(obj: Any): Boolean = map.equals(obj)
 
   override def toString: String =
     map.iterator.map { case (k, v) => s"${displayQuoted(k)}: ${displayQuoted(v)}" }.mkString("MutableMap(", ", ", ")")
-}
-
-object VMEmptyMutableMap extends VMObject with VMResizableIterableNonSequence {
-  val clas: VMClass = VMMapClass
-
-  val isMap = true
-
-  def get(key: VMObject): Option[VMObject] = None
-
-  def iterator: Iterator[VMObject] = Iterator()
-
-  def size: Int = 0
-
-//      sys.error(s"expected tuple")
-
-  def addOne(elem: VMObject): Unit = ???
-
-  def addAll(seq: VMObject): Unit = ???
-
-  def subtractOne(elem: VMObject): Unit = ???
-
-  def subtractAll(seq: VMObject): Unit = ???
-
-  override def toString: String = "MutableMap()"
 }
