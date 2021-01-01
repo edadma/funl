@@ -17,7 +17,8 @@ object VMMutableMapClass extends VMClass with VMBuilder {
 class VMMutableMap private[bvm] (map: mutable.Map[VMObject, VMObject])
     extends VMObject
     with VMResizableIterableNonSequence
-    with VMUnordered {
+    with VMUnordered
+    with VMNonSet {
   def this() = this(mutable.Map.empty)
   val clas: VMClass = VMMutableMapClass
   val isMap = true

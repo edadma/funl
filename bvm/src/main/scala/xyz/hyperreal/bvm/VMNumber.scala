@@ -16,7 +16,11 @@ object VMNumber {
   def apply(n: Number) = new VMNumber(numberType(n), n)
 }
 
-case class VMNumber(typ: Type, value: Number) extends VMNonIterableObject with TypedNumber with VMNonUpdatable {
+case class VMNumber(typ: Type, value: Number)
+    extends VMNonIterableObject
+    with TypedNumber
+    with VMNonUpdatable
+    with VMNonSet {
   val clas: VMClass = VMNumberClass
 
   def isOrdered: Boolean = true

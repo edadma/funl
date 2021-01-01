@@ -19,12 +19,13 @@ class VMSeq(elems: IndexedSeq[VMObject])
     extends VMObject
     with VMNonAppendableNonResizableNonMapSequence
     with VMUnordered
-    with VMNonUpdatable {
+    with VMNonUpdatable
+    with VMNonSet {
   def this(p: Product) = this(p.productIterator.to(ArraySeq).asInstanceOf[ArraySeq[VMObject]])
 
   val clas: VMClass = VMSeqClass
 
-  def apply(idx: Int): VMObject = elems(idx)
+  def apply(idx: VMObject): VMObject = elems(idx.asInstanceOf[VMNumber].value.intValue)
 
   def size: Int = elems.length
 

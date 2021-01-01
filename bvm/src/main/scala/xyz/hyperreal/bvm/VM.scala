@@ -380,13 +380,13 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
         derefp match {
           case VMString(s) =>
-            r.stringMap get s match {
+            r getField s match {
               case None    => problem(apos, s"not a field of record '${r.name}'")
               case Some(n) => push(r(n))
             }
-          case n: VMNumber if n.typ == IntType =>
+          case n @ VMNumber(IntType, _) =>
             if (0 <= n.value.intValue && n.value.intValue < r.size)
-              push(r(n.value.intValue))
+              push(r(n))
             else
               problem(apos, s"index out of range: $n")
           case _ => problem(apos, "expected a string or integer")
@@ -398,8 +398,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
         derefp match {
           case VMNumber(IntType, idx: boxed.Integer) if idx < 0 || idx >= ms.size =>
             problem(ps.head, s"sequence (of length ${ms.size}) index out of range: $idx")
-          case VMNumber(IntType, idx: boxed.Integer) => push(new MutableSeqAssignable(ms, idx))
-          case idx                                   => problem(ps.head, s"expected integer sequence index: $idx")
+          case idx: VMNumber => push(new MutableSeqAssignable(ms, idx))
+          case idx           => problem(ps.head, s"expected integer sequence index: $idx")
         }
       case s: VMObject if s.isSequence =>
         if (argc != 1)
@@ -523,7 +523,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case DotOperatorInst(epos, apos, field) =>
             derefp match {
               case r: VMRecord =>
-                r.symbolMap get field match {
+                r getField field match {
                   case None =>
                     problem(apos, s"'$field' not a field of record '${r.name}'")
                   case Some(n) => push(r(n))

@@ -33,11 +33,14 @@ class CSet(classes: Any*) extends VMNonIterableObject with VMUnordered with VMNo
   if (union nonEmpty)
     buf += union
 
-  def apply(c: Char): Boolean = buf exists (_(c))
+  def apply(c: VMObject): Boolean = buf exists (_(c.toString.head))
 
   def complement: Char => Boolean = !this(_: Char)
 
+  val isSet = true
+
   override def hashCode: Int = buf.hashCode()
+
   override def equals(obj: Any): Boolean =
     obj match {
       case c: CSet => c.buf == buf

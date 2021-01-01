@@ -14,7 +14,7 @@ object VMMutableSetClass extends VMClass with VMBuilder {
 }
 
 class VMMutableSet private[bvm] (set: mutable.Set[VMObject])
-    extends VMNonResizableIterable
+    extends VMObject
     with VMNonSequence
     with VMNonMap
     with VMUnordered
@@ -30,22 +30,13 @@ class VMMutableSet private[bvm] (set: mutable.Set[VMObject])
 
   override def size: Int = set.size
 
+  val isIterable: Boolean = true
+  val isSet: Boolean = true
+  val isResizable: Boolean = true
+
+  def addOne(elem: VMObject): Unit = set += elem
+
+  def subtractOne(elem: VMObject): Unit = set -= elem
+
   override def toString: String = iterator.map(displayQuoted).mkString("MutableSet(", ", ", ")")
-}
-
-object VMEmptyMutableSet
-    extends VMNonResizableIterable
-    with VMNonSequence
-    with VMNonMap
-    with VMUnordered
-    with VMNonUpdatable {
-  val clas: VMClass = VMSetClass
-
-  override def iterator: Iterator[VMObject] = mutable.Set.empty.iterator
-
-  def append(elem: VMObject): VMObject = new VMMutableSet(mutable.Set(elem))
-
-  override def size: Int = 0
-
-  override def toString: String = "MutableSet()"
 }

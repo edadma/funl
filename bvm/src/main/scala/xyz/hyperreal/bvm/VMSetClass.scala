@@ -25,6 +25,8 @@ class VMSet(set: Set[VMObject])
 
   override def size: Int = set.size
 
+  val isSet: Boolean = true
+
   override def toString: String = iterator.map(displayQuoted).mkString("{", ", ", "}")
 }
 
@@ -37,6 +39,8 @@ object VMEmptySet extends VMNonResizableIterable with VMNonSequence with VMNonMa
   def append(elem: VMObject): VMObject = new VMSet(Set(elem))
 
   override def size: Int = 0
+
+  val isSet: Boolean = true
 
   override def toString: String = "{}"
 }

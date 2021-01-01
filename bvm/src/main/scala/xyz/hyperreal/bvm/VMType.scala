@@ -1,6 +1,7 @@
 package xyz.hyperreal.bvm
 
 import xyz.hyperreal.bvm.VM.{ONE, ZERO}
+import xyz.hyperreal.dal.IntType
 
 trait VMType {
   val name: String
@@ -39,6 +40,12 @@ trait VMBuilder extends VMClass {
 abstract class VMObject extends Ordered[VMObject] {
   val clas: VMClass
   val outer: Option[VMObject] = None
+
+  def toInt: Int =
+    this match {
+      case n @ VMNumber(IntType, _) => n.value.intValue
+      case _                        => sys.error(s"expected integer: $this")
+    }
 
   def isOrdered: Boolean
 

@@ -1,5 +1,7 @@
 package xyz.hyperreal.bvm
 
+import xyz.hyperreal.bvm.VM.{ONE, ZERO}
+
 object VMMapClass extends VMClass with VMBuilder {
   val parent: VMClass = VMObjectClass
   val name: String = "Map"
@@ -7,7 +9,7 @@ object VMMapClass extends VMClass with VMBuilder {
   val members: Map[Symbol, VMMember] = Map()
 
   override def build(iterator: Iterator[VMObject]): VMObject =
-    new VMMap(Map.from(iterator.map(t => (t.apply(0), t.apply(1)))))
+    new VMMap(Map.from(iterator.map(t => (t(ZERO), t(ONE)))))
 
   val clas: VMClass = VMClassClass
 }
@@ -16,7 +18,8 @@ class VMMap(map: Map[VMObject, VMObject])
     extends VMNonResizableIterable
     with VMNonSequence
     with VMUnordered
-    with VMNonUpdatable {
+    with VMNonUpdatable
+    with VMNonSet {
   val clas: VMClass = VMMapClass
 
   val isMap = true
@@ -29,7 +32,7 @@ class VMMap(map: Map[VMObject, VMObject])
 
   def append(elem: VMObject): VMObject =
     if (elem.isInstanceOf[VMSeq] && elem.size == 2)
-      new VMMap(map + ((elem(0), elem(1))))
+      new VMMap(map + ((elem(ZERO), elem(ONE))))
     else
       sys.error(s"map entry should be a tuple")
 
@@ -37,7 +40,7 @@ class VMMap(map: Map[VMObject, VMObject])
     map.iterator.map { case (k, v) => s"${displayQuoted(k)}: ${displayQuoted(v)}" }.mkString("{", ", ", "}")
 }
 
-object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnordered with VMNonUpdatable {
+object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnordered with VMNonUpdatable with VMNonSet {
   val clas: VMClass = VMMapClass
 
   val isMap = true
@@ -50,7 +53,7 @@ object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnord
 
   def append(elem: VMObject): VMObject =
     if (elem.isInstanceOf[VMSeq] && elem.size == 2)
-      new VMMap(Map((elem(0), elem(1))))
+      new VMMap(Map((elem(ZERO), elem(ONE))))
     else
       sys.error(s"expected tuple")
 

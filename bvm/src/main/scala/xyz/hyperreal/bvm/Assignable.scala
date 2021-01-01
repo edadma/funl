@@ -22,10 +22,10 @@ class VariableAssignable(var value: VMObject) extends Assignable {
   override def toString: String = value.toString
 }
 
-class MutableSeqAssignable(seq: VMObject, index: Int) extends Assignable {
+class MutableSeqAssignable(seq: VMObject, index: VMNumber) extends Assignable {
   def value: VMObject = seq(index)
 
-  def value_=(v: VMObject): Unit = seq.update(VMNumber(index), v)
+  def value_=(v: VMObject): Unit = seq.update(index, v)
   VMAssignableClass
 }
 

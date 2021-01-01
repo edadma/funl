@@ -12,7 +12,11 @@ object VMArrayClass extends VMClass with VMBuilder {
   override def build(iterator: Iterator[VMObject]): VMObject = new VMArray(iterator to Array)
 }
 
-class VMArray private[bvm] (array: Array[VMObject]) extends VMNonResizableSequence with VMNonMap with VMUnordered { //todo: should be ordered
+class VMArray private[bvm] (array: Array[VMObject])
+    extends VMNonResizableSequence
+    with VMNonMap
+    with VMUnordered
+    with VMNonSet { //todo: should be ordered
   def this(size: Int) = this(Array.fill[VMObject](size)(VMUndefined))
 
   val clas: VMClass = VMArrayClass
@@ -21,7 +25,7 @@ class VMArray private[bvm] (array: Array[VMObject]) extends VMNonResizableSequen
 
   def iterator: Iterator[VMObject] = array.iterator
 
-  def apply(idx: Int): VMObject = array(idx)
+  def apply(idx: VMObject): VMObject = array(idx.toInt)
 
   def size: Int = array.length
 

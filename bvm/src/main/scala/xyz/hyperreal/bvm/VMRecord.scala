@@ -12,10 +12,7 @@ class RecordConstructor(val typename: String, val name: String, val fields: List
   override def toString: String = s"RecordConstructor($typename, $name, $fields)"
 }
 
-class VMRecord(val name: String,
-               elems: IndexedSeq[VMObject],
-               val symbolMap: Map[Symbol, Int],
-               val stringMap: Map[String, Int])
+class VMRecord(val name: String, elems: IndexedSeq[VMObject], symbolMap: Map[Symbol, Int], stringMap: Map[String, Int])
     extends VMObject
     with VMNonAppendableNonResizableNonMapSequence
     with VMUnordered
@@ -24,7 +21,11 @@ class VMRecord(val name: String,
 
   val clas: VMClass = null //todo
 
-  def apply(idx: VMObject): VMObject = elems(idx.asInstanceOf[VMNumber].value.intValue)
+  def getField(s: Symbol): Option[VMObject] = symbolMap get s map elems
+
+  def getField(s: String): Option[VMObject] = stringMap get s map elems
+
+  def apply(idx: VMObject): VMObject = elems(idx.toInt)
 
   def size: Int = elems.length
 

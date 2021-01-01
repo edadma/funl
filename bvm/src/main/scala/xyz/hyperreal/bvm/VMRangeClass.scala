@@ -16,7 +16,8 @@ object VMRangeClass extends VMClass {
 class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean)
     extends VMNonAppendableNonResizableNonMapSequence
     with VMUnordered
-    with VMNonUpdatable {
+    with VMNonUpdatable
+    with VMNonSet {
   val clas: VMClass = VMRangeClass
   val range: AbstractSeq[Any] with IndexedSeq[Any] =
     start match {
@@ -37,13 +38,9 @@ class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean
     }
 
   def iterator: Iterator[VMObject] =
-    range.iterator.map(n => VMNumber((numberType(n.asInstanceOf[Number]), n.asInstanceOf[Number])))
+    range.iterator.map(n => VMNumber(n.asInstanceOf[Number]))
 
-  def apply(idx: Int): VMObject = {
-    val n = range(idx)
-
-    VMNumber((numberType(n.asInstanceOf[Number]), n.asInstanceOf[Number]))
-  }
+  def apply(idx: VMObject): VMObject = VMNumber(range(idx.asInstanceOf[VMNumber].value.intValue).asInstanceOf[Number])
 
   def size: Int = range.length
 

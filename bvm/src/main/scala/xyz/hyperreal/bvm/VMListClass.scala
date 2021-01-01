@@ -56,7 +56,7 @@ case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
         }
     }
 
-  def apply(idx: Int): VMObject = iterator.drop(idx).next()
+  def apply(idx: VMObject): VMObject = iterator.drop(idx.toInt).next()
 
   def size: Int = iterator.length
 
@@ -71,7 +71,13 @@ case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
   override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")
 }
 
-trait VMList extends VMObject with VMNonResizableSequence with VMNonMap with VMUnordered with VMNonUpdatable //todo: should be ordered
+trait VMList
+    extends VMObject
+    with VMNonResizableSequence
+    with VMNonMap
+    with VMUnordered
+    with VMNonUpdatable
+    with VMNonSet //todo: should be ordered
 
 object VMNil extends VMList {
   val clas: VMClass = VMListClass
@@ -83,7 +89,7 @@ object VMNil extends VMList {
       def next(): VMObject = throw new NoSuchElementException("nil has no elements")
     }
 
-  override def apply(idx: Int): VMObject = throw new IndexOutOfBoundsException
+  override def apply(idx: VMObject): VMObject = throw new IndexOutOfBoundsException
 
   override def size: Int = 0
 
