@@ -2,7 +2,7 @@ package xyz.hyperreal.bvm
 
 import scala.collection.immutable.ArraySeq
 
-trait TupleLike extends VMNonAppendableNonResizableNonMapSequence {
+trait TupleLike extends VMNonAppendableNonResizableNonMapSequence with VMUnordered { //todo: should be ordered
   override def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
       private var idx = 0
@@ -21,7 +21,8 @@ trait TupleLike extends VMNonAppendableNonResizableNonMapSequence {
 }
 
 class RecordConstructor(val typename: String, val name: String, val fields: List[Symbol])
-    extends VMNonResizableUniqueNonIterableObject {
+    extends VMNonResizableUniqueNonIterableObject
+    with VMUnordered {
   val arity: Int = fields.length
   val symbolMap = Map(fields zipWithIndex: _*)
   val stringMap = Map(fields map (_.name) zipWithIndex: _*)

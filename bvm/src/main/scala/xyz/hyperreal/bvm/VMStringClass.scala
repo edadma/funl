@@ -19,5 +19,13 @@ case class VMString(string: String) extends VMNonResizableSequence with VMNonMap
 
   override def append(elem: VMObject): VMObject = VMString(string :++ elem.toString)
 
+  def isOrdered: Boolean = true
+
+  def compare(that: VMObject): Int =
+    that match {
+      case VMString(s) => string compareTo s
+      case _           => sys.error(s"String is not comparable to $that")
+    }
+
   override def toString: String = string
 }

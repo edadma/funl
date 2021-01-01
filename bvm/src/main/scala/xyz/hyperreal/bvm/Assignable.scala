@@ -8,7 +8,10 @@ trait Assignable {
   def value_=(v: VMObject): Unit
 }
 
-class VariableAssignable(var value: VMObject) extends VMNonResizableUniqueNonIterableObject with Assignable {
+class VariableAssignable(var value: VMObject)
+    extends VMNonResizableUniqueNonIterableObject
+    with Assignable
+    with VMUnordered {
   val clas: VMClass = null
 
   override def toString: String = value.toString

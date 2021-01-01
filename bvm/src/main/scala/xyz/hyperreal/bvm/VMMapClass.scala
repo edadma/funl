@@ -12,7 +12,7 @@ object VMMapClass extends VMClass with VMBuilder {
   val clas: VMClass = VMClassClass
 }
 
-class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VMNonSequence {
+class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VMNonSequence with VMUnordered {
   val clas: VMClass = VMMapClass
 
   val isMap = true
@@ -33,7 +33,7 @@ class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VM
     map.iterator.map { case (k, v) => s"${displayQuoted(k)}: ${displayQuoted(v)}" }.mkString("{", ", ", "}")
 }
 
-object VMEmptyMap extends VMNonResizableIterable with VMNonSequence {
+object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnordered {
   val clas: VMClass = VMMapClass
 
   val isMap = true

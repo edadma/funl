@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-import xyz.hyperreal.dal.{Type, TypedNumber, numberType}
+import xyz.hyperreal.dal.{BasicDAL, Type, TypedNumber, numberType}
 
 object VMNumberClass extends VMClass {
   val name: String = "Number"
@@ -18,6 +18,14 @@ object VMNumber {
 
 case class VMNumber(typ: Type, value: Number) extends VMNonIterableObject with TypedNumber {
   val clas: VMClass = VMNumberClass
+
+  def isOrdered: Boolean = true
+
+  def compare(that: VMObject): Int =
+    that match {
+      case n: VMNumber => BasicDAL.compute(Symbol("compare"), this, n, VMNumber(_)).value.intValue
+      case _           => sys.error(s"String is not comparable to $that")
+    }
 
   override def hashCode: Int = value.hashCode
 

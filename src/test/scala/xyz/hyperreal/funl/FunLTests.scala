@@ -305,8 +305,8 @@ class FunLTests extends FreeSpec with ScalaCheckPropertyChecks with Matchers {
 				|MutableMap("asdf": 3, "rtyu": 4)
 				|MutableMap("asdf": 5, "rtyu": 4)
 				|MutableMap("asdf": 5, "rtyu": 6)
-        |MutableMap("asdf": 5, "rtyu": 6, "qwer": 7)
-        |MutableMap("asdf": 5, "rtyu": 6, "qwer": 7, "zxcv": 8)
+        |MutableMap("asdf": 5, "qwer": 7, "rtyu": 6)
+        |MutableMap("asdf": 5, "qwer": 7, "rtyu": 6, "zxcv": 8)
 			""".stripMargin.trim
   }
 

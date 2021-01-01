@@ -1209,7 +1209,8 @@ case class ArgList(array: VMObject*)
 case class Frame(locals: List[Array[Any]], ret: Int)
 
 case class FunctionReference(var entry: Int, name: String, arity: Int, context: List[Array[Any]])
-    extends VMNonResizableUniqueNonIterableObject {
+    extends VMNonResizableUniqueNonIterableObject
+    with VMUnordered {
   val clas: VMClass = null //todo: function objects
 }
 

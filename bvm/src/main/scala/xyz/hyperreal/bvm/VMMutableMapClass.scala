@@ -16,7 +16,8 @@ object VMMutableMapClass extends VMClass with VMBuilder {
 
 class VMMutableMap private[bvm] (map: mutable.Map[VMObject, VMObject])
     extends VMObject
-    with VMResizableIterableNonSequence {
+    with VMResizableIterableNonSequence
+    with VMUnordered {
   def this() = this(mutable.Map.empty)
   val clas: VMClass = VMMutableMapClass
   val isMap = true
@@ -37,6 +38,14 @@ class VMMutableMap private[bvm] (map: mutable.Map[VMObject, VMObject])
 
   override def equals(obj: Any): Boolean = map.equals(obj)
 
-  override def toString: String =
-    map.iterator.map { case (k, v) => s"${displayQuoted(k)}: ${displayQuoted(v)}" }.mkString("MutableMap(", ", ", ")")
+  override def toString: String = {
+    val keys =
+      try {
+        map.keysIterator.toList.sorted
+      } catch {
+        case e: Exception => map.keys
+      }
+
+    keys.map(k => s"${displayQuoted(k)}: ${displayQuoted(map(k))}").mkString("MutableMap(", ", ", ")")
+  }
 }

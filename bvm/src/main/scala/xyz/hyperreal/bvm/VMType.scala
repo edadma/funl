@@ -15,7 +15,7 @@ abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-abstract class VMClass extends VMNonResizableUniqueNonIterableObject with VMType {
+abstract class VMClass extends VMNonResizableUniqueNonIterableObject with VMType with VMUnordered {
   val name: String
   val parent: VMClass
 
@@ -29,9 +29,13 @@ trait VMBuilder extends VMClass {
   override def canBuild: Boolean = true
 }
 
-abstract class VMObject {
+abstract class VMObject extends Ordered[VMObject] {
   val clas: VMClass
   val outer: Option[VMObject] = None
+
+  def isOrdered: Boolean
+
+  def compare(that: VMObject): Int
 
   def isPair: Boolean = isInstanceOf[VMTuple] && size == 2
 
@@ -64,6 +68,12 @@ abstract class VMObject {
   def get(key: VMObject): Option[VMObject]
 
   def toString: String
+}
+
+trait VMUnordered {
+  def isOrdered: Boolean = false
+
+  def compare(that: VMObject): Int = sys.error(s"unordered: $this")
 }
 
 trait VMNonIterable extends VMNonSequence with VMNonMap {
@@ -154,7 +164,7 @@ object VMUnitClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-object VMVoid extends VMNonResizableUniqueNonIterableObject {
+object VMVoid extends VMNonResizableUniqueNonIterableObject with VMUnordered {
   val clas: VMClass = VMUnitClass
 
   override def toString: String = "()"
@@ -162,7 +172,7 @@ object VMVoid extends VMNonResizableUniqueNonIterableObject {
 
 abstract class VMNonResizableUniqueNonIterableObject extends VMObject with VMNonIterable with VMNonResizable
 
-object VMUndefined extends VMNonResizableUniqueNonIterableObject {
+object VMUndefined extends VMNonResizableUniqueNonIterableObject with VMUnordered {
   val clas: VMClass = null
 
   override def toString: String = "undefined"
@@ -176,7 +186,7 @@ object VMBooleanClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-trait VMBoolean {
+trait VMBoolean extends VMUnordered {
   val b: Boolean
 
   override def hashCode(): Int = b.hashCode
