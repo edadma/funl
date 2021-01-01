@@ -401,26 +401,15 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             push(s.apply(idx.value.intValue))
           case idx => problem(ps.head, s"expected integer sequence index: $idx")
         }
-      case a: Array[VMObject] =>
+      case ms: VMObject if ms.isSequence && ms.isUpdatable =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
 
         derefp match {
-          case idx: Int if idx < 0 || idx >= a.length =>
-            problem(ps.head, s"array (of length ${a.length}) index out of range: $idx")
-          case idx: Int => push(new MutableSeqAssignable(a, idx))
-          case idx      => problem(ps.head, s"expected integer array index: $idx")
-        }
-      case ms: MutableSeq[_] =>
-        if (argc != 1)
-          problem(apos, "a function application with one argument was expected")
-
-        derefp match {
-          case idx: Int if idx < 0 || idx >= ms.length =>
-            problem(ps.head, s"sequence (of length ${ms.length}) index out of range: $idx")
-          case idx: Int =>
-            push(new MutableSeqAssignable(ms.asInstanceOf[MutableSeq[VMObject]], idx))
-          case idx => problem(ps.head, s"expected integer sequence index: $idx")
+          case VMNumber(IntType, idx: boxed.Integer) if idx < 0 || idx >= ms.size =>
+            problem(ps.head, s"sequence (of length ${ms.size}) index out of range: $idx")
+          case idx: Int => push(new MutableSeqAssignable(ms, idx))
+          case idx      => problem(ps.head, s"expected integer sequence index: $idx")
         }
       case m: VMObject if m.isMap && m.isResizable =>
         if (argc != 1)
@@ -765,10 +754,9 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             for (i <- arity - 1 to 0 by -1)
               a(i) = derefpo
 
-            push(new VMTuple(ArraySeq.from(a)))
-          case TupleElementInst(n) =>
-            push(derefp.asInstanceOf[TupleLike](n))
-          case DupInst => push(top)
+            push(new VMSeq(ArraySeq.from(a)))
+          case TupleElementInst(n) => push(derefpo(n))
+          case DupInst             => push(top)
           case DupUnderInst =>
             val t = pop
 
@@ -798,8 +786,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 val arity = l.length
 
                 dereft match {
-                  case t: VMTuple if t.size == arity =>
-                  case _: VMTuple =>
+                  case t: VMSeq if t.size == arity =>
+                  case _: VMSeq =>
                     fail() //problem( tpos, s"arity mismatch: expected arity of $arity, but actual arity was ${t.arity}" )
                   case _ =>
                     fail() //problem( tpos, s"type mismatch: expected tuple of arity $arity: $o" )
@@ -844,7 +832,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val v = derefpo
             val k = derefpo
 
-            push(derefpo.append(new VMTuple((k, v))))
+            push(derefpo.append(new VMSeq((k, v))))
           case DerefInst => push(derefp)
           case AssignmentInst(len, lpos, op, rpos) =>
             val rhs = for (_ <- 1 to len) yield derefpo
@@ -1212,7 +1200,8 @@ case class Frame(locals: List[Array[Any]], ret: Int)
 
 case class FunctionReference(var entry: Int, name: String, arity: Int, context: List[Array[Any]])
     extends VMNonResizableUniqueNonIterableObject
-    with VMUnordered {
+    with VMUnordered
+    with VMNonUpdatable {
   val clas: VMClass = null //todo: function objects
 }
 

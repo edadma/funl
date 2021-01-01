@@ -1,5 +1,7 @@
 package xyz.hyperreal.bvm
 
+import xyz.hyperreal.dal.IntType
+
 trait VMType {
   val name: String
   val extending: List[VMType]
@@ -15,7 +17,7 @@ abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-abstract class VMClass extends VMNonResizableUniqueNonIterableObject with VMType with VMUnordered {
+abstract class VMClass extends VMNonResizableUniqueNonIterableObject with VMType with VMUnordered with VMNonUpdatable {
   val name: String
   val parent: VMClass
 
@@ -37,7 +39,7 @@ abstract class VMObject extends Ordered[VMObject] {
 
   def compare(that: VMObject): Int
 
-  def isPair: Boolean = isInstanceOf[VMTuple] && size == 2
+  def isPair: Boolean = isInstanceOf[VMSeq] && size == 2
 
   def toPair: (VMObject, VMObject) = (apply(0), apply(1))
 
@@ -67,7 +69,17 @@ abstract class VMObject extends Ordered[VMObject] {
 
   def get(key: VMObject): Option[VMObject]
 
+  val isUpdatable: Boolean
+
+  def update(key: VMObject, value: VMObject): Unit
+
   def toString: String
+}
+
+trait VMNonUpdatable {
+  val isUpdatable: Boolean = false
+
+  def update(key: VMObject, value: VMObject): Unit = sys.error(s"immutable: $this")
 }
 
 trait VMUnordered {
@@ -164,7 +176,7 @@ object VMUnitClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-object VMVoid extends VMNonResizableUniqueNonIterableObject with VMUnordered {
+object VMVoid extends VMNonResizableUniqueNonIterableObject with VMUnordered with VMNonUpdatable {
   val clas: VMClass = VMUnitClass
 
   override def toString: String = "()"
@@ -172,7 +184,7 @@ object VMVoid extends VMNonResizableUniqueNonIterableObject with VMUnordered {
 
 abstract class VMNonResizableUniqueNonIterableObject extends VMObject with VMNonIterable with VMNonResizable
 
-object VMUndefined extends VMNonResizableUniqueNonIterableObject with VMUnordered {
+object VMUndefined extends VMNonResizableUniqueNonIterableObject with VMUnordered with VMNonUpdatable {
   val clas: VMClass = null
 
   override def toString: String = "undefined"
@@ -186,7 +198,7 @@ object VMBooleanClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-trait VMBoolean extends VMUnordered {
+trait VMBoolean extends VMUnordered with VMNonUpdatable {
   val b: Boolean
 
   override def hashCode(): Int = b.hashCode

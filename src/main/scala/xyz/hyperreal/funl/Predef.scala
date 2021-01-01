@@ -93,6 +93,12 @@ object Predef {
           case _           => problem(apos, "error: expected one string argument")
         }
       },
+      "seq" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
+        deref(args) match {
+          case s: VMObject if s.isIterable => VMSeqClass.build(s.iterator)
+          case _                           => problem(apos, "seq: expected iterable argument")
+        }
+      },
       "array" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
           case s: VMObject if s.isIterable         => VMArrayClass.build(s.iterator)
@@ -146,7 +152,7 @@ object Predef {
       },
       "tuple" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case a: VMObject if a.isIterable => new VMTuple(immutable.ArraySeq.from(a.iterator))
+          case a: VMObject if a.isIterable => new VMSeq(immutable.ArraySeq.from(a.iterator))
         }
       },
       "map" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
@@ -510,7 +516,7 @@ object Predef {
           "home" -> System.getProperty("java.home")
         )),
       "vmscaninfo" -> ((vm: VM) =>
-        new VMTuple(immutable.ArraySeq(new VMString(vm.seq.toString), VMNumber(vm.scanpos + 1)))),
+        new VMSeq(immutable.ArraySeq(new VMString(vm.seq.toString), VMNumber(vm.scanpos + 1)))),
       "vmstacksize" -> ((vm: VM) => vm.getdata.size),
       "rndi" -> ((_: VM) => BigInt(rnd)),
       "rnd" -> ((_: VM) => rnd / p32)

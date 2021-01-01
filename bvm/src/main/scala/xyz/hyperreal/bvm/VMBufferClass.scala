@@ -1,5 +1,7 @@
 package xyz.hyperreal.bvm
 
+import xyz.hyperreal.dal.IntType
+
 import scala.collection.mutable.ArrayBuffer
 
 object VMBufferClass extends VMClass with VMBuilder {
@@ -39,6 +41,13 @@ class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject]) extends VMResizableSequ
     buf1 += elem
     new VMBuffer(buf1)
   }
+
+  val isUpdatable: Boolean = true
+
+  def update(key: VMObject, value: VMObject): Unit =
+    key match {
+      case VMNumber(IntType, n) => buf(n.intValue) = value
+    }
 
   override def toString: String = buf.mkString("Buffer(", ", ", ")")
 }

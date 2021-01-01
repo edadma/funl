@@ -24,7 +24,7 @@ class VMMutableMap private[bvm] (map: mutable.Map[VMObject, VMObject])
 
   def get(key: VMObject): Option[VMObject] = map get key
 
-  def iterator: Iterator[VMObject] = map.iterator.map(new VMTuple(_))
+  def iterator: Iterator[VMObject] = map.iterator.map(new VMSeq(_))
 
   def size: Int = map.size
 
@@ -37,6 +37,10 @@ class VMMutableMap private[bvm] (map: mutable.Map[VMObject, VMObject])
   override def hashCode: Int = map.hashCode
 
   override def equals(obj: Any): Boolean = map.equals(obj)
+
+  val isUpdatable: Boolean = true
+
+  def update(key: VMObject, value: VMObject): Unit = map(key) = value
 
   override def toString: String = {
     val keys =

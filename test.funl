@@ -1,3 +1,4 @@
-val s = {}
+val a = array([1, 2, 3, 4])
 
-write(s, s == {})
+;;swap(a(0), a(1))
+write(a, a(2))

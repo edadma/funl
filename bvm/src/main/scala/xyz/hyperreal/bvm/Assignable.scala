@@ -11,28 +11,21 @@ trait Assignable {
 class VariableAssignable(var value: VMObject)
     extends VMNonResizableUniqueNonIterableObject
     with Assignable
-    with VMUnordered {
+    with VMUnordered
+    with VMNonUpdatable {
   val clas: VMClass = null
 
   override def toString: String = value.toString
 }
 
-class MutableSeqAssignable(seq: mutable.Seq[VMObject], index: Int) extends Assignable {
+class MutableSeqAssignable(seq: VMObject, index: Int) extends Assignable {
   def value: VMObject = seq(index)
 
-  def value_=(v: VMObject): Unit = {
-    seq match {
-      case buf: mutable.Buffer[VMObject] if buf.length <= index =>
-        buf.appendAll(Iterator.fill(index - buf.length + 1)(null))
-      case _ =>
-    }
-
-    seq(index) = v
-  }
+  def value_=(v: VMObject): Unit = seq.update(VMNumber(index), v)
 }
 
 class MutableMapAssignable(map: VMObject, key: VMObject) extends Assignable {
   def value: VMObject = map.get(key).getOrElse(VMUndefined)
 
-  def value_=(v: VMObject): Unit = map.addOne(new VMTuple((key, v)))
+  def value_=(v: VMObject): Unit = map.update(key, v)
 }

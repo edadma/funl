@@ -12,19 +12,23 @@ object VMMapClass extends VMClass with VMBuilder {
   val clas: VMClass = VMClassClass
 }
 
-class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VMNonSequence with VMUnordered {
+class VMMap(map: Map[VMObject, VMObject])
+    extends VMNonResizableIterable
+    with VMNonSequence
+    with VMUnordered
+    with VMNonUpdatable {
   val clas: VMClass = VMMapClass
 
   val isMap = true
 
   def get(key: VMObject): Option[VMObject] = map get key
 
-  def iterator: Iterator[VMObject] = map.iterator.map(new VMTuple(_))
+  def iterator: Iterator[VMObject] = map.iterator.map(new VMSeq(_))
 
   override def size: Int = map.size
 
   def append(elem: VMObject): VMObject =
-    if (elem.isInstanceOf[VMTuple] && elem.size == 2)
+    if (elem.isInstanceOf[VMSeq] && elem.size == 2)
       new VMMap(map + ((elem(0), elem(1))))
     else
       sys.error(s"map entry should be a tuple")
@@ -33,7 +37,7 @@ class VMMap(map: Map[VMObject, VMObject]) extends VMNonResizableIterable with VM
     map.iterator.map { case (k, v) => s"${displayQuoted(k)}: ${displayQuoted(v)}" }.mkString("{", ", ", "}")
 }
 
-object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnordered {
+object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnordered with VMNonUpdatable {
   val clas: VMClass = VMMapClass
 
   val isMap = true
@@ -45,7 +49,7 @@ object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnord
   override def size: Int = 0
 
   def append(elem: VMObject): VMObject =
-    if (elem.isInstanceOf[VMTuple] && elem.size == 2)
+    if (elem.isInstanceOf[VMSeq] && elem.size == 2)
       new VMMap(Map((elem(0), elem(1))))
     else
       sys.error(s"expected tuple")

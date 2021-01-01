@@ -1,5 +1,7 @@
 package xyz.hyperreal.bvm
 
+import xyz.hyperreal.dal.IntType
+
 object VMArrayClass extends VMClass with VMBuilder {
   val parent: VMClass = VMObjectClass
   val name: String = "Array"
@@ -29,6 +31,13 @@ class VMArray private[bvm] (array: Array[VMObject]) extends VMNonResizableSequen
     array1(array.length) = elem
     new VMArray(array1)
   }
+
+  val isUpdatable: Boolean = true
+
+  def update(key: VMObject, value: VMObject): Unit =
+    key match {
+      case VMNumber(IntType, n) => array(n.intValue) = value
+    }
 
   override def toString: String = array.mkString("Array(", ", ", ")")
 }

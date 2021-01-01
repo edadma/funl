@@ -14,7 +14,7 @@ object VMCSetClass extends VMClass with VMBuilder {
   val clas: VMClass = VMClassClass
 }
 
-class CSet(classes: Any*) extends VMNonIterableObject with VMUnordered with (Char => Boolean) {
+class CSet(classes: Any*) extends VMNonIterableObject with VMUnordered with VMNonUpdatable with (Char => Boolean) {
 
   val clas: VMClass = VMCSetClass
 

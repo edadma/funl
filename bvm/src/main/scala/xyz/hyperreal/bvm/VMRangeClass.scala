@@ -15,7 +15,8 @@ object VMRangeClass extends VMClass {
 
 class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean)
     extends VMNonAppendableNonResizableNonMapSequence
-    with VMUnordered {
+    with VMUnordered
+    with VMNonUpdatable {
   val clas: VMClass = VMRangeClass
   val range: AbstractSeq[Any] with IndexedSeq[Any] =
     start match {

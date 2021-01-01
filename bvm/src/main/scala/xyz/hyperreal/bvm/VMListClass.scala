@@ -71,7 +71,7 @@ case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
   override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")
 }
 
-trait VMList extends VMObject with VMNonResizableSequence with VMNonMap with VMUnordered //todo: should be ordered
+trait VMList extends VMObject with VMNonResizableSequence with VMNonMap with VMUnordered with VMNonUpdatable //todo: should be ordered
 
 object VMNil extends VMList {
   val clas: VMClass = VMListClass
