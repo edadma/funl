@@ -54,12 +54,12 @@ object Predef {
       native("toFloat", { case (vm: VM, VMString(s))  => VMNumber(s.toDouble) }),
       native("eval", { case (vm: VM, VMString(s))     => xyz.hyperreal.funl.run(s) }),
       native("sqrt", { case (vm: VM, VMNumber(_, n))  => VMNumber(BasicDAL.sqrtFunction(n)) }),
-      native("abs", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.absFunction(n)) }),
-      native("exp", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.expFunction(n)) }),
-      native("ln", { case (vm: VM, n: Number)         => VMNumber(BasicDAL.lnFunction(n)) }),
-      native("sin", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.sinFunction(n)) }),
-      native("cos", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.cosFunction(n)) }),
-      native("tan", { case (vm: VM, n: Number)        => VMNumber(BasicDAL.tanFunction(n)) }),
+      native("abs", { case (vm: VM, VMNumber(_, n))   => VMNumber(BasicDAL.absFunction(n)) }),
+      native("exp", { case (vm: VM, VMNumber(_, n))   => VMNumber(BasicDAL.expFunction(n)) }),
+      native("ln", { case (vm: VM, VMNumber(_, n))    => VMNumber(BasicDAL.lnFunction(n)) }),
+      native("sin", { case (vm: VM, VMNumber(_, n))   => VMNumber(BasicDAL.sinFunction(n)) }),
+      native("cos", { case (vm: VM, VMNumber(_, n))   => VMNumber(BasicDAL.cosFunction(n)) }),
+      native("tan", { case (vm: VM, VMNumber(_, n))   => VMNumber(BasicDAL.tanFunction(n)) }),
       "None" -> None,
       "alphanum" -> ALPHANUM_CLASS,
       "digits" -> new CSet(DIGIT_CLASS),
@@ -188,7 +188,7 @@ object Predef {
       "tab" -> ((vm: VM,
                  apos: Position,
                  ps: List[Position],
-                 args: Any) => vm.tabToPosition(deref(args).asInstanceOf[VMNumber].value.intValue)),
+                 args: Any) => vm.tabToPosition(derefo(args).asInstanceOf[VMNumber].value.intValue)),
       "pos" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
           case VMNumber(IntType, n: boxed.Integer) =>
@@ -228,8 +228,8 @@ object Predef {
       "upto" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         val (q, s, f) =
           argsderef(args) match {
-            case ArgList(s: Any, VMString(subj)) => (s, subj, 0)
-            case s: Any                          => (s, vm.seq.toString, vm.scanpos)
+            case ArgList(s: VMObject, VMString(subj)) => (s, subj, 0)
+            case s: VMObject                          => (s, vm.seq.toString, vm.scanpos)
           }
         val set =
           q match {

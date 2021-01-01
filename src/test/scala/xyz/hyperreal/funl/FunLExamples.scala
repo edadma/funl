@@ -535,7 +535,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 				|    every j = upto( word1[i], word2 )
 				|      every write( right(word2[1 to j - 1], i) )
 				|      write( word1 )
-				|      every write( right(word2[j + 1 to word2.length()], i) )
+				|      every write( right(word2[j + 1 to word2.length], i) )
 				|      write()
 				|
 				|cross( 'lottery', 'loto' )

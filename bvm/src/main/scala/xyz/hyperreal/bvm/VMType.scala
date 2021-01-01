@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-import xyz.hyperreal.dal.IntType
+import xyz.hyperreal.bvm.VM.{ONE, ZERO}
 
 trait VMType {
   val name: String
@@ -17,7 +17,12 @@ abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-abstract class VMClass extends VMNonResizableUniqueNonIterableObject with VMType with VMUnordered with VMNonUpdatable {
+abstract class VMClass
+    extends VMNonResizableUniqueNonIterableObject
+    with VMType
+    with VMUnordered
+    with VMNonUpdatable
+    with VMNonSet {
   val name: String
   val parent: VMClass
 
@@ -41,7 +46,7 @@ abstract class VMObject extends Ordered[VMObject] {
 
   def isPair: Boolean = isInstanceOf[VMSeq] && size == 2
 
-  def toPair: (VMObject, VMObject) = (apply(0), apply(1))
+  def toPair: (VMObject, VMObject) = (apply(ZERO), apply(ONE))
 
   val isIterable: Boolean
 
@@ -53,7 +58,9 @@ abstract class VMObject extends Ordered[VMObject] {
 
   val isSequence: Boolean
 
-  def apply(idx: Int): VMObject
+  def apply(key: VMObject): VMObject
+
+  val isSet: Boolean
 
   val isResizable: Boolean
 
@@ -106,13 +113,17 @@ trait VMResizableIterableNonSequence extends VMNonSequence with VMNonAppendable 
 trait VMNonSequence {
   val isSequence: Boolean = false
 
-  def apply(idx: Int): VMObject = sys.error("no apply method")
+  def apply(key: VMObject): VMObject = sys.error("no apply method")
 }
 
 trait VMNonMap {
   val isMap: Boolean = false
 
   def get(key: VMObject): Option[VMObject] = sys.error("no get method")
+}
+
+trait VMNonSet {
+  val isSet: Boolean = false
 }
 
 abstract class VMNonSequenceObject extends VMObject with VMNonSequence with VMNonResizable
@@ -176,15 +187,21 @@ object VMUnitClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-object VMVoid extends VMNonResizableUniqueNonIterableObject with VMUnordered with VMNonUpdatable {
+object VMVoid extends VMNonResizableUniqueNonIterableObject {
   val clas: VMClass = VMUnitClass
 
   override def toString: String = "()"
 }
 
-abstract class VMNonResizableUniqueNonIterableObject extends VMObject with VMNonIterable with VMNonResizable
+abstract class VMNonResizableUniqueNonIterableObject
+    extends VMObject
+    with VMNonIterable
+    with VMNonResizable
+    with VMUnordered
+    with VMNonUpdatable
+    with VMNonSet
 
-object VMUndefined extends VMNonResizableUniqueNonIterableObject with VMUnordered with VMNonUpdatable {
+object VMUndefined extends VMNonResizableUniqueNonIterableObject {
   val clas: VMClass = null
 
   override def toString: String = "undefined"
@@ -198,7 +215,7 @@ object VMBooleanClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-trait VMBoolean extends VMUnordered with VMNonUpdatable {
+trait VMBoolean {
   val b: Boolean
 
   override def hashCode(): Int = b.hashCode

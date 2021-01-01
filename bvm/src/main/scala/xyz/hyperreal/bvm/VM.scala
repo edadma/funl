@@ -13,6 +13,7 @@ object VM {
   private val MATCH_FAIL = -1
   private val VM_STATE = -2
 
+  val ZERO = new VMNumber(IntType, 0)
   val ONE = new VMNumber(IntType, 1)
   val MINUS_ONE = new VMNumber(IntType, -1)
 }
@@ -405,11 +406,10 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           problem(apos, "a function application with one argument was expected")
 
         derefp match {
-          case idx: VMNumber if idx.typ == IntType && (idx.value.intValue < 0 || idx.value.intValue >= s.size) =>
+          case VMNumber(IntType, idx: boxed.Integer) if idx < 0 || idx >= s.size =>
             problem(ps.head, s"sequence (of length ${s.size}) index out of range: $idx")
-          case idx: VMNumber if idx.typ == IntType =>
-            push(s.apply(idx.value.intValue))
-          case idx => problem(ps.head, s"expected integer sequence index: $idx")
+          case idx @ VMNumber(IntType, _) => push(s(idx))
+          case idx                        => problem(ps.head, s"expected integer sequence index: $idx")
         }
       case m: VMObject if m.isMap && m.isResizable =>
         if (argc != 1)
@@ -423,18 +423,6 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
         push(
           m.get(derefpo)
             .getOrElse(VMUndefined /*problem(apos, s"key not found: ${display(arg)}")*/ ))
-      case s: collection.Seq[Any] =>
-        if (argc != 1)
-          problem(apos, "a function application with one argument was expected")
-
-        derefp match {
-          case n: Integer =>
-            if (0 <= n && n < s.length)
-              push(s(n))
-            else
-              problem(apos, s"index out of range: $n")
-          case _ => problem(apos, "expected a string or (small) integer")
-        }
       case s: collection.Set[_] =>
         push(s.asInstanceOf[collection.Set[Any]](derefp))
       case p: Product => push(p.productElement(derefp.asInstanceOf[Int]))
@@ -755,7 +743,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               a(i) = derefpo
 
             push(new VMSeq(ArraySeq.from(a)))
-          case TupleElementInst(n) => push(derefpo(n))
+          case TupleElementInst(n) => push(derefpo(VMNumber(n)))
           case DupInst             => push(top)
           case DupUnderInst =>
             val t = pop

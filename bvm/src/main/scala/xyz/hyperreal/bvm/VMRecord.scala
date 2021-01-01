@@ -1,25 +1,5 @@
 package xyz.hyperreal.bvm
 
-import scala.collection.immutable.ArraySeq
-
-trait TupleLike extends VMNonAppendableNonResizableNonMapSequence with VMUnordered with VMNonUpdatable { //todo: should be ordered
-  override def iterator: Iterator[VMObject] =
-    new Iterator[VMObject] {
-      private var idx = 0
-
-      def hasNext: Boolean = idx < length
-
-      def next(): VMObject =
-        if (hasNext) {
-          val res = apply(idx)
-
-          idx += 1
-          res
-        } else
-          throw new NoSuchElementException
-    }
-}
-
 class RecordConstructor(val typename: String, val name: String, val fields: List[Symbol])
     extends VMNonResizableUniqueNonIterableObject
     with VMUnordered
@@ -37,13 +17,18 @@ class VMRecord(val name: String,
                val symbolMap: Map[Symbol, Int],
                val stringMap: Map[String, Int])
     extends VMObject
-    with TupleLike {
+    with VMNonAppendableNonResizableNonMapSequence
+    with VMUnordered
+    with VMNonUpdatable
+    with VMNonSet { //todo: should be ordered
 
-  val clas: VMClass = null //todo: figure this out
+  val clas: VMClass = null //todo
 
-  def apply(idx: Int): VMObject = elems(idx)
+  def apply(idx: VMObject): VMObject = elems(idx.asInstanceOf[VMNumber].value.intValue)
 
   def size: Int = elems.length
+
+  def iterator: Iterator[VMObject] = elems.iterator
 
   override def toString: String = if (size == 0) name else s"$name(${elems mkString ", "})"
 }
