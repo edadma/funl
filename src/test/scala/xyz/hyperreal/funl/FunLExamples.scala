@@ -911,7 +911,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 				|
 				|def
 				|  permute( [] ) = seq()
-				|  permute( l ) = permute_( l.length(), array(l) )
+				|  permute( l ) = permute_( l.length, array(l) )
 				|  permute_( n, a )
 				|    if n == 1
 				|      seq( a )

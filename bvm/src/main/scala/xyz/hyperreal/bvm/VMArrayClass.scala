@@ -30,5 +30,5 @@ class VMArray private[bvm] (array: Array[VMObject]) extends VMNonResizableSequen
     new VMArray(array1)
   }
 
-  override def toString: String = array.mkString("Buffer(", ", ", ")")
+  override def toString: String = array.mkString("Array(", ", ", ")")
 }

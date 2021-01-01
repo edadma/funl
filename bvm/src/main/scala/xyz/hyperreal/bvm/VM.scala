@@ -551,6 +551,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                     problem(apos, s"'$field' not a field of record '${r.name}'")
                   case Some(n) => push(r(n))
                 }
+              case s: VMObject if s.isIterable && (field.name == "length" || field.name == "size") =>
+                push(VMNumber(s.size))
               case m: VMObject if m.isMap && !m.isResizable => push(m.get(VMString(field.name)).getOrElse(VMUndefined))
               case m: VMObject if m.isMap && m.isResizable  => push(new MutableMapAssignable(m, VMString(field.name)))
               case m: collection.Map[_, _] =>
