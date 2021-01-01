@@ -390,6 +390,16 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
               problem(apos, s"index out of range: $n")
           case _ => problem(apos, "expected a string or integer")
         }
+      case ms: VMObject if ms.isSequence && ms.isUpdatable =>
+        if (argc != 1)
+          problem(apos, "a function application with one argument was expected")
+
+        derefp match {
+          case VMNumber(IntType, idx: boxed.Integer) if idx < 0 || idx >= ms.size =>
+            problem(ps.head, s"sequence (of length ${ms.size}) index out of range: $idx")
+          case VMNumber(IntType, idx: boxed.Integer) => push(new MutableSeqAssignable(ms, idx))
+          case idx                                   => problem(ps.head, s"expected integer sequence index: $idx")
+        }
       case s: VMObject if s.isSequence =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
@@ -400,16 +410,6 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case idx: VMNumber if idx.typ == IntType =>
             push(s.apply(idx.value.intValue))
           case idx => problem(ps.head, s"expected integer sequence index: $idx")
-        }
-      case ms: VMObject if ms.isSequence && ms.isUpdatable =>
-        if (argc != 1)
-          problem(apos, "a function application with one argument was expected")
-
-        derefp match {
-          case VMNumber(IntType, idx: boxed.Integer) if idx < 0 || idx >= ms.size =>
-            problem(ps.head, s"sequence (of length ${ms.size}) index out of range: $idx")
-          case idx: Int => push(new MutableSeqAssignable(ms, idx))
-          case idx      => problem(ps.head, s"expected integer sequence index: $idx")
         }
       case m: VMObject if m.isMap && m.isResizable =>
         if (argc != 1)
