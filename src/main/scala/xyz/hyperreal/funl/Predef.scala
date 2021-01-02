@@ -10,6 +10,7 @@ import scala.util.Random.{nextDouble, nextInt, setSeed}
 import xyz.hyperreal.numbers_jvm.ComplexBigInt
 import xyz.hyperreal.bvm._
 import xyz.hyperreal.dal.{BasicDAL, IntType}
+
 import java.{lang => boxed}
 
 object Predef {
@@ -200,7 +201,7 @@ object Predef {
               if (vm.scanpos != pos)
                 Fail
               else
-                ()
+                VMVoid
             }
         }
       },
@@ -307,13 +308,7 @@ object Predef {
           VMNumber(vm.scanpos + 2)
       },
       "type" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
-        deref(args) match {
-          case _: String          => "string"
-          case _: Double          => "float"
-          case _: Int | _: BigInt => "integer"
-          case _: Iterable[_]     => "iterable"
-          case o                  => o.getClass.toString
-        }
+        VMString(derefo(args).clas.name)
       },
       "swap" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         args match {
@@ -336,15 +331,16 @@ object Predef {
               (s1, i, s2.headOption.getOrElse(' ').toString)
           }
 
-        if (src.length > width)
-          src.substring(0, width)
-        else {
-          val diff = width - src.length
-          val half = diff / 2
-          val odd = diff % 2 == 1
+        VMString(
+          if (src.length > width)
+            src.substring(0, width)
+          else {
+            val diff = width - src.length
+            val half = diff / 2
+            val odd = diff % 2 == 1
 
-          padding * half + src + padding * half + (if (odd) padding else "")
-        }
+            padding * half + src + padding * half + (if (odd) padding else "")
+          })
       },
       "right" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         val (src, width, padding) =
@@ -359,28 +355,27 @@ object Predef {
 
         val diff = width - src.length
 
-        if (src.length > width)
-          src.substring(-diff, src.length)
-        else {
-          padding * diff + src
-        }
+        VMString(
+          if (src.length > width)
+            src.substring(-diff, src.length)
+          else
+            padding * diff + src)
       },
       "float" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
-          case n: VMNumber => n.value.doubleValue
-          case VMString(s) => s.toDouble
+          case VMNumber(_, n) => n.doubleValue
+          case VMString(s)    => s.toDouble
           case _ =>
             problem(ps.headOption.getOrElse(apos), s"float: expected a number")
         }
       },
       "integer" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
-          case n: Double => n.toInt // todo: correction integer conversions
-          case s: String =>
+          case VMNumber(_, n) => n.intValue // todo: correction integer conversions
+          case VMString(s) =>
             val a = BigInt(s)
 
-            if (a.isValidInt) a.toInt
-            else a
+            VMNumber(if (a.isValidInt) a.toInt.asInstanceOf[Number] else a)
           case _ =>
             problem(ps.headOption.getOrElse(apos), s"number: expected a number")
         }
@@ -411,18 +406,18 @@ object Predef {
         argsderef(args) match {
           case ArgList() =>
             problem(ps.headOption.getOrElse(apos), "min( a1, a2, ... )")
-          case l: Iterable[_] => l.min(ORDERING)
-          case args: ArgList  => args.array.min(ORDERING)
-          case _              => problem(ps.headOption.getOrElse(apos), "min( a1, a2, ... )")
+          case s: VMObject if s.isIterable => s.iterator.min(ORDERING)
+          case args: ArgList               => args.array.min(ORDERING)
+          case _                           => problem(ps.headOption.getOrElse(apos), "min( a1, a2, ... )")
         }
       },
       "max" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
           case ArgList() =>
             problem(ps.headOption.getOrElse(apos), "max( a1, a2, ... )")
-          case l: Iterable[_] => l.max(ORDERING)
-          case args: ArgList  => args.array.max(ORDERING)
-          case _              => problem(ps.headOption.getOrElse(apos), "max( a1, a2, ... )")
+          case s: VMObject if s.isIterable => s.iterator.max(ORDERING)
+          case args: ArgList               => args.array.max(ORDERING)
+          case _                           => problem(ps.headOption.getOrElse(apos), "max( a1, a2, ... )")
         }
       },
 //      "sum" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>

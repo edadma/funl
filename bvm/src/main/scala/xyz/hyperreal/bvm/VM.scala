@@ -736,7 +736,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             for (_ <- 1 to parts)
               buf ++= derefp.toString
 
-            push(buf.toString)
+            push(VMString(buf.toString))
           case TupleInst(arity) =>
             val a = new Array[VMObject](arity)
 

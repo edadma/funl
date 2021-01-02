@@ -467,7 +467,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
   "levenshtein" in {
     runCapture(
       """
-				|def levenshtein( s1, s2 ) = lev( s1.length(), s2.length(), s1, s2 )
+				|def levenshtein( s1, s2 ) = lev( s1.length, s2.length, s1, s2 )
 				|
 				|def lev( i, j, a, b )
 				|  | i | j == 0  =  max( i, j )
