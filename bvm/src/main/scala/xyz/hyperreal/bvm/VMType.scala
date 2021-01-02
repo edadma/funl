@@ -69,6 +69,8 @@ abstract class VMObject extends Ordered[VMObject] {
 
   val isSet: Boolean
 
+  def contains(key: VMObject): Boolean
+
   val isResizable: Boolean
 
   def addOne(elem: VMObject): Unit
@@ -131,6 +133,8 @@ trait VMNonMap {
 
 trait VMNonSet {
   val isSet: Boolean = false
+
+  def contains(key: VMObject): Boolean = sys.error("no contains method")
 }
 
 abstract class VMNonSequenceObject extends VMObject with VMNonSequence with VMNonResizable

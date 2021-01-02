@@ -27,6 +27,8 @@ class VMSet(set: Set[VMObject])
 
   val isSet: Boolean = true
 
+  def contains(key: VMObject): Boolean = set(key)
+
   override def toString: String = iterator.map(displayQuoted).mkString("{", ", ", "}")
 }
 
@@ -41,6 +43,8 @@ object VMEmptySet extends VMNonResizableIterable with VMNonSequence with VMNonMa
   override def size: Int = 0
 
   val isSet: Boolean = true
+
+  def contains(key: VMObject): Boolean = false
 
   override def toString: String = "{}"
 }

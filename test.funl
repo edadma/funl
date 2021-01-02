@@ -1,4 +1,4 @@
-val a = array([1, 2, 3, 4])
+data record(a, b)
+val r = record(123, 456)
 
-swap(a(0), a(1))
-write(a, a(2))
+write(r.a, r.b, r, r("b"))

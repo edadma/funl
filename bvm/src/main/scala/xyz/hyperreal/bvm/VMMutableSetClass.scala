@@ -34,6 +34,8 @@ class VMMutableSet private[bvm] (set: mutable.Set[VMObject])
   val isSet: Boolean = true
   val isResizable: Boolean = true
 
+  def contains(key: VMObject): Boolean = set(key)
+
   def addOne(elem: VMObject): Unit = set += elem
 
   def subtractOne(elem: VMObject): Unit = set -= elem

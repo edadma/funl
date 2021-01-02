@@ -140,7 +140,7 @@ object Predef {
       },
       "set" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()            => VMEmptyMutableSet
+          case ArgList()            => new VMMutableSet
           case a: ArgList           => VMMutableSetClass.build(a.array.iterator)
           case init: Array[Any]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
           case init: Array[Byte]    => mutable.HashSet[Any](init.toIndexedSeq: _*)
@@ -233,8 +233,8 @@ object Predef {
           }
         val set =
           q match {
-            case c: CSet     => c
-            case VMString(s) => new CSet(s)
+            case VMCSet(cset) => cset
+            case VMString(s)  => new CSet(s)
           }
 
         s.indexWhere(set, f) match {

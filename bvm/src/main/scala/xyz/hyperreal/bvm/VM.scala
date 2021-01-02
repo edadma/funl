@@ -382,7 +382,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           case VMString(s) =>
             r getField s match {
               case None    => problem(apos, s"not a field of record '${r.name}'")
-              case Some(n) => push(r(n))
+              case Some(v) => push(v)
             }
           case n @ VMNumber(IntType, _) =>
             if (0 <= n.value.intValue && n.value.intValue < r.size)
@@ -526,7 +526,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 r getField field match {
                   case None =>
                     problem(apos, s"'$field' not a field of record '${r.name}'")
-                  case Some(n) => push(r(n))
+                  case Some(v) => push(v)
                 }
               case s: VMObject if s.isIterable && (field.name == "length" || field.name == "size") =>
                 push(VMNumber(s.size))
