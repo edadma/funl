@@ -76,7 +76,7 @@ object Predef {
             case a          => List(a)
           }
 
-        print(list map (a => display(deref(a))) mkString ", ")
+        print(list map (a => display(derefo(a))) mkString ", ")
       },
       "write" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         val list =
@@ -91,12 +91,6 @@ object Predef {
         deref(args) match {
           case msg: String => problem(apos, msg)
           case _           => problem(apos, "error: expected one string argument")
-        }
-      },
-      "seq" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
-        deref(args) match {
-          case s: VMObject if s.isIterable => VMSeqClass.build(s.iterator)
-          case _                           => problem(apos, "seq: expected iterable argument")
         }
       },
       "array" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
@@ -140,19 +134,20 @@ object Predef {
       },
       "set" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         argsderef(args) match {
-          case ArgList()            => new VMMutableSet
-          case a: ArgList           => VMMutableSetClass.build(a.array.iterator)
-          case init: Array[Any]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
-          case init: Array[Byte]    => mutable.HashSet[Any](init.toIndexedSeq: _*)
-          case init: Array[Int]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
-          case x: Seq[Any]          => mutable.HashSet(x: _*)
-          case x: IterableOnce[Any] => mutable.HashSet(x.iterator.to(Seq): _*)
-          case _                    => mutable.HashSet(args)
+          case ArgList()  => new VMMutableSet
+          case a: ArgList => VMMutableSetClass.build(a.array.iterator)
+//          case init: Array[Any]     => mutable.HashSet[Any](init.toIndexedSeq: _*)//todo
+//          case init: Array[Byte]    => mutable.HashSet[Any](init.toIndexedSeq: _*)
+//          case init: Array[Int]     => mutable.HashSet[Any](init.toIndexedSeq: _*)
+//          case x: Seq[Any]          => mutable.HashSet(x: _*)
+//          case x: IterableOnce[Any] => mutable.HashSet(x.iterator.to(Seq): _*)
+//          case _                    => mutable.HashSet(args)
         }
       },
-      "tuple" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
-        argsderef(args) match {
-          case a: VMObject if a.isIterable => new VMSeq(immutable.ArraySeq.from(a.iterator))
+      "seq" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
+        deref(args) match {
+          case s: VMObject if s.isIterable => VMSeqClass.build(s.iterator)
+          case _                           => problem(apos, "seq: expected iterable argument")
         }
       },
       "map" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
