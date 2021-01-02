@@ -788,7 +788,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                 }
               case ConsStructureAST(_, _, _) | ListStructureAST(_, _) =>
                 dereft match {
-                  case s: Seq[_] if s.nonEmpty =>
+                  case s: VMObject if s.isSequence && s.nonEmpty =>
                   case _ =>
                     fail() //problem( tpos, "expected a non-empty sequence" )
                 }
@@ -1010,7 +1010,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
             push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, VMNumber.apply)))
           case CommentInst(_) =>
-          case EmptyInst      => push(derefp.asInstanceOf[Seq[_]].isEmpty)
+          case EmptyInst      => push(derefpo.isEmpty)
           case HaltInst       => ip = HALT
           case BeginScanInst(spos) =>
             derefpo match {

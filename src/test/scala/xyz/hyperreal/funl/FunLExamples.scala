@@ -297,8 +297,8 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 			""".stripMargin
     ) shouldBe
       """
-				|<1, 3, 0, 2>
-				|<2, 0, 3, 1>
+				|(1, 3, 0, 2)
+				|(2, 0, 3, 1)
 			""".stripMargin.trim
   }
 
@@ -336,8 +336,8 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 			""".stripMargin
     ) shouldBe
       """
-				|<1, 3, 0, 2>
-				|<2, 0, 3, 1>
+				|(1, 3, 0, 2)
+				|(2, 0, 3, 1)
 			""".stripMargin.trim
   }
 

@@ -63,6 +63,10 @@ abstract class VMObject extends Ordered[VMObject] {
 
   def size: Int
 
+  def isEmpty: Boolean = size == 0
+
+  def nonEmpty: Boolean = size > 0
+
   val isSequence: Boolean
 
   def apply(key: VMObject): VMObject
