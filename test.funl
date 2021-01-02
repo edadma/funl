@@ -1,4 +1,20 @@
-data record(a, b)
-val r = record(123, 456)
+val vowel = cset( 'aeiou' )
+val text = 'test string'
 
-write(r.a, r.b, r, r("b"))
+every write( text ? upto(vowel) )
+
+text ?
+  if tab(upto(vowel) + 1)
+    write(tab(0))
+
+text ?
+  while write(tab(upto(' ')))
+    tab(many(' '))
+
+  write(tab(0))
+
+text ?
+  while tab(upto(alphanum))
+    write(tab(many(alphanum)))
+
+write( "The theory is fallacious" ? match("The") )

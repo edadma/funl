@@ -24,13 +24,13 @@ object Predef {
             case nextidx =>
               vm.pushChoice(0, vm => {
                 nextchoice(nextidx)
-                vm.push(nextidx + 1)
+                vm.push(VMNumber(nextidx + 1))
               })
           }
         }
 
         nextchoice(idx)
-        idx + 1
+        VMNumber(idx + 1)
     }
   }
 
@@ -61,11 +61,11 @@ object Predef {
       native("cos", { case (vm: VM, VMNumber(_, n))   => VMNumber(BasicDAL.cosFunction(n)) }),
       native("tan", { case (vm: VM, VMNumber(_, n))   => VMNumber(BasicDAL.tanFunction(n)) }),
       "None" -> None,
-      "alphanum" -> ALPHANUM_CLASS,
-      "digits" -> new CSet(DIGIT_CLASS),
-      "letters" -> new CSet(LETTER_CLASS),
-      "lcase" -> new CSet('a' to 'z'),
-      "ucase" -> new CSet('A' to 'Z'),
+      "alphanum" -> VMCSet(ALPHANUM_CLASS),
+      "digits" -> VMCSet(new CSet(DIGIT_CLASS)),
+      "letters" -> VMCSet(new CSet(LETTER_CLASS)),
+      "lcase" -> VMCSet(new CSet('a' to 'z')),
+      "ucase" -> VMCSet(new CSet('A' to 'Z')),
       "i" -> ComplexBigInt.i,
       "pi" -> math.Pi,
       "e" -> math.E,
@@ -85,7 +85,7 @@ object Predef {
             case a          => List(a)
           }
 
-        println(list map (a => display(deref(a))) mkString ", ")
+        println(list map (a => display(derefo(a))) mkString ", ")
       },
       "error" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
@@ -170,10 +170,11 @@ object Predef {
               Fail
             else {
               val res =
-                if (vm.scanpos > pos)
-                  vm.seq.subSequence(pos, vm.scanpos)
-                else
-                  vm.seq.subSequence(vm.scanpos, pos)
+                VMString(
+                  (if (vm.scanpos > pos)
+                     vm.seq.subSequence(pos, vm.scanpos)
+                   else
+                     vm.seq.subSequence(vm.scanpos, pos)).toString)
               val (oldseq, oldscanpos) = (vm.seq, vm.scanpos)
 
               vm.pushChoice(vm => {
@@ -218,12 +219,16 @@ object Predef {
                    }),
       "cset" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         val list =
-          argsderef(args) match {
+          (argsderef(args) match {
             case a: ArgList => a.array toList
             case a          => List(a)
+          }) map {
+            case VMString(s)                 => s
+            case r: VMRangeObject            => r.range
+            case s: VMObject if s.isIterable => s.iterator.map(_.asInstanceOf[VMString].string.head)
           }
 
-        new CSet(list: _*)
+        VMCSet(new CSet(list))
       },
       "upto" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         val (q, s, f) =
@@ -263,7 +268,7 @@ object Predef {
           }
         val set =
           (q match {
-            case c: CSet     => c
+            case VMCSet(c)   => c
             case VMString(s) => new CSet(s)
           }).complement
 
@@ -272,7 +277,7 @@ object Predef {
             if (f == s.length)
               Fail
             else
-              s.length + 1
+              VMNumber(s.length + 1)
           case idx =>
             def nextchoice(from: Int): Unit = {
               s.indexWhere(set, from + 1) match {
@@ -297,14 +302,14 @@ object Predef {
       "any" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         val set =
           argsderef(args) match {
-            case c: CSet   => c
-            case s: String => new CSet(s)
+            case VMCSet(c)   => c
+            case VMString(s) => new CSet(s)
           }
 
         if (vm.scanpos == vm.seq.length || !set(vm.seq.charAt(vm.scanpos)))
           Fail
         else
-          vm.scanpos + 2
+          VMNumber(vm.scanpos + 2)
       },
       "type" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {

@@ -1,7 +1,5 @@
 package xyz.hyperreal
 
-import java.io.ByteArrayOutputStream
-
 import scala.util.parsing.input.Position
 import xyz.hyperreal.bvm.Pattern._
 import xyz.hyperreal.dal.BasicDAL
@@ -14,13 +12,13 @@ package object bvm {
   type cset = Char => Boolean
 
   val DIGIT_CLASS: Char => Boolean = (_: Char).isDigit
-  val HEXDIGIT_CLASS = new CSet(DIGIT_CLASS, 'a' to 'f', 'A' to 'F')
+  val HEXDIGIT_CLASS = new CSet(List(DIGIT_CLASS, 'a' to 'f', 'A' to 'F'))
   val LETTER_CLASS: Char => Boolean = (_: Char).isLetter
-  val ALPHANUM_CLASS = new CSet(LETTER_CLASS, DIGIT_CLASS)
-  val WORD_CLASS = new CSet(ALPHANUM_CLASS, (_: Char) == '_')
-  val NONWORD_CLASS: Char => Boolean = new CSet(unionOf(ALPHANUM_CLASS, (_: Char) == '_')).complement
+  val ALPHANUM_CLASS = new CSet(List(LETTER_CLASS, DIGIT_CLASS))
+  val WORD_CLASS = new CSet(List(ALPHANUM_CLASS, (_: Char) == '_'))
+  val NONWORD_CLASS: Char => Boolean = new CSet(List(unionOf(ALPHANUM_CLASS, (_: Char) == '_'))).complement
   val WHITESPACE_CLASS: Set[Char] = " \t\r\u000B\n".toSet
-  val HORIZONTAL_WHITESPACE_CLASS = new CSet('\u2000' to '\u200a', "\t\u00A0\u1680\u180e\u202f\u205f\u3000")
+  val HORIZONTAL_WHITESPACE_CLASS = new CSet(List('\u2000' to '\u200a', "\t\u00A0\u1680\u180e\u202f\u205f\u3000"))
   val VERTICAL_WHITESPACE_CLASS: Set[Char] = "\n\u000B\f\r\u0085\u2028\u2029".toSet
   val TERMINATOR_CLASS: Set[Char] = "\u000A\u000B\u000C\u000D\u0085\u2028\u2029".toSet
 

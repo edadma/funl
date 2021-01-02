@@ -82,7 +82,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
     if (end <= seq.length)
       if (matches)
-        end + 1
+        VMNumber(end + 1)
       else
         Fail
     else
@@ -100,10 +100,11 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
           seq.length - n
 
       val res =
-        if (scanpos > pos)
-          seq.subSequence(pos, scanpos)
-        else
-          seq.subSequence(scanpos, pos)
+        VMString(
+          (if (scanpos > pos)
+             seq.subSequence(pos, scanpos)
+           else
+             seq.subSequence(scanpos, pos)).toString)
       val (oldseq, oldscanpos) = (seq, scanpos)
 
       pushChoice(vm => {

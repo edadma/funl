@@ -1,9 +1,14 @@
 package xyz.hyperreal.bvm
 
 import collection.mutable.ArrayBuffer
+import scala.collection.immutable.NumericRange
 import scala.collection.mutable
 
-class CSet(classes: Any*) extends (Char => Boolean) {
+class CSet(classes: List[Any]) extends (Char => Boolean) {
+
+  def this(s: String) = this(List(s))
+  def this(r: NumericRange[Char]) = this(List(r))
+  def this(f: Char => Boolean) = this(List(f))
 
   private val union = new mutable.HashSet[Char]()
   private[bvm] val buf = new ArrayBuffer[Char => Boolean]
