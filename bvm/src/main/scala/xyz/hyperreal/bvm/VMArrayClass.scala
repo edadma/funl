@@ -43,5 +43,9 @@ class VMArray private[bvm] (array: Array[VMObject])
       case VMNumber(IntType, n) => array(n.intValue) = value
     }
 
+  def head: VMObject = array.head
+
+  def tail: VMObject = new VMArray(array.tail)
+
   override def toString: String = array.mkString("Array(", ", ", ")")
 }

@@ -224,7 +224,7 @@ object Predef {
             case a          => List(a)
           }) map {
             case VMString(s)                 => s
-            case r: VMRangeObject            => r.range
+            case r: VMRange                  => r.range
             case s: VMObject if s.isIterable => s.iterator.map(_.asInstanceOf[VMString].string.head)
           }
 

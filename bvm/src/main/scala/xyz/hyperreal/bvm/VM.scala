@@ -812,8 +812,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val elem = derefpo
 
             push(derefpo.append(elem))
-          case ListHeadInst            => push(derefp.asInstanceOf[VMConsObject].head)
-          case ListTailInst            => push(derefp.asInstanceOf[VMConsObject].tail)
+          case ListHeadInst            => push(derefpo.head)
+          case ListTailInst            => push(derefpo.tail)
           case EqInst                  => push(derefp == derefp)
           case ErrorInst(p, error)     => problem(p, error)
           case CallingErrorInst(error) => problem(pos, error)
@@ -993,7 +993,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   problem(pt, s"expected a number as range end value: ${display(v)}")
               }
 
-            push(new VMRangeObject(derefp.asInstanceOf[VMNumber].value, t, b, inclusive))
+            push(new VMRange(derefp.asInstanceOf[VMNumber].value, t, b, inclusive))
           //                problem(pf, s"expected a number (real and not a fraction) as the range initial value: ${display(v)}")
           case UnboundedLazyListInst(fpos, bpos) =>
             val b =

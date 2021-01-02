@@ -67,6 +67,10 @@ abstract class VMObject extends Ordered[VMObject] {
 
   def nonEmpty: Boolean = size > 0
 
+  def head: VMObject
+
+  def tail: VMObject
+
   val isSequence: Boolean
 
   def apply(key: VMObject): VMObject
@@ -127,6 +131,10 @@ trait VMNonSequence {
   val isSequence: Boolean = false
 
   def apply(key: VMObject): VMObject = sys.error("no apply method")
+
+  def head: VMObject = sys.error("no head method")
+
+  def tail: VMObject = sys.error("no tail method")
 }
 
 trait VMNonMap {

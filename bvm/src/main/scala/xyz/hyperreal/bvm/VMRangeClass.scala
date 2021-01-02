@@ -13,14 +13,13 @@ object VMRangeClass extends VMClass {
   val clas: VMClass = VMClassClass
 }
 
-class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean)
+class VMRange(val range: IndexedSeq[Any])
     extends VMNonAppendableNonResizableNonMapSequence
     with VMUnordered
     with VMNonUpdatable
     with VMNonSet {
-  val clas: VMClass = VMRangeClass
-  val range: AbstractSeq[Any] with IndexedSeq[Any] =
-    start match {
+  def this(start: Number, end: Number, step: Number, inclusive: Boolean) =
+    this(start match {
       case i: boxed.Integer if inclusive => i.toInt to end.intValue by step.intValue
       case i: boxed.Integer              => i.toInt until end.intValue by step.intValue
       case d: boxed.Double if inclusive =>
@@ -35,7 +34,9 @@ class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean
       case v             =>
         /*problem(pf,*/
         sys.error(s"expected a number (real and not a fraction) as the range initial value: $start")
-    }
+    })
+
+  val clas: VMClass = VMRangeClass
 
   def iterator: Iterator[VMObject] =
     range.iterator.map(n => VMNumber(n.asInstanceOf[Number]))
@@ -43,6 +44,10 @@ class VMRangeObject(start: Number, end: Number, step: Number, inclusive: Boolean
   def apply(idx: VMObject): VMObject = VMNumber(range(idx.asInstanceOf[VMNumber].value.intValue).asInstanceOf[Number])
 
   def size: Int = range.length
+
+  def head: VMObject = VMNumber(range.head.asInstanceOf[Number])
+
+  def tail: VMObject = new VMRange(range.tail)
 
   override def toString: String = range.toString
 }

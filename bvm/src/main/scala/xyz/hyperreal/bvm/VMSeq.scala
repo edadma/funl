@@ -1,7 +1,6 @@
 package xyz.hyperreal.bvm
 
 import scala.collection.immutable
-import scala.collection.immutable.ArraySeq
 
 object VMSeqClass extends VMClass with VMBuilder {
   val parent: VMClass = VMObjectClass
@@ -15,21 +14,25 @@ object VMSeqClass extends VMClass with VMBuilder {
   val clas: VMClass = VMClassClass
 }
 
-class VMSeq(elems: IndexedSeq[VMObject])
+class VMSeq(seq: IndexedSeq[VMObject])
     extends VMObject
     with VMNonAppendableNonResizableNonMapSequence
     with VMUnordered
     with VMNonUpdatable
     with VMNonSet {
-  def this(p: Product) = this(p.productIterator.to(ArraySeq).asInstanceOf[ArraySeq[VMObject]])
+  def this(p: Product) = this(p.productIterator.to(immutable.ArraySeq).asInstanceOf[immutable.ArraySeq[VMObject]])
 
   val clas: VMClass = VMSeqClass
 
-  def apply(idx: VMObject): VMObject = elems(idx.asInstanceOf[VMNumber].value.intValue)
+  def apply(idx: VMObject): VMObject = seq(idx.asInstanceOf[VMNumber].value.intValue)
 
-  def size: Int = elems.length
+  def size: Int = seq.length
 
-  def iterator: Iterator[VMObject] = elems.iterator
+  def iterator: Iterator[VMObject] = seq.iterator
 
-  override def toString = s"(${elems mkString ", "})"
+  def head: VMObject = seq.head
+
+  def tail: VMObject = new VMSeq(seq.tail)
+
+  override def toString = s"(${seq mkString ", "})"
 }

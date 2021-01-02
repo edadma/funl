@@ -95,5 +95,9 @@ object VMNil extends VMList {
 
   override def append(elem: VMObject): VMObject = VMConsObject(elem, VMNil)
 
+  def head: VMObject = sys.error("empty list")
+
+  def tail: VMObject = sys.error("empty list")
+
   override def toString: String = "[]"
 }

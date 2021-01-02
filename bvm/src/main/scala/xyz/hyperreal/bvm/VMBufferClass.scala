@@ -54,4 +54,8 @@ class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject])
     }
 
   override def toString: String = buf.mkString("Buffer(", ", ", ")")
+
+  def head: VMObject = buf.head
+
+  def tail: VMObject = new VMBuffer(buf.tail)
 }

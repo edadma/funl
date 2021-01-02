@@ -31,5 +31,9 @@ class VMRecord(val name: String, elems: IndexedSeq[VMObject], symbolMap: Map[Sym
 
   def iterator: Iterator[VMObject] = elems.iterator
 
+  def head: VMObject = sys.error("no head method")
+
+  def tail: VMObject = sys.error("no tail method")
+
   override def toString: String = if (size == 0) name else s"$name(${elems mkString ", "})"
 }

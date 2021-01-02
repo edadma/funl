@@ -27,5 +27,9 @@ case class VMString(string: String) extends VMNonResizableSequence with VMNonMap
       case _           => sys.error(s"String is not comparable to $that")
     }
 
+  def head: VMObject = VMString(string.head.toString)
+
+  def tail: VMObject = VMString(string.tail)
+
   override def toString: String = string
 }
