@@ -8,23 +8,23 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
   "hanoi" in {
     runCapture(
       """
-				|val a = buffer( 5..1 by -1 )
+				|val a = buffer(5..1 by -1)
 				|val b = buffer()
 				|val c = buffer()
 				|
-				|def hanoi( n, source, target, auxilliary )
+				|def hanoi(n, source, target, auxilliary)
 				|  if n > 0
 				|    ;; move n - 1 disks from source to auxiliary, so they are out of the way
-				|    hanoi( n - 1, source, auxilliary, target )
+				|    hanoi(n - 1, source, auxilliary, target)
 				|
 				|    ;; move the nth disk from source to target
-				|    target += source.remove( source.length() - 1 )
+				|    target += source.remove(source.length - 1)
 				|
 				|    ;; move the n - 1 disks that we left on auxiliary onto target
-				|    hanoi( n - 1, auxilliary, target, source )
+				|    hanoi(n - 1, auxilliary, target, source)
 				|
-				|hanoi( 5, a, b, c )
-				|write( a, b, c )
+				|hanoi(5, a, b, c)
+				|write(a, b, c)
 			""".stripMargin
     ) shouldBe "Buffer(), Buffer(5, 4, 3, 2, 1), Buffer()"
   }
@@ -307,7 +307,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
       """
 				|def
 				|  permute( [] ) = seq()
-				|  permute( l ) = permute_( l.length(), array(l) )
+				|  permute( l ) = permute_( l.length, array(l) )
 				|  permute_( n, a )
 				|    if n == 1
 				|      seq( a )

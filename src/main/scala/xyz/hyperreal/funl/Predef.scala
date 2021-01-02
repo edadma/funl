@@ -130,7 +130,7 @@ object Predef {
             for (_ <- 1 to n) res.addOne(VMUndefined)
 
             res
-          case init: VMObject if init.isIterable => VMArrayClass.build(init.iterator)
+          case init: VMObject if init.isIterable => VMBufferClass.build(init.iterator)
         }
       },
       "set" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
