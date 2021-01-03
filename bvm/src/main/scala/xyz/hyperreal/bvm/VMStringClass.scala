@@ -17,7 +17,9 @@ case class VMString(string: String) extends VMNonResizableSequence with VMNonMap
 
   def size: Int = string.length
 
-  override def append(elem: VMObject): VMObject = VMString(string :++ elem.toString)
+  def append(elem: VMObject): VMObject = VMString(string :++ elem.toString)
+
+  def concat(iterable: VMObject): VMObject = VMString(string :++ iterable.toString)
 
   def isOrdered: Boolean = true
 

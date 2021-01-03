@@ -60,13 +60,9 @@ case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
 
   def size: Int = iterator.length
 
-  override def append(elem: VMObject): VMObject = {
-    val buf = new ArrayBuffer[VMObject]
+  def append(elem: VMObject): VMObject = VMListClass.build(iterator ++ Iterator(elem))
 
-    buf ++= iterator
-    buf += elem
-    VMListClass.build(buf.iterator)
-  }
+  def concat(iterable: VMObject): VMObject = VMListClass.build(iterator ++ iterable.iterator)
 
   override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")
 }
@@ -82,18 +78,20 @@ trait VMList
 object VMNil extends VMList {
   val clas: VMClass = VMListClass
 
-  override def iterator: Iterator[VMObject] =
+  def iterator: Iterator[VMObject] =
     new Iterator[VMObject] {
       def hasNext: Boolean = false
 
       def next(): VMObject = throw new NoSuchElementException("nil has no elements")
     }
 
-  override def apply(idx: VMObject): VMObject = throw new IndexOutOfBoundsException
+  def apply(idx: VMObject): VMObject = throw new IndexOutOfBoundsException
 
-  override def size: Int = 0
+  def size: Int = 0
 
-  override def append(elem: VMObject): VMObject = VMConsObject(elem, VMNil)
+  def append(elem: VMObject): VMObject = VMConsObject(elem, VMNil)
+
+  def concat(iterable: VMObject): VMObject = iterable //todo: too permissive
 
   def head: VMObject = sys.error("empty list")
 

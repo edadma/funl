@@ -29,12 +29,9 @@ class VMArray private[bvm] (array: Array[VMObject])
 
   def size: Int = array.length
 
-  def append(elem: VMObject): VMObject = {
-    val array1 = Array.copyAs[VMObject](array, array.length + 1)
+  def append(elem: VMObject): VMObject = new VMArray(array :+ elem)
 
-    array1(array.length) = elem
-    new VMArray(array1)
-  }
+  def concat(iterable: VMObject): VMObject = VMArrayClass.build(iterator ++ iterable.iterator)
 
   val isUpdatable: Boolean = true
 

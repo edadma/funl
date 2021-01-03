@@ -23,6 +23,8 @@ class VMSet(set: Set[VMObject])
 
   def append(elem: VMObject): VMObject = new VMSet(set + elem)
 
+  def concat(iterable: VMObject): VMObject = new VMSet(set ++ iterable.iterator)
+
   override def size: Int = set.size
 
   val isSet: Boolean = true
@@ -34,13 +36,14 @@ class VMSet(set: Set[VMObject])
 
 object VMEmptySet extends VMNonResizableIterable with VMNonSequence with VMNonMap with VMUnordered with VMNonUpdatable {
   val clas: VMClass = VMSetClass
-//  val set: Set[VMObject] = Set.empty
 
   override def iterator: Iterator[VMObject] = Set.empty.iterator
 
   def append(elem: VMObject): VMObject = new VMSet(Set(elem))
 
-  override def size: Int = 0
+  def concat(iterable: VMObject): VMObject = new VMSet(iterable.iterator.toSet)
+
+  def size: Int = 0
 
   val isSet: Boolean = true
 

@@ -16,9 +16,10 @@ object VMSeqClass extends VMClass with VMBuilder {
 
 class VMSeq(seq: IndexedSeq[VMObject])
     extends VMObject
-    with VMNonAppendableNonResizableNonMapSequence
-    with VMUnordered
+    with VMNonResizableSequence
+    with VMNonMap
     with VMNonUpdatable
+    with VMUnordered
     with VMNonSet {
   def this(p: Product) = this(p.productIterator.to(immutable.ArraySeq).asInstanceOf[immutable.ArraySeq[VMObject]])
 
@@ -29,6 +30,10 @@ class VMSeq(seq: IndexedSeq[VMObject])
   def size: Int = seq.length
 
   def iterator: Iterator[VMObject] = seq.iterator
+
+  def append(elem: VMObject): VMObject = new VMSeq(seq :+ elem)
+
+  def concat(iterable: VMObject): VMObject = new VMSeq(seq :++ iterable.iterator)
 
   def head: VMObject = seq.head
 

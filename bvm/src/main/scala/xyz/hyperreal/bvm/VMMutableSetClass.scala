@@ -25,8 +25,9 @@ class VMMutableSet private[bvm] (set: mutable.Set[VMObject])
 
   def iterator: Iterator[VMObject] = set.iterator
 
-  //todo: addOne
   def append(elem: VMObject): VMObject = new VMMutableSet(set union mutable.Set(elem))
+
+  def concat(iterable: VMObject): VMObject = new VMMutableSet(set ++ iterable.iterator)
 
   override def size: Int = set.size
 

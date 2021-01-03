@@ -36,6 +36,8 @@ class VMMap(map: Map[VMObject, VMObject])
     else
       sys.error(s"map entry should be a tuple")
 
+  def concat(iterable: VMObject): VMObject = new VMMap(map ++ iterable.iterator.map(_.toPair))
+
   override def toString: String =
     map.iterator.map { case (k, v) => s"${displayQuoted(k)}: ${displayQuoted(v)}" }.mkString("{", ", ", "}")
 }
@@ -57,5 +59,7 @@ object VMEmptyMap extends VMNonResizableIterable with VMNonSequence with VMUnord
     else
       sys.error(s"expected tuple")
 
-  override def toString: String = "{}"
+  def concat(iterable: VMObject): VMObject = new VMMap(Map() ++ iterable.iterator.map(_.toPair))
+
+  override def toString: String = "{:}"
 }

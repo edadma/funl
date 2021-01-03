@@ -39,12 +39,9 @@ class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject])
 
   override def subtractAll(seq: VMObject): Unit = buf --= seq.iterator
 
-  def append(elem: VMObject): VMObject = {
-    val buf1 = buf.iterator to ArrayBuffer
+  def append(elem: VMObject): VMObject = new VMBuffer(buf :+ elem)
 
-    buf1 += elem
-    new VMBuffer(buf1)
-  }
+  def concat(iterable: VMObject): VMObject = VMBufferClass.build(iterator ++ iterable.iterator)
 
   val isUpdatable: Boolean = true
 

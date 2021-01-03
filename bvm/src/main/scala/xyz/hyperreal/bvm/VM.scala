@@ -280,8 +280,8 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
       current))) || set(Pattern.DOTALL)
 
   protected def binaryOperation(lpos: Position, op: Symbol, rpos: Position): Unit = {
-    val r = derefp
-    val l = derefp
+    val r = derefpo
+    val l = derefpo
 
     op match {
       case Symbol("+") =>
@@ -296,8 +296,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 //                value ++ r
 //                  .asInstanceOf[Iterable[Vector[Any]]]
 //                  .map(v => (v(0), v(1))))
-            case value: Iterable[_] if r.isInstanceOf[Iterable[_]] =>
-              push(value ++ r.asInstanceOf[Iterable[_]])
+            case value: VMObject if value.isIterable && r.isIterable => push(value concat r)
             case _ =>
               if (!l.isInstanceOf[VMNumber])
                 problem(lpos, s"not a number: $l")

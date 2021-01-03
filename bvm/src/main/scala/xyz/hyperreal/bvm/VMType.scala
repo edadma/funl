@@ -61,6 +61,8 @@ abstract class VMObject extends Ordered[VMObject] {
 
   def append(elem: VMObject): VMObject
 
+  def concat(iterable: VMObject): VMObject
+
   def size: Int
 
   def isEmpty: Boolean = size == 0
@@ -120,6 +122,8 @@ trait VMNonIterable extends VMNonSequence with VMNonMap {
   def size: Int = sys.error("no size method")
 
   def append(elem: VMObject): VMObject = sys.error("no append method")
+
+  def concat(iterable: VMObject): VMObject = sys.error("no concat method")
 }
 
 trait VMResizableIterableNonSequence extends VMNonSequence with VMNonAppendable {
@@ -171,6 +175,8 @@ trait VMNonResizable {
 
 trait VMNonAppendable {
   def append(elem: VMObject): VMObject = sys.error("can't append")
+
+  def concat(iterable: VMObject): VMObject = sys.error("can't concatenate")
 }
 
 trait VMNonResizableIterable extends VMObject with VMNonResizable {
