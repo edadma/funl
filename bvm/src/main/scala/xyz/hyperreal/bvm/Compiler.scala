@@ -662,7 +662,7 @@ class Compiler(constants: Map[String, Any],
           if (last == pos) {
             code += MarkInst(1)
             code += BranchInst(1)
-            code += CallingErrorInst(s"error calling function $oname: argument match not found")
+            code += CallingErrorInst(s"error calling function '$oname': argument match not found")
           } else
             code += null
 

@@ -65,7 +65,7 @@ case class VMConsObject(head: VMObject, var tail: VMList) extends VMList {
 
     buf ++= iterator
     buf += elem
-    VMConsClass.build(buf.iterator)
+    VMListClass.build(buf.iterator)
   }
 
   override def toString: String = iterator.map(displayQuoted).mkString("[", ", ", "]")

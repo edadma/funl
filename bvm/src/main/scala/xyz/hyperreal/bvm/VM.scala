@@ -861,13 +861,8 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                       lhs(i) match {
                         case l: Assignable =>
                           (op, l.value) match {
-//                            case (Symbol("+"), seq: collection.Seq[VMObject]) =>//todo: sequence append
-//                              l.value = seq :+ rhs(i)
-//                            case (Symbol("+"), set: collection.Set[_]) =>
-//                              l.value = set
-//                                .asInstanceOf[collection.Set[Any]] concat List(rhs(i))
-                            case (Symbol("+"), VMString(s)) =>
-                              l.value = VMString(s + rhs(i))
+                            case (Symbol("+"), seq: VMObject) if seq.isIterable => l.value = seq append rhs(i)
+                            case (Symbol("+"), VMString(s))                     => l.value = VMString(s + rhs(i))
                             case (Symbol("<") | Symbol(">"), n: VMNumber) =>
                               if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${display(rhs(i))}")
@@ -983,14 +978,12 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val b =
               derefp match {
                 case n: VMNumber => n.value
-                case v =>
-                  problem(pb, s"expected a number as range end value: ${display(v)}")
+                case v           => problem(pb, s"expected a number as range end value: ${display(v)}")
               }
             val t =
               derefp match {
                 case n: VMNumber => n.value
-                case v =>
-                  problem(pt, s"expected a number as range end value: ${display(v)}")
+                case v           => problem(pt, s"expected a number as range end value: ${display(v)}")
               }
 
             push(new VMRange(derefp.asInstanceOf[VMNumber].value, t, b, inclusive))
@@ -999,20 +992,21 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             val b =
               derefp match {
                 case n: VMNumber => n
-                case o =>
-                  problem(bpos, s"expected step value to be a number: $o")
+                case o           => problem(bpos, s"expected step value to be a number: $o")
               }
             val f =
               derefp match {
                 case n: VMNumber => n
-                case o =>
-                  problem(fpos, s"expected start value to be a number: $o")
+                case o           => problem(fpos, s"expected start value to be a number: $o")
               }
 
             push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, VMNumber.apply)))
           case CommentInst(_) =>
-          case EmptyInst      => push(derefpo.isEmpty)
-          case HaltInst       => ip = HALT
+          case EmptyInst =>
+            val a = derefpo
+
+            push(a.isSequence && a.isEmpty)
+          case HaltInst => ip = HALT
           case BeginScanInst(spos) =>
             derefpo match {
               case VMString(s) =>
