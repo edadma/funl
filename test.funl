@@ -1,11 +1,8 @@
-def
-  filter(p, [])           =  []
-  filter(p, x:xs) | p(x)  =  x:filter(p, xs)
-  filter(p, _:xs)         =  filter(p, xs)
+def foldr(f, z, [])     =  z
+def foldr(f, z, (x:xs)) =  f(x, foldr(f, z, xs))
 
-filter((>3), [1, 2, 3, 4, 5])
+val select = p -> (x, (ts, fs)) -> if p(x) then (x:ts, fs) else (ts, x:fs)
 
-def f([]) = write("empty")
-def f(h:t) = write(h, t)
+def partition(p, xs) = foldr(select(p), ([],[]), xs)
 
-;;f([])
+[1, 2, 3, 4, 5] + [6, 7]

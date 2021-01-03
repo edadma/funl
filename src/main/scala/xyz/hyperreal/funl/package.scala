@@ -31,6 +31,8 @@ package object funl {
       args
     )
 
+//    vm.trace = true
+//    vm.limit = 300
     vm.execute
   }
 

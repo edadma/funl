@@ -424,20 +424,20 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
   "quicksort 2" in {
     runCapture(
       """
-				|def foldr( f, z, [] )     =  z
-				|def foldr( f, z, (x:xs) ) =  f( x, foldr(f, z, xs) )
+				|def foldr(f, z, [])     =  z
+				|def foldr(f, z, (x:xs)) =  f(x, foldr(f, z, xs))
 				|
-				|val select = p -> (x, (ts,fs)) -> if p( x ) then (x:ts,fs) else (ts, x:fs)
+				|val select = p -> (x, (ts, fs)) -> if p(x) then (x:ts, fs) else (ts, x:fs)
 				|
-				|def partition( p, xs ) = foldr( select(p), ([],[]), xs )
+				|def partition(p, xs) = foldr(select(p), ([],[]), xs)
 				|
 				|def
-				|  qsort( [] )     = []
-				|  qsort( (x:xs) ) = qsort( ys ) + (x : qsort(zs))
+				|  qsort([])     = []
+				|  qsort((x:xs)) = qsort(ys) + (x:qsort(zs))
 				|    where
-				|      (ys, zs) = partition( (< x), xs )
+				|      (ys, zs) = partition((<x), xs)
 				|
-				|write( qsort([4, 6, 9, 1, 3, 5, 7, 2, 8]) )
+				|write(qsort([4, 6, 9, 1, 3, 5, 7, 2, 8]))
 			""".stripMargin
     ) shouldBe "[1, 2, 3, 4, 5, 6, 7, 8, 9]"
   }

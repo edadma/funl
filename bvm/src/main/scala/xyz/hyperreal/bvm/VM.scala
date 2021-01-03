@@ -2,10 +2,11 @@ package xyz.hyperreal.bvm
 
 import scala.math.ScalaNumber
 import scala.annotation.tailrec
-import scala.collection.immutable.{ArraySeq, TreeMap}
-import scala.collection.mutable.{ArrayBuffer, Map => MutableMap, Seq => MutableSeq}
+import scala.collection.immutable
+import scala.collection.mutable.ArrayBuffer
 import util.parsing.input.Position
 import xyz.hyperreal.dal.{BasicDAL, IntType, numberType}
+
 import java.{lang => boxed}
 
 object VM {
@@ -18,7 +19,7 @@ object VM {
   val MINUS_ONE = new VMNumber(IntType, -1)
 }
 
-class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchored: Boolean, val args: Any) {
+class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolean, anchored: Boolean, val args: Any) {
   import VM._
 
   var seq: CharSequence = _
@@ -28,7 +29,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
   protected[bvm] var ptr: Int = _
   protected[bvm] var ip: Int = _
   protected[bvm] var starts: Map[String, Int] = _
-  protected[bvm] var captures: TreeMap[String, (Int, Int, Any)] = _
+  protected[bvm] var captures: immutable.TreeMap[String, (Int, Int, Any)] = _
   protected[bvm] var frame: Frame = _
   protected[bvm] var mark: Int = _
   protected[bvm] var pos: Position = _
@@ -61,7 +62,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
     ptr = 0
     ip = start
     starts = Map[String, Int]()
-    captures = TreeMap[String, (Int, Int, Any)]()
+    captures = immutable.TreeMap[String, (Int, Int, Any)]()
     frame = null
     mark = -1
     pos = null
@@ -284,24 +285,24 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
 
     op match {
       case Symbol("+") =>
-        if (l.isInstanceOf[String] || r.isInstanceOf[String])
-          push(display(l) + display(r))
+        if (l.isInstanceOf[VMString] || r.isInstanceOf[VMString])
+          push(l.toString + r.toString)
         else
           l match {
-            case value: collection.Map[_, _] if r.isInstanceOf[collection.Map[_, _]] =>
-              push(value ++ r.asInstanceOf[collection.Map[_, _]])
-            case value: collection.Map[_, _] if r.isInstanceOf[Iterable[_]] =>
-              push(
-                value ++ r
-                  .asInstanceOf[Iterable[Vector[Any]]]
-                  .map(v => (v(0), v(1))))
+//            case value: collection.Map[_, _] if r.isInstanceOf[collection.Map[_, _]] =>
+//              push(value ++ r.asInstanceOf[collection.Map[_, _]])
+//            case value: collection.Map[_, _] if r.isInstanceOf[Iterable[_]] =>
+//              push(
+//                value ++ r
+//                  .asInstanceOf[Iterable[Vector[Any]]]
+//                  .map(v => (v(0), v(1))))
             case value: Iterable[_] if r.isInstanceOf[Iterable[_]] =>
               push(value ++ r.asInstanceOf[Iterable[_]])
             case _ =>
               if (!l.isInstanceOf[VMNumber])
-                problem(lpos, s"not a number: ${display(l)}")
+                problem(lpos, s"not a number: $l")
               else if (!r.isInstanceOf[VMNumber])
-                problem(rpos, s"not a number: ${display(r)}")
+                problem(rpos, s"not a number: $r")
               else
                 push(BasicDAL.compute(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply))
           }
@@ -374,7 +375,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
         for (i <- c.arity - 1 to 0 by -1)
           args(i) = derefpo
 
-        push(new VMRecord(c.name, ArraySeq.from(args), c.symbolMap, c.stringMap))
+        push(new VMRecord(c.name, immutable.ArraySeq.from(args), c.symbolMap, c.stringMap))
       case r: VMRecord =>
         if (argc != 1)
           problem(apos, "a function application with one argument was expected")
@@ -743,7 +744,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
             for (i <- arity - 1 to 0 by -1)
               a(i) = derefpo
 
-            push(new VMSeq(ArraySeq.from(a)))
+            push(new VMSeq(immutable.ArraySeq.from(a)))
           case TupleElementInst(n) => push(derefpo(VMNumber(n)))
           case DupInst             => push(top)
           case DupUnderInst =>
@@ -778,14 +779,12 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                   case t: VMSeq if t.size == arity =>
                   case _: VMSeq =>
                     fail() //problem( tpos, s"arity mismatch: expected arity of $arity, but actual arity was ${t.arity}" )
-                  case _ =>
-                    fail() //problem( tpos, s"type mismatch: expected tuple of arity $arity: $o" )
+                  case _ => fail() //problem( tpos, s"type mismatch: expected tuple of arity $arity: $o" )
                 }
               case NilStructureAST =>
                 dereft match {
-                  case s: Seq[_] if s.isEmpty =>
-                  case _ =>
-                    fail() //problem( tpos, "expected a non-empty sequence" )
+                  case s: VMObject if s.isSequence && s.isEmpty =>
+                  case _                                        => fail() //problem( tpos, "expected a non-empty sequence" )
                 }
               case ConsStructureAST(_, _, _) | ListStructureAST(_, _) =>
                 dereft match {
@@ -1153,7 +1152,7 @@ class VM(code: Compilation, captureTrees: ArraySeq[Node], scan: Boolean, anchore
                                    p: Int,
                                    ip: Int,
                                    strts: Map[String, Int],
-                                   cptrs: TreeMap[String, (Int, Int, Any)],
+                                   cptrs: immutable.TreeMap[String, (Int, Int, Any)],
                                    frm: Frame,
                                    mrk: Int,
                                    ps: Position,
