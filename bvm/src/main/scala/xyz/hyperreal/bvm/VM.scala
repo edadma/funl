@@ -998,7 +998,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                 case o           => problem(fpos, s"expected start value to be a number: $o")
               }
 
-            push(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, VMNumber.apply)))
+            push(new VMLazyList(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, VMNumber.apply))))
           case CommentInst(_) =>
           case EmptyInst =>
             val a = derefpo

@@ -127,7 +127,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 				|every divs += divisors( 12 )
 				|write( divs )
 			""".stripMargin
-    ) shouldBe "ArrayBuffer(1, 2, 3, 12, 6, 4)"
+    ) shouldBe "Buffer(1, 2, 3, 12, 6, 4)"
   }
 
   "exponential 1 (rewritten from Haskell)" in {
