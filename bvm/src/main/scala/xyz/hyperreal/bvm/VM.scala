@@ -529,6 +529,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                     problem(apos, s"'$field' not a field of record '${r.name}'")
                   case Some(v) => push(v)
                 }
+              case b: VMBuffer if field.name == "removeLast" => push(b.buffer.remove(b.buffer.length - 1))
               case s: VMObject if s.isIterable && (field.name == "length" || field.name == "size") =>
                 push(VMNumber(s.size))
               case m: VMObject if m.isMap && !m.isResizable => push(m.get(VMString(field.name)).getOrElse(VMUndefined))

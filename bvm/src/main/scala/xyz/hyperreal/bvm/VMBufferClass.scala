@@ -14,7 +14,7 @@ object VMBufferClass extends VMClass with VMBuilder {
   override def build(iterator: Iterator[VMObject]): VMObject = new VMBuffer(iterator to ArrayBuffer)
 }
 
-class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject])
+class VMBuffer(private[bvm] val buffer: ArrayBuffer[VMObject])
     extends VMResizableSequence
     with VMNonMap
     with VMUnordered
@@ -25,21 +25,21 @@ class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject])
 
   override val isSequence: Boolean = true
 
-  def iterator: Iterator[VMObject] = buf.iterator
+  def iterator: Iterator[VMObject] = buffer.iterator
 
-  def apply(idx: VMObject): VMObject = buf(idx.asInstanceOf[VMNumber].value.intValue)
+  def apply(idx: VMObject): VMObject = buffer(idx.asInstanceOf[VMNumber].value.intValue)
 
-  def size: Int = buf.length
+  def size: Int = buffer.length
 
-  def addOne(elem: VMObject): Unit = buf += elem
+  def addOne(elem: VMObject): Unit = buffer += elem
 
-  override def addAll(seq: VMObject): Unit = buf ++= seq.iterator
+  override def addAll(seq: VMObject): Unit = buffer ++= seq.iterator
 
-  def subtractOne(elem: VMObject): Unit = buf -= elem
+  def subtractOne(elem: VMObject): Unit = buffer -= elem
 
-  override def subtractAll(seq: VMObject): Unit = buf --= seq.iterator
+  override def subtractAll(seq: VMObject): Unit = buffer --= seq.iterator
 
-  def append(elem: VMObject): VMObject = new VMBuffer(buf :+ elem)
+  def append(elem: VMObject): VMObject = new VMBuffer(buffer :+ elem)
 
   def concat(iterable: VMObject): VMObject = VMBufferClass.build(iterator ++ iterable.iterator)
 
@@ -47,12 +47,12 @@ class VMBuffer private[bvm] (buf: ArrayBuffer[VMObject])
 
   def update(key: VMObject, value: VMObject): Unit =
     key match {
-      case VMNumber(IntType, n) => buf(n.intValue) = value
+      case VMNumber(IntType, n) => buffer(n.intValue) = value
     }
 
-  override def toString: String = buf.mkString("Buffer(", ", ", ")")
+  override def toString: String = buffer.mkString("Buffer(", ", ", ")")
 
-  def head: VMObject = buf.head
+  def head: VMObject = buffer.head
 
-  def tail: VMObject = new VMBuffer(buf.tail)
+  def tail: VMObject = new VMBuffer(buffer.tail)
 }

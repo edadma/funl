@@ -18,7 +18,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 				|    hanoi(n - 1, source, auxilliary, target)
 				|
 				|    ;; move the nth disk from source to target
-				|    target += source.remove(source.length - 1)
+				|    target += source.removeLast  ;;remove(source.length - 1)  ;;todo
 				|
 				|    ;; move the n - 1 disks that we left on auxiliary onto target
 				|    hanoi(n - 1, auxilliary, target, source)
