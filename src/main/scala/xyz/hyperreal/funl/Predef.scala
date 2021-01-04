@@ -145,8 +145,16 @@ object Predef {
 //          case _                    => mutable.HashSet(args)
         }
       },
+      "list" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
+        deref(args) match {
+          case ArgList()                   => VMNil
+          case s: VMObject if s.isIterable => VMListClass.build(s.iterator)
+          case _                           => problem(apos, "list: expected iterable argument")
+        }
+      },
       "seq" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
+          case ArgList()                   => new VMSeq(IndexedSeq())
           case s: VMObject if s.isIterable => VMSeqClass.build(s.iterator)
           case _                           => problem(apos, "seq: expected iterable argument")
         }

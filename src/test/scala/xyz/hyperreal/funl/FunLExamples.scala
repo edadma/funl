@@ -369,21 +369,21 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
     runCapture(
       """
 				|def
-				|  foldr( f, z, [] )     =  z
-				|  foldr( f, z, (x:xs) ) =  f( x, foldr(f, z, xs) )
+				|  foldr(f, z, [])   = z
+				|  foldr(f, z, x:xs) = f(x, foldr(f, z, xs))
 				|
-				|  map( f, [] )                = []
-				|  map( f, x:xs )              = f( x ) : map( f, xs )
+				|  map(f, [])                = []
+				|  map(f, x:xs)              = f(x):map(f, xs)
 				|
-				|  concat( xss ) = foldr( (+), [], xss )
+				|  concat(xss) = foldr((+), [], xss)
 				|
-				|  concatMap( f, xss ) = concat( map(f, xss) )
+				|  concatMap(f, xss) = concat(map(f, xss))
 				|
-				|def seriesUp( n ) = concatMap( n -> 1..n, 1..n ).toList()
+				|def seriesUp(n) = list(concatMap(n -> 1..n, 1..n))
 				|
-				|write( seriesUp(4) )
+				|write(seriesUp(4))
 			""".stripMargin
-    ) shouldBe "(1, 1, 2, 1, 2, 3, 1, 2, 3, 4)"
+    ) shouldBe "[1, 1, 2, 1, 2, 3, 1, 2, 3, 4]"
   }
 
   "merge sort" in {
