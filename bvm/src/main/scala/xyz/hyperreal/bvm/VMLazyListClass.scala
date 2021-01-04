@@ -37,5 +37,6 @@ class VMLazyList(list: LazyList[VMObject])
 
   def tail: VMObject = new VMLazyList(list.tail)
 
-  override def toString = s"LazyList(${list take 100 mkString ", "})"
+  override def toString = s"LazyList(${list take 100 mkString ", "}${if (list isDefinedAt 101) ", ..." else ""})"
+
 }

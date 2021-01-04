@@ -31,26 +31,21 @@ package object bvm {
   val BeginningOfLinePattern: PatternAST = Pattern.compiledSubpattern(
     FlagConditionalPattern(
       MULTILINE,
-      AlternationPattern(List(
-        FlagConditionalPattern(UNIX_LINES, LookbehindClassPattern(_ == '\n'), LookbehindClassPattern(TERMINATOR_CLASS)),
-        BeginningOfInputPattern)),
+      AlternationPattern(List(FlagConditionalPattern(UNIX_LINES, LookbehindClassPattern(_ == '\n'), LookbehindClassPattern(TERMINATOR_CLASS)),
+                              BeginningOfInputPattern)),
       BeginningOfInputPattern
     ))
   val EndOfLinePattern: PatternAST = Pattern.compiledSubpattern(
-    FlagConditionalPattern(MULTILINE,
-                           LookaheadPattern(AlternationPattern(List(LineBreakPattern, EndOfInputPattern))),
-                           EndOfInputPattern))
-  val EndOfInputBeforeFinalTerminatorPattern: PatternAST = Pattern.compiledSubpattern(
-    LookaheadPattern(ConcatenationPattern(List(OptionalPattern(LineBreakPattern), EndOfInputPattern))))
+    FlagConditionalPattern(MULTILINE, LookaheadPattern(AlternationPattern(List(LineBreakPattern, EndOfInputPattern))), EndOfInputPattern))
+  val EndOfInputBeforeFinalTerminatorPattern: PatternAST =
+    Pattern.compiledSubpattern(LookaheadPattern(ConcatenationPattern(List(OptionalPattern(LineBreakPattern), EndOfInputPattern))))
   val NonEmptyInputPattern: PatternAST =
     Pattern.compiledSubpattern(NegationPattern(ConcatenationPattern(List(BeginningOfInputPattern, EndOfInputPattern))))
   val WordBoundaryPattern: PatternAST = Pattern.compiledSubpattern(
     AlternationPattern(
       List(
-        ConcatenationPattern(
-          List(LookbehindClassPattern(NONWORD_CLASS), LookaheadClassPattern(WORD_CLASS), NonEmptyInputPattern)),
-        ConcatenationPattern(
-          List(LookbehindClassPattern(WORD_CLASS), LookaheadClassPattern(NONWORD_CLASS), NonEmptyInputPattern))
+        ConcatenationPattern(List(LookbehindClassPattern(NONWORD_CLASS), LookaheadClassPattern(WORD_CLASS), NonEmptyInputPattern)),
+        ConcatenationPattern(List(LookbehindClassPattern(WORD_CLASS), LookaheadClassPattern(NONWORD_CLASS), NonEmptyInputPattern))
       )))
   val NonWordBoundaryPattern: PatternAST = Pattern.compiledSubpattern(NegationPattern(WordBoundaryPattern))
 
@@ -96,37 +91,11 @@ package object bvm {
       case VMString(s) =>
         var t = s
 
-        for ((k, v) <- List("\\" -> "\\\\",
-                            "\"" -> "\\\"",
-                            "\t" -> "\\t",
-                            "\b" -> "\\b",
-                            "\f" -> "\\f",
-                            "\n" -> "\\n",
-                            "\r" -> "\\r",
-                            "\b" -> "\\b"))
+        for ((k, v) <- List("\\" -> "\\\\", "\"" -> "\\\"", "\t" -> "\\t", "\b" -> "\\b", "\f" -> "\\f", "\n" -> "\\n", "\r" -> "\\r", "\b" -> "\\b"))
           t = t.replace(k, v)
 
         s""""$t""""
-      case _ => display(a)
-    }
-
-  def display(a: Any): String =
-    a match {
-      case a: Array[_] => (a map display).mkString("Array(", ", ", ")")
-      case s: LazyList[_] =>
-        val howMany = 100
-        val bunch = s take (howMany + 1)
-
-        if (s isDefinedAt (howMany + 1))
-          (bunch take howMany map display).mkString("[", ", ", ", ...]")
-        else
-          display(bunch toList)
-      case m: collection.Map[_, _] if m isEmpty => "{}"
-      case m: collection.Map[_, _] =>
-        m.toList.map({ case (k, v) => displayQuoted(k) + ": " + displayQuoted(v) }).mkString("{", ", ", "}")
-      case t: Vector[_]   => t.map(display).mkString("<", ", ", ">")
-      case t: ArraySeq[_] => t.map(display).mkString("<", ", ", ">")
-      case _              => String.valueOf(a)
+      case _ => String.valueOf(a)
     }
 
 //  val NUMERIC: Numeric[Number] =

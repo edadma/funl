@@ -35,8 +35,7 @@ object Predef {
     }
   }
 
-  def native(name: String,
-             partialFunction: PartialFunction[(VM, Any), Any]): (String, (VM, Position, List[Position], Any) => Any) =
+  def native(name: String, partialFunction: PartialFunction[(VM, Any), Any]): (String, (VM, Position, List[Position], Any) => Any) =
     (name, (vm: VM, pos: Position, ps: List[Position], args: Any) => {
       val arglist = argsderef(args)
       val fargs = (vm, arglist)
@@ -77,7 +76,7 @@ object Predef {
             case a          => List(a)
           }
 
-        print(list map (a => display(derefo(a))) mkString ", ")
+        print(list map (a => derefo(a).toString) mkString ", ") //todo: there needs to be a vm 'null' object
       },
       "write" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         val list =
@@ -86,7 +85,7 @@ object Predef {
             case a          => List(a)
           }
 
-        println(list map (a => display(derefo(a))) mkString ", ")
+        println(list map (a => derefo(a).toString) mkString ", ")
       },
       "error" -> { (_: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
@@ -190,10 +189,7 @@ object Predef {
             }
         }
       },
-      "tab" -> ((vm: VM,
-                 apos: Position,
-                 ps: List[Position],
-                 args: Any) => vm.tabToPosition(derefo(args).asInstanceOf[VMNumber].value.intValue)),
+      "tab" -> ((vm: VM, apos: Position, ps: List[Position], args: Any) => vm.tabToPosition(derefo(args).asInstanceOf[VMNumber].value.intValue)),
       "pos" -> { (vm: VM, apos: Position, ps: List[Position], args: Any) =>
         deref(args) match {
           case VMNumber(IntType, n: boxed.Integer) =>
@@ -501,16 +497,10 @@ object Predef {
 //          }
 //        }),
       "stderr" -> ((_: VM) => Console.err),
-      "user" -> (
-          (_: VM) =>
-            Map("dir" -> System.getProperty("user.dir"),
-                "home" -> System.getProperty("user.home"),
-                "name" -> System.getProperty("user.name"))),
-      "os" -> (
-          (_: VM) =>
-            Map("arch" -> System.getProperty("os.arch"),
-                "version" -> System.getProperty("os.version"),
-                "name" -> System.getProperty("os.name"))),
+      "user" -> ((_: VM) =>
+        Map("dir" -> System.getProperty("user.dir"), "home" -> System.getProperty("user.home"), "name" -> System.getProperty("user.name"))),
+      "os" -> ((_: VM) =>
+        Map("arch" -> System.getProperty("os.arch"), "version" -> System.getProperty("os.version"), "name" -> System.getProperty("os.name"))),
       "java" -> ((_: VM) =>
         Map(
           "class" -> Map("path" -> System.getProperty("java.class.path")),
@@ -518,8 +508,7 @@ object Predef {
           "version" -> System.getProperty("java.version"),
           "home" -> System.getProperty("java.home")
         )),
-      "vmscaninfo" -> ((vm: VM) =>
-        new VMSeq(immutable.ArraySeq(new VMString(vm.seq.toString), VMNumber(vm.scanpos + 1)))),
+      "vmscaninfo" -> ((vm: VM) => new VMSeq(immutable.ArraySeq(new VMString(vm.seq.toString), VMNumber(vm.scanpos + 1)))),
       "vmstacksize" -> ((vm: VM) => vm.getdata.size),
       "rndi" -> ((_: VM) => BigInt(rnd)),
       "rnd" -> ((_: VM) => rnd / p32)

@@ -276,8 +276,8 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
       ptr == 0
 
   protected def dot: Boolean =
-    (clear(Pattern.DOTALL) && (set(Pattern.UNIX_LINES) && current != '\n' || clear(Pattern.UNIX_LINES) && !TERMINATOR_CLASS(
-      current))) || set(Pattern.DOTALL)
+    (clear(Pattern.DOTALL) && (set(Pattern.UNIX_LINES) && current != '\n' || clear(Pattern.UNIX_LINES) && !TERMINATOR_CLASS(current))) || set(
+      Pattern.DOTALL)
 
   protected def binaryOperation(lpos: Position, op: Symbol, rpos: Position): Unit = {
     val r = derefpo
@@ -321,17 +321,16 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
       case Symbol(":") =>
         r match {
           case s: VMList => push(VMConsObject(l.asInstanceOf[VMObject], s))
-          case _         => problem(rpos, s"not a list: ${display(r)}")
+          case _         => problem(rpos, s"not a list: $r")
         }
       case Symbol("in") | Symbol("notin") => // todo: implement 'in'
       case _ =>
         if (!l.isInstanceOf[VMNumber])
-          problem(lpos, s"not a number: ${display(l)}")
+          problem(lpos, s"not a number: $l")
         else if (!r.isInstanceOf[VMNumber])
-          problem(rpos, s"not a number: ${display(r)}")
+          problem(rpos, s"not a number: $r")
         else
-          push(
-            BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply))
+          push(BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply))
     }
   }
 
@@ -442,7 +441,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
             f.asInstanceOf[(VM, Position, List[Position], Any) => Any](this, apos, ps, ArgList(args.toIndexedSeq: _*))
           })
-      case o => problem(fpos, s"not applicable: ${display(o)}")
+      case o => problem(fpos, s"not applicable: $o")
     }
   }
 
@@ -519,8 +518,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
           case CallInst(disp) =>
             push(Return(ip))
             ip += disp
-          case CallIndirectInst(fpos, apos, ps, argc) =>
-            callIndirect(derefp, fpos, apos, ps, argc)
+          case CallIndirectInst(fpos, apos, ps, argc) => callIndirect(derefp, fpos, apos, ps, argc)
           case DotOperatorInst(epos, apos, field) =>
             derefp match {
               case r: VMRecord =>
@@ -529,20 +527,14 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                     problem(apos, s"'$field' not a field of record '${r.name}'")
                   case Some(v) => push(v)
                 }
-              case b: VMBuffer if field.name == "removeLast" => push(b.buffer.remove(b.buffer.length - 1))
-              case s: VMObject if s.isIterable && (field.name == "length" || field.name == "size") =>
-                push(VMNumber(s.size))
-              case m: VMObject if m.isMap && !m.isResizable => push(m.get(VMString(field.name)).getOrElse(VMUndefined))
-              case m: VMObject if m.isMap && m.isResizable  => push(new MutableMapAssignable(m, VMString(field.name)))
-              case m: collection.Map[_, _] =>
-                push(
-                  m.asInstanceOf[collection.Map[VMObject, VMObject]]
-                    .getOrElse(VMString(field.name), VMUndefined))
-              case null          => problem(epos, "null value")
-              case `VMUndefined` => problem(epos, "undefined value")
+              case b: VMBuffer if field.name == "removeLast"                                       => push(b.buffer.remove(b.buffer.length - 1))
+              case s: VMObject if s.isIterable && (field.name == "length" || field.name == "size") => push(VMNumber(s.size))
+              case m: VMObject if m.isMap && !m.isResizable                                        => push(m.get(VMString(field.name)).getOrElse(VMUndefined))
+              case m: VMObject if m.isMap && m.isResizable                                         => push(new MutableMapAssignable(m, VMString(field.name)))
+              case null                                                                            => problem(epos, "null value")
+              case `VMUndefined`                                                                   => problem(epos, "undefined value")
             }
-          case ReturnInst =>
-            ip = pop.asInstanceOf[Return].ret
+          case ReturnInst => ip = pop.asInstanceOf[Return].ret
           case FunctionReturnInst =>
             val res = pop
 
@@ -604,11 +596,9 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
             stack.discard(stack.size - mark)
             stateSameData()
           case ChangeMarkInst(disp) =>
-            val ChoicePoint(flags, dat, ptr, _, starts, captures, frm, mrk, ps, rt, action) = stack(
-              stack.size - mark + 1)
+            val ChoicePoint(flags, dat, ptr, _, starts, captures, frm, mrk, ps, rt, action) = stack(stack.size - mark + 1)
 
-            stack(stack.size - mark + 1) =
-              ChoicePoint(flags, dat, ptr, ip + disp, starts, captures, frm, mrk, ps, rt, action)
+            stack(stack.size - mark + 1) = ChoicePoint(flags, dat, ptr, ip + disp, starts, captures, frm, mrk, ps, rt, action)
           case ClassInst(clas) =>
             if (!eoi && !clas(current))
               fail()
@@ -669,21 +659,18 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
           case BranchIfNotInst(disp) =>
             if (!pop.asInstanceOf[Boolean])
               ip += disp
-          case FlagsClearInst(mask)       => push((flags & mask) == 0)
-          case ChoiceInst(disp)           => pushChoice(disp)
-          case StringMatchInst            => forwardStringMatch(derefps)
-          case StringMatchReverseInst     => reverseStringMatch(derefps)
-          case LiteralMatchInst(s)        => forwardStringMatch(s)
-          case LiteralMatchReverseInst(s) => reverseStringMatch(s)
-          case ReferenceMatchInst(key) =>
-            forwardStringMatch(captures(key).asInstanceOf[String])
-          case ReferenceMatchReverseInst(key) =>
-            reverseStringMatch(captures(key).asInstanceOf[String])
-          case SavePointerInst     => push(Pointer(ptr))
-          case RestorePositionInst => ptr = pop.asInstanceOf[Pointer].p
-          case PushMatchedInst =>
-            push(subsequence(pop.asInstanceOf[Pointer].p))
-          case PushCaptureGroupsInst => push(captures)
+          case FlagsClearInst(mask)           => push((flags & mask) == 0)
+          case ChoiceInst(disp)               => pushChoice(disp)
+          case StringMatchInst                => forwardStringMatch(derefps)
+          case StringMatchReverseInst         => reverseStringMatch(derefps)
+          case LiteralMatchInst(s)            => forwardStringMatch(s)
+          case LiteralMatchReverseInst(s)     => reverseStringMatch(s)
+          case ReferenceMatchInst(key)        => forwardStringMatch(captures(key).asInstanceOf[String])
+          case ReferenceMatchReverseInst(key) => reverseStringMatch(captures(key).asInstanceOf[String])
+          case SavePointerInst                => push(Pointer(ptr))
+          case RestorePositionInst            => ptr = pop.asInstanceOf[Pointer].p
+          case PushMatchedInst                => push(subsequence(pop.asInstanceOf[Pointer].p))
+          case PushCaptureGroupsInst          => push(captures)
           case PushCaptureGroupsStringsInst =>
             push(captures map {
               case (k, (_, _, c)) =>
@@ -715,12 +702,10 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                                 arity,
                                 if (frame eq null) Nil
                                 else frame.locals.tails.drop(fidx).next()))
-          case LocalInst(fidx, idx, _) => push(frame.locals(fidx)(idx))
-          case SetLocalInst(idx, variable) =>
-            frame.locals.head(idx) = if (variable) new VariableAssignable(derefpo) else derefp
-          case GlobalInst(idx, _) => push(globals(idx))
-          case SetGlobalInst(idx, variable) =>
-            globals(idx) = if (variable) new VariableAssignable(derefpo) else derefp
+          case LocalInst(fidx, idx, _)      => push(frame.locals(fidx)(idx))
+          case SetLocalInst(idx, variable)  => frame.locals.head(idx) = if (variable) new VariableAssignable(derefpo) else derefp
+          case GlobalInst(idx, _)           => push(globals(idx))
+          case SetGlobalInst(idx, variable) => globals(idx) = if (variable) new VariableAssignable(derefpo) else derefp
           case SetGlobalsInst(idxs) =>
             for ((gi, i) <- idxs zipWithIndex)
               globals(gi) = bindings(i)
@@ -864,31 +849,31 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                             case (Symbol("+"), VMString(s))                     => l.value = VMString(s + rhs(i))
                             case (Symbol("<") | Symbol(">"), n: VMNumber) =>
                               if (!rhs(i).isInstanceOf[VMNumber])
-                                problem(rpos(i), s"not a number: ${display(rhs(i))}")
+                                problem(rpos(i), s"not a number: ${rhs(i)}")
 
                               if (BasicDAL.relate(op, n, rhs(i).asInstanceOf[VMNumber]))
                                 l.value = rhs(i)
                               else {
                                 fail()
-                                return
+                                return //todo: investigate
                               }
                             case (Symbol("<"), VMString(s)) =>
                               if (s < String.valueOf(rhs(i)))
                                 l.value = rhs(i)
                               else {
                                 fail()
-                                return
+                                return //todo: investigate
                               }
                             case (Symbol(">"), VMString(s)) =>
                               if (s > String.valueOf(rhs(i)))
                                 l.value = rhs(i)
                               else {
                                 fail()
-                                return
+                                return //todo: investigate
                               }
                             case (_, n: VMNumber) =>
                               if (!rhs(i).isInstanceOf[VMNumber])
-                                problem(rpos(i), s"not a number: ${display(rhs(i))}")
+                                problem(rpos(i), s"not a number: ${rhs(i)}")
                               else
                                 l.value = BasicDAL
                                   .perform(op, n, rhs(i).asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply)
@@ -897,7 +882,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
                           res = l.value
                         case _ =>
-                          problem(lpos(i), s"not an l-value: ${display(lhs(i))}")
+                          problem(lpos(i), s"not an l-value: ${lhs(i)}")
                       }
                   }
 
@@ -910,7 +895,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
             val d = deref(v)
 
             if (!d.isInstanceOf[VMNumber])
-              problem(pos, s"not a number: ${display(d)}")
+              problem(pos, s"not a number: $d")
 
             val n = d.asInstanceOf[VMNumber]
 
@@ -924,8 +909,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                 v.asInstanceOf[Assignable].value = res
                 push(res)
               case Symbol("*++") | Symbol("*--") =>
-                v.asInstanceOf[Assignable].value =
-                  BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
+                v.asInstanceOf[Assignable].value = BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
                 push(d)
             }
           case BinaryInst(lpos, op, rpos) =>
@@ -977,12 +961,12 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
             val b =
               derefp match {
                 case n: VMNumber => n.value
-                case v           => problem(pb, s"expected a number as range end value: ${display(v)}")
+                case v           => problem(pb, s"expected a number as range end value: $v")
               }
             val t =
               derefp match {
                 case n: VMNumber => n.value
-                case v           => problem(pt, s"expected a number as range end value: ${display(v)}")
+                case v           => problem(pt, s"expected a number as range end value: $v")
               }
 
             push(new VMRange(derefp.asInstanceOf[VMNumber].value, t, b, inclusive))
