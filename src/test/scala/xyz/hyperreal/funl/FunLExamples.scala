@@ -383,7 +383,7 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 				|
 				|write( seriesUp(4) )
 			""".stripMargin
-    ) shouldBe "[1, 1, 2, 1, 2, 3, 1, 2, 3, 4]"
+    ) shouldBe "(1, 1, 2, 1, 2, 3, 1, 2, 3, 4)"
   }
 
   "merge sort" in {

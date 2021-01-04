@@ -14,9 +14,11 @@ object VMRangeClass extends VMClass {
 }
 
 class VMRange(val range: IndexedSeq[Any])
-    extends VMNonAppendableNonResizableNonMapSequence
-    with VMUnordered
+    extends VMObject
+    with VMNonResizableSequence
+    with VMNonMap
     with VMNonUpdatable
+    with VMUnordered
     with VMNonSet {
   def this(start: Number, end: Number, step: Number, inclusive: Boolean) =
     this(start match {
@@ -44,6 +46,10 @@ class VMRange(val range: IndexedSeq[Any])
   def apply(idx: VMObject): VMObject = VMNumber(range(idx.asInstanceOf[VMNumber].value.intValue).asInstanceOf[Number])
 
   def size: Int = range.length
+
+  def append(elem: VMObject): VMObject = VMSeqClass.build(iterator ++ Iterator(elem))
+
+  def concat(iterable: VMObject): VMObject = VMSeqClass.build(iterator ++ iterable.iterator)
 
   def head: VMObject = VMNumber(range.head.asInstanceOf[Number])
 
