@@ -18,12 +18,7 @@ abstract class VMNativeMethod extends VMMember {
   def method: PartialFunction[(VM, VMObject, Any), Any]
 }
 
-abstract class VMClass
-    extends VMNonResizableUniqueNonIterableObject
-    with VMType
-    with VMUnordered
-    with VMNonUpdatable
-    with VMNonSet {
+abstract class VMClass extends VMNonResizableUniqueNonIterableObject with VMType with VMUnordered with VMNonUpdatable with VMNonSet {
   val name: String
   val parent: VMClass
 
@@ -230,10 +225,32 @@ abstract class VMNonResizableUniqueNonIterableObject
     with VMNonUpdatable
     with VMNonSet
 
+object VMUndefinedClass extends VMClass {
+  val parent: VMClass = VMObjectClass
+  val name: String = "Undefined"
+  val extending: List[VMType] = List(VMObjectClass)
+  val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
+}
+
 object VMUndefined extends VMNonResizableUniqueNonIterableObject {
-  val clas: VMClass = null
+  val clas: VMClass = VMUndefinedClass
 
   override def toString: String = "undefined"
+}
+
+object VMNullClass extends VMClass {
+  val parent: VMClass = VMObjectClass
+  val name: String = "Undefined"
+  val extending: List[VMType] = List(VMObjectClass)
+  val members: Map[Symbol, VMMember] = Map()
+  val clas: VMClass = VMClassClass
+}
+
+object VMNull extends VMNonResizableUniqueNonIterableObject {
+  val clas: VMClass = VMNullClass
+
+  override def toString: String = "null"
 }
 
 object VMBooleanClass extends VMClass {
