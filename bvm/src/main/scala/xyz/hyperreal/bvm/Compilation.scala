@@ -8,14 +8,14 @@ class Compilation(val functions: Map[String, (Int, Int)],
                   captureTrees: ArraySeq[Node],
                   val code: ArraySeq[VMInst]) {
 
-  def apply(idx: Int) = code(idx)
+  def apply(idx: Int): VMInst = code(idx)
 
-  def length = code.length
+  def length: Int = code.length
 
   var matcherConstructor: (Boolean, Boolean, Any) => VM =
     (scan: Boolean, anchored: Boolean, args: Any) => new VM(this, captureTrees, scan, anchored, null)
 
-  def matches(subject: CharSequence, scan: Boolean = true, anchored: Boolean = false) = {
+  def matches(subject: CharSequence, scan: Boolean = true, anchored: Boolean = false): Option[Map[String, (Int, Int, Any)]] = {
     val m = matcher(scan = scan, anchored = anchored)
 
     if (m.matches(subject))
@@ -24,7 +24,7 @@ class Compilation(val functions: Map[String, (Int, Int)],
       None
   }
 
-  def allMatches(subject: CharSequence, scan: Boolean = true, anchored: Boolean = false) = {
+  def allMatches(subject: CharSequence, scan: Boolean = true, anchored: Boolean = false): LazyList[Map[String, Any]] = {
     val m = matcher(scan = scan, anchored = anchored)
 
     def allRematches: LazyList[Map[String, Any]] =
@@ -39,6 +39,6 @@ class Compilation(val functions: Map[String, (Int, Int)],
       LazyList.empty
   }
 
-  def matcher(scan: Boolean = false, anchored: Boolean = false) = matcherConstructor(scan, anchored, null)
+  def matcher(scan: Boolean = false, anchored: Boolean = false): VM = matcherConstructor(scan, anchored, null)
 
 }

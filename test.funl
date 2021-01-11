@@ -1,8 +1,1 @@
-def foldr(f, z, [])     =  z
-def foldr(f, z, (x:xs)) =  f(x, foldr(f, z, xs))
-
-val select = p -> (x, (ts, fs)) -> if p(x) then (x:ts, fs) else (ts, x:fs)
-
-def partition(p, xs) = foldr(select(p), ([],[]), xs)
-
-[1, 2, 3, 4, 5] + [6, 7]
+write([])

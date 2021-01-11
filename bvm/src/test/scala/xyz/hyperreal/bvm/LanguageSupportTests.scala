@@ -19,7 +19,7 @@ class LanguageSupportTests extends FreeSpec with ScalaCheckPropertyChecks with M
             case a          => List(a)
           }
 
-        println(list map (a => display(deref(a))) mkString ", ")
+        println(list map (a => deref(a)) mkString ", ")
       }
     )
 
@@ -30,12 +30,12 @@ class LanguageSupportTests extends FreeSpec with ScalaCheckPropertyChecks with M
           ValAST(
             VariableStructureAST(null, "a", "a"),
             null,
-            LiteralExpressionAST("Hello world!")
+            LiteralExpressionAST(VMString("Hello world!"))
           ),
           ValAST(
             VariableStructureAST(null, "b", "b"),
             null,
-            LiteralExpressionAST("bye bye")
+            LiteralExpressionAST(VMString("bye bye"))
           ),
           ApplyExpressionAST(
             null,

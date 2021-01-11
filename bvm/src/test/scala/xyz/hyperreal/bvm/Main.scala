@@ -16,7 +16,7 @@ object Main extends App {
             case a          => List(a)
           }
 
-        println(list map (a => display(deref(a))) mkString ", ")
+        println(list map (a => deref(a)) mkString ", ")
       }
     )
 
@@ -31,7 +31,7 @@ object Main extends App {
           null,
           VariableExpressionAST(null, "write", "write"),
           null,
-          List((null, ScanExpressionAST(null, LiteralExpressionAST("asdf"), PatternExpressionAST(regex)))),
+          List((null, ScanExpressionAST(null, LiteralExpressionAST(VMString("asdf")), PatternExpressionAST(regex)))),
           tailrecursive = false
         )
       ))
