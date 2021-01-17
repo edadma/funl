@@ -520,7 +520,8 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
             ip += disp
           case CallIndirectInst(fpos, apos, ps, argc) => callIndirect(derefp, fpos, apos, ps, argc)
           case DotOperatorInst(epos, apos, field) =>
-            derefp match {
+            derefpo match {
+              case o if field.name == "toString" => push(VMString(o.toString))
               case r: VMRecord =>
                 r getField field match {
                   case None =>

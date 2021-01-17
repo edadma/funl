@@ -14,7 +14,7 @@ object VMSeqClass extends VMClass with VMBuilder {
   val clas: VMClass = VMClassClass
 }
 
-class VMSeq(seq: IndexedSeq[VMObject])
+case class VMSeq(seq: IndexedSeq[VMObject])
     extends VMObject
     with VMNonResizableSequence
     with VMNonMap

@@ -1,7 +1,3 @@
-def sum(term, a, next, b) =
-    if a > b then 0
-    else term(a) + sum(term, next(a), next, b)
+val x = (3, 5)
 
-def pi_sum(a, b) = sum(x -> 1 / (x * (x + 2)), a, x -> x + 4, b)
-
-float(8 * pi_sum(1, 1000))
+write(x.toString)
