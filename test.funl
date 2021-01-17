@@ -1,9 +1,7 @@
-def expmod(_, 0, _) = 1
-def expmod(base, exp, m)
-    | 2 div exp =
-        val half_exp = expmod(base, exp / 2, m)
+def sum(term, a, next, b) =
+    if a > b then 0
+    else term(a) + sum(term, next(a), next, b)
 
-        half_exp * half_exp mod m
-    | otherwise = base * expmod(base, exp - 1, m) mod m
+def pi_sum(a, b) = sum(x -> 1 / (x * (x + 2)), a, x -> x + 4, b)
 
-expmod(4, 3, 5)
+float(8 * pi_sum(1, 1000))

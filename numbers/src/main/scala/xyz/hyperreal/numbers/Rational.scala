@@ -111,11 +111,19 @@ class Rational(_n: BigInt, _d: BigInt) extends Number with Ordered[Rational] {
     Rational(if (n < ZERObi) n + rem else n + d - rem, d)
   }
 
-  def decimalValue(mc: MathContext) = BigDecimal(n, mc) / BigDecimal(d, mc)
+  def decimalValue(mc: MathContext): BigDecimal = BigDecimal(n, mc) / BigDecimal(d, mc)
 
-  def doubleValue = n.toDouble / d.toDouble
+  def doubleValue: Double =
+    if (n.isValidDouble && d.isValidDouble)
+      n.toDouble / d.toDouble
+    else
+      (BigDecimal(n) / BigDecimal(d)).toDouble
 
-  def floatValue = n.toFloat / d.toFloat
+  def floatValue: Float =
+    if (n.isValidFloat && d.isValidFloat)
+      n.toFloat / d.toFloat
+    else
+      (BigDecimal(n) / BigDecimal(d)).toFloat
 
   def intValue = (n / d).toInt
 
