@@ -3,14 +3,7 @@ package xyz.hyperreal.dal
 import java.math.{MathContext, RoundingMode}
 import java.{lang => boxed}
 import scala.math._
-import xyz.hyperreal.numbers_jvm.{
-  BigDecimalMath,
-  ComplexBigDecimal,
-  ComplexBigInt,
-  ComplexDouble,
-  ComplexRational,
-  Rational
-}
+import xyz.hyperreal.numbers.{BigDecimalMath, ComplexBigDecimal, ComplexBigInt, ComplexDouble, ComplexRational, Rational}
 import BigDecimalMath.decimal128._
 
 import scala.collection.mutable
@@ -266,35 +259,35 @@ object BasicDAL extends DAL {
 
   def absFunction(n: Any): Number =
     n match {
-      case a: boxed.Integer                      => maybePromote(abs(a.longValue))._2
-      case a: BigInt                             => maybeDemote(a.abs)._2
-      case a: xyz.hyperreal.numbers_jvm.Rational => a.abs
-      case a: boxed.Double                       => abs(a)
-      case a: BigDecimal                         => a.abs
-      case a: ComplexBigInt                      => a.abs
-      case a: ComplexRational                    => a.abs
-      case a: ComplexDouble                      => a.abs
-      case a: ComplexBigDecimal                  => a.abs
+      case a: boxed.Integer                  => maybePromote(abs(a.longValue))._2
+      case a: BigInt                         => maybeDemote(a.abs)._2
+      case a: xyz.hyperreal.numbers.Rational => a.abs
+      case a: boxed.Double                   => abs(a)
+      case a: BigDecimal                     => a.abs
+      case a: ComplexBigInt                  => a.abs
+      case a: ComplexRational                => a.abs
+      case a: ComplexDouble                  => a.abs
+      case a: ComplexBigDecimal              => a.abs
     }
 
   def lnFunction(n: Any): Number =
     n match {
-      case a: boxed.Integer                      => log(a.doubleValue)
-      case a: BigInt                             => log(a.doubleValue)
-      case a: xyz.hyperreal.numbers_jvm.Rational => log(a.doubleValue)
-      case a: boxed.Double                       => log(a)
-      case a: BigDecimal                         => BigDecimalMath.ln(a)
-      case a: ComplexBigInt                      => a.ln
-      case a: ComplexRational                    => a.ln
-      case a: ComplexDouble                      => a.ln
-      case a: ComplexBigDecimal                  => a.ln
+      case a: boxed.Integer                  => log(a.doubleValue)
+      case a: BigInt                         => log(a.doubleValue)
+      case a: xyz.hyperreal.numbers.Rational => log(a.doubleValue)
+      case a: boxed.Double                   => log(a)
+      case a: BigDecimal                     => BigDecimalMath.ln(a)
+      case a: ComplexBigInt                  => a.ln
+      case a: ComplexRational                => a.ln
+      case a: ComplexDouble                  => a.ln
+      case a: ComplexBigDecimal              => a.ln
     }
 
   def floorFunction(n: Any): Number =
     n match {
-      case a: boxed.Integer                      => a
-      case a: BigInt                             => maybeDemote(a)._2
-      case a: xyz.hyperreal.numbers_jvm.Rational => a.floor
+      case a: boxed.Integer                  => a
+      case a: BigInt                         => maybeDemote(a)._2
+      case a: xyz.hyperreal.numbers.Rational => a.floor
       case a: boxed.Double =>
         val f = BigDecimal(a).setScale(0, BigDecimal.RoundingMode.FLOOR)
 
@@ -311,9 +304,9 @@ object BasicDAL extends DAL {
 
   def ceilFunction(n: Any): Number =
     n match {
-      case a: boxed.Integer                      => a
-      case a: BigInt                             => maybeDemote(a)._2
-      case a: xyz.hyperreal.numbers_jvm.Rational => a.ceil
+      case a: boxed.Integer                  => a
+      case a: BigInt                         => maybeDemote(a)._2
+      case a: xyz.hyperreal.numbers.Rational => a.ceil
       case a: boxed.Double =>
         val f = BigDecimal(a).setScale(0, BigDecimal.RoundingMode.CEILING)
 
@@ -555,11 +548,7 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   def perform(op: Symbol, left: Number, right: Number): Any =
     opmap(numberType(left), op, numberType(right))(left, right)._2
 
-  def perform[T](op: Symbol,
-                 left: TypedNumber,
-                 right: TypedNumber,
-                 number: ((Type, Number)) => T,
-                 boolean: Boolean => T): T =
+  def perform[T](op: Symbol, left: TypedNumber, right: TypedNumber, number: ((Type, Number)) => T, boolean: Boolean => T): T =
     opmap(left.typ, op, right.typ)(left.value, right.value) match {
       case (null, b: java.lang.Boolean) => boolean(b)
       case n                            => number(n.asInstanceOf[(Type, Number)])

@@ -1,6 +1,6 @@
 package xyz.hyperreal
 
-import xyz.hyperreal.numbers_jvm.Rational
+import xyz.hyperreal.numbers.Rational
 import math.{sqrt => sqr, _}
 import java.{lang => boxed}
 

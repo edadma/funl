@@ -24,7 +24,12 @@ lazy val bvm = project
   )
 
 lazy val dal = project
+  .dependsOn(numbers)
   .settings(
-    name := "dal",
-    libraryDependencies += "xyz.hyperreal" %% "numbers-jvm" % "0.7.4"
+    name := "dal"
+  )
+  
+lazy val numbers = project
+  .settings(
+    name := "dal"
   )

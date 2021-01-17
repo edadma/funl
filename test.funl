@@ -1,1 +1,9 @@
-write([])
+def expmod(_, 0, _) = 1
+def expmod(base, exp, m)
+    | 2 div exp =
+        val half_exp = expmod(base, exp / 2, m)
+
+        half_exp * half_exp mod m
+    | otherwise = base * expmod(base, exp - 1, m) mod m
+
+expmod(4, 3, 5)

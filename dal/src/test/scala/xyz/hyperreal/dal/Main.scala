@@ -1,6 +1,6 @@
 package xyz.hyperreal.dal
 
-import xyz.hyperreal.numbers_jvm.Rational
+import xyz.hyperreal.numbers.Rational
 
 object Main extends App {
 

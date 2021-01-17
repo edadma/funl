@@ -7,7 +7,7 @@ import scala.collection.immutable
 import scala.collection.mutable
 import scala.math.BigInt
 import scala.util.Random.{nextDouble, nextInt, setSeed}
-import xyz.hyperreal.numbers_jvm.ComplexBigInt
+import xyz.hyperreal.numbers.ComplexBigInt
 import xyz.hyperreal.bvm._
 import xyz.hyperreal.dal.{BasicDAL, IntType}
 
