@@ -286,7 +286,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
     op match {
       case Symbol("+") =>
         if (l.isInstanceOf[VMString] || r.isInstanceOf[VMString])
-          push(l.toString + r.toString)
+          push(VMString(l.toString + r.toString))
         else
           l match {
 //            case value: collection.Map[_, _] if r.isInstanceOf[collection.Map[_, _]] =>
