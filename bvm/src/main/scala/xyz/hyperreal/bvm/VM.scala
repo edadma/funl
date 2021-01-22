@@ -13,6 +13,7 @@ object VM {
   private val HALT = -1
   private val MATCH_FAIL = -1
   private val VM_STATE = -2
+  private val SAME_SCANPOS = -1
 
   val ZERO = new VMNumber(IntType, 0)
   val ONE = new VMNumber(IntType, 1)
@@ -26,7 +27,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
   protected[bvm] val stack = new ArrayBufferStack[ChoicePoint]
   protected[bvm] var flags: Int = _
   protected[bvm] var data: List[Any] = _
-  protected[bvm] var ptr: Int = _
+//  protected[bvm] var ptr: Int = _
   protected[bvm] var ip: Int = _
   protected[bvm] var starts: Map[String, Int] = _
   protected[bvm] var captures: immutable.TreeMap[String, (Int, Int, Any)] = _
@@ -45,9 +46,9 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
   protected def clear(bits: Int): Boolean = (flags & bits) == 0
 
-  protected def prevpos: Int = ptr - 1
+  protected def prevpos: Int = /*ptr*/ scanpos - 1
 
-  protected def nextpos: Int = ptr + 1
+  protected def nextpos: Int = /*ptr*/ scanpos + 1
 
   protected def previous: Char = seq charAt prevpos
 
@@ -59,7 +60,8 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
     flags = 0
     data = init.reverse
     seq = subject
-    ptr = 0
+    /*ptr*/
+    scanpos = 0
     ip = start
     starts = Map[String, Int]()
     captures = immutable.TreeMap[String, (Int, Int, Any)]()
@@ -156,14 +158,17 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
   def pushChoice(disp: Int): Unit = pushChoice(disp, null)
 
+  def pushPatternChoice(disp: Int): Unit =
+    stack push ChoicePoint(flags, data, /*ptr*/ scanpos, ip + disp, starts, captures, frame, mark, pos, ret, null)
+
   def pushChoice(disp: Int, action: VM => Unit): Unit =
-    stack push ChoicePoint(flags, data, ptr, ip + disp, starts, captures, frame, mark, pos, ret, action)
+    stack push ChoicePoint(flags, data, SAME_SCANPOS, ip + disp, starts, captures, frame, mark, pos, ret, action)
 
   def pushChoice(action: VM => Unit): Unit =
-    stack push ChoicePoint(flags, data, ptr, VM_STATE, starts, captures, frame, mark, pos, ret, action)
+    stack push ChoicePoint(flags, data, SAME_SCANPOS, VM_STATE, starts, captures, frame, mark, pos, ret, action)
 
   protected def pushState(): Unit =
-    stack push ChoicePoint(flags, data, ptr, VM_STATE, starts, captures, frame, mark, pos, ret, null)
+    stack push ChoicePoint(flags, data, SAME_SCANPOS, VM_STATE, starts, captures, frame, mark, pos, ret, null)
 
   protected def choice(): Unit = {
     val ChoicePoint(fl, dat, idx, loc, st, caps, frm, mrk, ps, rt, action) =
@@ -171,7 +176,8 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
     flags = fl
     data = dat
-    ptr = idx
+    /*ptr*/
+    scanpos = idx
     ip = loc
     starts = st
     captures = caps
@@ -212,13 +218,13 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
     }
   }
 
-  protected def current: Char = seq charAt ptr
+  protected def current: Char = seq charAt /*ptr*/ scanpos
 
-  protected def advance(): Unit = ptr = nextpos
+  protected def advance(): Unit = /*ptr*/ scanpos = nextpos
 
-  protected def reverse(): Unit = ptr = prevpos
+  protected def reverse(): Unit = /*ptr*/ scanpos = prevpos
 
-  protected def index: Int = ptr
+  protected def index: Int = /*ptr*/ scanpos
 
   protected def equal(ch: Char): Boolean =
     (flags & Pattern.CASE_INSENSITIVE) == 0 && current == ch || (flags & Pattern.CASE_INSENSITIVE) > 0 && Character
@@ -262,18 +268,18 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
   }
 
   protected def eoi: Boolean =
-    if (ptr > seq.length)
+    if (/*ptr*/ scanpos > seq.length)
       sys.error("ptr is past end of input")
     else
-      ptr == seq.length
+      /*ptr*/ scanpos == seq.length
 
-  protected def peoi: Boolean = ptr > seq.length
+  protected def peoi: Boolean = /*ptr*/ scanpos > seq.length
 
   protected def boi: Boolean =
-    if (ptr < 0)
+    if (/*ptr*/ scanpos < 0)
       sys.error("ptr is before beginning of input")
     else
-      ptr == 0
+      /*ptr*/ scanpos == 0
 
   protected def dot: Boolean =
     (clear(Pattern.DOTALL) && (set(Pattern.UNIX_LINES) && current != '\n' || clear(Pattern.UNIX_LINES) && !TERMINATOR_CLASS(current))) || set(
@@ -497,8 +503,8 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
   }
 
   private def subsequence(start: Int) =
-    if (start > ptr) new SubSequence(seq, ptr, start)
-    else new SubSequence(seq, start, ptr)
+    if (start > /*ptr*/ scanpos) new SubSequence(seq, /*ptr*/ scanpos, start)
+    else new SubSequence(seq, start, /*ptr*/ scanpos)
 
   protected def run(): Unit = {
     var count = 0
@@ -557,7 +563,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
             if (current < lower)
               iterate()
             else if (upper.isEmpty || current < upper.get) {
-              pushChoice(disp)
+              pushPatternChoice(disp)
               iterate()
             } else
               ip += disp
@@ -573,7 +579,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
             if (upper.isEmpty || current <= upper.get) {
               push(Repetition(lower, upper, current + 1))
-              pushChoice(0)
+              pushPatternChoice(0)
               pop
             }
 
@@ -653,7 +659,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                 fail()
             }
           case BranchInst(disp) => ip += disp
-          case ZeroLengthInst   => push(pop.asInstanceOf[Pointer].p == ptr)
+          case ZeroLengthInst   => push(pop.asInstanceOf[Pointer].p == /*ptr*/ scanpos)
           case BranchIfInst(disp) =>
             if (pop.asInstanceOf[Boolean])
               ip += disp
@@ -662,16 +668,19 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
               ip += disp
           case FlagsClearInst(mask)           => push((flags & mask) == 0)
           case ChoiceInst(disp)               => pushChoice(disp)
+          case PatternChoiceInst(disp)        => pushPatternChoice(disp)
           case StringMatchInst                => forwardStringMatch(derefps)
           case StringMatchReverseInst         => reverseStringMatch(derefps)
           case LiteralMatchInst(s)            => forwardStringMatch(s)
           case LiteralMatchReverseInst(s)     => reverseStringMatch(s)
           case ReferenceMatchInst(key)        => forwardStringMatch(captures(key).asInstanceOf[String])
           case ReferenceMatchReverseInst(key) => reverseStringMatch(captures(key).asInstanceOf[String])
-          case SavePointerInst                => push(Pointer(ptr))
-          case RestorePositionInst            => ptr = pop.asInstanceOf[Pointer].p
-          case PushMatchedInst                => push(subsequence(pop.asInstanceOf[Pointer].p))
-          case PushCaptureGroupsInst          => push(captures)
+          case SavePointerInst                => push(Pointer( /*ptr*/ scanpos))
+          case RestorePositionInst            =>
+            /*ptr*/
+            scanpos = pop.asInstanceOf[Pointer].p
+          case PushMatchedInst       => push(subsequence(pop.asInstanceOf[Pointer].p))
+          case PushCaptureGroupsInst => push(captures)
           case PushCaptureGroupsStringsInst =>
             push(captures map {
               case (k, (_, _, c)) =>
@@ -994,33 +1003,33 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
           case BeginScanInst(spos) =>
             derefpo match {
               case VMString(s) =>
-                val (oldseq, oldscanpos, oldptr) = (seq, scanpos, ptr)
+                val (oldseq, oldscanpos /*, oldptr*/ ) = (seq, scanpos /*, ptr*/ )
 
                 pushChoice(_ => {
                   seq = oldseq
                   scanpos = oldscanpos
-                  ptr = oldptr
+//                  ptr = oldptr
                 })
                 push(seq)
                 push(scanpos)
-                push(ptr)
+//                push(ptr)
                 seq = s
                 scanpos = 0
-                ptr = 0
+//                ptr = 0
               case o => problem(spos, s"expected a string: $o")
             }
           case EndScanInst =>
-            val (envseq, envscanpos, envptr) = (seq, scanpos, ptr)
+            val (envseq, envscanpos /*, envptr*/ ) = (seq, scanpos /*, ptr*/ )
 
             pushChoice(_ => {
               seq = envseq
               scanpos = envscanpos
-              ptr = envptr
+//              ptr = envptr
             })
 
             val res = pop
 
-            ptr = pop.asInstanceOf[Int]
+//            ptr = pop.asInstanceOf[Int]
             scanpos = pop.asInstanceOf[Int]
             seq = pop.asInstanceOf[String]
             push(res)
@@ -1124,7 +1133,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
         "past end-of-input"
       else if (eoi)
         "end-of-input"
-      else if (ptr < 0)
+      else if (/*ptr*/ scanpos < 0)
         "before-input"
       else
         current toString
@@ -1193,6 +1202,7 @@ case class BranchIfInst(disp: Int) extends VMInst
 case class BranchIfNotInst(disp: Int) extends VMInst
 case object ZeroLengthInst extends VMInst
 case class FlagsClearInst(mask: Int) extends VMInst
+case class PatternChoiceInst(disp: Int) extends VMInst
 case class ChoiceInst(disp: Int) extends VMInst
 case object AdvanceInst extends VMInst
 case object ReverseInst extends VMInst

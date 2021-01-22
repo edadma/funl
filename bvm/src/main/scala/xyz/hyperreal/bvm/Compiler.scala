@@ -169,8 +169,7 @@ class Compiler(constants: Map[String, Any],
           getvariable(name, namespaces) match {
             case Some(f @ FunctionDecl(_, _, _, a, _, _, fparts)) =>
               if (a != arity)
-                problem(pos,
-                        s"function part definition with different arity than other parts: found $arity, expected $a")
+                problem(pos, s"function part definition with different arity than other parts: found $arity, expected $a")
 
               fparts(pos) = part
               f.last = pos
@@ -456,10 +455,7 @@ class Compiler(constants: Map[String, Any],
     _decls(ast)
   }
 
-  private def unify(struc: StructureAST,
-                    pos: Position,
-                    namespaces: List[Namespace],
-                    vars: mutable.HashSet[String] = new mutable.HashSet): Unit = {
+  private def unify(struc: StructureAST, pos: Position, namespaces: List[Namespace], vars: mutable.HashSet[String] = new mutable.HashSet): Unit = {
     def _unify(struc: StructureAST, pos: Position): Unit =
       struc match {
         case TupleStructureAST(_, args) =>
@@ -602,12 +598,7 @@ class Compiler(constants: Map[String, Any],
     var markNesting = 0
     val loops = new ArrayBufferStack[Label]
 
-    case class Label(construct: String,
-                     name: String,
-                     nesting: Int,
-                     loop: Int,
-                     breaks: ArrayBuffer[Int],
-                     continues: ArrayBuffer[Int])
+    case class Label(construct: String, name: String, nesting: Int, loop: Int, breaks: ArrayBuffer[Int], continues: ArrayBuffer[Int])
 
     def search(name: String) = loops find (_.name == name)
 
@@ -1418,7 +1409,7 @@ class Compiler(constants: Map[String, Any],
           compile(p, mode)
           jumps += code.length
           code += null
-          code(backptr) = ChoiceInst(code.length - backptr - 1)
+          code(backptr) = PatternChoiceInst(code.length - backptr - 1)
         }
 
         compile(alt.last, mode)
@@ -1450,9 +1441,9 @@ class Compiler(constants: Map[String, Any],
 
         code += null
         compile(subpat, mode)
-        code(backptr) = ChoiceInst(code.length - backptr - 1)
+        code(backptr) = PatternChoiceInst(code.length - backptr - 1)
       case ReluctantOptionalPattern(subpat) =>
-        code += ChoiceInst(1)
+        code += PatternChoiceInst(1)
 
         val branch = code.length
 
@@ -1467,15 +1458,15 @@ class Compiler(constants: Map[String, Any],
         compile(subpat, mode)
         code += ZeroLengthInst
         code += BranchIfNotInst(backpatch - code.length - 1)
-        code(backpatch) = ChoiceInst(code.length - backpatch - 1)
+        code(backpatch) = PatternChoiceInst(code.length - backpatch - 1)
       case ReluctantZeroOrMorePattern(subpat) =>
-        code += ChoiceInst(1)
+        code += PatternChoiceInst(1)
 
         val branch = code.length
 
         code += null
         compile(subpat, mode)
-        code += ChoiceInst(branch - code.length)
+        code += PatternChoiceInst(branch - code.length)
         code(branch) = BranchInst(code.length - branch - 1)
       case OneOrMorePattern(subpat) =>
         val start = code.length
@@ -1484,13 +1475,13 @@ class Compiler(constants: Map[String, Any],
         compile(subpat, mode)
         code += ZeroLengthInst
         code += BranchIfInst(2)
-        code += ChoiceInst(1)
+        code += PatternChoiceInst(1)
         code += BranchInst(start - code.length - 1)
       case ReluctantOneOrMorePattern(subpat) =>
         val start = code.length
 
         compile(subpat, mode)
-        code += ChoiceInst(start - code.length - 1)
+        code += PatternChoiceInst(start - code.length - 1)
       case RepeatPattern(subpat, lower, _, upper) =>
         code += RepeatBeginInst(lower, upper)
 
@@ -1534,7 +1525,7 @@ class Compiler(constants: Map[String, Any],
         compile(subpat, mode)
         code += CutInst
         code += FailInst
-        code(choice) = ChoiceInst(code.length - choice - 1)
+        code(choice) = PatternChoiceInst(code.length - choice - 1)
         code += DropInst
       case SetFlagsPattern(setmask, clearmask) => code += SetFlagsInst(setmask, clearmask)
       case SetFlagsGroupPattern(setmask, clearmask, subpat) =>

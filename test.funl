@@ -1,1 +1,14 @@
-write( list() )
+def
+  foldr(f, z, [])   = z
+  foldr(f, z, x:xs) = f(x, foldr(f, z, xs))
+
+  map(f, [])                = []
+  map(f, x:xs)              = f(x):map(f, xs)
+
+  concat(xss) = foldr((+), [], xss)
+
+  concatMap(f, xss) = concat(map(f, xss))
+
+def seriesUp(n) = concatMap(n -> 1..n, 1..n)
+
+write(seriesUp(4))

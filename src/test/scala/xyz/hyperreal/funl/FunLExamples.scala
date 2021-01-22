@@ -379,11 +379,11 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 				|
 				|  concatMap(f, xss) = concat(map(f, xss))
 				|
-				|def seriesUp(n) = list(concatMap(n -> 1..n, 1..n))
+				|def seriesUp(n) = concatMap(n -> 1..n, 1..n)
 				|
 				|write(seriesUp(4))
 			""".stripMargin
-    ) shouldBe "[1, 1, 2, 1, 2, 3, 1, 2, 3, 4]"
+    ) shouldBe "(1, 1, 2, 1, 2, 3, 1, 2, 3, 4)"
   }
 
   "merge sort" in {
