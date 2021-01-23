@@ -4,12 +4,9 @@ import scala.util.parsing.input.Position
 import xyz.hyperreal.bvm.Pattern._
 import xyz.hyperreal.dal.BasicDAL
 
-import scala.collection.immutable.ArraySeq
-
 package object bvm {
 
   type NativeFunction = (_, _, _, _) => _
-  type cset = Char => Boolean
 
   val DIGIT_CLASS: Char => Boolean = (_: Char).isDigit
   val HEXDIGIT_CLASS = new CSet(List(DIGIT_CLASS, 'a' to 'f', 'A' to 'F'))
@@ -26,7 +23,7 @@ package object bvm {
     FlagConditionalPattern(
       UNIX_LINES,
       StringPattern(LiteralExpressionAST(VMString("\n"))),
-      AlternationPattern(List(StringPattern(LiteralExpressionAST(VMString("\r\n"))), ClassPattern(TERMINATOR_CLASS)))
+      AlternationPattern(List(StringPattern(LiteralExpressionAST(VMString("\r\n"))), LiteralClassPattern(TERMINATOR_CLASS)))
     ))
   val BeginningOfLinePattern: PatternAST = Pattern.compiledSubpattern(
     FlagConditionalPattern(
@@ -49,7 +46,7 @@ package object bvm {
       )))
   val NonWordBoundaryPattern: PatternAST = Pattern.compiledSubpattern(NegationPattern(WordBoundaryPattern))
 
-  val HEXOCTET: PatternAST = Pattern.compiledSubpattern(ConcatenationPattern(List(ClassPattern(HEXDIGIT_CLASS))))
+  val HEXOCTET: PatternAST = Pattern.compiledSubpattern(ConcatenationPattern(List(LiteralClassPattern(HEXDIGIT_CLASS))))
   val UUID: PatternAST =
     Pattern.compiledSubpattern(
       ConcatenationPattern(
@@ -64,8 +61,8 @@ package object bvm {
           LiteralPattern("-"),
           hexOctets(6)
         )))
-  val INTEGER: PatternAST = Pattern.compiledSubpattern(OneOrMorePattern(ClassPattern(DIGIT_CLASS)))
-  val HEXINTEGER: PatternAST = Pattern.compiledSubpattern(OneOrMorePattern(ClassPattern(HEXDIGIT_CLASS)))
+  val INTEGER: PatternAST = Pattern.compiledSubpattern(OneOrMorePattern(LiteralClassPattern(DIGIT_CLASS)))
+  val HEXINTEGER: PatternAST = Pattern.compiledSubpattern(OneOrMorePattern(LiteralClassPattern(HEXDIGIT_CLASS)))
 
   def hexOctets(octets: Int): PatternAST = RepeatPattern(HEXOCTET, octets, null, Some(octets))
 

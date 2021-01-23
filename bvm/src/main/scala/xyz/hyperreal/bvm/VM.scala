@@ -609,14 +609,24 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
             val ChoicePoint(flags, dat, ptr, _, starts, captures, frm, mrk, ps, rt, action) = stack(stack.size - mark + 1)
 
             stack(stack.size - mark + 1) = ChoicePoint(flags, dat, ptr, ip + disp, starts, captures, frm, mrk, ps, rt, action)
-          case ClassInst(clas) =>
+          case ClassInst =>
+            val VMCSet(clas) = derefpo
+
             if (!eoi && !clas(current))
               fail()
-          case ClassReverseInst(clas) =>
+          case ClassReverseInst =>
+            val VMCSet(clas) = derefpo
+
+            if (!boi && !clas(previous))
+              fail()
+          case LiteralClassInst(clas) =>
+            if (!eoi && !clas(current))
+              fail()
+          case LiteralClassReverseInst(clas) =>
             if (!boi && !clas(previous))
               fail()
           case CaptureBeginInst(parm, n) =>
-            starts += (parm -> index)
+            starts += (parm -> scanpos)
 
             if (n > -1) {
               def clear(branches: List[Node]): Unit =
@@ -636,7 +646,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
               else
                 conversion(sub)
 
-            captures += (parm -> (start, index, obj))
+            captures += (parm -> (start, scanpos, obj))
           case AdvanceInst =>
             if (eoi)
               fail()
@@ -682,7 +692,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
           case RestorePositionInst            =>
             /*ptr*/
             scanpos = pop.asInstanceOf[Pointer].p
-          case PushMatchedInst => push(subsequence(pop.asInstanceOf[Pointer].p))
+          case PushMatchedInst => push(VMString(subsequence(pop.asInstanceOf[Pointer].p).toString))
           case PushCaptureGroupsInst =>
             push(new VMMap(captures.map {
               case (k, (b, e, c: AnyRef)) => (VMString(k), VMSeq(IndexedSeq(VMNumber(b), VMNumber(e), VMString(c.toString))))
@@ -1211,8 +1221,10 @@ case object AdvanceInst extends VMInst
 case object ReverseInst extends VMInst
 case object DotInst extends VMInst
 case object DotReverseInst extends VMInst
-case class ClassInst(clas: Char => Boolean) extends VMInst
-case class ClassReverseInst(clas: Char => Boolean) extends VMInst
+case object ClassInst extends VMInst
+case object ClassReverseInst extends VMInst
+case class LiteralClassInst(clas: Char => Boolean) extends VMInst
+case class LiteralClassReverseInst(clas: Char => Boolean) extends VMInst
 case class CaptureBeginInst(parm: String, n: Int) extends VMInst
 case class CaptureSaveInst(parm: String, conversion: CharSequence => Any) extends VMInst
 case object AtomicInst extends VMInst

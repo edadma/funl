@@ -539,6 +539,11 @@ object Predef {
         case _ =>
           problem(null, "string() macro can only be applied to an expression")
       },
+      "class" -> {
+        case List(a: ExpressionAST) => PatternExpressionAST(ClassPattern(a))
+        case _ =>
+          problem(null, "class() macro can only be applied to an expression")
+      },
       "rep1" -> {
         case List(PatternExpressionAST(pat)) =>
           PatternExpressionAST(OneOrMorePattern(pat))

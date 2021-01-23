@@ -1292,10 +1292,13 @@ class Compiler(constants: Map[String, Any],
           _emit(arg)
           code += BracketInst(epos, apos)
         case PatternExpressionAST(pat) =>
-          code += CaptureBeginInst("match", -1)
+          code += SavePointerInst
           _emit(pat)
-          code += CaptureSaveInst("match", null)
-          code += PushCaptureGroupsInst
+          code += PushMatchedInst
+//          code += CaptureBeginInst("match", -1)
+//          _emit(pat)
+//          code += CaptureSaveInst("match", null)
+//          code += PushCaptureGroupsInst
         case PatternExpressionStringsAST(pat) =>
           _emit(pat)
           code += PushCaptureGroupsStringsInst
@@ -1348,14 +1351,14 @@ class Compiler(constants: Map[String, Any],
     pat match {
       case LookaheadClassPattern(clas) =>
         if (mode)
-          code += ClassInst(clas)
+          code += LiteralClassInst(clas)
         else
-          code += ClassReverseInst(clas)
+          code += LiteralClassReverseInst(clas)
       case LookbehindClassPattern(clas) =>
         if (mode)
-          code += ClassReverseInst(clas)
+          code += LiteralClassReverseInst(clas)
         else
-          code += ClassInst(clas)
+          code += LiteralClassInst(clas)
       case FlagConditionalPattern(mask, set, unset) =>
         code += FlagsClearInst(mask)
 
@@ -1378,13 +1381,23 @@ class Compiler(constants: Map[String, Any],
         code += AtomicInst
         compile(subpat, mode)
         code += CutInst
-      case ClassPattern(clas) =>
+      case LiteralClassPattern(clas) =>
         if (mode) {
-          code += ClassInst(clas)
+          code += LiteralClassInst(clas)
           code += AdvanceInst
         } else {
           code += ReverseInst
-          code += ClassReverseInst(clas)
+          code += LiteralClassReverseInst(clas)
+        }
+      case ClassPattern(clas) =>
+        emit(clas, null)
+
+        if (mode) {
+          code += ClassInst
+          code += AdvanceInst
+        } else {
+          code += ReverseInst
+          code += ClassReverseInst
         }
       case CompiledSubPattern(forward, reverse) =>
         code ++= (if (mode) forward.code else reverse.code)

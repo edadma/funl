@@ -13,17 +13,14 @@ trait DeclarationStatementAST extends StatementAST
 //case class NativeAST( pkg: String, name: List[(String, Option[String])] ) extends DeclarationStatementAST
 //case class FunctionAST( cls: String, name: List[(String, Option[String])] ) extends DeclarationStatementAST
 case class ValAST(struc: StructureAST, pos: Position, exp: ExpressionAST) extends DeclarationStatementAST
-case class VarAST(pos: Position, var name: String, oname: String, init: Option[ExpressionAST])
-    extends DeclarationStatementAST
-case class DataAST(pos: Position, name: String, constructors: List[(String, List[Symbol])])
-    extends DeclarationStatementAST
+case class VarAST(pos: Position, var name: String, oname: String, init: Option[ExpressionAST]) extends DeclarationStatementAST
+case class DataAST(pos: Position, name: String, constructors: List[(String, List[Symbol])]) extends DeclarationStatementAST
 case class DefAST(oname: String, func: FunctionExpressionAST) extends DeclarationStatementAST
 
 case class DeclarationBlockAST(decls: List[DeclarationStatementAST]) extends DeclarationStatementAST
 
 trait ExpressionAST extends StatementAST
-case class SetValueExpressionAST(pos: Position, var name: String, oname: String, expr: ExpressionAST)
-    extends ExpressionAST
+case class SetValueExpressionAST(pos: Position, var name: String, oname: String, expr: ExpressionAST) extends ExpressionAST
 case class NativeFunctionExpressionAST(function: VM => Any) extends ExpressionAST
 case class RegexLiteralAST(pos: Position, regex: String) extends ExpressionAST
 case class RangeExpressionAST(fpos: Position,
@@ -34,8 +31,7 @@ case class RangeExpressionAST(fpos: Position,
                               b: ExpressionAST,
                               inclusive: Boolean)
     extends ExpressionAST
-case class UnboundedLazyListExpressionAST(fpos: Position, f: ExpressionAST, bpos: Position, b: ExpressionAST)
-    extends ExpressionAST
+case class UnboundedLazyListExpressionAST(fpos: Position, f: ExpressionAST, bpos: Position, b: ExpressionAST) extends ExpressionAST
 case class SequenceExpressionAST(fpos: Position,
                                  f: ExpressionAST,
                                  tpos: Position,
@@ -45,10 +41,7 @@ case class SequenceExpressionAST(fpos: Position,
                                  inclusive: Boolean)
     extends ExpressionAST
 case class GenerateExpressionAST(pos: Position, collection: ExpressionAST) extends ExpressionAST
-case class GeneratorExpressionAST(structure: StructureAST,
-                                  pos: Position,
-                                  traversable: ExpressionAST,
-                                  filter: Option[ExpressionAST])
+case class GeneratorExpressionAST(structure: StructureAST, pos: Position, traversable: ExpressionAST, filter: Option[ExpressionAST])
     extends ExpressionAST
 case class PartialFunctionExpressionAST(cases: List[FunctionExpressionAST]) extends ExpressionAST
 case class FunctionExpressionAST(var name: String,
@@ -58,27 +51,17 @@ case class FunctionExpressionAST(var name: String,
                                  parts: List[FunctionPartExpressionAST],
                                  where: WhereClauseAST)
     extends ExpressionAST
-case class ApplyExpressionAST(epos: Position,
-                              f: ExpressionAST,
-                              apos: Position,
-                              args: List[(Position, ExpressionAST)],
-                              var tailrecursive: Boolean)
+case class ApplyExpressionAST(epos: Position, f: ExpressionAST, apos: Position, args: List[(Position, ExpressionAST)], var tailrecursive: Boolean)
     extends ExpressionAST
 case class DotExpressionAST(epos: Position, expr: ExpressionAST, apos: Position, field: Symbol) extends ExpressionAST
-case class BracketExpressionAST(epos: Position, f: ExpressionAST, apos: Position, arg: ExpressionAST)
-    extends ExpressionAST
+case class BracketExpressionAST(epos: Position, f: ExpressionAST, apos: Position, arg: ExpressionAST) extends ExpressionAST
 case class LiteralExpressionAST(v: VMObject) extends ExpressionAST
 case class VariableExpressionAST(pos: Position, var name: String, oname: String) extends ExpressionAST
-case class BinaryExpressionAST(lpos: Position, left: ExpressionAST, op: Symbol, rpos: Position, right: ExpressionAST)
-    extends ExpressionAST
+case class BinaryExpressionAST(lpos: Position, left: ExpressionAST, op: Symbol, rpos: Position, right: ExpressionAST) extends ExpressionAST
 case class UnaryExpressionAST(op: Symbol, pos: Position, expr: ExpressionAST) extends ExpressionAST
-case class AssignmentExpressionAST(lhs: List[(Position, ExpressionAST)],
-                                   op: Symbol,
-                                   rhs: List[(Position, ExpressionAST)])
-    extends ExpressionAST
+case class AssignmentExpressionAST(lhs: List[(Position, ExpressionAST)], op: Symbol, rhs: List[(Position, ExpressionAST)]) extends ExpressionAST
 case class ScanAssignmentExpressionAST(lpos: Position, lhs: ExpressionAST, rhs: ExpressionAST) extends ExpressionAST
-case class ReversableAssignmentExpressionAST(lpos: Position, lhs: ExpressionAST, rhs: ExpressionAST)
-    extends ExpressionAST
+case class ReversableAssignmentExpressionAST(lpos: Position, lhs: ExpressionAST, rhs: ExpressionAST) extends ExpressionAST
 case class BlockExpressionAST(l: List[StatementAST]) extends ExpressionAST
 case class InterpolationExpressionAST(l: List[ExpressionAST]) extends ExpressionAST
 case class TupleExpressionAST(l: List[ExpressionAST]) extends ExpressionAST
@@ -90,28 +73,15 @@ case class OrExpressionAST(left: ExpressionAST, right: ExpressionAST) extends Ex
 case class AndExpressionAST(left: ExpressionAST, right: ExpressionAST) extends ExpressionAST
 case class NotExpressionAST(expr: ExpressionAST) extends ExpressionAST
 case class TypeExpressionAST(expr: ExpressionAST, typ: String) extends ExpressionAST
-case class ConditionalExpressionAST(cond: Seq[(ExpressionAST, ExpressionAST)], els: Option[ExpressionAST])
-    extends ExpressionAST
-case class EveryExpressionAST(label: Option[String],
-                              gen: ExpressionAST,
-                              body: Option[ExpressionAST],
-                              els: Option[ExpressionAST])
+case class ConditionalExpressionAST(cond: Seq[(ExpressionAST, ExpressionAST)], els: Option[ExpressionAST]) extends ExpressionAST
+case class EveryExpressionAST(label: Option[String], gen: ExpressionAST, body: Option[ExpressionAST], els: Option[ExpressionAST])
     extends ExpressionAST
 case class RepeatExpressionAST(label: Option[String], body: ExpressionAST) extends ExpressionAST
-case class WhileExpressionAST(label: Option[String],
-                              cond: ExpressionAST,
-                              body: Option[ExpressionAST],
-                              els: Option[ExpressionAST])
+case class WhileExpressionAST(label: Option[String], cond: ExpressionAST, body: Option[ExpressionAST], els: Option[ExpressionAST])
     extends ExpressionAST
-case class ForLoopExpressionAST(label: Option[String],
-                                gen: GeneratorExpressionAST,
-                                body: Option[ExpressionAST],
-                                els: Option[ExpressionAST])
+case class ForLoopExpressionAST(label: Option[String], gen: GeneratorExpressionAST, body: Option[ExpressionAST], els: Option[ExpressionAST])
     extends ExpressionAST
-case class ForExpressionAST(label: Option[String],
-                            gen: List[GeneratorExpressionAST],
-                            body: ExpressionAST,
-                            els: Option[ExpressionAST])
+case class ForExpressionAST(label: Option[String], gen: List[GeneratorExpressionAST], body: ExpressionAST, els: Option[ExpressionAST])
     extends ExpressionAST
 //case class IteratorExpressionAST( structure: StructureAST, pos: Position, traversable: ExpressionAST, filter: Option[ExpressionAST] ) extends ExpressionAST
 case object FailExpressionAST extends ExpressionAST
@@ -182,18 +152,13 @@ case class ZeroOrMorePattern(subpat: PatternAST) extends PatternAST with Operato
 case class ReluctantZeroOrMorePattern(subpat: PatternAST) extends PatternAST with OperatorPattern
 case class OneOrMorePattern(subpat: PatternAST) extends PatternAST with OperatorPattern
 case class ReluctantOneOrMorePattern(subpat: PatternAST) extends PatternAST with OperatorPattern
-case class RepeatPattern(subpat: PatternAST, lower: Int, pos: Position, upper: Option[Int])
-    extends PatternAST
-    with OperatorPattern
-case class ReluctantRepeatPattern(subpat: PatternAST, lower: Int, pos: Position, upper: Option[Int])
-    extends PatternAST
-    with OperatorPattern
+case class RepeatPattern(subpat: PatternAST, lower: Int, pos: Position, upper: Option[Int]) extends PatternAST with OperatorPattern
+case class ReluctantRepeatPattern(subpat: PatternAST, lower: Int, pos: Position, upper: Option[Int]) extends PatternAST with OperatorPattern
 case object DotPattern extends PatternAST
 case object AnyPattern extends PatternAST
-case class ClassPattern(clas: Char => Boolean) extends PatternAST
-case class CapturePattern(key: String, subpat: PatternAST, conversion: CharSequence => Any)
-    extends PatternAST
-    with OperatorPattern
+case class ClassPattern(clas: ExpressionAST) extends PatternAST
+case class LiteralClassPattern(clas: Char => Boolean) extends PatternAST
+case class CapturePattern(key: String, subpat: PatternAST, conversion: CharSequence => Any) extends PatternAST with OperatorPattern
 case class NumberedCapturePattern(subpat: PatternAST, var n: Int = 0) extends PatternAST with OperatorPattern
 case class CompiledSubPattern(forward: Compilation, reverse: Compilation) extends PatternAST
 case class AtomicPattern(subpat: PatternAST) extends PatternAST with OperatorPattern
@@ -206,9 +171,7 @@ case class LookaheadClassPattern(clas: Char => Boolean) extends PatternAST
 case class LookbehindClassPattern(clas: Char => Boolean) extends PatternAST
 case class NegationPattern(subpat: PatternAST) extends PatternAST
 case class SetFlagsPattern(setmask: Int, clearmask: Int) extends PatternAST
-case class SetFlagsGroupPattern(setmask: Int, clearmask: Int, subpat: PatternAST)
-    extends PatternAST
-    with OperatorPattern
+case class SetFlagsGroupPattern(setmask: Int, clearmask: Int, subpat: PatternAST) extends PatternAST with OperatorPattern
 case class LookbehindPattern(subpat: PatternAST) extends PatternAST with OperatorPattern
 case class GroupPattern(subpat: PatternAST) extends PatternAST with OperatorPattern
 case class NativePattern(matcher: VM => Unit = _ => ()) extends PatternAST

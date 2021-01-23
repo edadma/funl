@@ -73,8 +73,8 @@ class PatternParser extends RegexParsers with PackratParsers {
       primaryRegex
 
   lazy val classRegex: PackratParser[PatternAST] =
-    "[^" ~> charSet <~ "]" ^^ (c => ClassPattern(Pattern.except(c))) |
-      "[" ~> charSet <~ "]" ^^ ClassPattern
+    "[^" ~> charSet <~ "]" ^^ (c => LiteralClassPattern(Pattern.except(c))) |
+      "[" ~> charSet <~ "]" ^^ LiteralClassPattern
 
   lazy val charSet: PackratParser[Set[Char]] =
     rep1(("""[^]]""".r <~ "-") ~ ".".r | "[:lower:]" | "[:upper:]" | """[^]]""".r) ~ opt("&&[" ~> charSet <~ "]") ^^ {
@@ -130,16 +130,16 @@ class PatternParser extends RegexParsers with PackratParsers {
       """\c""" ~> "[A-Z]".r ^^ (o => LiteralPattern((o.head - 'A').toChar.toString)) |
       classRegex |
       "." ^^^ DotPattern |
-      """\d""" ^^^ ClassPattern(DIGIT_CLASS) |
-      """\D""" ^^^ ClassPattern(Pattern.except(DIGIT_CLASS)) |
-      """\h""" ^^^ ClassPattern(HORIZONTAL_WHITESPACE_CLASS) |
-      """\H""" ^^^ ClassPattern(Pattern.except(HORIZONTAL_WHITESPACE_CLASS)) |
-      """\s""" ^^^ ClassPattern(WHITESPACE_CLASS) |
-      """\S""" ^^^ ClassPattern(Pattern.except(WHITESPACE_CLASS)) |
-      """\v""" ^^^ ClassPattern(VERTICAL_WHITESPACE_CLASS) |
-      """\V""" ^^^ ClassPattern(Pattern.except(VERTICAL_WHITESPACE_CLASS)) |
-      """\w""" ^^^ ClassPattern(WORD_CLASS) |
-      """\W""" ^^^ ClassPattern(Pattern.except(WORD_CLASS)) |
+      """\d""" ^^^ LiteralClassPattern(DIGIT_CLASS) |
+      """\D""" ^^^ LiteralClassPattern(Pattern.except(DIGIT_CLASS)) |
+      """\h""" ^^^ LiteralClassPattern(HORIZONTAL_WHITESPACE_CLASS) |
+      """\H""" ^^^ LiteralClassPattern(Pattern.except(HORIZONTAL_WHITESPACE_CLASS)) |
+      """\s""" ^^^ LiteralClassPattern(WHITESPACE_CLASS) |
+      """\S""" ^^^ LiteralClassPattern(Pattern.except(WHITESPACE_CLASS)) |
+      """\v""" ^^^ LiteralClassPattern(VERTICAL_WHITESPACE_CLASS) |
+      """\V""" ^^^ LiteralClassPattern(Pattern.except(VERTICAL_WHITESPACE_CLASS)) |
+      """\w""" ^^^ LiteralClassPattern(WORD_CLASS) |
+      """\W""" ^^^ LiteralClassPattern(Pattern.except(WORD_CLASS)) |
       """\""" ~> """\d""".r ^^ ReferencePattern |
       """\k<""" ~> name <~ ">" ^^ ReferencePattern |
       """^""" ^^^ BeginningOfLinePattern |
