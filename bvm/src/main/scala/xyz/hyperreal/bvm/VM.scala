@@ -142,7 +142,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
   def derefpi: Int = derefp.asInstanceOf[Int]
 
-  def derefps: String = derefp.asInstanceOf[String]
+  def derefps: String = derefpo.toString
 
   def dereft: Any = deref(top)
 
@@ -682,13 +682,13 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
           case RestorePositionInst            =>
             /*ptr*/
             scanpos = pop.asInstanceOf[Pointer].p
-          case PushMatchedInst       => push(subsequence(pop.asInstanceOf[Pointer].p))
-          case PushCaptureGroupsInst => push(captures)
+          case PushMatchedInst => push(subsequence(pop.asInstanceOf[Pointer].p))
+          case PushCaptureGroupsInst =>
+            push(new VMMap(captures.map {
+              case (k, (b, e, c: AnyRef)) => (VMString(k), VMSeq(IndexedSeq(VMNumber(b), VMNumber(e), VMString(c.toString))))
+            }))
           case PushCaptureGroupsStringsInst =>
-            push(captures map {
-              case (k, (_, _, c)) =>
-                (k, if (c.isInstanceOf[CharSequence]) c.toString else c)
-            })
+            push(new VMMap(captures.map { case (k, (_, _, c: AnyRef)) => (VMString(k), VMString(c.toString)) }))
           case BeginningPositionMatchInst =>
             if (!boi)
               fail()

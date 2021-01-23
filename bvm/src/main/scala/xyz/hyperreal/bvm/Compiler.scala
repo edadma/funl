@@ -1292,13 +1292,14 @@ class Compiler(constants: Map[String, Any],
           _emit(arg)
           code += BracketInst(epos, apos)
         case PatternExpressionAST(pat) =>
+          code += CaptureBeginInst("match", -1)
           _emit(pat)
+          code += CaptureSaveInst("match", null)
           code += PushCaptureGroupsInst
         case PatternExpressionStringsAST(pat) =>
           _emit(pat)
           code += PushCaptureGroupsStringsInst
-        case NativeFunctionExpressionAST(function) => code += PushFunctionInst(function)
-        //				case c: StatementAST => //sys.error( s"missed a case: $c" )
+        case NativeFunctionExpressionAST(function)     => code += PushFunctionInst(function)
         case CaptureGroupsExpressionAST                => code += PushCaptureGroupsInst
         case _: StructureAST                           =>
         case t if emitExtension isDefinedAt (t, _emit) => emitExtension(t, _emit)
@@ -1338,6 +1339,8 @@ class Compiler(constants: Map[String, Any],
           case Right(pat)       => PatternExpressionAST(pat)
           case Left((_, error)) => problem(pos, error)
         }
+      case AssignmentExpressionAST(lhs, op, rhs) =>
+        AssignmentExpressionAST(lhs map { case (p, e) => (p, expandMacros(e)) }, op, rhs map { case (p, e) => (p, expandMacros(e)) })
       case a => a
     }
 
