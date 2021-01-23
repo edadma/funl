@@ -218,7 +218,7 @@ object Predef {
                 if (n > 0)
                   n - 1
                 else
-                  vm.seq.length - n
+                  vm.seq.length - n // todo: maybe it should be vm.seq.length + n
 
               if (vm.scanpos != pos)
                 Fail

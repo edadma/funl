@@ -176,8 +176,11 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
 
     flags = fl
     data = dat
+
     /*ptr*/
-    scanpos = idx
+    if (idx != SAME_SCANPOS)
+      scanpos = idx
+
     ip = loc
     starts = st
     captures = caps
