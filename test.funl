@@ -1,4 +1,5 @@
-if 'aabcc' ? write(rep(dot())) & write(rep1(string('c')))
+if '123cc' ? write(rep(cclass(digits))) & write(rep(string('c')))
   write('yes')
 else
   write('no')
+

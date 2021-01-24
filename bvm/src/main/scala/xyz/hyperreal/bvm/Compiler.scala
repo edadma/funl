@@ -1310,6 +1310,219 @@ class Compiler(constants: Map[String, Any],
     }
 
     _emit(ast)
+
+    def compile(pat: PatternAST, mode: Boolean): Unit =
+      pat match {
+        case LookaheadClassPattern(clas) =>
+          if (mode)
+            code += LiteralClassInst(clas)
+          else
+            code += LiteralClassReverseInst(clas)
+        case LookbehindClassPattern(clas) =>
+          if (mode)
+            code += LiteralClassReverseInst(clas)
+          else
+            code += LiteralClassInst(clas)
+        case FlagConditionalPattern(mask, set, unset) =>
+          code += FlagsClearInst(mask)
+
+          val conditional = code.length
+
+          code += null
+          compile(set, mode)
+
+          val exit = code.length
+
+          code += null
+          code(conditional) = BranchIfInst(code.length - conditional - 1)
+          compile(unset, mode)
+          code(exit) = BranchInst(code.length - exit - 1)
+        case BeginningOfInputPattern =>
+          code += BeginningPositionMatchInst
+        case EndOfInputPattern =>
+          code += EndPositionMatchInst
+        case AtomicPattern(subpat) =>
+          code += AtomicInst
+          compile(subpat, mode)
+          code += CutInst
+        case LiteralClassPattern(clas) =>
+          if (mode) {
+            code += LiteralClassInst(clas)
+            code += AdvanceInst
+          } else {
+            code += ReverseInst
+            code += LiteralClassReverseInst(clas)
+          }
+        case ClassPattern(clas) =>
+          _emit(clas)
+
+          if (mode) {
+            code += ClassInst
+            code += AdvanceInst
+          } else {
+            code += ReverseInst
+            code += ClassReverseInst
+          }
+        case CompiledSubPattern(forward, reverse) =>
+          code ++= (if (mode) forward.code else reverse.code)
+        case CapturePattern(key, subpat, conversion) =>
+          code += CaptureBeginInst(key, -1)
+          compile(subpat, mode)
+          code += CaptureSaveInst(key, conversion)
+        case NumberedCapturePattern(subpat, n) =>
+          code += CaptureBeginInst(n.toString, n)
+          compile(subpat, mode)
+          code += CaptureSaveInst(n.toString, null)
+        case AnyPattern =>
+          if (mode)
+            code += AdvanceInst
+          else
+            code += ReverseInst
+        case DotPattern => code += DotInst
+        case AlternationPattern(alt) =>
+          val jumps = new ArrayBuffer[Int]
+
+          for (p <- alt.init) {
+            val backptr = code.length
+
+            code += null
+            compile(p, mode)
+            jumps += code.length
+            code += null
+            code(backptr) = PatternChoiceInst(code.length - backptr - 1)
+          }
+
+          compile(alt.last, mode)
+
+          for (b <- jumps)
+            code(b) = BranchInst(code.length - b - 1)
+        case StringPattern(s) =>
+          emit(s, null)
+
+          if (mode)
+            code += StringMatchInst
+          else
+            code += StringMatchReverseInst
+        case LiteralPattern(s) =>
+          if (mode)
+            code += LiteralMatchInst(s)
+          else
+            code += LiteralMatchReverseInst(s)
+        case ReferencePattern(key) =>
+          if (mode)
+            code += ReferenceMatchInst(key)
+          else
+            code += ReferenceMatchReverseInst(key)
+        case ConcatenationPattern(seq) =>
+          for (p <- if (mode) seq else seq.reverse)
+            compile(p, mode)
+        case OptionalPattern(subpat) =>
+          val backptr = code.length
+
+          code += null
+          compile(subpat, mode)
+          code(backptr) = PatternChoiceInst(code.length - backptr - 1)
+        case ReluctantOptionalPattern(subpat) =>
+          code += PatternChoiceInst(1)
+
+          val branch = code.length
+
+          code += null
+          compile(subpat, mode)
+          code(branch) = BranchInst(code.length - branch)
+        case ZeroOrMorePattern(subpat) =>
+          val backpatch = code.length
+
+          code += null
+          code += SavePointerInst
+          compile(subpat, mode)
+          code += ZeroLengthInst
+          code += BranchIfNotInst(backpatch - code.length - 1)
+          code(backpatch) = PatternChoiceInst(code.length - backpatch - 1)
+        case ReluctantZeroOrMorePattern(subpat) =>
+          code += PatternChoiceInst(1)
+
+          val branch = code.length
+
+          code += null
+          compile(subpat, mode)
+          code += PatternChoiceInst(branch - code.length)
+          code(branch) = BranchInst(code.length - branch - 1)
+        case OneOrMorePattern(subpat) =>
+          val start = code.length
+
+          code += SavePointerInst
+          compile(subpat, mode)
+          code += ZeroLengthInst
+          code += BranchIfInst(2)
+          code += PatternChoiceInst(1)
+          code += BranchInst(start - code.length - 1)
+        case ReluctantOneOrMorePattern(subpat) =>
+          val start = code.length
+
+          compile(subpat, mode)
+          code += PatternChoiceInst(start - code.length - 1)
+        case RepeatPattern(subpat, lower, _, upper) =>
+          code += RepeatBeginInst(lower, upper)
+
+          val loop = code.length
+
+          code += null
+          code += SavePointerInst
+          compile(subpat, mode)
+          code += ZeroLengthInst
+          code += BranchIfInst(1)
+          code += BranchInst(loop - code.length - 1)
+          code(loop) = RepeatLoopInst(code.length - loop - 1)
+        case ReluctantRepeatPattern(subpat, lower, _, upper) =>
+          code += RepeatBeginInst(lower, upper)
+
+          val loop1 = code.length
+
+          code += null
+          compile(subpat, mode)
+          code += BranchInst(loop1 - code.length - 1)
+          code(loop1) = LowerRepeatLoopInst(code.length - loop1 - 1)
+
+          val loop2 = code.length
+
+          code += null
+          compile(subpat, mode)
+          code += BranchInst(loop2 - code.length - 1)
+          code(loop2) = UpperRepeatLoopInst(code.length - loop2 - 1)
+        case LookaheadPattern(subpat) =>
+          code += AtomicInst
+          code += SavePointerInst
+          compile(subpat, mode)
+          code += RestorePositionInst
+          code += CutInst
+        case NegationPattern(subpat) =>
+          code += AtomicInst
+
+          val choice = code.length
+
+          code += null
+          compile(subpat, mode)
+          code += CutInst
+          code += FailInst
+          code(choice) = PatternChoiceInst(code.length - choice - 1)
+          code += DropInst
+        case SetFlagsPattern(setmask, clearmask) => code += SetFlagsInst(setmask, clearmask)
+        case SetFlagsGroupPattern(setmask, clearmask, subpat) =>
+          code += SaveFlagsInst
+          code += SetFlagsInst(setmask, clearmask)
+          compile(subpat, mode)
+          code += RestoreFlagsInst
+        case LookbehindPattern(subpat) =>
+          code += AtomicInst
+          code += SavePointerInst
+          compile(subpat, !mode)
+          code += RestorePositionInst
+          code += CutInst
+        case GroupPattern(subpat)   => compile(subpat, mode)
+        case NativePattern(matcher) => code += NativeInst(matcher)
+        case EmptyPattern           => /* no code generated */
+      }
   }
 
   private def emitderef(): Unit =
@@ -1348,219 +1561,6 @@ class Compiler(constants: Map[String, Any],
       case ConditionalExpressionAST(cond, els) =>
         ConditionalExpressionAST(cond map { case (c, t) => (expandMacros(c), expandMacros(t)) }, els map expandMacros)
       case a => a
-    }
-
-  private def compile(pat: PatternAST, mode: Boolean): Unit =
-    pat match {
-      case LookaheadClassPattern(clas) =>
-        if (mode)
-          code += LiteralClassInst(clas)
-        else
-          code += LiteralClassReverseInst(clas)
-      case LookbehindClassPattern(clas) =>
-        if (mode)
-          code += LiteralClassReverseInst(clas)
-        else
-          code += LiteralClassInst(clas)
-      case FlagConditionalPattern(mask, set, unset) =>
-        code += FlagsClearInst(mask)
-
-        val conditional = code.length
-
-        code += null
-        compile(set, mode)
-
-        val exit = code.length
-
-        code += null
-        code(conditional) = BranchIfInst(code.length - conditional - 1)
-        compile(unset, mode)
-        code(exit) = BranchInst(code.length - exit - 1)
-      case BeginningOfInputPattern =>
-        code += BeginningPositionMatchInst
-      case EndOfInputPattern =>
-        code += EndPositionMatchInst
-      case AtomicPattern(subpat) =>
-        code += AtomicInst
-        compile(subpat, mode)
-        code += CutInst
-      case LiteralClassPattern(clas) =>
-        if (mode) {
-          code += LiteralClassInst(clas)
-          code += AdvanceInst
-        } else {
-          code += ReverseInst
-          code += LiteralClassReverseInst(clas)
-        }
-      case ClassPattern(clas) =>
-        emit(clas, null)
-
-        if (mode) {
-          code += ClassInst
-          code += AdvanceInst
-        } else {
-          code += ReverseInst
-          code += ClassReverseInst
-        }
-      case CompiledSubPattern(forward, reverse) =>
-        code ++= (if (mode) forward.code else reverse.code)
-      case CapturePattern(key, subpat, conversion) =>
-        code += CaptureBeginInst(key, -1)
-        compile(subpat, mode)
-        code += CaptureSaveInst(key, conversion)
-      case NumberedCapturePattern(subpat, n) =>
-        code += CaptureBeginInst(n.toString, n)
-        compile(subpat, mode)
-        code += CaptureSaveInst(n.toString, null)
-      case AnyPattern =>
-        if (mode)
-          code += AdvanceInst
-        else
-          code += ReverseInst
-      case DotPattern => code += DotInst
-      case AlternationPattern(alt) =>
-        val jumps = new ArrayBuffer[Int]
-
-        for (p <- alt.init) {
-          val backptr = code.length
-
-          code += null
-          compile(p, mode)
-          jumps += code.length
-          code += null
-          code(backptr) = PatternChoiceInst(code.length - backptr - 1)
-        }
-
-        compile(alt.last, mode)
-
-        for (b <- jumps)
-          code(b) = BranchInst(code.length - b - 1)
-      case StringPattern(s) =>
-        emit(s, null)
-
-        if (mode)
-          code += StringMatchInst
-        else
-          code += StringMatchReverseInst
-      case LiteralPattern(s) =>
-        if (mode)
-          code += LiteralMatchInst(s)
-        else
-          code += LiteralMatchReverseInst(s)
-      case ReferencePattern(key) =>
-        if (mode)
-          code += ReferenceMatchInst(key)
-        else
-          code += ReferenceMatchReverseInst(key)
-      case ConcatenationPattern(seq) =>
-        for (p <- if (mode) seq else seq.reverse)
-          compile(p, mode)
-      case OptionalPattern(subpat) =>
-        val backptr = code.length
-
-        code += null
-        compile(subpat, mode)
-        code(backptr) = PatternChoiceInst(code.length - backptr - 1)
-      case ReluctantOptionalPattern(subpat) =>
-        code += PatternChoiceInst(1)
-
-        val branch = code.length
-
-        code += null
-        compile(subpat, mode)
-        code(branch) = BranchInst(code.length - branch)
-      case ZeroOrMorePattern(subpat) =>
-        val backpatch = code.length
-
-        code += null
-        code += SavePointerInst
-        compile(subpat, mode)
-        code += ZeroLengthInst
-        code += BranchIfNotInst(backpatch - code.length - 1)
-        code(backpatch) = PatternChoiceInst(code.length - backpatch - 1)
-      case ReluctantZeroOrMorePattern(subpat) =>
-        code += PatternChoiceInst(1)
-
-        val branch = code.length
-
-        code += null
-        compile(subpat, mode)
-        code += PatternChoiceInst(branch - code.length)
-        code(branch) = BranchInst(code.length - branch - 1)
-      case OneOrMorePattern(subpat) =>
-        val start = code.length
-
-        code += SavePointerInst
-        compile(subpat, mode)
-        code += ZeroLengthInst
-        code += BranchIfInst(2)
-        code += PatternChoiceInst(1)
-        code += BranchInst(start - code.length - 1)
-      case ReluctantOneOrMorePattern(subpat) =>
-        val start = code.length
-
-        compile(subpat, mode)
-        code += PatternChoiceInst(start - code.length - 1)
-      case RepeatPattern(subpat, lower, _, upper) =>
-        code += RepeatBeginInst(lower, upper)
-
-        val loop = code.length
-
-        code += null
-        code += SavePointerInst
-        compile(subpat, mode)
-        code += ZeroLengthInst
-        code += BranchIfInst(1)
-        code += BranchInst(loop - code.length - 1)
-        code(loop) = RepeatLoopInst(code.length - loop - 1)
-      case ReluctantRepeatPattern(subpat, lower, _, upper) =>
-        code += RepeatBeginInst(lower, upper)
-
-        val loop1 = code.length
-
-        code += null
-        compile(subpat, mode)
-        code += BranchInst(loop1 - code.length - 1)
-        code(loop1) = LowerRepeatLoopInst(code.length - loop1 - 1)
-
-        val loop2 = code.length
-
-        code += null
-        compile(subpat, mode)
-        code += BranchInst(loop2 - code.length - 1)
-        code(loop2) = UpperRepeatLoopInst(code.length - loop2 - 1)
-      case LookaheadPattern(subpat) =>
-        code += AtomicInst
-        code += SavePointerInst
-        compile(subpat, mode)
-        code += RestorePositionInst
-        code += CutInst
-      case NegationPattern(subpat) =>
-        code += AtomicInst
-
-        val choice = code.length
-
-        code += null
-        compile(subpat, mode)
-        code += CutInst
-        code += FailInst
-        code(choice) = PatternChoiceInst(code.length - choice - 1)
-        code += DropInst
-      case SetFlagsPattern(setmask, clearmask) => code += SetFlagsInst(setmask, clearmask)
-      case SetFlagsGroupPattern(setmask, clearmask, subpat) =>
-        code += SaveFlagsInst
-        code += SetFlagsInst(setmask, clearmask)
-        compile(subpat, mode)
-        code += RestoreFlagsInst
-      case LookbehindPattern(subpat) =>
-        code += AtomicInst
-        code += SavePointerInst
-        compile(subpat, !mode)
-        code += RestorePositionInst
-        code += CutInst
-      case GroupPattern(subpat)   => compile(subpat, mode)
-      case NativePattern(matcher) => code += NativeInst(matcher)
-      case EmptyPattern           => /* no code generated */
     }
 
   def compile(ast: AST): Compilation = {

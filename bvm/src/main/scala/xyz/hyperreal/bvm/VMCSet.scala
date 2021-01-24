@@ -26,5 +26,5 @@ case class VMCSet(cset: CSet) extends VMNonIterableObject with VMUnordered with 
       case _         => false
     }
 
-  override def toString: String = cset.toString
+  override def toString: String = "cset"
 }
