@@ -33,3 +33,15 @@ lazy val numbers = project
   .settings(
     name := "numbers"
   )
+
+lazy val prolog = project
+  .dependsOn(recursive_descent_parser)
+  .settings(
+    name := "prolog"
+  )
+
+lazy val recursive_descent_parser = project
+  .settings(
+    name := "recursive-descent-parser",
+    libraryDependencies += "xyz.hyperreal" %% "char-reader" % "0.1.4"
+  )
