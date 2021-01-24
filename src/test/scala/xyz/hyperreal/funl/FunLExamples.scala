@@ -890,6 +890,18 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 			""".stripMargin.trim
   }
 
+  "regex 1" in {
+    runCapture(
+      """
+				|'123cc' ? write(rep(ccls(digits))) & write(rep(string('c')))
+			""".stripMargin
+    ) shouldBe
+      """
+				|123
+				|cc
+			""".stripMargin.trim
+  }
+
   "data backtracking 1" in {
     runCapture(
       """

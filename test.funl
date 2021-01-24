@@ -1,4 +1,1 @@
-if '123cc' ? write(rep(ccls(digits))) & write(rep(string('c')))
-  write('yes')
-else
-  write('no')
+'123cc' ? write(rep(ccls(digits))) & write(rep(string('c')))
