@@ -1,4 +1,4 @@
-if '12cc' ? write(repn(2, ccls(digits))) & write(rep1(string('c')))
+if 'aaa12cc' ? tab(many('a')) & write(repn(2, ccls(digits))) & write(rep1(string('c')))
   write('match')
 else
   write('mismatch')

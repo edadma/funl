@@ -902,6 +902,22 @@ class FunLExamples extends FreeSpec with ScalaCheckPropertyChecks with Matchers 
 			""".stripMargin.trim
   }
 
+  "regex 2" in {
+    runCapture(
+      """
+				|if 'aaa12cc' ? tab(many('a')) & write(repn(2, ccls(digits))) & write(rep1(string('c')))
+        |  write('match')
+        |else
+        |  write('mismatch')
+			""".stripMargin
+    ) shouldBe
+      """
+				|12
+				|cc
+        |match
+			""".stripMargin.trim
+  }
+
   "data backtracking 1" in {
     runCapture(
       """
