@@ -10,7 +10,7 @@ object TermIO {
 
   val repl: java.io.InputStream = null
 
-  def write_term(vm: VM, pos: IndexedSeq[Reader], stream: Any, term: Any, options: Any) =
+  def write_term(vm: VM, pos: IndexedSeq[CharReader], stream: Any, term: Any, options: Any) =
     stream match {
       case _: vm.Variable => sys.error("write_term: stream is a variable")
       case out: SinkStream =>
@@ -37,7 +37,7 @@ object TermIO {
         }
     }
 
-  def read_term(vm: VM, pos: IndexedSeq[Reader], stream: Any, term: Any, options: Any) =
+  def read_term(vm: VM, pos: IndexedSeq[CharReader], stream: Any, term: Any, options: Any) =
     stream match {
       case _: vm.Variable => sys.error("read_term: stream is a variable")
       case in: TextSourceStream =>

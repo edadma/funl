@@ -2,12 +2,12 @@ package xyz.hyperreal.prolog.builtin
 
 import java.io.BufferedReader
 
-import xyz.hyperreal.pattern_matcher.Reader
+import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.prolog.{Structure, VM, array2list, list2array}
 
 object StringManipulation {
 
-//  def count( vm: VM, pos: IndexedSeq[Reader], limit: Any, i: Any ) =
+//  def count( vm: VM, pos: IndexedSeq[CharReader], limit: Any, i: Any ) =
 //    limit match {
 //      case 1 => vm.unify( 1, i )
 //      case n: Int if n > 1 =>
@@ -32,14 +32,14 @@ object StringManipulation {
 //      case _ => false
 //    }
 
-  def string_length(vm: VM, pos: IndexedSeq[Reader], string: Any, length: Any) =
+  def string_length(vm: VM, pos: IndexedSeq[CharReader], string: Any, length: Any) =
     string match {
       case _: vm.Variable => sys.error("string_length: string must be given")
       case s: String      => vm.unify(s.length, length)
       case x              => sys.error(s"string_length: expected string: $x")
     }
 
-  def atom_string(vm: VM, pos: IndexedSeq[Reader], atom: Any, string: Any) =
+  def atom_string(vm: VM, pos: IndexedSeq[CharReader], atom: Any, string: Any) =
     atom match {
       case _: vm.Variable =>
         string match {
@@ -54,7 +54,7 @@ object StringManipulation {
   val intRegex = """((?:-|\+)?[0-9]+)""" r
   val floatRegex = """([+-]?(?:[0-9]*\.[0-9]+(?:[Ee][+-]?[0-9]+)?|[0-9]+[Ee][+-]?[0-9]+))""" r
 
-  def number_string(vm: VM, pos: IndexedSeq[Reader], number: Any, string: Any) =
+  def number_string(vm: VM, pos: IndexedSeq[CharReader], number: Any, string: Any) =
     number match {
       case _: vm.Variable =>
         string match {
@@ -73,7 +73,7 @@ object StringManipulation {
       case x         => sys.error(s"number_string: expected a number: $x")
     }
 
-  def string_chars(vm: VM, pos: IndexedSeq[Reader], string: Any, chars: Any) =
+  def string_chars(vm: VM, pos: IndexedSeq[CharReader], string: Any, chars: Any) =
     string match {
       case _: vm.Variable =>
         chars match {
@@ -95,7 +95,7 @@ object StringManipulation {
       case x         => sys.error(s"string_chars: expected string: $x")
     }
 
-  def string_codes(vm: VM, pos: IndexedSeq[Reader], string: Any, codes: Any) =
+  def string_codes(vm: VM, pos: IndexedSeq[CharReader], string: Any, codes: Any) =
     string match {
       case _: vm.Variable =>
         codes match {
@@ -117,7 +117,7 @@ object StringManipulation {
       case x         => sys.error(s"string_codes: expected string: $x")
     }
 
-  def string_concat(vm: VM, pos: IndexedSeq[Reader], s1: Any, s2: Any, s3: Any) =
+  def string_concat(vm: VM, pos: IndexedSeq[CharReader], s1: Any, s2: Any, s3: Any) =
     (s1, s2, s3) match {
       case (b1: String, b2: String, v3: vm.Variable) => v3 bind (b1 + b2)
       case (b1: String, v2: vm.Variable, b3: String) =>
@@ -154,7 +154,7 @@ object StringManipulation {
       case _ => sys.error(s"string_concat: expected three strings: $s1, $s2, $s3")
     }
 
-  def sub_string(vm: VM, pos: IndexedSeq[Reader], string: Any, before: Any, length: Any, after: Any, sub: Any) =
+  def sub_string(vm: VM, pos: IndexedSeq[CharReader], string: Any, before: Any, length: Any, after: Any, sub: Any) =
     string match {
       case str: String =>
         (before, length, after, sub) match {
@@ -301,21 +301,21 @@ object StringManipulation {
       case _ => sys.error(s"sub_string: string must be given")
     }
 
-  def string_upper(vm: VM, pos: IndexedSeq[Reader], string: Any, upper: Any) =
+  def string_upper(vm: VM, pos: IndexedSeq[CharReader], string: Any, upper: Any) =
     string match {
       case _: vm.Variable => sys.error("string_upper: string must be given")
       case s: String      => vm.unify(s.toUpperCase, upper)
       case x              => sys.error(s"string_upper: expected string: $x")
     }
 
-  def string_lower(vm: VM, pos: IndexedSeq[Reader], string: Any, lower: Any) =
+  def string_lower(vm: VM, pos: IndexedSeq[CharReader], string: Any, lower: Any) =
     string match {
       case _: vm.Variable => sys.error("string_lower: string must be given")
       case s: String      => vm.unify(s.toLowerCase, lower)
       case x              => sys.error(s"string_lower: expected string: $x")
     }
 
-  def string_code(vm: VM, pos: IndexedSeq[Reader], index: Any, string: Any, code: Any) =
+  def string_code(vm: VM, pos: IndexedSeq[CharReader], index: Any, string: Any, code: Any) =
     string match {
       case _: vm.Variable => sys.error("string_code: string must be given")
       case s: String =>
@@ -363,7 +363,7 @@ object StringManipulation {
         }
     }
 
-  def read_string(vm: VM, pos: IndexedSeq[Reader], stream: Any, string: Any) =
+  def read_string(vm: VM, pos: IndexedSeq[CharReader], stream: Any, string: Any) =
     stream match {
       case _: vm.Variable => sys.error("read_string: input stream must be given")
       case in: BufferedReader =>
