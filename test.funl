@@ -1,3 +1,4 @@
-'abbc' ? dot() & (asdf = rep(string('b')))
-
-asdf
+if 'aabcc' ? write(rep(dot())) & write(rep1(string('c')))
+  write('yes')
+else
+  write('no')

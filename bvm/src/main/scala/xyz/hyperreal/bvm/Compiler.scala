@@ -1344,6 +1344,9 @@ class Compiler(constants: Map[String, Any],
         }
       case AssignmentExpressionAST(lhs, op, rhs) =>
         AssignmentExpressionAST(lhs map { case (p, e) => (p, expandMacros(e)) }, op, rhs map { case (p, e) => (p, expandMacros(e)) })
+      case AndExpressionAST(left, right) => AndExpressionAST(expandMacros(left), expandMacros(right))
+      case ConditionalExpressionAST(cond, els) =>
+        ConditionalExpressionAST(cond map { case (c, t) => (expandMacros(c), expandMacros(t)) }, els map expandMacros)
       case a => a
     }
 
