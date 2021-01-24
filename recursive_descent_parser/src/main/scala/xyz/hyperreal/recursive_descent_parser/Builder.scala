@@ -17,7 +17,10 @@ case class Op(priority: Int, specifier: Assoc, operator: String)
 
 object Builder {
 
-  def apply[R](primary: Parser[R], ops: List[Op], unaryAction: (CharReader, String, R) => R, binaryAction: (R, CharReader, String, R) => R) = {
+  def apply[R](primary: Parser[R],
+               ops: List[Op],
+               unaryAction: (CharReader, String, R) => R,
+               binaryAction: (R, CharReader, String, R) => R): (Map[Int, Parser[R]], List[String]) = {
     var higher = primary
     val ruleMap = new mutable.HashMap[Int, Parser[R]]
 
@@ -32,11 +35,11 @@ object Builder {
 
     (ops groupBy (_.priority) toList) sortBy (_._1) map { case (p, os) => (p, os groupBy (_.specifier) toList) } foreach {
       case (p, List((cls, os))) =>
-        higher = rule(cls, null, true, os map (_.operator) toSet)
+        higher = rule(cls, null, fallback = true, os map (_.operator) toSet)
         ruleMap(p) = higher
       case (p, cs) =>
         val same = new ParserRef[R]
-        val alt = Alternates((cs map { case (cls, os) => rule(cls, same, false, os map (_.operator) toSet) }) :+ higher)
+        val alt = Alternates((cs map { case (cls, os) => rule(cls, same, fallback = false, os map (_.operator) toSet) }) :+ higher)
 
         same.ref = alt
         higher = alt

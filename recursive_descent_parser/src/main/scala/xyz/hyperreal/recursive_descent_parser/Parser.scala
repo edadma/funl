@@ -1,14 +1,15 @@
 package xyz.hyperreal.recursive_descent_parser
 
 import scala.collection.mutable.ListBuffer
-
 import xyz.hyperreal.char_reader.CharReader
+
+import scala.annotation.tailrec
 
 abstract class Parser[+R] {
 
   def parse(t: LazyList[Token]): Result[R]
 
-  def apply(t: LazyList[Token]) = {
+  def apply(t: LazyList[Token]): Result[R] = {
 //    println( s">>> $this" )
     parse(t)
   }
@@ -24,9 +25,9 @@ abstract class Parser[+R] {
 
 class LazyParser[R](r: => Parser[R]) extends Parser[R] {
 
-  lazy val r1 = r
+  lazy val r1: Parser[R] = r
 
-  def parse(t: LazyList[Token]) = r1(t)
+  def parse(t: LazyList[Token]): Result[R] = r1(t)
 
 }
 
@@ -34,7 +35,7 @@ class ParserRef[R] extends Parser[R] {
 
   var ref: Parser[R] = _
 
-  def parse(t: LazyList[Token]) = ref(t)
+  def parse(t: LazyList[Token]): Result[R] = ref(t)
 
 }
 
@@ -43,6 +44,7 @@ case class Alternates[R](rs: List[Parser[R]]) extends Parser[R] {
   require(rs nonEmpty, "there must be at least one alternate")
 
   def parse(t: LazyList[Token]): Result[R] = {
+    @tailrec
     def alternates(alts: List[Parser[R]]): Result[R] =
       alts match {
         case List(r) => r(t)
@@ -51,6 +53,7 @@ case class Alternates[R](rs: List[Parser[R]]) extends Parser[R] {
             case _: Failure    => alternates(tl)
             case s: Success[R] => s
           }
+        case Nil => sys.error("must be at lease one alternate")
       }
 
     alternates(rs)
@@ -80,7 +83,7 @@ case class Action[R, S](rule: Parser[R], action: R => S) extends Parser[S] {
 
 case class Sequence[R, S, T](left: Parser[R], right: Parser[S], action: (R, S) => T) extends Parser[T] {
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[T] =
     left(t) match {
       case Success(result, rest) =>
         right(rest) match {
@@ -94,7 +97,7 @@ case class Sequence[R, S, T](left: Parser[R], right: Parser[S], action: (R, S) =
 
 case class SequenceLeft[R, S](left: Parser[R], right: Parser[S]) extends Parser[R] {
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[R] =
     left(t) match {
       case Success(result, rest) =>
         right(rest) match {
@@ -108,7 +111,7 @@ case class SequenceLeft[R, S](left: Parser[R], right: Parser[S]) extends Parser[
 
 case class SequenceRight[R, S](left: Parser[R], right: Parser[S]) extends Parser[S] {
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[S] =
     left(t) match {
       case Success(_, rest) => right(rest)
       case f: Failure       => f
@@ -118,7 +121,7 @@ case class SequenceRight[R, S](left: Parser[R], right: Parser[S]) extends Parser
 
 case class ZeroOrMore[R](repeated: Parser[R]) extends Parser[List[R]] {
 
-  def parse(t: LazyList[Token]) = rep(t)
+  def parse(t: LazyList[Token]): Result[List[R]] = rep(t)
 
   def rep(t: LazyList[Token], buf: ListBuffer[R] = new ListBuffer): Result[List[R]] =
     repeated(t) match {
@@ -132,10 +135,11 @@ case class ZeroOrMore[R](repeated: Parser[R]) extends Parser[List[R]] {
 
 case class LeftAssocInfix[R](higher: Parser[R], same: Parser[R], ops: Set[String], action: (R, CharReader, String, R) => R) extends Parser[R] {
 
-  val same1 = if (same eq null) this else same
+  val same1: Parser[R] = if (same eq null) this else same
 
-  def parse(t: LazyList[Token]) = {
+  def parse(t: LazyList[Token]): Result[R] = {
 
+    @tailrec
     def parse_expr(suc: Success[R]): Result[R] = {
       operator(suc.rest, ops) match {
         case Success((pos, value), rest) =>
@@ -158,7 +162,7 @@ case class LeftAssocInfix[R](higher: Parser[R], same: Parser[R], ops: Set[String
 
 case class RightAssocInfix[R](higher: Parser[R], same: Parser[R], ops: Set[String], action: (R, CharReader, String, R) => R) extends Parser[R] {
 
-  val same1 = if (same eq null) this else same
+  val same1: Parser[R] = if (same eq null) this else same
 
   def parse(t: LazyList[Token]): Result[R] =
     higher(t) match {
@@ -180,7 +184,7 @@ case class RightAssocInfix[R](higher: Parser[R], same: Parser[R], ops: Set[Strin
 
 case class NonAssocInfix[R](higher: Parser[R], fallback: Boolean, ops: Set[String], action: (R, CharReader, String, R) => R) extends Parser[R] {
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[R] =
     higher(t) match {
       case f: Failure => f
       case suc @ Success(result, rest) =>
@@ -200,9 +204,9 @@ case class NonAssocInfix[R](higher: Parser[R], fallback: Boolean, ops: Set[Strin
 
 case class AssocPrefix[R](higher: Parser[R], same: Parser[R], ops: Set[String], action: (CharReader, String, R) => R) extends Parser[R] {
 
-  val same1 = if (same eq null) this else same
+  val same1: Parser[R] = if (same eq null) this else same
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[R] =
     operator(t, ops) match {
       case Success((pos, s), rest) =>
         same1(rest) match {
@@ -217,7 +221,7 @@ case class AssocPrefix[R](higher: Parser[R], same: Parser[R], ops: Set[String], 
 
 case class NonAssocPrefix[R](higher: Parser[R], fallback: Boolean, ops: Set[String], action: (CharReader, String, R) => R) extends Parser[R] {
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[R] =
     operator(t, ops) match {
       case Success((pos, s), rest) =>
         higher(rest) match {
@@ -233,19 +237,19 @@ case class NonAssocPrefix[R](higher: Parser[R], fallback: Boolean, ops: Set[Stri
 
 case class Succeed[R](result: R) extends Parser[R] {
 
-  def parse(t: LazyList[Token]) = Success(result, t)
+  def parse(t: LazyList[Token]): Success[R] = Success(result, t)
 
 }
 
 case class Fail(msg: String) extends Parser {
 
-  def parse(t: LazyList[Token]) = Failure(msg, t)
+  def parse(t: LazyList[Token]): Failure = Failure(msg, t)
 
 }
 
 class TokenClassParser[R](pred: Token => Boolean, action: (CharReader, String) => R, error: String) extends Parser[R] {
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[R] =
     if (pred(t.head))
       Success(action(t.head.pos, t.head.value), t.tail)
     else
@@ -255,7 +259,7 @@ class TokenClassParser[R](pred: Token => Boolean, action: (CharReader, String) =
 
 class TokenMatchParser[R](tok: Class[_], value: String, action: (CharReader, String) => R, error: String) extends Parser[R] {
 
-  def parse(t: LazyList[Token]) =
+  def parse(t: LazyList[Token]): Result[R] =
     if (t.head.getClass == tok && t.head.value == value)
       Success(action(t.head.pos, t.head.value), t.tail)
     else
@@ -265,10 +269,10 @@ class TokenMatchParser[R](tok: Class[_], value: String, action: (CharReader, Str
 
 object Parser {
 
-  def oneOrMoreSeparated[R](repeated: Parser[R], separator: Parser[_]) =
+  def oneOrMoreSeparated[R](repeated: Parser[R], separator: Parser[_]): Sequence[R, List[R], List[R]] =
     Sequence[R, List[R], List[R]](repeated, ZeroOrMore(SequenceRight(separator, repeated)), _ :: _)
 
-  def middle[R](left: Parser[_], middle: Parser[R], right: Parser[_]) = SequenceLeft(SequenceRight(left, middle), right)
+  def middle[R](left: Parser[_], middle: Parser[R], right: Parser[_]): SequenceLeft[R, Any] = SequenceLeft(SequenceRight(left, middle), right)
 
   def atom(s: String) = new TokenMatchParser(classOf[IdentToken], s, (_, _), s"expected '$s'")
 

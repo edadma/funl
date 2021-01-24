@@ -23,7 +23,7 @@ class Lexer(delims: List[String]) extends Matchers[CharReader] {
 
   override val lineComment = '%'
 
-  def token =
+  def token: Matcher[Token] =
     pos <~ eoi ^^ EOIToken |
       pos ~ singleStringLit ^^ { case p ~ n => SingleQuotedToken(p, n) } |
       pos ~ doubleStringLit ^^ { case p ~ n => DoubleQuotedToken(p, n) } |
