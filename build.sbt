@@ -43,5 +43,5 @@ lazy val prolog = project
 lazy val recursive_descent_parser = project
   .settings(
     name := "recursive-descent-parser",
-    libraryDependencies += "xyz.hyperreal" %% "char-reader" % "0.1.4"
+    libraryDependencies += "xyz.hyperreal" %% "pattern-matcher" % "0.3.14"
   )
