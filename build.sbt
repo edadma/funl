@@ -31,5 +31,5 @@ lazy val dal = project
   
 lazy val numbers = project
   .settings(
-    name := "dal"
+    name := "numbers"
   )
