@@ -1,1 +1,4 @@
-'123cc' ? write(rep(ccls(digits))) & write(rep(string('c')))
+if '12cc' ? write(repn(2, ccls(digits))) & write(rep1(string('c')))
+  write('match')
+else
+  write('mismatch')

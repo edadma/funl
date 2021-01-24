@@ -556,6 +556,12 @@ object Predef {
         case _ =>
           problem(null, "rep() macro can only be applied to a pattern expression")
       },
+      "repn" -> {
+        case List(LiteralExpressionAST(VMNumber(IntType, n: java.lang.Integer)), PatternExpressionAST(pat)) =>
+          PatternExpressionAST(RepeatPattern(pat, n, null, Some(n)))
+        case _ =>
+          problem(null, "repn() macro can only be applied to a pattern expression")
+      },
       "opt" -> {
         case List(PatternExpressionAST(pat)) =>
           PatternExpressionAST(OptionalPattern(pat))
