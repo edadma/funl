@@ -539,7 +539,7 @@ object Predef {
         case _ =>
           problem(null, "string() macro can only be applied to an expression")
       },
-      "cclass" -> {
+      "ccls" -> {
         case List(a: ExpressionAST) => PatternExpressionAST(ClassPattern(a))
         case _ =>
           problem(null, "class() macro can only be applied to an expression")

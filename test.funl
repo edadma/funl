@@ -1,5 +1,4 @@
-if '123cc' ? write(rep(cclass(digits))) & write(rep(string('c')))
+if '123cc' ? write(rep(ccls(digits))) & write(rep(string('c')))
   write('yes')
 else
   write('no')
-
