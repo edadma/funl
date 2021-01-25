@@ -5,7 +5,7 @@ import xyz.hyperreal.prolog.{Operator, Structure, VM, domainError, typeError}
 
 object OpTable {
 
-  def op(vm: VM, pos: IndexedSeq[CharReader], priority: Any, specifier: Any, operator: Any) =
+  def op(vm: VM, pos: IndexedSeq[CharReader], priority: Any, specifier: Any, operator: Any): Boolean =
     (priority, specifier, operator) match {
       case (p: Int, s: Symbol, _) =>
         true

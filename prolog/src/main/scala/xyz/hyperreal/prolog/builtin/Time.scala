@@ -9,11 +9,11 @@ import xyz.hyperreal.prolog.{VM, domainError, typeError}
 
 object Time {
 
-  def timestamp(vm: VM, pos: IndexedSeq[CharReader], now: Any) = vm.unify(now, ZonedDateTime.now)
+  def timestamp(vm: VM, pos: IndexedSeq[CharReader], now: Any): Boolean = vm.unify(now, ZonedDateTime.now)
 
-  def instant(vm: VM, pos: IndexedSeq[CharReader], now: Any) = vm.unify(now, Instant.now)
+  def instant(vm: VM, pos: IndexedSeq[CharReader], now: Any): Boolean = vm.unify(now, Instant.now)
 
-  def timeFormatter(vm: VM, pos: IndexedSeq[CharReader], format: Any, formatter: Any) =
+  def timeFormatter(vm: VM, pos: IndexedSeq[CharReader], format: Any, formatter: Any): Boolean =
     format match {
       case s: String =>
         try {
@@ -26,7 +26,7 @@ object Time {
       case _ => typeError(pos(0), "expected Scala date time format string", "string", format, "timeFormatter", 1)
     }
 
-  def formatTime(vm: VM, pos: IndexedSeq[CharReader], time: Any, formatter: Any, formatted: Any) =
+  def formatTime(vm: VM, pos: IndexedSeq[CharReader], time: Any, formatter: Any, formatted: Any): Boolean =
     (time, formatter) match {
       case (t: TemporalAccessor, f: DateTimeFormatter) => vm.unify(f format t, formatted)
       case _                                           => typeError(pos(0), "expected Java time and date time formatter", "string", formatter, "formatTime", 2)

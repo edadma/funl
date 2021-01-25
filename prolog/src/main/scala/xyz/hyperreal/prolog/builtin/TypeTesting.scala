@@ -5,19 +5,19 @@ import xyz.hyperreal.prolog.{DataStream, Structure, VM, vareval}
 
 object TypeTesting {
 
-  def atom(vm: VM, pos: IndexedSeq[CharReader], a: Any) = a.isInstanceOf[Symbol]
+  def atom(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Symbol]
 
-  def integer(vm: VM, pos: IndexedSeq[CharReader], a: Any) = a.isInstanceOf[Int] || a.isInstanceOf[BigInt]
+  def integer(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Int] || a.isInstanceOf[BigInt]
 
-  def float(vm: VM, pos: IndexedSeq[CharReader], a: Any) = a.isInstanceOf[Double] || a.isInstanceOf[BigDecimal]
+  def float(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Double] || a.isInstanceOf[BigDecimal]
 
-  def number(vm: VM, pos: IndexedSeq[CharReader], a: Any) = a.isInstanceOf[Number]
+  def number(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Number]
 
-  def compound(vm: VM, pos: IndexedSeq[CharReader], a: Any) = a.isInstanceOf[Structure]
+  def compound(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Structure]
 
-  def atomic(vm: VM, pos: IndexedSeq[CharReader], a: Any) = !a.isInstanceOf[VM#Variable] && !compound(vm, pos, a)
+  def atomic(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = !a.isInstanceOf[VM#Variable] && !compound(vm, pos, a)
 
-  def callable(vm: VM, pos: IndexedSeq[CharReader], a: Any) = atom(vm, pos, a) || compound(vm, pos, a)
+  def callable(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = atom(vm, pos, a) || compound(vm, pos, a)
 
   def ground(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean =
     atomic(vm, pos, a) ||
@@ -26,8 +26,8 @@ object TypeTesting {
         case _                  => false
       })
 
-  def string(vm: VM, pos: IndexedSeq[CharReader], a: Any) = a.isInstanceOf[String]
+  def string(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[String]
 
-  def is_stream(vm: VM, pos: IndexedSeq[CharReader], a: Any) = a.isInstanceOf[DataStream]
+  def is_stream(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[DataStream]
 
 }

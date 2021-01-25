@@ -1,9 +1,10 @@
 package xyz.hyperreal.prolog.builtin
 
 import java.io.BufferedReader
-
 import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.prolog.{Structure, VM, array2list, list2array}
+
+import scala.util.matching.Regex
 
 object StringManipulation {
 
@@ -32,14 +33,14 @@ object StringManipulation {
 //      case _ => false
 //    }
 
-  def string_length(vm: VM, pos: IndexedSeq[CharReader], string: Any, length: Any) =
+  def string_length(vm: VM, pos: IndexedSeq[CharReader], string: Any, length: Any): Boolean =
     string match {
       case _: vm.Variable => sys.error("string_length: string must be given")
       case s: String      => vm.unify(s.length, length)
       case x              => sys.error(s"string_length: expected string: $x")
     }
 
-  def atom_string(vm: VM, pos: IndexedSeq[CharReader], atom: Any, string: Any) =
+  def atom_string(vm: VM, pos: IndexedSeq[CharReader], atom: Any, string: Any): Boolean =
     atom match {
       case _: vm.Variable =>
         string match {
@@ -51,10 +52,10 @@ object StringManipulation {
       case x         => sys.error(s"atom_string: expected atom: $x")
     }
 
-  val intRegex = """((?:-|\+)?[0-9]+)""" r
-  val floatRegex = """([+-]?(?:[0-9]*\.[0-9]+(?:[Ee][+-]?[0-9]+)?|[0-9]+[Ee][+-]?[0-9]+))""" r
+  val intRegex: Regex = """((?:[-+])?[0-9]+)""" r
+  val floatRegex: Regex = """([+-]?(?:[0-9]*\.[0-9]+(?:[Ee][+-]?[0-9]+)?|[0-9]+[Ee][+-]?[0-9]+))""" r
 
-  def number_string(vm: VM, pos: IndexedSeq[CharReader], number: Any, string: Any) =
+  def number_string(vm: VM, pos: IndexedSeq[CharReader], number: Any, string: Any): Boolean =
     number match {
       case _: vm.Variable =>
         string match {
@@ -73,7 +74,7 @@ object StringManipulation {
       case x         => sys.error(s"number_string: expected a number: $x")
     }
 
-  def string_chars(vm: VM, pos: IndexedSeq[CharReader], string: Any, chars: Any) =
+  def string_chars(vm: VM, pos: IndexedSeq[CharReader], string: Any, chars: Any): Boolean =
     string match {
       case _: vm.Variable =>
         chars match {
@@ -84,7 +85,7 @@ object StringManipulation {
                 val charatoms =
                   a map {
                     case Symbol(c) if c.length == 1 => c.head
-                    case _                          => sys.error(s"string_chars: expected list of characters: $a")
+                    case _                          => sys.error(s"string_chars: expected list of characters: ${a.mkString("Array(", ", ", ")")}")
                   }
                 vm.unify(new String(charatoms), string)
               case None => sys.error(s"string_chars: expected list of character codes: $s")
@@ -95,7 +96,7 @@ object StringManipulation {
       case x         => sys.error(s"string_chars: expected string: $x")
     }
 
-  def string_codes(vm: VM, pos: IndexedSeq[CharReader], string: Any, codes: Any) =
+  def string_codes(vm: VM, pos: IndexedSeq[CharReader], string: Any, codes: Any): Boolean =
     string match {
       case _: vm.Variable =>
         codes match {
@@ -106,7 +107,7 @@ object StringManipulation {
                 val charcodes =
                   a map {
                     case n: Int if n.isValidChar => n.toChar
-                    case _                       => sys.error(s"string_codes: expected list of character codes: $a")
+                    case _                       => sys.error(s"string_codes: expected list of character codes: ${a.mkString("Array(", ", ", ")")}")
                   }
                 vm.unify(new String(charcodes), string)
               case None => sys.error(s"string_codes: expected list of character codes: $s")
@@ -117,7 +118,7 @@ object StringManipulation {
       case x         => sys.error(s"string_codes: expected string: $x")
     }
 
-  def string_concat(vm: VM, pos: IndexedSeq[CharReader], s1: Any, s2: Any, s3: Any) =
+  def string_concat(vm: VM, pos: IndexedSeq[CharReader], s1: Any, s2: Any, s3: Any): Boolean =
     (s1, s2, s3) match {
       case (b1: String, b2: String, v3: vm.Variable) => v3 bind (b1 + b2)
       case (b1: String, v2: vm.Variable, b3: String) =>
@@ -154,7 +155,7 @@ object StringManipulation {
       case _ => sys.error(s"string_concat: expected three strings: $s1, $s2, $s3")
     }
 
-  def sub_string(vm: VM, pos: IndexedSeq[CharReader], string: Any, before: Any, length: Any, after: Any, sub: Any) =
+  def sub_string(vm: VM, pos: IndexedSeq[CharReader], string: Any, before: Any, length: Any, after: Any, sub: Any): Boolean =
     string match {
       case str: String =>
         (before, length, after, sub) match {
@@ -242,7 +243,7 @@ object StringManipulation {
                   case idx1 =>
                     vm.resatisfyable(
                       new (VM => Boolean) {
-                        var next = idx1
+                        var next: Int = idx1
 
                         def apply(v1: VM): Boolean = {
                           str.indexOf(s, next + 1) match {
@@ -301,21 +302,21 @@ object StringManipulation {
       case _ => sys.error(s"sub_string: string must be given")
     }
 
-  def string_upper(vm: VM, pos: IndexedSeq[CharReader], string: Any, upper: Any) =
+  def string_upper(vm: VM, pos: IndexedSeq[CharReader], string: Any, upper: Any): Boolean =
     string match {
       case _: vm.Variable => sys.error("string_upper: string must be given")
       case s: String      => vm.unify(s.toUpperCase, upper)
       case x              => sys.error(s"string_upper: expected string: $x")
     }
 
-  def string_lower(vm: VM, pos: IndexedSeq[CharReader], string: Any, lower: Any) =
+  def string_lower(vm: VM, pos: IndexedSeq[CharReader], string: Any, lower: Any): Boolean =
     string match {
       case _: vm.Variable => sys.error("string_lower: string must be given")
       case s: String      => vm.unify(s.toLowerCase, lower)
       case x              => sys.error(s"string_lower: expected string: $x")
     }
 
-  def string_code(vm: VM, pos: IndexedSeq[CharReader], index: Any, string: Any, code: Any) =
+  def string_code(vm: VM, pos: IndexedSeq[CharReader], index: Any, string: Any, code: Any): Boolean =
     string match {
       case _: vm.Variable => sys.error("string_code: string must be given")
       case s: String =>
@@ -332,7 +333,7 @@ object StringManipulation {
                       case second =>
                         vm.resatisfyable(
                           new (VM => Boolean) {
-                            var next = second
+                            var next: Int = second
 
                             def apply(v1: VM): Boolean = {
                               s.indexOf(c, next + 1) match {
@@ -363,7 +364,7 @@ object StringManipulation {
         }
     }
 
-  def read_string(vm: VM, pos: IndexedSeq[CharReader], stream: Any, string: Any) =
+  def read_string(vm: VM, pos: IndexedSeq[CharReader], stream: Any, string: Any): Boolean =
     stream match {
       case _: vm.Variable => sys.error("read_string: input stream must be given")
       case in: BufferedReader =>
