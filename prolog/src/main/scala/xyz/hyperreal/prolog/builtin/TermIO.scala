@@ -1,6 +1,6 @@
 package xyz.hyperreal.prolog.builtin
 
-import xyz.hyperreal.pattern_matcher.{Reader, StringReader}
+import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.prolog.{Indicator, PrologParser, SinkStream, Structure, TextSourceStream, UserInput, VM, display, list2array}
 import xyz.hyperreal.recursive_descent_parser.{Failure, Success}
 
@@ -10,7 +10,7 @@ object TermIO {
 
   val repl: java.io.InputStream = null
 
-  def write_term(vm: VM, pos: IndexedSeq[CharReader], stream: Any, term: Any, options: Any) =
+  def write_term(vm: VM, pos: IndexedSeq[CharReader], stream: Any, term: Any, options: Any): Boolean =
     stream match {
       case _: vm.Variable => sys.error("write_term: stream is a variable")
       case out: SinkStream =>
@@ -37,13 +37,13 @@ object TermIO {
         }
     }
 
-  def read_term(vm: VM, pos: IndexedSeq[CharReader], stream: Any, term: Any, options: Any) =
+  def read_term(vm: VM, pos: IndexedSeq[CharReader], stream: Any, term: Any, options: Any): Boolean =
     stream match {
       case _: vm.Variable => sys.error("read_term: stream is a variable")
       case in: TextSourceStream =>
         val line = if (in == UserInput && repl != null) Console.withIn(repl) { io.StdIn.readLine() } else in.readLine
 
-        PrologParser.expression(PrologParser.lexer.tokenStream(new StringReader(line))) match {
+        PrologParser.expression(PrologParser.lexer.tokenStream(CharReader.fromString(line))) match {
           case Success(ast, _) => vm.unify(vm.data(ast), term)
           case f: Failure      => f.error
         }

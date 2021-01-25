@@ -25,7 +25,7 @@ case class MarkInst(disp: Int) extends Instruction
 case object UnmarkInst extends Instruction
 case object CallBlockInst extends Instruction
 case class CallProcedureInst(procedure: Procedure) extends Instruction { var functor: Indicator = null }
-case class CallIndirectInst(pos: Reader, f: Indicator) extends Instruction
+case class CallIndirectInst(pos: CharReader, f: Indicator) extends Instruction
 case object DropInst extends Instruction
 case class FrameInst(vars: Int) extends Instruction
 case class NativeInst(pred: (VM, IndexedSeq[CharReader]) => Unit, pos: IndexedSeq[CharReader], func: Indicator, group: Int) extends Instruction
@@ -43,7 +43,7 @@ case object LtInst extends Instruction
 case object LeInst extends Instruction
 case object GtInst extends Instruction
 case object GeInst extends Instruction
-case class EvalInst(pos: Reader, name: String, v: Int) extends Instruction
+case class EvalInst(pos: CharReader, name: String, v: Int) extends Instruction
 case object AddInst extends Instruction
 case object SubInst extends Instruction
 case object MulInst extends Instruction
@@ -51,4 +51,4 @@ case object DivInst extends Instruction
 case object ModInst extends Instruction
 case object NegInst extends Instruction
 
-case class DebugInst(msg: String, pos: Reader) extends Instruction
+case class DebugInst(msg: String, pos: CharReader) extends Instruction

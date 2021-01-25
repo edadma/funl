@@ -59,7 +59,7 @@ object Compilation {
         prog.clause(f, clause, clause, TRUE)
     }
 
-  def phase2(implicit prog: Program) =
+  def phase2(implicit prog: Program): Unit =
     prog.procedures foreach {
       case proc @ Procedure(f, block, pub, clauses) if (block == null || block.length == 0) && (clauses.isEmpty || clauses.head.block.length == 0) =>
         if (!pub)
@@ -95,12 +95,12 @@ object Compilation {
       case _ =>
     }
 
-  def dbg(msg: String, pos: Reader)(implicit prog: Program) =
+  def dbg(msg: String, pos: CharReader)(implicit prog: Program): Any =
     if (debug)
       prog += DebugInst(msg, pos)
 
-  def compileClause(ast: TermAST)(implicit prog: Program) = {
-    implicit val vars = new Vars
+  def compileClause(ast: TermAST)(implicit prog: Program): Int = {
+    implicit val vars: Vars = new Vars
 
     ast match {
       case StructureAST(r, ":-", List(StructureAST(pos, f, args), body)) =>
@@ -131,8 +131,8 @@ object Compilation {
     vars.count
   }
 
-  def compileClause(term: Any)(implicit prog: Program) = {
-    implicit val vars = new Vars
+  def compileClause(term: Any)(implicit prog: Program): Int = {
+    implicit val vars: Vars = new Vars
 
     term match {
       case Structure(Indicator(Symbol(":-"), 2), Array(Structure(f, args), body)) =>
@@ -324,7 +324,7 @@ object Compilation {
 
   def compileArithmetic(expr: TermAST)(implicit prog: Program, vars: Vars) = {
     val seen = new mutable.HashMap[String, VariableAST]
-    val exprvars = new mutable.HashMap[String, (Reader, Int, Int)]
+    val exprvars = new mutable.HashMap[String, (CharReader, Int, Int)]
 
     def addvar(term: TermAST)(implicit vars: Vars): Unit =
       term match {
@@ -630,7 +630,7 @@ object Compilation {
   /*
   def compileArithmetic( expr: Any )( implicit prog: Program, vars: Vars ) {
     val seen = new mutable.HashMap[String, VariableAST]
-    val exprvars = new mutable.HashMap[String, (Reader, Int, Int)]
+    val exprvars = new mutable.HashMap[String, (CharReader, Int, Int)]
 
     def addvar( term: TermAST )( implicit vars: Vars ): Unit =
       term match {

@@ -1,25 +1,26 @@
 package xyz.hyperreal
 
 import java.io.PrintStream
-
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.recursive_descent_parser.{Assoc, XFX, XFY, YFX, FX, FY, XF, YF}
+import xyz.hyperreal.recursive_descent_parser.{Assoc, FX, FY, XF, XFX, XFY, YF, YFX}
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.util.matching.Regex
 
 package object prolog {
 
-  implicit val symbolOrdering = Ordering by Symbol.unapply
-  implicit val functorOrdering = Ordering by { f: Indicator =>
+  implicit val symbolOrdering: Ordering[Symbol] = Ordering by Symbol.unapply
+  implicit val functorOrdering: Ordering[Indicator] = Ordering by { f: Indicator =>
     (f.arity, f.name)
   }
-  implicit val procedureOrdering = Ordering by [Procedure, Indicator] (_.ind)
+  implicit val procedureOrdering: Ordering[Procedure] = Ordering by [Procedure, Indicator] (_.ind)
 
-  val NIL = Symbol("[]")
-  val CONS = Indicator(Symbol("."), 2)
-  val INDICATOR = Indicator(Symbol("/"), 2)
-  val TRUE = AtomAST(null, "true")
+  val NIL: Symbol = Symbol("[]")
+  val CONS: Indicator = Indicator(Symbol("."), 2)
+  val INDICATOR: Indicator = Indicator(Symbol("/"), 2)
+  val TRUE: AtomAST = AtomAST(null, "true")
 
   val NATIVE_PREDICATE = 0
   val NATIVE_MATH = 1
@@ -44,24 +45,24 @@ package object prolog {
   }
 
   case class Structure(ind: Indicator, args: Array[Any]) extends Compound {
-    override def productArity = args.length
+    override def productArity: Int = args.length
 
     override def productElement(n: Int): Any = args(n)
 
-    override def productPrefix = ind.name.name
+    override def productPrefix: String = ind.name.name
 
-    def update(n: Int, v: Any) = args(n) = v
+    def update(n: Int, v: Any): Unit = args(n) = v
   }
 
   class Vars {
     val varMap = new mutable.HashMap[String, Int]
     val evals = new mutable.HashSet[String]
 
-    def count = varMap.size
+    def count: Int = varMap.size
 
-    def anon = num(s"$$${count}")
+    def anon: Int = num(s"$$$count")
 
-    def num(name: String) = {
+    def num(name: String): Int = {
       varMap get name match {
         case None =>
           val n = count
@@ -72,9 +73,9 @@ package object prolog {
       }
     }
 
-    def get(name: String) = varMap get name
+    def get(name: String): Option[Int] = varMap get name
 
-    def eval(name: String) =
+    def eval(name: String): Boolean =
       if (evals(name))
         false
       else {
@@ -82,36 +83,36 @@ package object prolog {
         true
       }
 
-    def evalSet = evals map (_ + '\'') toSet
+    def evalSet: Set[String] = evals map (_ + '\'') toSet
   }
 
   class PrologException(msg: String, val term: Any) extends Exception(msg)
 
-  def indicator(name: Symbol, arity: Int) = Structure(INDICATOR, Array(name, arity))
+  def indicator(name: Symbol, arity: Int): Structure = Structure(INDICATOR, Array(name, arity))
 
   def indicator(f: Indicator): Structure = indicator(f.name, f.arity)
 
-  def exception(r: Reader, msg: String, term: Any) =
+  def exception(r: CharReader, msg: String, term: Any) =
     throw new PrologException(if (r eq null) msg else r.longErrorText(msg), term)
 
-  def exceptionTerm(error: Any, other: Any) = Structure(Indicator(Symbol("error"), 2), Array(error, other))
+  def exceptionTerm(error: Any, other: Any): Structure = Structure(Indicator(Symbol("error"), 2), Array(error, other))
 
-  def instantiationError(r: Reader, msg: String, name: String, arity: Int) =
+  def instantiationError(r: CharReader, msg: String, name: String, arity: Int): Nothing =
     exception(r, msg, exceptionTerm(Symbol("instantiation_error"), indicator(name, arity)))
 
-  def typeError(r: Reader, msg: String, typ: String, culprit: Any, name: String, arity: Int) =
+  def typeError(r: CharReader, msg: String, typ: String, culprit: Any, name: String, arity: Int): Nothing =
     exception(r, msg, exceptionTerm(Structure(Indicator(Symbol("type_error"), 2), Array(Symbol(typ), culprit)), indicator(name, arity)))
 
-  def existenceError(r: Reader, msg: String, obj: Symbol, culprit: Any, name: Symbol, arity: Int) =
+  def existenceError(r: CharReader, msg: String, obj: Symbol, culprit: Any, name: Symbol, arity: Int): Nothing =
     exception(r, msg, exceptionTerm(Structure(Indicator(Symbol("existence_error"), 2), Array(obj, culprit)), indicator(name, arity)))
 
-  def domainError(r: Reader, msg: String, domain: String, culprit: Any, name: String, arity: Int) =
+  def domainError(r: CharReader, msg: String, domain: String, culprit: Any, name: String, arity: Int): Nothing =
     exception(r, msg, exceptionTerm(Structure(Indicator(Symbol("domain_error"), 2), Array(domain, culprit)), indicator(name, arity)))
 
-  def permissionError(r: Reader, msg: String, operation: String, typ: String, culprit: Any, name: String, arity: Int) =
+  def permissionError(r: CharReader, msg: String, operation: String, typ: String, culprit: Any, name: String, arity: Int): Nothing =
     exception(r, msg, exceptionTerm(Structure(Indicator(Symbol("permission_error"), 3), Array(operation, typ, culprit)), indicator(name, arity)))
 
-  def problem(r: Reader, msg: String) =
+  def problem(r: CharReader, msg: String): Nothing =
     if (r eq null)
       sys.error(msg)
     else
@@ -130,6 +131,7 @@ package object prolog {
       case _              => a
     }
 
+  @tailrec
   def list2array(s: Any, buf: ArrayBuffer[Any] = new ArrayBuffer): Option[Array[Any]] =
     s match {
       case NIL => Some(buf.toArray)
@@ -139,7 +141,7 @@ package object prolog {
       case _ => None
     }
 
-  def array2list(a: collection.IndexedSeq[Any]) = {
+  def array2list(a: collection.IndexedSeq[Any]): Any = {
     var list: Any = NIL
     var idx = a.length - 1
 
@@ -151,11 +153,11 @@ package object prolog {
     list
   }
 
-  def cons(head: Any, tail: Any) = Structure(CONS, Array(head, tail))
+  def cons(head: Any, tail: Any): Structure = Structure(CONS, Array(head, tail))
 
-  def indicator(name: String, arity: Int) = Indicator(Symbol(name), arity)
+  def indicator(name: String, arity: Int): Indicator = Indicator(Symbol(name), arity)
 
-  val atomRegex = "([a-zA-Z][a-zA-Z0-9_]*)" r
+  val atomRegex: Regex = "([a-zA-Z][a-zA-Z0-9_]*)" r
 
   def display(a: Any, flags: Set[Symbol] = Set()): String = {
     def string(s: String) = {
@@ -176,6 +178,7 @@ package object prolog {
       case Symbol(atomRegex(s)) => s
       case Symbol(s)            => s"'${string(s)}'"
       case Structure(CONS, Array(_, _)) =>
+        @tailrec
         def elems(term: Any, buf: StringBuilder = new StringBuilder): String =
           term match {
             case NIL => buf.toString
@@ -221,14 +224,14 @@ package object prolog {
     }
   }
 
-  def instruction(inst: Instruction) =
+  def instruction(inst: Instruction): String =
     inst match {
       case null                                          => "*** null ***"
       case JumpInst(b)                                   => s"jump $b"
       case NopInst                                       => "nop"
       case NilUnifyInst                                  => "nil unify"
       case DebugInst(msg, null)                          => s"-----  $msg"
-      case DebugInst(msg, pos)                           => s"-----  $msg -- ${pos.line}:${pos.col}"
+      case DebugInst(msg, pos)                           => s"-----  $msg -- ${pos.lineText}"
       case PushInst(d)                                   => s"push $d"
       case PushVarInst(n)                                => s"pushv $n"
       case VarUnifyInst(n)                               => s"unifyv $n"
@@ -266,16 +269,16 @@ package object prolog {
       case DivInst                                       => "div"
     }
 
-  def dump(array: Array[Byte], start: Int, lines: Int, out: PrintStream = Console.out) = {
+  def dump(array: Array[Byte], start: Int, lines: Int, out: PrintStream = Console.out): Unit = {
     val addr = start - start % 16
 
-    def printByte(b: Option[Int]) =
+    def printByte(b: Option[Int]): Unit =
       if (b isEmpty)
         out.print("-- ")
       else
         out.print("%02x ".format(b.get & 0xFF).toUpperCase)
 
-    def printChar(c: Option[Int]) = out.print(if (c.nonEmpty && ' ' <= c.get && c.get <= '~') c.get.asInstanceOf[Char] else '.')
+    def printChar(c: Option[Int]): Unit = out.print(if (c.nonEmpty && ' ' <= c.get && c.get <= '~') c.get.asInstanceOf[Char] else '.')
 
     def read(addr: Int) =
       if (addr < array.length)
@@ -300,7 +303,7 @@ package object prolog {
       for (i <- line until (line + 16))
         printChar(read(i))
 
-      out.println
+      out.println()
     }
   }
 

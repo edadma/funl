@@ -5,7 +5,7 @@ import xyz.hyperreal.prolog.{SinkStream, SourceStream, TextSourceStream, VM, dom
 
 object CharacterIO {
 
-  def put_char(vm: VM, pos: IndexedSeq[CharReader], s: Any, char: Any) =
+  def put_char(vm: VM, pos: IndexedSeq[CharReader], s: Any, char: Any): Boolean =
     (Streams(s), char) match {
       case (_: vm.Variable, _) => instantiationError(pos(0), "output stream must be given", "put_char", 2)
       case (_, _: vm.Variable) => instantiationError(pos(1), "one character atom must be given", "put_char", 2)
@@ -18,7 +18,7 @@ object CharacterIO {
       case _                                           => domainError(pos(0), "expected output stream", "stream_or_alias", s, "put_char", 2)
     }
 
-  def get_char(vm: VM, pos: IndexedSeq[CharReader], s: Any, char: Any) =
+  def get_char(vm: VM, pos: IndexedSeq[CharReader], s: Any, char: Any): Boolean =
     s match {
       case _: vm.Variable => instantiationError(pos(0), "input stream must be given", "get_char", 2)
       case _: SinkStream  => permissionError(pos(0), "expected character input stream", "input", "stream", s, "get_char", 2)

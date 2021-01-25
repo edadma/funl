@@ -7,10 +7,10 @@ import scala.collection.mutable.ArrayBuffer
 
 object AllSolutions {
 
-  def findall(vm: VM, pos: IndexedSeq[CharReader], template: Any, goal: Any, instances: Any) =
+  def findall(vm: VM, pos: IndexedSeq[CharReader], template: Any, goal: Any, instances: Any): Boolean =
     if (TypeTesting.callable(vm, pos, goal)) {
-      implicit val prog = new Program
-      implicit val vars = new Vars
+      implicit val prog: Program = new Program
+      implicit val vars: Vars = new Vars
       val block = prog.block("findall")
 
       Compilation.compileGoal(goal, vm.prog)

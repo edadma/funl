@@ -4,14 +4,14 @@ import java.io.{File, PrintStream}
 
 import jline.console.ConsoleReader
 import jline.console.history.FileHistory
-import xyz.hyperreal.pattern_matcher.{Reader, StringReader}
+import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.recursive_descent_parser.{Failure, Success}
 
 object Main extends App {
 
-  REPL
+  REPL()
 
-  def REPL: Unit = {
+  def REPL(): Unit = {
     val reader = new ConsoleReader
     val out = new PrintStream(reader.getTerminal.wrapOutIfNeeded(System.out), true)
     var line: String = null
@@ -31,7 +31,7 @@ object Main extends App {
     val history = new FileHistory(historyFile)
 
     sys.ShutdownHookThread {
-      history.flush
+      history.flush()
     }
 
     reader.setBellEnabled(false)
@@ -44,7 +44,7 @@ object Main extends App {
         |
         |Type “;help” for list of commands.
       """.trim.stripMargin)
-    out.println
+    out.println()
 
     while ({ line = reader.readLine; line != null }) if (line.trim nonEmpty) {
       try {
@@ -86,7 +86,7 @@ object Main extends App {
               program = new Program
               program.loadPredef
 
-              PrologParser.parseSource(Reader.fromFile(file + ".prolog")) match {
+              PrologParser.parseSource(CharReader.fromFile(file + ".prolog")) match {
                 case Success(ast, _) =>
                   Compilation.compile(ast, program)
                   out.println(program.procedures map (_.ind) mkString "\n")
@@ -111,9 +111,9 @@ object Main extends App {
           val all = line endsWith "*"
           val queryline = if (all) line dropRight 1 else line
 
-          PrologParser.expression(PrologParser.lexer.tokenStream(new StringReader(queryline))) match {
+          PrologParser.expression(PrologParser.lexer.tokenStream(CharReader.fromString(queryline))) match {
             case Success(ast, _) =>
-              implicit val query = new Program
+              implicit val query: Program = new Program
 
               vars = new Vars
               block = query.block("query")
@@ -131,7 +131,7 @@ object Main extends App {
           }
         }
 
-        out.println
+        out.println()
       } catch {
         case e: Exception =>
           if (stackTrack)
@@ -140,7 +140,7 @@ object Main extends App {
             out.println(e)
           //out.println( e.getMessage )
 
-          out.println
+          out.println()
       }
     }
 

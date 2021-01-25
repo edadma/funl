@@ -1,8 +1,7 @@
 package xyz.hyperreal.prolog
 
-import xyz.hyperreal.pattern_matcher.StringReader
+import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.recursive_descent_parser.{Failure, Success}
-
 
 object Main extends App {
 
@@ -31,11 +30,11 @@ object Main extends App {
 //
 //  val start = System.currentTimeMillis
 
-  PrologParser.parseSource( new StringReader(code) ) match {
-    case Success( ast, _ ) =>
+  PrologParser.parseSource(new StringReader(code)) match {
+    case Success(ast, _) =>
       //println( ast )
       //println( (System.currentTimeMillis - start) )
-      Compilation.compile( ast, prog )
+      Compilation.compile(ast, prog)
       //prog.printProcedures
 
       //val pcc = new ByteArrayOutputStream
@@ -50,17 +49,18 @@ object Main extends App {
 //          load( "test.pcc" )
 //        }
 
-      PrologParser.expression( PrologParser.lexer.tokenStream(new StringReader(query)) ) match {
-        case Success( ast, _ ) =>
+      PrologParser.expression(PrologParser.lexer.tokenStream(new StringReader(query))) match {
+        case Success(ast, _) =>
           implicit val query = new Program
           implicit val vars = new Vars
-          val block = query.block( "query" )
-          val vm = new VM( prog ) {trace = false; debug = false/*; out = new PrintStream( "debug" )*/}
+          val block = query.block("query")
+          val vm = new VM(prog) { trace = false; debug = false /*; out = new PrintStream( "debug" )*/ }
 
-          Compilation.compileGoal( ast, prog )
+          Compilation.compileGoal(ast, prog)
           //block.print
           //println( vm.runfirst( block ) map (_ filter {case (k, _) => !vars.evalSet(k)} map { case (k, v) => s"$k = ${display(v)}" } mkString "\n") mkString "\n\n" )
-          println( vm.runall( block ) map (_ filter {case (k, _) => !vars.evalSet(k)} map { case (k, v) => s"$k = ${display(v)}" } mkString "\n") mkString "\n\n" )
+          println(
+            vm.runall(block) map (_ filter { case (k, _) => !vars.evalSet(k) } map { case (k, v) => s"$k = ${display(v)}" } mkString "\n") mkString "\n\n")
         case f: Failure => f.error
       }
     case f: Failure => f.error

@@ -9,8 +9,8 @@ import xyz.hyperreal.recursive_descent_parser.{Failure, Success}
 object Compiler extends App {
 
   var predef = true
-  var source: String = null
-  var dest: String = null
+  var source: Option[String] = None
+  var dest: Option[String] = None
 
   def usage(status: Int) = {
     println("""
@@ -32,29 +32,29 @@ object Compiler extends App {
       predef = false
       t
     case "-d" :: path :: t =>
-      dest = path
+      dest = Some(path)
       t
     case o :: _ if o startsWith "-" =>
       println("bad option: " + o)
       usage(1)
     case file :: t =>
-      source = file
+      source = Some(file)
       t
   }
 
-  if (source eq null) {
+  if (source.isEmpty) {
     println("missing source file")
     usage(1)
   }
 
-  val path = Paths get source toAbsolutePath
+  val path = Paths get source.get toAbsolutePath
   val dir =
-    if (dest eq null)
+    if (dest.isEmpty)
       path.getParent
     else
-      Paths get dest
+      Paths get dest.get
 
-  PrologParser.parseSource(Reader.fromFile(path.getParent resolve (s"${path.getFileName}.prolog") toString)) match {
+  PrologParser.parseSource(CharReader.fromFile(path.getParent resolve s"${path.getFileName}.prolog" toString)) match {
     case Success(ast, _) =>
       val prog = new Program
 
@@ -62,7 +62,7 @@ object Compiler extends App {
         prog.loadPredef
 
       Compilation.compile(ast, prog)
-      prog.save(dir resolve (s"${path.getFileName}.pcc") toString)
+      prog.save(dir resolve s"${path.getFileName}.pcc" toString)
     case f: Failure => f.error
   }
 

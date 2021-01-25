@@ -36,8 +36,11 @@ lazy val numbers = project
 
 lazy val prolog = project
   .dependsOn(recursive_descent_parser)
+  .dependsOn(dal)
   .settings(
-    name := "prolog"
+    name := "prolog",
+    libraryDependencies += "jline" % "jline" % "2.14.6",
+    libraryDependencies += "xyz.hyperreal" %% "args" % "0.2"
   )
 
 lazy val recursive_descent_parser = project
