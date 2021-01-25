@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
-import java.io.{BufferedReader, FileReader, FileWriter, PrintWriter}
+import xyz.hyperreal.bvm.VM
 
+import java.io.{BufferedReader, FileReader, FileWriter, PrintWriter}
 import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.prolog.{
   DataStream,
@@ -13,7 +14,6 @@ import xyz.hyperreal.prolog.{
   TextSourceStream,
   UserInput,
   UserOutput,
-  VM,
   list2array
 }
 

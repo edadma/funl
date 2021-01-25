@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{CONS, Compound, Indicator, NIL, Structure, VM, array2list, cons, list2array}
+import xyz.hyperreal.prolog.{CONS, Compound, Indicator, NIL, Structure, array2list, cons, list2array}
 
 object TermManipulation {
 

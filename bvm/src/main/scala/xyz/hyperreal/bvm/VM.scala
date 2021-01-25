@@ -209,7 +209,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
     frame = curframe
   }
 
-  protected[bvm] def fail(): Unit = {
+  def fail(): Unit = {
     if (trace)
       println("--- fail ---")
 

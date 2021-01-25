@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{Indicator, PrologParser, SinkStream, Structure, TextSourceStream, UserInput, VM, display, list2array}
+import xyz.hyperreal.prolog.{Indicator, PrologParser, SinkStream, Structure, TextSourceStream, UserInput, display, list2array}
 import xyz.hyperreal.recursive_descent_parser.{Failure, Success}
 
 import scala.collection.mutable

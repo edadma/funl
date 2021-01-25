@@ -1,17 +1,27 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.{VM, VMAtom, VMNumber}
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{DataStream, Structure, VM, vareval}
+import xyz.hyperreal.dal.{BigDecType, BigIntType, DoubleType, IntType}
+import xyz.hyperreal.prolog.{DataStream, Structure, vareval}
 
 object TypeTesting {
 
-  def atom(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Symbol]
+  def atom(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[VMAtom]
 
-  def integer(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Int] || a.isInstanceOf[BigInt]
+  def integer(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean =
+    a match {
+      case VMNumber(IntType | BigIntType, _) => true
+      case _                                 => false
+    }
 
-  def float(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Double] || a.isInstanceOf[BigDecimal]
+  def float(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean =
+    a match {
+      case VMNumber(DoubleType | BigDecType, _) => true
+      case _                                    => false
+    }
 
-  def number(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Number]
+  def number(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[VMNumber]
 
   def compound(vm: VM, pos: IndexedSeq[CharReader], a: Any): Boolean = a.isInstanceOf[Structure]
 

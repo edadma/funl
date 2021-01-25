@@ -1,11 +1,12 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
+
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAccessor
 import java.time.{Instant, ZonedDateTime}
-
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{VM, domainError, typeError}
+import xyz.hyperreal.prolog.{domainError, typeError}
 
 object Time {
 

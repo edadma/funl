@@ -1,17 +1,19 @@
 package xyz.hyperreal.prolog
 
-import java.lang.reflect.{InvocationTargetException, Method, Modifier}
+import xyz.hyperreal.bvm.VM
 
+import java.lang.reflect.{InvocationTargetException, Method, Modifier}
 import xyz.hyperreal.char_reader.CharReader
 
 import scala.collection.mutable
+import scala.util.matching.Regex
 
 object Builtin {
 
   private val predicates = new mutable.HashMap[Indicator, (VM, IndexedSeq[CharReader]) => Unit]
-  val segmentRegex = "\\$(?:[a-z]{2,}|u[0-9A-F]{4})" r
+  val segmentRegex: Regex = "\\$(?:[a-z]{2,}|u[0-9A-F]{4})" r
 
-  def translate(s: String) =
+  def translate(s: String): String =
     if (s startsWith "$") {
       val buf = new StringBuilder
 
@@ -25,9 +27,9 @@ object Builtin {
     } else
       s
 
-  def exists(f: Indicator) = predicates contains f
+  def exists(f: Indicator): Boolean = predicates contains f
 
-  def predicate(f: Indicator) = predicates(f)
+  def predicate(f: Indicator): (VM, IndexedSeq[CharReader]) => Unit = predicates(f)
 
   def load(obj: Any): Unit =
     for (m <- obj.getClass.getDeclaredMethods if m.getModifiers == Modifier.PUBLIC && !m.isSynthetic) {
@@ -53,7 +55,7 @@ object Builtin {
       try {
         if (ret) {
           if (!method.invoke(obj, args: _*).asInstanceOf[Boolean])
-            vm.fail
+            vm.fail()
         } else
           method.invoke(obj, args: _*)
       } catch {
