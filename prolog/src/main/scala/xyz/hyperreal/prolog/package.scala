@@ -1,5 +1,7 @@
 package xyz.hyperreal
 
+import xyz.hyperreal.bvm.{VMClass, VMNonAppendableNonResizableNonMapSequence, VMNonSet, VMNonUpdatable, VMObject, VMUnordered}
+
 import java.io.PrintStream
 import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.recursive_descent_parser.{Assoc, FX, FY, XF, XFX, XFY, YF, YFX}
@@ -38,20 +40,31 @@ package object prolog {
 
   case class Clause(ast: TermAST, head: TermAST, body: TermAST, block: Block)
 
-  trait Compound extends Product {
-    def update(n: Int, value: Any): Unit
+  case class Structure(ind: Indicator, args: Array[VMObject])
+      extends VMObject
+      with VMNonAppendableNonResizableNonMapSequence
+      with VMUnordered
+      with VMNonUpdatable
+      with VMNonSet {
+    val clas: VMClass = null //todo
 
-    override def productElement(n: Int): Any
-  }
+    def name: String = ind.name.name
 
-  case class Structure(ind: Indicator, args: Array[Any]) extends Compound {
-    override def productArity: Int = args.length
+    def arity: Int = args.length
 
-    override def productElement(n: Int): Any = args(n)
+    def element(n: Int): Any = args(n)
 
-    override def productPrefix: String = ind.name.name
+    def update(n: Int, v: VMObject): Unit = args(n) = v
 
-    def update(n: Int, v: Any): Unit = args(n) = v
+    def apply(idx: VMObject): VMObject = args(idx.toInt)
+
+    def size: Int = args.length
+
+    def iterator: Iterator[VMObject] = args.iterator
+
+    def head: VMObject = sys.error("no head method")
+
+    def tail: VMObject = sys.error("no tail method")
   }
 
   class Vars {
