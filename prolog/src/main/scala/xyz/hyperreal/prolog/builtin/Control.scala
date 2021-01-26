@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{PrologException, VM}
+import xyz.hyperreal.prolog.PrologException
 
 object Control {
 

@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{list2array, CONS, Structure, VM, domainError, instantiationError, typeError}
+import xyz.hyperreal.prolog.{CONS, Structure, domainError, instantiationError, list2array, typeError}
 
 object Misc {
 

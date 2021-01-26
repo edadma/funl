@@ -1,5 +1,6 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.prolog.{
   BinarySinkStream,
@@ -7,7 +8,6 @@ import xyz.hyperreal.prolog.{
   SinkStream,
   SourceStream,
   TextSinkStream,
-  VM,
   domainError,
   instantiationError,
   permissionError,

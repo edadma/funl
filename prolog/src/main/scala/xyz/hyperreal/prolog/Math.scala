@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog
 
-import java.lang.reflect.{Method, Modifier}
+import xyz.hyperreal.bvm.VM
 
+import java.lang.reflect.{Method, Modifier}
 import xyz.hyperreal.char_reader.CharReader
 
 import scala.collection.mutable

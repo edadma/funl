@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{SinkStream, SourceStream, TextSourceStream, VM, domainError, instantiationError, permissionError, typeError}
+import xyz.hyperreal.prolog.{SinkStream, SourceStream, TextSourceStream, domainError, instantiationError, permissionError, typeError}
 
 object CharacterIO {
 

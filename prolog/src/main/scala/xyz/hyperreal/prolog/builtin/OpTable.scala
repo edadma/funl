@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{Operator, Structure, VM, domainError, typeError}
+import xyz.hyperreal.prolog.{Operator, Structure, domainError, typeError}
 
 object OpTable {
 

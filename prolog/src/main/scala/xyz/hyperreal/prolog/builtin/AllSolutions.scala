@@ -1,7 +1,8 @@
 package xyz.hyperreal.prolog.builtin
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
-import xyz.hyperreal.prolog.{Compilation, Program, VM, Vars, array2list}
+import xyz.hyperreal.prolog.{Compilation, Program, Vars, array2list}
 
 import scala.collection.mutable.ArrayBuffer
 

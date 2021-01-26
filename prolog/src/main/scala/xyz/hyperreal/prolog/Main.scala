@@ -1,9 +1,9 @@
 package xyz.hyperreal.prolog
 
 import java.io.{File, PrintStream}
-
 import jline.console.ConsoleReader
 import jline.console.history.FileHistory
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
 import xyz.hyperreal.recursive_descent_parser.{Failure, Success}
 

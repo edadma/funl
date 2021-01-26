@@ -1,5 +1,6 @@
 package xyz.hyperreal.prolog
 
+import xyz.hyperreal.bvm.VM
 import xyz.hyperreal.char_reader.CharReader
 
 object Runtime {
