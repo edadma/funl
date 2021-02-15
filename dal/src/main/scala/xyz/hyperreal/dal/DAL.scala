@@ -397,3 +397,8 @@ case object BigIntType extends Type
 case object RationalType extends Type
 case object DoubleType extends Type
 case object BigDecType extends Type
+case object ComplexIntType extends Type
+case object ComplexBigIntType extends Type
+case object ComplexRationalType extends Type
+case object ComplexDoubleType extends Type
+case object ComplexBigDecType extends Type
