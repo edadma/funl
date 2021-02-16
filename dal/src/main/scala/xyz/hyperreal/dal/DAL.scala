@@ -64,6 +64,44 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case _                  => sys.error("can't convert from " + a)
     }
 
+  def toComplexRational(a: Number): ComplexRational =
+    a match {
+      case bi: BigInt          => ComplexRational(toRational(bi))
+      case i: boxed.Integer    => ComplexRational(toRational(i))
+      case r: Rational         => ComplexRational(r)
+      case cbi: ComplexBigInt  => ComplexRational(toRational(cbi.re), toRational(cbi.im))
+      case cr: ComplexRational => cr
+      case _                   => sys.error("can't convert from " + a)
+    }
+
+  def toComplexDouble(a: Number): ComplexDouble =
+    a match {
+      case cd: ComplexDouble  => cd
+      case i: boxed.Integer   => ComplexDouble(i.doubleValue)
+      case d: boxed.Double    => ComplexDouble(d)
+      case r: Rational        => ComplexDouble(r.doubleValue)
+      case bi: BigInt         => ComplexDouble(bi.doubleValue)
+      case cbi: ComplexBigInt => ComplexDouble(cbi.re.doubleValue, cbi.im.doubleValue)
+      case _                  => sys.error("can't convert from " + a)
+    }
+
+  def toComplexBigDecimal(a: Number): ComplexBigDecimal =
+    a match {
+      case cd: ComplexBigDecimal => cd
+      case bd: BigDecimal        => new ComplexBigDecimal(bd, 0)
+      case i: boxed.Integer      => new ComplexBigDecimal(i.asInstanceOf[Int], 0)
+      case d: boxed.Double       => new ComplexBigDecimal(d.asInstanceOf[Double], 0)
+      case Rational(n, d) =>
+        val quo = toBigDecimal(n) / toBigDecimal(d)
+
+        new ComplexBigDecimal(if (quo.precision > bdmath.mc.getPrecision) quo.round(bdmath.mc) else quo, 0)
+      case bi: BigInt =>
+        val len = digits(bi)
+
+        new ComplexBigDecimal(BigDecimal(bi, if (len >= bdmath.mc.getPrecision) mathContext(len + 5) else bdmath.mc), 0)
+      case _ => sys.error("can't convert from " + a)
+    }
+
   def maybeDemote(n: ComplexBigInt): (Type, Number) =
     if (n.im == 0)
       maybeDemote(n.re)

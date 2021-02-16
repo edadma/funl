@@ -13,6 +13,7 @@ object ComplexDAL extends DAL {
   special(RationalType, ComplexBigIntType, ComplexRationalType)
   special(DoubleType, ComplexRationalType, ComplexDoubleType)
   special(BigDecType, ComplexRationalType, ComplexBigDecType)
+  special(BigDecType, ComplexDoubleType, ComplexBigDecType)
 
   operation(
     Symbol("+"),
@@ -23,6 +24,9 @@ object ComplexDAL extends DAL {
     DoubleType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue + r.doubleValue: Number)),
     BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) + toBigDecimal(b))),
     ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexBigInt(l) + toComplexBigInt(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => maybeDemote(toComplexRational(l) + toComplexRational(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) + toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) + toComplexBigDecimal(r)))
   )
 
   operation(
@@ -32,7 +36,11 @@ object ComplexDAL extends DAL {
     BigIntType -> ((l: Number, r: Number) => maybeDemote(toBigInt(l) - toBigInt(r))),
     RationalType -> ((l: Number, r: Number) => maybeDemote(toRational(l) - toRational(r))),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue - r.doubleValue: Number)),
-    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) - toBigDecimal(b)))
+    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) - toBigDecimal(b))),
+    ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexBigInt(l) - toComplexBigInt(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => maybeDemote(toComplexRational(l) - toComplexRational(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) - toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) - toComplexBigDecimal(r)))
   )
 
   operation(
@@ -42,7 +50,11 @@ object ComplexDAL extends DAL {
     BigIntType -> ((l: Number, r: Number) => maybeDemote(toBigInt(l) * toBigInt(r))),
     RationalType -> ((l: Number, r: Number) => maybeDemote(toRational(l) * toRational(r))),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue * r.doubleValue: Number)),
-    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) * toBigDecimal(b)))
+    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) * toBigDecimal(b))),
+    ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexBigInt(l) * toComplexBigInt(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => maybeDemote(toComplexRational(l) * toComplexRational(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) * toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) * toComplexBigDecimal(r)))
   )
 
   operation(
@@ -52,7 +64,11 @@ object ComplexDAL extends DAL {
     BigIntType -> ((l: Number, r: Number) => maybeDemote(toRational(l) / toRational(r))),
     RationalType -> ((l: Number, r: Number) => maybeDemote(toRational(l) / toRational(r))),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue / r.doubleValue: Number)),
-    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) / toBigDecimal(b)))
+    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) / toBigDecimal(b))),
+    ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexBigInt(l) / toComplexBigInt(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => maybeDemote(toComplexRational(l) / toComplexRational(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) / toComplexBigDecimal(r)))
   )
 
   operation(
