@@ -1,30 +1,30 @@
 package xyz.hyperreal.prolog
 
-import xyz.hyperreal.dal.BasicDAL
+import xyz.hyperreal.dal.PrecisionDAL
 
 object MathFunctions {
 
-  def abs(a: Number): Number = BasicDAL.absFunction(a)
+  def abs(a: Number): Number = PrecisionDAL.absFunction(a)
 
-  def sqrt(a: Number): Number = BasicDAL.sqrtFunction(a)
+  def sqrt(a: Number): Number = PrecisionDAL.sqrtFunction(a)
 
-  def acos(a: Number): Number = BasicDAL.acosFunction(a)
+  def acos(a: Number): Number = PrecisionDAL.acosFunction(a)
 
-  def asin(a: Number): Number = BasicDAL.asinFunction(a)
+  def asin(a: Number): Number = PrecisionDAL.asinFunction(a)
 
 //  def atan( a: Number ) = BasicDAL.atanFunction( a )
 
-  def ceiling(a: Number): Number = BasicDAL.ceilFunction(a)
+  def ceiling(a: Number): Number = PrecisionDAL.ceilFunction(a)
 
-  def cos(a: Number): Number = BasicDAL.cosFunction(a)
+  def cos(a: Number): Number = PrecisionDAL.cosFunction(a)
 
-  def sin(a: Number): Number = BasicDAL.sinFunction(a)
+  def sin(a: Number): Number = PrecisionDAL.sinFunction(a)
 
 //  def tan( a: Number ) = BasicDAL.tanFunction( a )
 
-  def exp(a: Number): Number = BasicDAL.expFunction(a)
+  def exp(a: Number): Number = PrecisionDAL.expFunction(a)
 
-  def floor(a: Number): Number = BasicDAL.floorFunction(a)
+  def floor(a: Number): Number = PrecisionDAL.floorFunction(a)
 
   def float(a: Number): Number =
     a match {

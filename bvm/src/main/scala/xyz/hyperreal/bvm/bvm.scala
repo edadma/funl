@@ -2,7 +2,7 @@ package xyz.hyperreal
 
 import scala.util.parsing.input.Position
 import xyz.hyperreal.bvm.Pattern._
-import xyz.hyperreal.dal.BasicDAL
+import xyz.hyperreal.dal.PrecisionDAL
 
 package object bvm {
 
@@ -125,9 +125,9 @@ package object bvm {
   def naturalCompare(x: Any, y: Any): Int =
     (x, y) match {
       case (a: VMNumber, b: VMNumber) =>
-        if (BasicDAL.relate(Symbol("<"), a, b))
+        if (PrecisionDAL.relate(Symbol("<"), a, b))
           -1
-        else if (BasicDAL.relate(Symbol(">"), a, b))
+        else if (PrecisionDAL.relate(Symbol(">"), a, b))
           1
         else
           0

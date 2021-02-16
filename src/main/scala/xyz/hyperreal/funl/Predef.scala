@@ -9,7 +9,7 @@ import scala.math.BigInt
 import scala.util.Random.{nextDouble, nextInt, setSeed}
 import xyz.hyperreal.numbers.ComplexBigInt
 import xyz.hyperreal.bvm._
-import xyz.hyperreal.dal.{BasicDAL, IntType}
+import xyz.hyperreal.dal.{PrecisionDAL, IntType}
 
 import java.{lang => boxed}
 
@@ -53,13 +53,13 @@ object Predef {
       native("toBigInt", { case (vm: VM, VMString(s))           => VMNumber(BigInt(s)) }),
       native("toFloat", { case (vm: VM, VMString(s))            => VMNumber(s.toDouble) }),
       native("eval", { case (vm: VM, VMString(s))               => xyz.hyperreal.funl.run(s) }),
-      native("sqrt", { case (vm: VM, VMNumber(_, n))            => VMNumber(BasicDAL.sqrtFunction(n)) }),
-      native("abs", { case (vm: VM, VMNumber(_, n))             => VMNumber(BasicDAL.absFunction(n)) }),
-      native("exp", { case (vm: VM, VMNumber(_, n))             => VMNumber(BasicDAL.expFunction(n)) }),
-      native("ln", { case (vm: VM, VMNumber(_, n))              => VMNumber(BasicDAL.lnFunction(n)) }),
-      native("sin", { case (vm: VM, VMNumber(_, n))             => VMNumber(BasicDAL.sinFunction(n)) }),
-      native("cos", { case (vm: VM, VMNumber(_, n))             => VMNumber(BasicDAL.cosFunction(n)) }),
-      native("tan", { case (vm: VM, VMNumber(_, n))             => VMNumber(BasicDAL.tanFunction(n)) }),
+      native("sqrt", { case (vm: VM, VMNumber(_, n))            => VMNumber(PrecisionDAL.sqrtFunction(n)) }),
+      native("abs", { case (vm: VM, VMNumber(_, n))             => VMNumber(PrecisionDAL.absFunction(n)) }),
+      native("exp", { case (vm: VM, VMNumber(_, n))             => VMNumber(PrecisionDAL.expFunction(n)) }),
+      native("ln", { case (vm: VM, VMNumber(_, n))              => VMNumber(PrecisionDAL.lnFunction(n)) }),
+      native("sin", { case (vm: VM, VMNumber(_, n))             => VMNumber(PrecisionDAL.sinFunction(n)) }),
+      native("cos", { case (vm: VM, VMNumber(_, n))             => VMNumber(PrecisionDAL.cosFunction(n)) }),
+      native("tan", { case (vm: VM, VMNumber(_, n))             => VMNumber(PrecisionDAL.tanFunction(n)) }),
       native("head", { case (vm: VM, VMSeq(s)) if s.length == 2 => s.head }),
       native("tail", { case (vm: VM, VMSeq(s)) if s.length == 2 => s.tail.head }),
       "alphanum" -> VMCSet(ALPHANUM_CLASS),

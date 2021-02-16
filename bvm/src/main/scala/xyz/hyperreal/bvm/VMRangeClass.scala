@@ -1,6 +1,6 @@
 package xyz.hyperreal.bvm
 
-import xyz.hyperreal.dal.{BasicDAL, numberType, toBigInt}
+import xyz.hyperreal.dal.{PrecisionDAL, numberType, toBigInt}
 
 import scala.collection.immutable.AbstractSeq
 import java.{lang => boxed}
@@ -31,8 +31,8 @@ class VMRange(val range: IndexedSeq[Any])
       case i: BigInt if inclusive => i to toBigInt(end) by toBigInt(step)
       case i: BigInt              => i until toBigInt(end) by toBigInt(step)
       case d: BigDecimal if inclusive =>
-        d to BasicDAL.toBigDecimal(end) by BasicDAL.toBigDecimal(step)
-      case d: BigDecimal => d until BasicDAL.toBigDecimal(end) by BasicDAL.toBigDecimal(step)
+        d to PrecisionDAL.toBigDecimal(end) by PrecisionDAL.toBigDecimal(step)
+      case d: BigDecimal => d until PrecisionDAL.toBigDecimal(end) by PrecisionDAL.toBigDecimal(step)
       case v             =>
         /*problem(pf,*/
         sys.error(s"expected a number (real and not a fraction) as the range initial value: $start")

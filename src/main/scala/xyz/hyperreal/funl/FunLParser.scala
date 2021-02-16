@@ -8,7 +8,7 @@ import util.parsing.input.CharArrayReader.EofCh
 import util.parsing.input.{CharSequenceReader, Position, Positional, Reader}
 import xyz.hyperreal.indentation_lexical._
 import xyz.hyperreal.bvm._
-import xyz.hyperreal.dal.{BasicDAL, DAL, numberType}
+import xyz.hyperreal.dal.{PrecisionDAL, DAL, numberType}
 
 import scala.annotation.tailrec
 import scala.util.Using
@@ -743,7 +743,7 @@ class FunLParser extends StandardTokenParsers with PackratParsers {
   lazy val unaryExpression: PackratParser[ExpressionAST] =
     "-" ~> pos ~ incrementExpression ^^ {
       case _ ~ LiteralExpressionAST(n: VMNumber) =>
-        LiteralExpressionAST(BasicDAL.negate(n, VMNumber.apply))
+        LiteralExpressionAST(PrecisionDAL.negate(n, VMNumber.apply))
       case p ~ v => UnaryExpressionAST(operator("-"), p, v)
     } |
       "." ~> incrementExpression ^^ DereferenceExpressionAST |

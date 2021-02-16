@@ -5,9 +5,9 @@ import xyz.hyperreal.numbers.Rational
 object Main extends App {
 
   val a = Rational(1, 4)
-  val b = BasicDAL.compute("/", 3, 4)
+  val b = PrecisionDAL.compute("/", 3, 4)
 
-  println(BasicDAL.compute("+", a, b))
+  println(PrecisionDAL.compute("+", a, b))
 
   val tokens = "-?[0-9.]+|[-+*/%^=<>]+|[a-z]+".r
 
@@ -32,9 +32,9 @@ object Main extends App {
     val op = toks(1)
 
     if (Set("+", "-", "*", "/", "%", "^") contains op)
-      BasicDAL.compute(Symbol(op), num(toks.head), num(toks(2)))
+      PrecisionDAL.compute(Symbol(op), num(toks.head), num(toks(2)))
     else
-      BasicDAL.relate(Symbol(op), num(toks.head), num(toks(2)))
+      PrecisionDAL.relate(Symbol(op), num(toks.head), num(toks(2)))
   }
 
 }

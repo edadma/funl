@@ -5,7 +5,7 @@ import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.collection.mutable.ArrayBuffer
 import util.parsing.input.Position
-import xyz.hyperreal.dal.{BasicDAL, IntType, numberType}
+import xyz.hyperreal.dal.{PrecisionDAL, IntType, numberType}
 
 import java.{lang => boxed}
 
@@ -312,18 +312,18 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
               else if (!r.isInstanceOf[VMNumber])
                 problem(rpos, s"not a number: $r")
               else
-                push(BasicDAL.compute(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply))
+                push(PrecisionDAL.compute(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply))
           }
       case Symbol("=") | Symbol("!=") =>
         if ((l, r) match {
-              case (a: VMNumber, b: VMNumber) => BasicDAL.relate(op, a, b)
+              case (a: VMNumber, b: VMNumber) => PrecisionDAL.relate(op, a, b)
               case _                          => if (op == Symbol("=")) l == r else l != r
             })
           push(r)
         else
           fail()
       case Symbol("<") | Symbol(">") | Symbol("<=") | Symbol(">=") | Symbol("div") =>
-        if (BasicDAL.relate(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber]))
+        if (PrecisionDAL.relate(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber]))
           push(r)
         else
           fail()
@@ -339,7 +339,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
         else if (!r.isInstanceOf[VMNumber])
           problem(rpos, s"not a number: $r")
         else
-          push(BasicDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply))
+          push(PrecisionDAL.perform(op, l.asInstanceOf[VMNumber], r.asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply))
     }
   }
 
@@ -874,7 +874,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                               if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${rhs(i)}")
 
-                              if (BasicDAL.relate(op, n, rhs(i).asInstanceOf[VMNumber]))
+                              if (PrecisionDAL.relate(op, n, rhs(i).asInstanceOf[VMNumber]))
                                 l.value = rhs(i)
                               else {
                                 fail()
@@ -898,7 +898,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                               if (!rhs(i).isInstanceOf[VMNumber])
                                 problem(rpos(i), s"not a number: ${rhs(i)}")
                               else
-                                l.value = BasicDAL
+                                l.value = PrecisionDAL
                                   .perform(op, n, rhs(i).asInstanceOf[VMNumber], VMNumber.apply, VMBoolean.apply)
                             case _ => problem(lpos(i), s"illegal assignment: '${op.name}'")
                           }
@@ -923,16 +923,16 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
             val n = d.asInstanceOf[VMNumber]
 
             op match {
-              case Symbol("-") => push(BasicDAL.negate(n, VMNumber.apply(_)))
+              case Symbol("-") => push(PrecisionDAL.negate(n, VMNumber.apply(_)))
               case Symbol("++*") | Symbol("--*") | Symbol("*++") | Symbol("*--") if !v.isInstanceOf[Assignable] =>
                 problem(pos, "not an l-value")
               case Symbol("++*") | Symbol("--*") =>
-                val res = BasicDAL.compute(op, d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
+                val res = PrecisionDAL.compute(op, d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
 
                 v.asInstanceOf[Assignable].value = res
                 push(res)
               case Symbol("*++") | Symbol("*--") =>
-                v.asInstanceOf[Assignable].value = BasicDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
+                v.asInstanceOf[Assignable].value = PrecisionDAL.compute(Symbol(op.name.last.toString), d.asInstanceOf[VMNumber], ONE, VMNumber.apply)
                 push(d)
             }
           case BinaryInst(lpos, op, rpos) =>
@@ -1006,7 +1006,7 @@ class VM(code: Compilation, captureTrees: immutable.ArraySeq[Node], scan: Boolea
                 case o           => problem(fpos, s"expected start value to be a number: $o")
               }
 
-            push(new VMLazyList(LazyList.iterate(f)(v => BasicDAL.compute(Symbol("+"), v, b, VMNumber.apply))))
+            push(new VMLazyList(LazyList.iterate(f)(v => PrecisionDAL.compute(Symbol("+"), v, b, VMNumber.apply))))
           case CommentInst(_) =>
           case EmptyInst =>
             val a = derefpo

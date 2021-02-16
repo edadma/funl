@@ -102,6 +102,25 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case _ => sys.error("can't convert from " + a)
     }
 
+  protected def intOrDouble(n: Rational): (Type, Number) =
+    if (n.isInt)
+      if (n.n.isValidInt)
+        (IntType, n.n.intValue)
+      else
+        (BigIntType, n.n)
+    else
+      (DoubleType, n.doubleValue)
+
+  protected def bigIntPow(n: Number, e: Number): (Type, Number) =
+    e match {
+      case i: boxed.Integer =>
+        val res = BigInt(i).pow(abs(i))
+
+        if (i < 0) maybeDemote(Rational.oneOver(res))
+        else maybeDemote(res)
+      case _ => sys.error(s"exponent too small or too large: $e")
+    }
+
   def maybeDemote(n: ComplexBigInt): (Type, Number) =
     if (n.im == 0)
       maybeDemote(n.re)

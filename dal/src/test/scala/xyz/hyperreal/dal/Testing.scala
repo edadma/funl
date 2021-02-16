@@ -19,9 +19,9 @@ object Testing {
     val op = toks(1)
 
     if (Set("+", "-", "*", "/", "%", "^") contains op)
-      BasicDAL.compute(Symbol(op), num(toks.head), num(toks(2)))
+      PrecisionDAL.compute(Symbol(op), num(toks.head), num(toks(2)))
     else
-      BasicDAL.relate(Symbol(op), num(toks.head), num(toks(2)))
+      PrecisionDAL.relate(Symbol(op), num(toks.head), num(toks(2)))
   }
 
 }
