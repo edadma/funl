@@ -78,7 +78,11 @@ object ComplexDAL extends DAL {
     BigIntType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue / r.doubleValue: Number)),
     RationalType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue / r.doubleValue: Number)),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue / r.doubleValue: Number)),
-    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) / toBigDecimal(b)))
+    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) / toBigDecimal(b))),
+    ComplexBigIntType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) / toComplexBigDecimal(r)))
   )
 
   operation(
@@ -101,7 +105,6 @@ object ComplexDAL extends DAL {
       }
     }),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, pow(l.doubleValue, r.doubleValue): Number)),
-    //    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) / toBigDecimal(b)))
   )
 
   operation(
