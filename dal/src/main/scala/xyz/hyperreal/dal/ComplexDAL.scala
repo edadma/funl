@@ -8,6 +8,12 @@ import scala.math.{BigInt, pow}
 
 object ComplexDAL extends DAL {
 
+  special(DoubleType, ComplexBigIntType, ComplexDoubleType)
+  special(BigDecType, ComplexBigIntType, ComplexBigDecType)
+  special(RationalType, ComplexBigIntType, ComplexRationalType)
+  special(DoubleType, ComplexRationalType, ComplexDoubleType)
+  special(BigDecType, ComplexRationalType, ComplexBigDecType)
+
   operation(
     Symbol("+"),
     IntType -> ((l: Number, r: Number) => maybePromote(l.longValue + r.longValue)),
@@ -15,7 +21,8 @@ object ComplexDAL extends DAL {
     BigIntType -> ((l: Number, r: Number) => maybeDemote(toBigInt(l) + toBigInt(r))),
     RationalType -> ((l: Number, r: Number) => maybeDemote(toRational(l) + toRational(r))),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue + r.doubleValue: Number)),
-    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) + toBigDecimal(b)))
+    BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) + toBigDecimal(b))),
+    ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexBigInt(l) + toComplexBigInt(r))),
   )
 
   operation(

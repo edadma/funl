@@ -1,6 +1,7 @@
 package xyz.hyperreal
 
-import xyz.hyperreal.numbers.Rational
+import xyz.hyperreal.numbers.{ComplexBigDecimal, ComplexBigInt, ComplexDouble, ComplexInt, Rational}
+
 import math.{sqrt => sqr, _}
 import java.{lang => boxed}
 
@@ -122,15 +123,26 @@ package object dal {
 
   def numberType(n: Number): Type =
     n match {
-      case _: boxed.Integer => IntType
-      case _: boxed.Long    => LongType
-      case _: BigInt        => BigIntType
-      case _: Rational      => RationalType
-      case _: boxed.Double  => DoubleType
-      case _: BigDecimal    => BigDecType
+      case _: boxed.Integer     => IntType
+      case _: boxed.Long        => LongType
+      case _: BigInt            => BigIntType
+      case _: Rational          => RationalType
+      case _: boxed.Double      => DoubleType
+      case _: BigDecimal        => BigDecType
+      case _: ComplexInt        => ComplexIntType
+      case _: ComplexBigInt     => ComplexBigIntType
+      case _: ComplexDouble     => ComplexDoubleType
+      case _: ComplexBigDecimal => ComplexBigDecType
     }
 
   def toBigInt(a: Number): BigInt =
+    a match {
+      case bi: BigInt       => bi
+      case i: boxed.Integer => BigInt(i)
+      case _                => sys.error("can't convert from " + a)
+    }
+
+  def toComplexBigInt(a: Number): ComplexBigInt =
     a match {
       case bi: BigInt       => bi
       case i: boxed.Integer => BigInt(i)

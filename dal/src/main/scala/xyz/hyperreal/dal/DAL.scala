@@ -56,6 +56,32 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case _                => sys.error("can't convert from " + a)
     }
 
+  def toComplexBigInt(a: Number): ComplexBigInt =
+    a match {
+      case bi: BigInt         => ComplexBigInt(bi)
+      case i: boxed.Integer   => ComplexBigInt(toBigInt(i))
+      case cbi: ComplexBigInt => cbi
+      case _                  => sys.error("can't convert from " + a)
+    }
+
+  def maybeDemote(n: ComplexBigInt): (Type, Number) =
+    if (n.im == 0)
+      maybeDemote(n.re)
+    else
+      (ComplexBigIntType, n)
+
+  def maybeDemote(n: ComplexRational): (Type, Number) =
+    if (n.im.isZero)
+      if (n.re.isInt)
+        if (n.re.n.isValidInt)
+          (IntType, Integer valueOf n.re.n.toInt)
+        else
+          (ComplexRationalType, n)
+      else
+        (RationalType, n.re)
+    else
+      (ComplexRationalType, n)
+
   protected def boolean(b: Boolean): (Type, Boolean) = (null, b)
 
   protected def maybeDemote(n: Double): (Type, Number) =
@@ -96,6 +122,11 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       (IntType, n.toInt.asInstanceOf[Number])
     else
       (BigIntType, n)
+
+  protected def special(a: Type, b: Type, t: Type): Unit = {
+    specials((a, b)) = t
+    specials((b, a)) = t
+  }
 
   protected def resultant(rank: mutable.HashMap[Type, Int], l: Type, r: Type): Int =
     specials get (l, r) match {
@@ -397,7 +428,6 @@ case object BigIntType extends Type
 case object RationalType extends Type
 case object DoubleType extends Type
 case object BigDecType extends Type
-case object ComplexIntType extends Type
 case object ComplexBigIntType extends Type
 case object ComplexRationalType extends Type
 case object ComplexDoubleType extends Type
