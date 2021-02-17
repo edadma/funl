@@ -49,7 +49,7 @@ object ComplexDouble {
 
   def apply(re: Double, im: Double) = new ComplexDouble(re, im)
 
-  val i = ComplexDouble(0, 1)
+  val i: ComplexDouble = ComplexDouble(0, 1)
 
   val zero = ComplexDouble(0, 0)
 

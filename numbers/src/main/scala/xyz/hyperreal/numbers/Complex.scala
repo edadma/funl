@@ -140,39 +140,40 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   def /(that: T) = complex(divide(re, that), divide(im, that))
 
-  def /(that: Int) =
+  def /(that: Int): C =
     complex(divide(re, implicitly[Numeric[T]].fromInt(that)), divide(im, implicitly[Numeric[T]].fromInt(that)))
 
-  def unary_- = complex(-re, -im)
+  def unary_- : C = complex(-re, -im)
 
-  def inverse = conj / norm
+  def inverse: C = conj / norm
 
-  override def equals(o: Any) =
+  override def equals(o: Any): Boolean =
     o match {
       case z: Complex[T, F, C, P] => re == z.re && im == z.im
       case _                      => false
     }
 
-  override def hashCode = re.hashCode ^ im.hashCode
+  override def hashCode: Int = re.hashCode ^ im.hashCode
 
-  override def toString = {
+  override def toString: String = {
     val zero = implicitly[Numeric[T]].zero
+    val one = implicitly[Numeric[T]].one
 
     if (im == zero)
       re.toString
-    else if (re == 0) {
-      if (im == 1)
+    else if (re == zero) {
+      if (im == one)
         "i"
-      else if (im == -1)
+      else if (im == -one)
         "-i"
       else
         s"${im}i"
-    } else if (im == 1)
+    } else if (im == one)
       s"$re+i"
-    else if (im == -1)
+    else if (im == -one)
       s"$re-i"
     else if (implicitly[Numeric[T]].lt(im, zero))
-      s"$re+${im}i"
+      s"$re${im}i"
     else
       s"$re+${im}i"
   }
