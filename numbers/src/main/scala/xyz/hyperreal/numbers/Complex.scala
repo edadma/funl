@@ -60,8 +60,8 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   def arg = _atan2(fractional(im), fractional(re))
 
-  def sqrt =
-    this ^ implicitly[Fractional[F]].div(implicitly[Fractional[F]].fromInt(1), implicitly[Fractional[F]].fromInt(2))
+  def sqrt: P =
+    this ^ implicitly[Fractional[F]].div(implicitly[Fractional[F]].one, implicitly[Fractional[F]].fromInt(2))
 
   def ln = promote(_ln(abs), arg)
 

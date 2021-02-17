@@ -147,11 +147,18 @@ class Rational(_n: BigInt, _d: BigInt) extends Number with Ordered[Rational] {
 object Rational {
   private val ZERObi = BigInt(0)
   private val ONEbi = BigInt(1)
+  private val RATIONAL = """(-?\d+)/(\d+)""" r
 
   lazy val ZERO = Rational(0)
   lazy val ONE = Rational(1)
 
   def oneOver(d: BigInt) = new Rational(ONEbi, d)
+
+  def apply(s: String): Rational =
+    s match {
+      case RATIONAL(n, d) => new Rational(BigInt(n), BigInt(d))
+      case _              => sys.error("not a rational")
+    }
 
   def apply(n: BigInt, d: BigInt) = new Rational(n, d)
 
@@ -192,11 +199,7 @@ trait RationalIsFractional extends Fractional[Rational] {
 
   def negate(x: Rational) = -x
 
-  def parseString(str: String) = {
-    val Array(n, d) = str split "/"
-
-    Some(Rational(BigInt(n), BigInt(d)))
-  }
+  def parseString(s: String): Option[Rational] = Some(Rational(s))
 
   def fromInt(x: Int) = x
 
