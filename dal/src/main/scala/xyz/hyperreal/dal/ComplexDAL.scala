@@ -99,6 +99,10 @@ object ComplexDAL extends DAL {
     }),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, pow(l.doubleValue, r.doubleValue): Number)),
     BigDecType -> ((l: Number, r: Number) => (BigDecType, BigDecimalMath.pow(toBigDecimal(l), toBigDecimal(r)))),
+    ComplexBigIntType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) ^ toComplexDouble(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) ^ toComplexDouble(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) ^ toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) ^ toComplexBigDecimal(r)))
   )
 
   operation(
@@ -118,7 +122,11 @@ object ComplexDAL extends DAL {
     BigIntType -> ((l: Number, r: Number) => boolean(toBigInt(l) == toBigInt(r))),
     RationalType -> ((l: Number, r: Number) => boolean(toRational(l) == toRational(r))),
     DoubleType -> ((l: Number, r: Number) => boolean(l.doubleValue == r.doubleValue)),
-    BigDecType -> ((l: Number, r: Number) => boolean(toBigDecimal(l) == toBigDecimal(r)))
+    BigDecType -> ((l: Number, r: Number) => boolean(toBigDecimal(l) == toBigDecimal(r))),
+    ComplexBigIntType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) == toComplexDouble(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) == toComplexDouble(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) == toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => boolean(toComplexBigDecimal(l) == toComplexBigDecimal(r)))
   )
 
   relation(
@@ -128,7 +136,11 @@ object ComplexDAL extends DAL {
     BigIntType -> ((l: Number, r: Number) => boolean(toBigInt(l) != toBigInt(r))),
     RationalType -> ((l: Number, r: Number) => boolean(toRational(l) != toRational(r))),
     DoubleType -> ((l: Number, r: Number) => boolean(l.doubleValue != r.doubleValue)),
-    BigDecType -> ((l: Number, r: Number) => boolean(toBigDecimal(l) != toBigDecimal(r)))
+    BigDecType -> ((l: Number, r: Number) => boolean(toBigDecimal(l) != toBigDecimal(r))),
+    ComplexBigIntType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) != toComplexDouble(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) != toComplexDouble(r))),
+    ComplexDoubleType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) != toComplexDouble(r))),
+    ComplexBigDecType -> ((l: Number, r: Number) => boolean(toComplexBigDecimal(l) != toComplexBigDecimal(r)))
   )
 
   relation(
@@ -176,6 +188,7 @@ object ComplexDAL extends DAL {
     IntType -> ((l, r) => boolean(r.intValue % l.intValue == 0)),
     LongType -> ((l: Number, r: Number) => boolean(r.longValue % l.longValue == 0)),
     BigIntType -> ((l: Number, r: Number) => boolean(toBigInt(r) % toBigInt(l) == 0)),
+    // complex int types
   )
 
   operation(
@@ -183,6 +196,7 @@ object ComplexDAL extends DAL {
     IntType -> ((l, r) => (IntType, l.intValue / r.intValue: Number)),
     LongType -> ((l: Number, r: Number) => (LongType, l.longValue / r.longValue: Number)),
     BigIntType -> ((l: Number, r: Number) => (BigIntType, toBigInt(l) / toBigInt(r))),
+    // complex int types
   )
 
   operation(

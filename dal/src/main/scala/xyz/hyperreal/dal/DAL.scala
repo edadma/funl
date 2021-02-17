@@ -262,6 +262,16 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   def negate[T <: TypedNumber](n: TypedNumber, number: ((Type, Number)) => T): T =
     number(negate(n.typ, n.value))
 
+  def negate(n: Number): Number =
+    n match {
+      case a: boxed.Integer => -a
+      case a: boxed.Long    => -a
+      case a: BigInt        => -a
+      case a: Rational      => -a
+      case a: boxed.Double  => -a
+      case a: BigDecimal    => -a
+    }
+
   def invert(n: Number): (Type, Number) =
     n match {
       case a: boxed.Integer => maybePromote(~a & 0xFFFFFFFFL)
@@ -485,6 +495,7 @@ case object BigIntType extends Type
 case object RationalType extends Type
 case object DoubleType extends Type
 case object BigDecType extends Type
+case object ComplexIntType extends Type
 case object ComplexBigIntType extends Type
 case object ComplexRationalType extends Type
 case object ComplexDoubleType extends Type

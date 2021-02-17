@@ -33,6 +33,13 @@ lazy val numbers = project
   .settings(
     name := "numbers"
   )
+  
+lazy val matrix = project
+  .dependsOn(dal)
+  .settings(
+    name := "matrix",
+    libraryDependencies += "xyz.hyperreal" %% "table" % "1.0.0-snapshot.2"
+  )
 
 lazy val prolog = project
   .dependsOn(recursive_descent_parser)
