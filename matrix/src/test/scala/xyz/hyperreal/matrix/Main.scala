@@ -42,10 +42,15 @@ object Main extends App {
 //  println(p * a == l * u)
 
   val i = ComplexBigInt.i
-  val a = Matrix[Number](List(1 + i, 2 + i), List(3 + i, 4 + i))
+  val a = Matrix[Number](List(1 + i, 2 + i, 3 + i), List(5 + i, 6 + i, 7 + i), List(8 + i, 9 + i, i))
 
+  println(a table)
   println(a.inverse.table)
-  println(a.inverse * a table)
+
+  val r = a.inverse * a
+
+  println(r table)
+  println(r(1, 1).getClass)
 
   val z = 1 + 2 * i
 
