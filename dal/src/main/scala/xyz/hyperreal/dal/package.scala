@@ -1,6 +1,6 @@
 package xyz.hyperreal
 
-import xyz.hyperreal.numbers.{ComplexBigDecimal, ComplexBigInt, ComplexDouble, ComplexInt, Rational}
+import xyz.hyperreal.numbers.{ComplexBigDecimal, ComplexBigInt, ComplexDouble, ComplexInt, ComplexRational, Rational}
 
 import math.{sqrt => sqr, _}
 import java.{lang => boxed}
@@ -131,6 +131,7 @@ package object dal {
       case _: BigDecimal        => BigDecType
       case _: ComplexInt        => ComplexIntType
       case _: ComplexBigInt     => ComplexBigIntType
+      case _: ComplexRational   => ComplexRationalType
       case _: ComplexDouble     => ComplexDoubleType
       case _: ComplexBigDecimal => ComplexBigDecType
     }

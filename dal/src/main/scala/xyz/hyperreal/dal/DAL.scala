@@ -270,6 +270,7 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case a: Rational      => -a
       case a: boxed.Double  => -a
       case a: BigDecimal    => -a
+      case a: ComplexBigInt => -a
     }
 
   def invert(n: Number): (Type, Number) =

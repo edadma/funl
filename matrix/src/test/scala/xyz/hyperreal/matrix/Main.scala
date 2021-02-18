@@ -1,8 +1,7 @@
 package xyz.hyperreal.matrix
 
-import xyz.hyperreal.dal.PrecisionNumberIsFractional._
-import xyz.hyperreal.numbers.ComplexRational
-import xyz.hyperreal.numbers.ComplexRationalIsFractional._
+import xyz.hyperreal.dal.ComplexNumberIsFractional._
+import xyz.hyperreal.numbers.ComplexBigInt
 
 import math.Fractional.Implicits._
 
@@ -42,8 +41,8 @@ object Main extends App {
 //  println(p * a)
 //  println(p * a == l * u)
 
-  val i = ComplexRational.i
-  val a = Matrix[ComplexRational](List(1 + i, 2 + i), List(3 + i, 4 + i))
+  val i = ComplexBigInt.i
+  val a = Matrix[Number](List(1 + i, 2 + i), List(3 + i, 4 + i))
 
   println(a.inverse.table)
   println(a.inverse * a table)

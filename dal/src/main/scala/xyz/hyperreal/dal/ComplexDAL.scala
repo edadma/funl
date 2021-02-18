@@ -65,7 +65,7 @@ object ComplexDAL extends DAL {
     RationalType -> ((l: Number, r: Number) => maybeDemote(toRational(l) / toRational(r))),
     DoubleType -> ((l: Number, r: Number) => (DoubleType, l.doubleValue / r.doubleValue: Number)),
     BigDecType -> ((a: Number, b: Number) => (BigDecType, toBigDecimal(a) / toBigDecimal(b))),
-    ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexBigInt(l) / toComplexBigInt(r))),
+    ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexRational(l) / toComplexRational(r))),
     ComplexRationalType -> ((l: Number, r: Number) => maybeDemote(toComplexRational(l) / toComplexRational(r))),
     ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
     ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) / toComplexBigDecimal(r)))
