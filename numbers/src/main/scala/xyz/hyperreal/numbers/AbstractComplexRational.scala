@@ -4,9 +4,9 @@ import scala.Integral.Implicits._
 
 abstract class AbstractComplexRational[T: Numeric, C <: Complex[T, Double, C, ComplexDouble]] extends AbstractComplex[T, C] {
 
-  def ^(p: Int) = pow(this.asInstanceOf[C], p)
+  def ^(p: Int): C = pow(this.asInstanceOf[C], p)
 
-  def ^(p: BigInt) = pow(this.asInstanceOf[C], p)
+  def ^(p: BigInt): C = pow(this.asInstanceOf[C], p)
 
   private def pow[P: Integral](b: C, e: P): C = {
     val ie = implicitly[Integral[P]]

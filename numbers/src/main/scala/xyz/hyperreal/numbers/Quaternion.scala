@@ -2,10 +2,12 @@ package xyz.hyperreal.numbers
 
 import Numeric.Implicits._
 
-abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <: Complex[F, F, P, P]] extends Number {
+abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P], P <: Quaternion[F, F, P, P]] extends Number {
 
-  val re: T
-  val im: T
+  val a: T
+  val b: T
+  val c: T
+  val d: T
 
   protected def unsup: Nothing = sys.error("unsupported operation")
 
@@ -27,15 +29,17 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   protected def _cos(a: F): F
 
+  protected def _acos(a: F): F
+
   protected def _pow(a: F, b: F): F
 
-  protected def complex(re: T, im: T): C
+  protected def quaternion(a: T, b: T, c: T, e: T): C
 
-  protected def complex(re: T): C = complex(re, implicitly[Numeric[T]].zero)
+  protected def quaternion(a: T): C = quaternion(a, implicitly[Numeric[T]].zero, implicitly[Numeric[T]].zero, implicitly[Numeric[T]].zero)
 
-  protected def promote(re: F, im: F): P
+  protected def promote(a: F, b: F, c: F, d: F): P
 
-  protected def promote(re: F): P = promote(re, implicitly[Numeric[F]].zero)
+  protected def promote(a: F): P = promote(a, implicitly[Numeric[F]].zero, implicitly[Numeric[F]].zero, implicitly[Numeric[F]].zero)
 
   protected def promote: P
 
@@ -49,23 +53,26 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   protected def ix: C = i * this
 
-  def norm2: T = re * re + im * im
+  def norm2: T = a * a + b * b + c * c + d * d
 
-  def abs: F = _sqrt(fractional(norm2))
+  lazy val norm: F = _sqrt(fractional(norm2))
 
-  def floor: P = promote(_floor(fractional(re)), _floor(fractional(im)))
+  lazy val vnorm: F = _sqrt(fractional(b * b + c * c + d * d))
 
-  def ceil: P = promote(_ceil(fractional(re)), _ceil(fractional(im)))
+  def floor: P = promote(_floor(fractional(a)), _floor(fractional(b)), _floor(fractional(c)), _floor(fractional(d)))
 
-  def arg: F = _atan2(fractional(im), fractional(re))
+  def ceil: P = promote(_ceil(fractional(a)), _ceil(fractional(b)), _ceil(fractional(c)), _ceil(fractional(d)))
 
   def sqrt: P =
     this ^ implicitly[Fractional[F]].div(implicitly[Fractional[F]].one, implicitly[Fractional[F]].fromInt(2))
 
-  def ln: P = promote(_ln(abs), arg)
+  def ln: P = {
+    val arg = _acos(fractional(a) / norm)
+    promote(_ln(norm), arg)
+  }
 
   def exp: P =
-    promote(_exp(fractional(re))) * promote(_cos(fractional(im)), _sin(fractional(im)))
+    promote(_exp(fractional(a))) * promote(_cos(fractional(im)), _sin(fractional(im)))
 
   def sin: P =
     (ix.exp - (-ix).exp) / 2 / promote(implicitly[Numeric[F]].zero, implicitly[Numeric[F]].one)
@@ -92,7 +99,7 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   def atanh: P = ((one + this).ln - (one - this).ln) / 2
 
-  def conj: C = complex(re, -im)
+  def conj: C = quaternion(a, -im)
 
   def ^(that: Complex[T, F, C, P]): P = (that.promote * ln).exp
 
@@ -113,53 +120,53 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   def ^(e: BigInt): C
 
-  def +(that: Complex[T, F, C, P]): C = complex(re + that.re, im + that.im)
+  def +(that: Complex[T, F, C, P]): C = quaternion(a + that.re, im + that.im)
 
-  def +(that: T): C = complex(re + that, im)
+  def +(that: T): C = quaternion(a + that, im)
 
-  def +(that: Int): C = complex(re + implicitly[Numeric[T]].fromInt(that), im)
+  def +(that: Int): C = quaternion(a + implicitly[Numeric[T]].fromInt(that), im)
 
   def *(that: Complex[T, F, C, P]): C =
-    complex(re * that.re - im * that.im, im * that.re + re * that.im)
+    quaternion(a * that.re - im * that.im, im * that.re + a * that.im)
 
-  def *(that: T): C = complex(re * that, im * that)
+  def *(that: T): C = quaternion(a * that, im * that)
 
   def *(that: Int): C =
-    complex(re * implicitly[Numeric[T]].fromInt(that), im * implicitly[Numeric[T]].fromInt(that))
+    quaternion(a * implicitly[Numeric[T]].fromInt(that), im * implicitly[Numeric[T]].fromInt(that))
 
-  def -(that: Complex[T, F, C, P]): C = complex(re - that.re, im - that.im)
+  def -(that: Complex[T, F, C, P]): C = quaternion(a - that.re, im - that.im)
 
-  def -(that: T): C = complex(re - that, im)
+  def -(that: T): C = quaternion(a - that, im)
 
-  def -(that: Int): C = complex(re - implicitly[Numeric[T]].fromInt(that), im)
+  def -(that: Int): C = quaternion(a - implicitly[Numeric[T]].fromInt(that), im)
 
   def /(that: Complex[T, F, C, P]): C =
-    complex(divide(re * that.re + im * that.im, that.norm2), divide(im * that.re - re * that.im, that.norm2))
+    quaternion(divide(a * that.re + im * that.im, that.norm2), divide(im * that.re - a * that.im, that.norm2))
 
-  def /(that: T): C = complex(divide(re, that), divide(im, that))
+  def /(that: T): C = quaternion(divide(a, that), divide(im, that))
 
   def /(that: Int): C =
-    complex(divide(re, implicitly[Numeric[T]].fromInt(that)), divide(im, implicitly[Numeric[T]].fromInt(that)))
+    quaternion(divide(a, implicitly[Numeric[T]].fromInt(that)), divide(im, implicitly[Numeric[T]].fromInt(that)))
 
-  def unary_- : C = complex(-re, -im)
+  def unary_- : C = quaternion(-a, -im)
 
   def inverse: C = conj / norm2
 
   override def equals(o: Any): Boolean =
     o match {
-      case z: Complex[T, F, C, P] => re == z.re && im == z.im
+      case z: Complex[T, F, C, P] => a == z.re && im == z.im
       case _                      => false
     }
 
-  override def hashCode: Int = re.hashCode ^ im.hashCode
+  override def hashCode: Int = a.hashCode ^ im.hashCode
 
   override def toString: String = {
     val zero = implicitly[Numeric[T]].zero
     val one = implicitly[Numeric[T]].one
 
     if (im == zero)
-      re.toString
-    else if (re == zero) {
+      a.toString
+    else if (a == zero) {
       if (im == one)
         "i"
       else if (im == -one)
@@ -167,13 +174,13 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
       else
         s"${im}i"
     } else if (im == one)
-      s"$re+i"
+      s"$a+i"
     else if (im == -one)
-      s"$re-i"
+      s"$a-i"
     else if (implicitly[Numeric[T]].lt(im, zero))
-      s"$re${im}i"
+      s"$a${im}i"
     else
-      s"$re+${im}i"
+      s"$a+${im}i"
   }
 
 }
