@@ -2,7 +2,7 @@ package xyz.hyperreal.numbers
 
 import Numeric.Implicits._
 
-abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P], P <: Quaternion[F, F, P, P]] extends Number {
+abstract class Quaternion[T: Numeric, F: Fractional, Q <: Quaternion[T, F, Q, P], P <: Quaternion[F, F, P, P]] extends Number {
 
   val a: T
   val b: T
@@ -33,9 +33,9 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
 
   protected def _pow(a: F, b: F): F
 
-  protected def quaternion(a: T, b: T, c: T, e: T): C
+  protected def quaternion(a: T, b: T, c: T, e: T): Q
 
-  protected def quaternion(a: T): C = quaternion(a, implicitly[Numeric[T]].zero, implicitly[Numeric[T]].zero, implicitly[Numeric[T]].zero)
+  protected def quaternion(a: T): Q = quaternion(a, implicitly[Numeric[T]].zero, implicitly[Numeric[T]].zero, implicitly[Numeric[T]].zero)
 
   protected def promote(a: F, b: F, c: F, d: F): P
 
@@ -49,15 +49,17 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
 
   protected def fmul(a: F, b: F): F
 
-  def zero: C
+  def zero: Q
 
-  def one: C
+  def one: Q
 
-  def i: C
+  def i: Q
 
-  protected def ix: C = i * this
+  protected def ix: Q = i * this
 
-  def norm2: T = a * a + b * b + c * c + d * d
+  def tzero: T = implicitly[Numeric[T]].zero
+
+  lazy val norm2: T = a * a + b * b + c * c + d * d
 
   lazy val norm: F = _sqrt(fractional(norm2))
 
@@ -70,17 +72,21 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
   def sqrt: P =
     this ^ implicitly[Fractional[F]].div(implicitly[Fractional[F]].one, implicitly[Fractional[F]].fromInt(2))
 
-  def ln: P = {
-    val const = _acos(fdivide(fractional(a), norm))
+  lazy val sgn: Q =
+    if (this == zero)
+      zero
+    else
+      this / norm
 
-    promote(_ln(norm),
-            fmul(fdivide(fractional(b), vnorm), const),
-            fmul(fdivide(fractional(c), vnorm), const),
-            fmul(fdivide(fractional(d), vnorm), const))
-  }
+  lazy val arg: F = _acos(fdivide(fractional(a), norm))
 
-  def exp: P =
-    promote(_exp(fractional(a))) * promote(_cos(fractional(im)), _sin(fractional(im)))
+  //protected implicit def int2T(n: Int): T = implicitly[Numeric[T]].fromInt(n)
+
+  lazy val im: Q = (this - conj) / 2
+
+  lazy val ln: P = promote(_ln(norm)) + im.sgn * arg
+
+  def exp: P = promote(_exp(fractional(a))) * (promote(_cos(im.norm)) + im.sgn * _sin(im.norm))
 
   def sin: P =
     (ix.exp - (-ix).exp) / 2 / promote(implicitly[Numeric[F]].zero, implicitly[Numeric[F]].one)
@@ -107,9 +113,9 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
 
   def atanh: P = ((one + this).ln - (one - this).ln) / 2
 
-  def conj: C = quaternion(a, -im)
+  def conj: Q = quaternion(a, -b, -c, -d)
 
-  def ^(that: Quaternion[T, F, C, P]): P = (that.promote * ln).exp
+  def ^(that: Q): P = (that.promote * ln).exp
 
   def ^(p: F): P = pow(p)
 
@@ -124,45 +130,52 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
     promote(_pow(n, p / implicitly[Fractional[F]].fromInt(2))) * promote(_cos(pa), _sin(pa))
   }
 
-  def ^(e: Int): C
+  def ^(e: Int): Q
 
-  def ^(e: BigInt): C
+  def ^(e: BigInt): Q
 
-  def +(that: Quaternion[T, F, C, P]): C = quaternion(a + that.a, b + that.b, c + that.c, d + that.d)
+  def +(that: Q): Q = quaternion(a + that.a, b + that.b, c + that.c, d + that.d)
 
-  def +(that: T): C = quaternion(a + that, b, c, d)
+  def +(that: T): Q = quaternion(a + that, b, c, d)
 
-  def +(that: Int): C = quaternion(a + implicitly[Numeric[T]].fromInt(that), b, c, d)
+  def +(that: F): P = promote(fractional(a) + that, fractional(b), fractional(c), fractional(d))
 
-  def *(that: Quaternion[T, F, C, P]): C =
+  def +(that: Int): Q = quaternion(a + implicitly[Numeric[T]].fromInt(that), b, c, d)
+
+  def *(that: Quaternion[T, F, Q, P]): Q =
     quaternion(a * that.a - im * that.im, im * that.re + a * that.im)
 
-  def *(that: T): C = quaternion(a * that, im * that)
+  def *(that: T): Q = quaternion(a * that, b * that, c * that, d * that)
 
-  def *(that: Int): C =
-    quaternion(a * implicitly[Numeric[T]].fromInt(that), im * implicitly[Numeric[T]].fromInt(that))
+  def *(that: F): P = promote(fractional(a) * that, fractional(b) * that, fractional(c) * that, fractional(d) * that)
 
-  def -(that: Quaternion[T, F, C, P]): C = quaternion(a - that.re, im - that.im)
+  def *(that: Int): Q = {
+    val n = implicitly[Numeric[T]].fromInt(that)
 
-  def -(that: T): C = quaternion(a - that, im)
+    quaternion(a * n, b * n, c * n, d * n)
+  }
 
-  def -(that: Int): C = quaternion(a - implicitly[Numeric[T]].fromInt(that), im)
+  def -(that: Quaternion[T, F, Q, P]): Q = quaternion(a - that.a, b - that.b, c - that.c, d - that.d)
 
-  def /(that: Quaternion[T, F, C, P]): C =
+  def -(that: T): Q = quaternion(a - that, im)
+
+  def -(that: Int): Q = quaternion(a - implicitly[Numeric[T]].fromInt(that), im)
+
+  def /(that: Quaternion[T, F, Q, P]): Q =
     quaternion(divide(a * that.re + im * that.im, that.norm2), divide(im * that.re - a * that.im, that.norm2))
 
-  def /(that: T): C = quaternion(divide(a, that), divide(im, that))
+  def /(that: T): Q = quaternion(divide(a, that), divide(im, that))
 
-  def /(that: Int): C =
+  def /(that: Int): Q =
     quaternion(divide(a, implicitly[Numeric[T]].fromInt(that)), divide(im, implicitly[Numeric[T]].fromInt(that)))
 
-  def unary_- : C = quaternion(-a, -b, -c, -d)
+  def unary_- : Q = quaternion(-a, -b, -c, -d)
 
-  def inverse: C = conj / norm2
+  def inverse: Q = conj / norm2
 
   override def equals(o: Any): Boolean =
     o match {
-      case q: Quaternion[T, F, C, P] => a == q.a && b == q.b && c == q.c && d == q.d
+      case q: Quaternion[T, F, Q, P] => a == q.a && b == q.b && c == q.c && d == q.d
       case _                         => false
     }
 
