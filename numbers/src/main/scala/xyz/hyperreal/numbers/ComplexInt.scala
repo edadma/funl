@@ -2,40 +2,40 @@ package xyz.hyperreal.numbers
 
 case class ComplexInt(re: Int, im: Int) extends AbstractComplexRational[Int, ComplexInt] {
 
-  protected def fractional(a: Int) = a.toDouble
+  protected def fractional(a: Int): Double = a.toDouble
 
-  protected def complex(re: Int, im: Int) = ComplexInt(re, im)
+  protected def complex(re: Int, im: Int): ComplexInt = ComplexInt(re, im)
 
-  protected def promote = ComplexDouble(re, im)
+  protected def promote: ComplexDouble = ComplexDouble(re, im)
 
-  protected def divide(a: Int, b: Int) = unsup
+  protected def divide(a: Int, b: Int): Int = unsup
 
-  def zero = ComplexInt.zero
+  def zero: ComplexInt = ComplexInt.zero
 
-  def one = ComplexInt.one
+  def one: ComplexInt = ComplexInt.one
 
-  def i = ComplexInt.i
+  def i: ComplexInt = ComplexInt.i
 
-  def doubleValue = abs
+  def doubleValue: Double = abs
 
-  def floatValue = abs.toFloat
+  def floatValue: Float = abs.toFloat
 
-  def intValue = abs.toInt
+  def intValue: Int = abs.toInt
 
-  def longValue = abs.toLong
+  def longValue: Long = abs.toLong
 
 }
 
 object ComplexInt {
 
-  val i = ComplexInt(0, 1)
+  val i: ComplexInt = ComplexInt(0, 1)
 
-  val zero = ComplexInt(0, 0)
+  val zero: ComplexInt = ComplexInt(0, 0)
 
-  val one = ComplexInt(1, 0)
+  val one: ComplexInt = ComplexInt(1, 0)
 
   def apply(a: Int) = new ComplexInt(a, 0)
 
-  implicit def int2complex(a: Int) = ComplexInt(a)
+  implicit def int2complex(a: Int): ComplexInt = ComplexInt(a)
 
 }

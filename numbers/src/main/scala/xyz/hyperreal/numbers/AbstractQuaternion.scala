@@ -1,10 +1,10 @@
 package xyz.hyperreal.numbers
 
-import math._
+import scala.math._
 
-abstract class AbstractComplex[T: Numeric, C <: Complex[T, Double, C, ComplexDouble]] extends Complex[T, Double, C, ComplexDouble] {
+abstract class AbstractQuaternion[T: Numeric, Q <: Quaternion[T, Double, Q, QuaternionDouble]] extends Quaternion[T, Double, Q, QuaternionDouble] {
 
-  protected def promote(re: Double, im: Double): ComplexDouble = ComplexDouble(re, im)
+  protected def promote(re: Double, im: Double): QuaternionDouble = QuaternionDouble(re, im)
 
   protected def _floor(a: Double): Double = math.floor(a)
 
