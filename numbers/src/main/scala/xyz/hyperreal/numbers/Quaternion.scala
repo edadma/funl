@@ -45,6 +45,10 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
 
   protected def divide(a: T, b: T): T
 
+  protected def fdivide(a: F, b: F): F
+
+  protected def fmul(a: F, b: F): F
+
   def zero: C
 
   def one: C
@@ -67,8 +71,12 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
     this ^ implicitly[Fractional[F]].div(implicitly[Fractional[F]].one, implicitly[Fractional[F]].fromInt(2))
 
   def ln: P = {
-    val arg = _acos(fractional(a) / norm)
-    promote(_ln(norm), arg)
+    val const = _acos(fdivide(fractional(a), norm))
+
+    promote(_ln(norm),
+            fmul(fdivide(fractional(b), vnorm), const),
+            fmul(fdivide(fractional(c), vnorm), const),
+            fmul(fdivide(fractional(d), vnorm), const))
   }
 
   def exp: P =
@@ -101,7 +109,7 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
 
   def conj: C = quaternion(a, -im)
 
-  def ^(that: Complex[T, F, C, P]): P = (that.promote * ln).exp
+  def ^(that: Quaternion[T, F, C, P]): P = (that.promote * ln).exp
 
   def ^(p: F): P = pow(p)
 
@@ -120,27 +128,27 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
 
   def ^(e: BigInt): C
 
-  def +(that: Complex[T, F, C, P]): C = quaternion(a + that.re, im + that.im)
+  def +(that: Quaternion[T, F, C, P]): C = quaternion(a + that.a, b + that.b, c + that.c, d + that.d)
 
-  def +(that: T): C = quaternion(a + that, im)
+  def +(that: T): C = quaternion(a + that, b, c, d)
 
-  def +(that: Int): C = quaternion(a + implicitly[Numeric[T]].fromInt(that), im)
+  def +(that: Int): C = quaternion(a + implicitly[Numeric[T]].fromInt(that), b, c, d)
 
-  def *(that: Complex[T, F, C, P]): C =
-    quaternion(a * that.re - im * that.im, im * that.re + a * that.im)
+  def *(that: Quaternion[T, F, C, P]): C =
+    quaternion(a * that.a - im * that.im, im * that.re + a * that.im)
 
   def *(that: T): C = quaternion(a * that, im * that)
 
   def *(that: Int): C =
     quaternion(a * implicitly[Numeric[T]].fromInt(that), im * implicitly[Numeric[T]].fromInt(that))
 
-  def -(that: Complex[T, F, C, P]): C = quaternion(a - that.re, im - that.im)
+  def -(that: Quaternion[T, F, C, P]): C = quaternion(a - that.re, im - that.im)
 
   def -(that: T): C = quaternion(a - that, im)
 
   def -(that: Int): C = quaternion(a - implicitly[Numeric[T]].fromInt(that), im)
 
-  def /(that: Complex[T, F, C, P]): C =
+  def /(that: Quaternion[T, F, C, P]): C =
     quaternion(divide(a * that.re + im * that.im, that.norm2), divide(im * that.re - a * that.im, that.norm2))
 
   def /(that: T): C = quaternion(divide(a, that), divide(im, that))
@@ -148,17 +156,17 @@ abstract class Quaternion[T: Numeric, F: Fractional, C <: Quaternion[T, F, C, P]
   def /(that: Int): C =
     quaternion(divide(a, implicitly[Numeric[T]].fromInt(that)), divide(im, implicitly[Numeric[T]].fromInt(that)))
 
-  def unary_- : C = quaternion(-a, -im)
+  def unary_- : C = quaternion(-a, -b, -c, -d)
 
   def inverse: C = conj / norm2
 
   override def equals(o: Any): Boolean =
     o match {
-      case z: Complex[T, F, C, P] => a == z.re && im == z.im
-      case _                      => false
+      case q: Quaternion[T, F, C, P] => a == q.a && b == q.b && c == q.c && d == q.d
+      case _                         => false
     }
 
-  override def hashCode: Int = a.hashCode ^ im.hashCode
+  override def hashCode: Int = a.hashCode ^ b.hashCode ^ c.hashCode ^ d.hashCode
 
   override def toString: String = {
     val zero = implicitly[Numeric[T]].zero
