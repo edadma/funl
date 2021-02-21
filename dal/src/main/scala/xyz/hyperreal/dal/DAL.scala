@@ -69,7 +69,7 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case bi: BigInt          => ComplexRational(toRational(bi))
       case i: boxed.Integer    => ComplexRational(toRational(i))
       case r: Rational         => ComplexRational(r)
-      case cbi: ComplexBigInt  => ComplexRational(toRational(cbi.re), toRational(cbi.im))
+      case cbi: ComplexBigInt  => ComplexRational(toRational(cbi.re), toRational(cbi.re))
       case cr: ComplexRational => cr
       case _                   => sys.error("can't convert from " + a)
     }
@@ -81,7 +81,7 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case d: boxed.Double    => ComplexDouble(d)
       case r: Rational        => ComplexDouble(r.doubleValue)
       case bi: BigInt         => ComplexDouble(bi.doubleValue)
-      case cbi: ComplexBigInt => ComplexDouble(cbi.re.doubleValue, cbi.im.doubleValue)
+      case cbi: ComplexBigInt => ComplexDouble(cbi.re.doubleValue, cbi.re.doubleValue)
       case _                  => sys.error("can't convert from " + a)
     }
 
@@ -122,20 +122,20 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
     }
 
   def maybeDemote(n: ComplexBigInt): (Type, Number) =
-    if (n.im == 0)
+    if (n.re == 0)
       maybeDemote(n.re)
     else
       (ComplexBigIntType, n)
 
   def maybeDemote(n: ComplexRational): (Type, Number) =
-    if (n.im.isZero)
-      if (n.re.isInt)
-        if (n.re.n.isValidInt)
-          (IntType, Integer valueOf n.re.n.toInt)
+    if (n.a.isZero)
+      if (n.a.isInt)
+        if (n.a.n.isValidInt)
+          (IntType, Integer valueOf n.a.n.toInt)
         else
           (ComplexRationalType, n)
       else
-        (RationalType, n.re)
+        (RationalType, n.a)
     else
       (ComplexRationalType, n)
 

@@ -4,7 +4,7 @@ import scala.math._
 
 abstract class AbstractQuaternion[T: Numeric, Q <: Quaternion[T, Double, Q, QuaternionDouble]] extends Quaternion[T, Double, Q, QuaternionDouble] {
 
-  protected def promote(re: Double, im: Double): QuaternionDouble = QuaternionDouble(re, im)
+  protected def promote(a: Double, b: Double, c: Double, d: Double): QuaternionDouble = QuaternionDouble(a, b, c, d)
 
   protected def _floor(a: Double): Double = math.floor(a)
 
@@ -22,6 +22,12 @@ abstract class AbstractQuaternion[T: Numeric, Q <: Quaternion[T, Double, Q, Quat
 
   protected def _cos(a: Double): Double = math.cos(a)
 
+  protected def _acos(a: Double): Double = math.acos(a)
+
   protected def _pow(a: Double, b: Double): Double = math.pow(a, b)
+
+  protected def fdivide(a: Double, b: Double): Double = a / b
+
+  protected def fmul(a: Double, b: Double): Double = a * b
 
 }

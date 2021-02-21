@@ -1,12 +1,12 @@
 package xyz.hyperreal.numbers
 
-case class QuaternionInt(re: Int, im: Int) extends AbstractComplexRational[Int, QuaternionInt] {
+case class QuaternionInt(a: Int, b: Int, c: Int, d: Int) extends AbstractQuaternionRational[Int, QuaternionInt] {
 
   protected def fractional(a: Int): Double = a.toDouble
 
-  protected def complex(re: Int, im: Int): QuaternionInt = QuaternionInt(re, im)
+  protected def quaternion(a: Int, b: Int, c: Int, d: Int): QuaternionInt = QuaternionInt(a, b, c, d)
 
-  protected def promote: ComplexDouble = ComplexDouble(re, im)
+  protected def promote: QuaternionDouble = QuaternionDouble(a, b, c, d)
 
   protected def divide(a: Int, b: Int): Int = unsup
 
@@ -28,13 +28,17 @@ case class QuaternionInt(re: Int, im: Int) extends AbstractComplexRational[Int, 
 
 object QuaternionInt {
 
-  val i: QuaternionInt = QuaternionInt(0, 1)
+  val i: QuaternionInt = QuaternionInt(0, 1, 0, 0)
 
-  val zero: QuaternionInt = QuaternionInt(0, 0)
+  val j: QuaternionInt = QuaternionInt(0, 0, 1, 0)
 
-  val one: QuaternionInt = QuaternionInt(1, 0)
+  val k: QuaternionInt = QuaternionInt(0, 0, 0, 1)
 
-  def apply(a: Int) = new QuaternionInt(a, 0)
+  val zero: QuaternionInt = QuaternionInt(0, 0, 0, 0)
+
+  val one: QuaternionInt = QuaternionInt(1, 0, 0, 0)
+
+  def apply(a: Int) = new QuaternionInt(a, 0, 0, 0)
 
   implicit def int2complex(a: Int): QuaternionInt = QuaternionInt(a)
 

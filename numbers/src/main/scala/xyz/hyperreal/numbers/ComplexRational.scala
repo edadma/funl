@@ -24,7 +24,7 @@ class ComplexRational(val re: Rational, val im: Rational) extends AbstractComple
 
   def longValue = abs.longValue
 
-  override def equals(o: Any) =
+  override def equals(o: Any): Boolean =
     o match {
       case r: Int      => im == 0 && re == r
       case r: BigInt   => im == 0 && re == r

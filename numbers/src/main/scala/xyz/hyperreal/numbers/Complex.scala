@@ -49,9 +49,9 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   protected def ix: C = i * this
 
-  def norm2: T = re * re + im * im
+  def norm: T = re * re + im * im
 
-  def abs: F = _sqrt(fractional(norm2))
+  def abs: F = _sqrt(fractional(norm))
 
   def floor: P = promote(_floor(fractional(re)), _floor(fractional(im)))
 
@@ -60,7 +60,7 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
   def arg: F = _atan2(fractional(im), fractional(re))
 
   def sqrt: P =
-    this ^ implicitly[Fractional[F]].div(implicitly[Fractional[F]].one, implicitly[Fractional[F]].fromInt(2))
+    this ^ implicitly[Fractional[F]].div(implicitly[Fractional[F]].fromInt(1), implicitly[Fractional[F]].fromInt(2))
 
   def ln: P = promote(_ln(abs), arg)
 
@@ -100,7 +100,8 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   def pow(p: F): P = {
     val c = promote
-    val n = c.norm2
+    val n = c.norm
+    //		val lnn = _ln( n )
     val a = c.arg
     val pa = p * a
 
@@ -134,7 +135,7 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
   def -(that: Int): C = complex(re - implicitly[Numeric[T]].fromInt(that), im)
 
   def /(that: Complex[T, F, C, P]): C =
-    complex(divide(re * that.re + im * that.im, that.norm2), divide(im * that.re - re * that.im, that.norm2))
+    complex(divide(re * that.re + im * that.im, that.norm), divide(im * that.re - re * that.im, that.norm))
 
   def /(that: T): C = complex(divide(re, that), divide(im, that))
 
@@ -143,7 +144,7 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
 
   def unary_- : C = complex(-re, -im)
 
-  def inverse: C = conj / norm2
+  def inverse: C = conj / norm
 
   override def equals(o: Any): Boolean =
     o match {
@@ -171,7 +172,7 @@ abstract class Complex[T: Numeric, F: Fractional, C <: Complex[T, F, C, P], P <:
     else if (im == -one)
       s"$re-i"
     else if (implicitly[Numeric[T]].lt(im, zero))
-      s"$re${im}i"
+      s"$re+${im}i"
     else
       s"$re+${im}i"
   }

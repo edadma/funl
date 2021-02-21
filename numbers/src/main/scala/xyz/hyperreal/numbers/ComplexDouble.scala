@@ -35,7 +35,7 @@ class ComplexDouble(val re: Double, val im: Double) extends AbstractComplexRatio
 
   override def equals(o: Any): Boolean =
     o match {
-      case r: ComplexDouble => nearly(im, r.im) && nearly(re, r.re)
+      case r: ComplexDouble => nearly(re, r.re) && nearly(im, r.im)
       case r: Int           => nearly(im, 0) && nearly(re, r)
       case r: Double        => nearly(im, 0) && nearly(re, r)
       case _: BigInt | _: BigDecimal | _: Rational =>
