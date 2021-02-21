@@ -216,12 +216,12 @@ abstract class Quaternion[T: Numeric, F: Fractional, Q <: Quaternion[T, F, Q, P]
           } else if (v == -onet)
             buf ++= s"-$basis"
           else if (implicitly[Numeric[T]].lt(v, zerot))
-            buf ++= s"${im}i"
+            buf ++= s"$v$basis"
           else {
             if (buf nonEmpty)
               buf += '+'
 
-            buf ++= s"${im}i"
+            buf ++= s"$v$basis"
           }
         }
 
