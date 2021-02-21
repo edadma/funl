@@ -40,6 +40,6 @@ object QuaternionInt {
 
   def apply(a: Int) = new QuaternionInt(a, 0, 0, 0)
 
-  implicit def int2complex(a: Int): QuaternionInt = QuaternionInt(a)
+  implicit def int2quaternion(a: Int): QuaternionInt = QuaternionInt(a)
 
 }

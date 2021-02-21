@@ -16,9 +16,9 @@ class Rational(_n: BigInt, _d: BigInt) extends Number with Ordered[Rational] {
     (_n / g * sign, _d / g * sign)
   }
 
-  def isZero = n == ZERObi
+  def isZero: Boolean = n == ZERObi
 
-  def isInt = d == ONEbi
+  def isInt: Boolean = d == ONEbi
 
   def maybeDemote: Number =
     if (isInt)
@@ -29,21 +29,21 @@ class Rational(_n: BigInt, _d: BigInt) extends Number with Ordered[Rational] {
     else
       this
 
-  def +(that: Rational) = Rational(n * that.d + that.n * d, d * that.d)
+  def +(that: Rational): Rational = Rational(n * that.d + that.n * d, d * that.d)
 
-  def +(that: BigInt) = Rational(n + that * d, d)
+  def +(that: BigInt): Rational = Rational(n + that * d, d)
 
-  def *(that: Rational) = Rational(n * that.n, d * that.d)
+  def *(that: Rational): Rational = Rational(n * that.n, d * that.d)
 
-  def *(that: BigInt) = Rational(n * that, d)
+  def *(that: BigInt): Rational = Rational(n * that, d)
 
-  def -(that: Rational) = Rational(n * that.d - that.n * d, d * that.d)
+  def -(that: Rational): Rational = Rational(n * that.d - that.n * d, d * that.d)
 
-  def -(that: BigInt) = Rational(n - that * d, d)
+  def -(that: BigInt): Rational = Rational(n - that * d, d)
 
-  def /(that: Rational) = Rational(n * that.d, d * that.n)
+  def /(that: Rational): Rational = Rational(n * that.d, d * that.n)
 
-  def /(that: BigInt) = Rational(n, d * that)
+  def /(that: BigInt): Rational = Rational(n, d * that)
 
   def ^(that: Int): Rational = {
     def _pow(b: Rational, e: Int): Rational =
@@ -89,23 +89,23 @@ class Rational(_n: BigInt, _d: BigInt) extends Number with Ordered[Rational] {
       _pow(this, that)
   }
 
-  def unary_- = Rational(-n, d)
+  def unary_- : Rational = Rational(-n, d)
 
-  def inv =
+  def inv: Rational =
     if (isZero)
       sys.error("no inverse")
     else
       Rational(d, n)
 
-  def abs = if (n > ZERObi) this else new Rational(n.abs, d.abs)
+  def abs: Rational = if (n > ZERObi) this else new Rational(n.abs, d.abs)
 
-  def floor = {
+  def floor: Rational = {
     val rem = n.abs mod d
 
     Rational(if (n > ZERObi) n - rem else n - d + rem, d)
   }
 
-  def ceil = {
+  def ceil: Rational = {
     val rem = n.abs mod d
 
     Rational(if (n < ZERObi) n + rem else n + d - rem, d)
@@ -125,13 +125,13 @@ class Rational(_n: BigInt, _d: BigInt) extends Number with Ordered[Rational] {
     else
       (BigDecimal(n) / BigDecimal(d)).toFloat
 
-  def intValue = (n / d).toInt
+  def intValue: Int = (n / d).toInt
 
-  def longValue = (n / d).toLong
+  def longValue: Long = (n / d).toLong
 
-  def compare(that: Rational) = (n * that.d).compare(that.n * d)
+  def compare(that: Rational): Int = (n * that.d).compare(that.n * d)
 
-  override def equals(x: Any) =
+  override def equals(x: Any): Boolean =
     x match {
       case r: Rational => n == r.n && d == r.d
       case bi: BigInt  => isInt && n == bi
@@ -140,7 +140,7 @@ class Rational(_n: BigInt, _d: BigInt) extends Number with Ordered[Rational] {
       case _           => false
     }
 
-  override def toString =
+  override def toString: String =
     if (isZero) "0" else if (isInt) n.toString else s"$n/$d"
 }
 
@@ -149,8 +149,8 @@ object Rational {
   private val ONEbi = BigInt(1)
   private val RATIONAL = """(-?\d+)/(\d+)""" r
 
-  lazy val ZERO = Rational(0)
-  lazy val ONE = Rational(1)
+  lazy val ZERO: Rational = Rational(0)
+  lazy val ONE: Rational = Rational(1)
 
   def oneOver(d: BigInt) = new Rational(ONEbi, d)
 
@@ -189,28 +189,28 @@ object Rational {
 
 trait RationalIsFractional extends Fractional[Rational] {
 
-  def plus(x: Rational, y: Rational) = x + y
+  def plus(x: Rational, y: Rational): Rational = x + y
 
-  def minus(x: Rational, y: Rational) = x - y
+  def minus(x: Rational, y: Rational): Rational = x - y
 
-  def times(x: Rational, y: Rational) = x * y
+  def times(x: Rational, y: Rational): Rational = x * y: Rational
 
-  def div(x: Rational, y: Rational) = x / y
+  def div(x: Rational, y: Rational): Rational = x / y
 
-  def negate(x: Rational) = -x
+  def negate(x: Rational): Rational = -x
 
   def parseString(s: String): Option[Rational] = Some(Rational(s))
 
-  def fromInt(x: Int) = x
+  def fromInt(x: Int): Rational = x
 
-  def toInt(x: Rational) = x.intValue
+  def toInt(x: Rational): Int = x.intValue
 
-  def toLong(x: Rational) = x.longValue
+  def toLong(x: Rational): Long = x.longValue
 
-  def toFloat(x: Rational) = x.floatValue
+  def toFloat(x: Rational): Float = x.floatValue
 
-  def toDouble(x: Rational) = x.doubleValue
+  def toDouble(x: Rational): Double = x.doubleValue
 
-  def compare(x: Rational, y: Rational) = x compare y
+  def compare(x: Rational, y: Rational): Int = x compare y
 
 }

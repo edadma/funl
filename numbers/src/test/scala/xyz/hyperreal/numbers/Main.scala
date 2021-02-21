@@ -1,13 +1,13 @@
 package xyz.hyperreal.numbers
 
-//import Rational._
+import Rational._
 //import ComplexBigDecimal._
-import BigDecimalMath.decimal128._
-import QuaternionDouble._
+//import BigDecimalMath.decimal128._
+import QuaternionRational._
 
 object Main extends App {
 
-  val q = 1 + 2 * i + 3 * j + 4 * k //QuaternionInt(1, 2, 3, 4)
+  val q: QuaternionRational = 1 \ 2 + 2 \ 3 * i + 3 \ 4 * j + 4 \ 5 * k
 
   println(q + 1)
 

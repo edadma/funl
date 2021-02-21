@@ -58,7 +58,7 @@ object QuaternionDouble {
 
   def apply(a: Double) = new QuaternionDouble(a, 0, 0, 0)
 
-  implicit def int2complex(a: Int): QuaternionDouble = QuaternionDouble(a)
+  implicit def int2quaternion(a: Int): QuaternionDouble = QuaternionDouble(a)
 
-  implicit def double2complex(a: Double): QuaternionDouble = QuaternionDouble(a)
+  implicit def double2quaternion(a: Double): QuaternionDouble = QuaternionDouble(a)
 }
