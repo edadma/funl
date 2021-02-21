@@ -128,14 +128,14 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       (ComplexBigIntType, n)
 
   def maybeDemote(n: ComplexRational): (Type, Number) =
-    if (n.a.isZero)
-      if (n.a.isInt)
-        if (n.a.n.isValidInt)
-          (IntType, Integer valueOf n.a.n.toInt)
+    if (n.im.isZero)
+      if (n.re.isInt)
+        if (n.re.n.isValidInt)
+          (IntType, Integer valueOf n.re.n.toInt)
         else
-          (ComplexRationalType, n)
+          (BigIntType, n.re.n)
       else
-        (RationalType, n.a)
+        (RationalType, n.re)
     else
       (ComplexRationalType, n)
 

@@ -1,53 +1,43 @@
 package xyz.hyperreal.numbers
 
-class ComplexRational(val re: Rational, val im: Rational) extends AbstractComplexRational[Rational, ComplexRational] {
+case class ComplexRational(re: Rational, im: Rational) extends AbstractComplexRational[Rational, ComplexRational] {
 
-  protected def fractional(a: Rational) = a.doubleValue
+  protected def fractional(a: Rational): Double = a.doubleValue
 
-  protected def complex(re: Rational, im: Rational) = ComplexRational(re, im)
+  protected def complex(re: Rational, im: Rational): ComplexRational = ComplexRational(re, im)
 
-  protected def promote = ComplexDouble(re.doubleValue, im.doubleValue)
+  protected def promote: ComplexDouble = ComplexDouble(re.doubleValue, im.doubleValue)
 
-  protected def divide(a: Rational, b: Rational) = a / b
+  protected def divide(a: Rational, b: Rational): Rational = a / b
 
-  def zero = ComplexRational.zero
+  def zero: ComplexRational = ComplexRational.zero
 
-  def one = ComplexRational.one
+  def one: ComplexRational = ComplexRational.one
 
-  def i = ComplexRational.i
+  def i: ComplexRational = ComplexRational.i
 
-  def doubleValue = abs.doubleValue
+  def doubleValue: Double = abs.doubleValue
 
-  def floatValue = abs.floatValue
+  def floatValue: Float = abs.floatValue
 
-  def intValue = abs.intValue
+  def intValue: Int = abs.intValue
 
-  def longValue = abs.longValue
-
-  override def equals(o: Any): Boolean =
-    o match {
-      case r: Int      => im == 0 && re == r
-      case r: BigInt   => im == 0 && re == r
-      case r: Rational => im == 0 && re == r
-      case _           => this == o
-    }
+  def longValue: Long = abs.longValue
 
 }
 
 object ComplexRational {
 
-  def apply(re: Rational, im: Rational) = new ComplexRational(re, im)
+  val i: ComplexRational = ComplexRational(0, 1)
 
-  val i = ComplexRational(0, 1)
+  val zero: ComplexRational = ComplexRational(0, 0)
 
-  val zero = ComplexRational(0, 0)
-
-  val one = ComplexRational(1, 0)
+  val one: ComplexRational = ComplexRational(1, 0)
 
   def apply(a: Rational) = new ComplexRational(a, 0)
 
-  implicit def int2complex(a: Int) = ComplexRational(a)
+  implicit def int2complex(a: Int): ComplexRational = ComplexRational(a)
 
-  implicit def rational2complex(a: Rational) = ComplexRational(a)
+  implicit def rational2complex(a: Rational): ComplexRational = ComplexRational(a)
 
 }
