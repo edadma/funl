@@ -1,10 +1,10 @@
 package xyz.hyperreal.dal
 
-import xyz.hyperreal.numbers.{BigDecimalMath, Rational}
+import xyz.hyperreal.numbers.BigDecimalMath
 import xyz.hyperreal.numbers.BigDecimalMath.decimal128._
 
 import java.{lang => boxed}
-import scala.math.{BigInt, abs, pow}
+import scala.math.{BigInt, pow}
 
 object ComplexDAL extends DAL {
 

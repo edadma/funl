@@ -2,7 +2,7 @@ package xyz.hyperreal.numbers
 
 import math._
 
-class QuaternionDouble(val a: Double, val b: Double, val c: Double, val d: Double) extends AbstractQuaternionRational[Double, QuaternionDouble] {
+case class QuaternionDouble(a: Double, b: Double, c: Double, d: Double) extends AbstractQuaternionRational[Double, QuaternionDouble] {
 
   protected def fractional(a: Double): Double = a
 
@@ -46,9 +46,6 @@ class QuaternionDouble(val a: Double, val b: Double, val c: Double, val d: Doubl
 }
 
 object QuaternionDouble {
-
-  def apply(a: Double, b: Double, c: Double, d: Double) = new QuaternionDouble(a, b, c, d)
-
   val i: QuaternionDouble = QuaternionDouble(0, 1, 0, 0)
 
   val j: QuaternionDouble = QuaternionDouble(0, 0, 1, 0)
