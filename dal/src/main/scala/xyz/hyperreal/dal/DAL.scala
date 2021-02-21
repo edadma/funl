@@ -501,3 +501,8 @@ case object ComplexBigIntType extends Type
 case object ComplexRationalType extends Type
 case object ComplexDoubleType extends Type
 case object ComplexBigDecType extends Type
+case object QuaternionIntType extends Type
+case object QuaternionBigIntType extends Type
+case object QuaternionRationalType extends Type
+case object QuaternionDoubleType extends Type
+case object QuaternionBigDecType extends Type

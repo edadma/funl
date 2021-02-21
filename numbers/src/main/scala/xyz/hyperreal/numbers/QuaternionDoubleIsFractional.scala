@@ -31,7 +31,7 @@ trait QuaternionDoubleIsFractional extends Fractional[QuaternionDouble] {
 
   def toDouble(x: QuaternionDouble): Double = x.doubleValue
 
-  def compare(x: QuaternionDouble, y: QuaternionDouble): Int = sys.error("can't compare complex numbers")
+  def compare(x: QuaternionDouble, y: QuaternionDouble): Int = sys.error("can't compare quaternion numbers")
 
 }
 
@@ -40,6 +40,6 @@ object QuaternionDoubleIsFractional {
   private val QUATERNION_DOUBLE =
     """(-?(?:0|[1-9]\d*)(?:\.\d*)?(?:[eE](?:\+|-|)\d+)?)[+-]((?:0|[1-9]\d*)(?:\.\d*)?(?:[eE](?:\+|-|)\d+)?)?i[+-]((?:0|[1-9]\d*)(?:\.\d*)?(?:[eE](?:\+|-|)\d+)?)?j[+-]((?:0|[1-9]\d*)(?:\.\d*)?(?:[eE](?:\+|-|)\d+)?)?k""".r
 
-  implicit object complexDoubleIsFractional extends QuaternionDoubleIsFractional
+  implicit object quaternionDoubleIsFractional extends QuaternionDoubleIsFractional
 
 }
