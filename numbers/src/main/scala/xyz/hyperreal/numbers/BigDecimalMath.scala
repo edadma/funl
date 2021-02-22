@@ -23,7 +23,18 @@ class BigDecimalMath(val mc: MathContext) {
   class ComplexBigDecimalConst(compute: => ComplexBigDecimal) {
     private var _value: ComplexBigDecimal = null
 
-    def v = {
+    def v: ComplexBigDecimal = {
+      if (_value == null || _value.bdmath.mc != mc)
+        _value = compute
+
+      _value
+    }
+  }
+
+  class QuaternionBigDecimalConst(compute: => QuaternionBigDecimal) {
+    private var _value: QuaternionBigDecimal = null
+
+    def v: QuaternionBigDecimal = {
       if (_value == null || _value.bdmath.mc != mc)
         _value = compute
 
@@ -45,10 +56,15 @@ class BigDecimalMath(val mc: MathContext) {
   val Pi = new Const(compute_pi)
   val E = new Const(compute_e)
   val LN2 = new Const(compute_ln2)
-  val I = new ComplexBigDecimalConst(ComplexBigDecimal(0, 1)(this))
+  val IC = new ComplexBigDecimalConst(ComplexBigDecimal(0, 1)(this))
+  val IQ = new QuaternionBigDecimalConst(QuaternionBigDecimal(0, 1, 0, 0)(this))
+  val JQ = new QuaternionBigDecimalConst(QuaternionBigDecimal(0, 0, 1, 0)(this))
+  val KQ = new QuaternionBigDecimalConst(QuaternionBigDecimal(0, 0, 0, 1)(this))
 
   private[numbers] val ZEROC = new ComplexBigDecimalConst(ComplexBigDecimal(0, 0)(this))
   private[numbers] val ONEC = new ComplexBigDecimalConst(ComplexBigDecimal(1, 0)(this))
+  private[numbers] val ZEROQ = new QuaternionBigDecimalConst(QuaternionBigDecimal(0, 0, 0, 0)(this))
+  private[numbers] val ONEQ = new QuaternionBigDecimalConst(QuaternionBigDecimal(1, 0, 0, 0)(this))
 
   private[numbers] def bigDecimal(n: Int): BigDecimal = BigDecimal(n, mc)
 

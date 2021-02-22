@@ -44,7 +44,7 @@ case class ComplexBigDecimal(re: BigDecimal, im: BigDecimal)(implicit val bdmath
 
   def one: ComplexBigDecimal = bdmath.ONEC.v: ComplexBigDecimal
 
-  def i: ComplexBigDecimal = bdmath.I.v
+  def i: ComplexBigDecimal = bdmath.IC.v
 
   def doubleValue: Double = abs.toDouble
 

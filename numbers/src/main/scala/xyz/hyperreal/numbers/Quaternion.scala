@@ -81,10 +81,8 @@ abstract class Quaternion[T: Numeric, F: Fractional, Q <: Quaternion[T, F, Q, P]
     this ^ implicitly[Fractional[F]].div(onef, implicitly[Fractional[F]].fromInt(2))
 
   lazy val sgn: P =
-    if (this == zero)
-      promote(zerof, zerof, zerof, zerof)
-    else
-      this.promote / norm
+    if (this == zero) zero.promote
+    else this.promote / norm
 
   lazy val arg: F = _acos(fdivide(fractional(a), norm))
 

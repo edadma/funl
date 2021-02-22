@@ -9,7 +9,9 @@ import xyz.hyperreal.numbers.{
   ComplexBigInt,
   ComplexDouble,
   ComplexRational,
+  QuaternionBigDecimal,
   QuaternionBigInt,
+  QuaternionDouble,
   QuaternionRational,
   Rational
 }
@@ -114,9 +116,23 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case _                  => sys.error("can't convert from " + a)
     }
 
+  def toQuaternionDouble(a: Number): QuaternionDouble =
+    a match {
+      case cd: ComplexDouble   => QuaternionDouble(cd.re, cd.im, 0, 0)
+      case q: QuaternionDouble => q
+      case i: boxed.Integer    => QuaternionDouble(i.doubleValue)
+      case d: boxed.Double     => QuaternionDouble(d)
+      case r: Rational         => QuaternionDouble(r.doubleValue)
+      case bi: BigInt          => QuaternionDouble(bi.doubleValue)
+      case cbi: ComplexBigInt  => QuaternionDouble(cbi.re.doubleValue, cbi.re.doubleValue, 0, 0)
+      case q: QuaternionBigInt => QuaternionDouble(q.a.doubleValue, q.b.doubleValue, q.c.doubleValue, q.d.doubleValue)
+      case _                   => sys.error("can't convert from " + a)
+    }
+
   def toComplexBigDecimal(a: Number): ComplexBigDecimal =
     a match {
       case cd: ComplexBigDecimal => cd
+      case cbi: ComplexBigInt    => ComplexBigDecimal(BigDecimal(cbi.re), BigDecimal(cbi.im))
       case bd: BigDecimal        => new ComplexBigDecimal(bd, 0)
       case i: boxed.Integer      => new ComplexBigDecimal(i.asInstanceOf[Int], 0)
       case d: boxed.Double       => new ComplexBigDecimal(d.asInstanceOf[Double], 0)
@@ -128,6 +144,26 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
         val len = digits(bi)
 
         new ComplexBigDecimal(BigDecimal(bi, if (len >= bdmath.mc.getPrecision) mathContext(len + 5) else bdmath.mc), 0)
+      case _ => sys.error("can't convert from " + a)
+    }
+
+  def toQuaternionBigDecimal(a: Number): QuaternionBigDecimal =
+    a match {
+      case q: QuaternionBigDecimal => q
+      case q: QuaternionBigInt     => QuaternionBigDecimal(BigDecimal(q.a), BigDecimal(q.b), BigDecimal(q.c), BigDecimal(q.d))
+      case cbi: ComplexBigInt      => QuaternionBigDecimal(BigDecimal(cbi.re), BigDecimal(cbi.im), 0, 0)
+      case cd: ComplexBigDecimal   => QuaternionBigDecimal(cd.re, cd.im, 0, 0)
+      case bd: BigDecimal          => QuaternionBigDecimal(bd)
+      case i: boxed.Integer        => QuaternionBigDecimal(i.asInstanceOf[Int])
+      case d: boxed.Double         => QuaternionBigDecimal(d.asInstanceOf[Double])
+      case Rational(n, d) =>
+        val quo = toBigDecimal(n) / toBigDecimal(d)
+
+        QuaternionBigDecimal(if (quo.precision > bdmath.mc.getPrecision) quo.round(bdmath.mc) else quo)
+      case bi: BigInt =>
+        val len = digits(bi)
+
+        QuaternionBigDecimal(BigDecimal(bi, if (len >= bdmath.mc.getPrecision) mathContext(len + 5) else bdmath.mc))
       case _ => sys.error("can't convert from " + a)
     }
 
@@ -178,6 +214,22 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       (ComplexBigIntType, ComplexBigInt(n.re.n, n.im.n))
     else
       (ComplexRationalType, n)
+
+  def maybeDemote(n: QuaternionRational): (Type, Number) =
+    if (n.b.isZero && n.c.isZero && n.d.isZero)
+      if (n.a.isInt)
+        if (n.a.n.isValidInt)
+          (IntType, Integer valueOf n.a.n.toInt)
+        else
+          (BigIntType, n.a.n)
+      else
+        (RationalType, n.a)
+    else if (n.c.isZero && n.d.isZero)
+      maybeDemote(ComplexRational(n.a.n, n.b.n))
+    else if (n.a.isInt && n.b.isInt && n.c.isInt && n.d.isInt)
+      (QuaternionBigIntType, QuaternionBigInt(n.a.n, n.b.n, n.c.n, n.d.n))
+    else
+      (QuaternionRationalType, n)
 
   protected def boolean(b: Boolean): (Type, Boolean) = (null, b)
 
