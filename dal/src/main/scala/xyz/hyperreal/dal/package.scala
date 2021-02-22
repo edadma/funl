@@ -4,24 +4,26 @@ import xyz.hyperreal.numbers.{ComplexBigDecimal, ComplexBigInt, ComplexDouble, C
 
 import math.{sqrt => sqr, _}
 import java.{lang => boxed}
+import scala.annotation.tailrec
 
 package object dal {
   type Operator = (Number, Number) => (Type, AnyRef)
 
-  val ZERObi = BigInt(0)
-  val ONEbi = BigInt(1)
+  val ZERObi: BigInt = BigInt(0)
+  val ONEbi: BigInt = BigInt(1)
 
-  def asinh(x: Double) = log(x + sqr(x * x + 1))
+  def asinh(x: Double): Double = log(x + sqr(x * x + 1))
 
-  def acosh(x: Double) = log(x + sqr(x * x - 1))
+  def acosh(x: Double): Double = log(x + sqr(x * x - 1))
 
-  def atanh(x: Double) = (log(1 + x) - log(1 - x)) / 2
+  def atanh(x: Double): Double = (log(1 + x) - log(1 - x)) / 2
 
   private lazy val lg2 = log10(2)
 
-  def digits(n: BigInt) = (n.bitLength * lg2).toInt + 1
+  def digits(n: BigInt): Int = (n.bitLength * lg2).toInt + 1
 
-  def gcd(a: Int, b: Int) = {
+  def gcd(a: Int, b: Int): Int = {
+    @tailrec
     def _gcd(_a: Int, _b: Int): Int =
       if (_b == 0)
         _a
@@ -31,7 +33,8 @@ package object dal {
     _gcd(abs(a), abs(b))
   }
 
-  def egcd(a: Int, b: Int) = {
+  def egcd(a: Int, b: Int): (Int, Int, Int) = {
+    @tailrec
     def _egcd(a: Int, b: Int, s1: Int, s2: Int, t1: Int, t2: Int): (Int, Int, Int) =
       if (b == 0)
         (a, s2, t2)
@@ -49,20 +52,21 @@ package object dal {
       res
   }
 
-  def divides(a: Int, b: Int) = b % a == 0
+  def divides(a: Int, b: Int): Boolean = b % a == 0
 
-  def even(a: Int) = divides(2, a)
+  def even(a: Int): Boolean = divides(2, a)
 
-  def odd(a: Int) = !even(a)
+  def odd(a: Int): Boolean = !even(a)
 
-  def coprime(a: Int, b: Int) = gcd(a, b) == 1
+  def coprime(a: Int, b: Int): Boolean = gcd(a, b) == 1
 
   def coprime(a: Int, bs: List[Int]): Boolean = bs forall (coprime(a, _))
 
+  @tailrec
   def coprime(as: List[Int]): Boolean =
     coprime(as.head, as.tail) && (as.tail == Nil || coprime(as.tail))
 
-  def mod(a: Int, m: Int) =
+  def mod(a: Int, m: Int): Int =
     if (a >= m)
       a % m
     else if (a < 0)
@@ -70,7 +74,7 @@ package object dal {
     else
       a
 
-  def modinv(a: Int, m: Int) = {
+  def modinv(a: Int, m: Int): Int = {
     val (g, s, _) = egcd(a, m)
 
     if (g != 1) sys.error("modinv: no inverse")
@@ -78,15 +82,15 @@ package object dal {
     mod(s, m)
   }
 
-  def crt(eqs: (Int, Int)*) = {
-    if (eqs.length == 0) sys.error("crt: system is empty")
+  def crt(eqs: (Int, Int)*): Int = {
+    if (eqs.isEmpty) sys.error("crt: system is empty")
 
     val mods = eqs map (_._2) toList
 
     if (!coprime(mods))
       sys.error("crt: the moduli must all be pairwise coprime")
 
-    val M = mods reduceLeft (_ * _)
+    val M = mods.product
     var s = 0
 
     for ((ai, mi) <- eqs) {
@@ -98,11 +102,11 @@ package object dal {
     mod(s, M)
   }
 
-  def nearly(x: Double, y: Double) = (x - y).abs < 1e-15
+  def nearly(x: Double, y: Double): Boolean = (x - y).abs < 1e-15
 
-  def roughly(x: Double, y: Double) = (x - y).abs < 1e-13
+  def roughly(x: Double, y: Double): Boolean = (x - y).abs < 1e-13
 
-  def bitIntPow(b: BigInt, e: BigInt) = {
+  def bitIntPow(b: BigInt, e: BigInt): BigInt = {
     require(e >= ZERObi, "Util.pow: exponent must be non-negative")
 
     def _pow(b: BigInt, e: BigInt): BigInt =

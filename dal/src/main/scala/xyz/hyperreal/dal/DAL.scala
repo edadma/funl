@@ -3,7 +3,16 @@ package xyz.hyperreal.dal
 import java.math.{MathContext, RoundingMode}
 import java.{lang => boxed}
 import scala.math._
-import xyz.hyperreal.numbers.{BigDecimalMath, ComplexBigDecimal, ComplexBigInt, ComplexDouble, ComplexRational, Rational}
+import xyz.hyperreal.numbers.{
+  BigDecimalMath,
+  ComplexBigDecimal,
+  ComplexBigInt,
+  ComplexDouble,
+  ComplexRational,
+  QuaternionBigInt,
+  QuaternionRational,
+  Rational
+}
 
 import scala.collection.mutable
 
@@ -64,13 +73,33 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
       case _                  => sys.error("can't convert from " + a)
     }
 
+  def toQuaternionBigInt(a: Number): QuaternionBigInt =
+    a match {
+      case bi: BigInt          => QuaternionBigInt(bi)
+      case i: boxed.Integer    => QuaternionBigInt(toBigInt(i))
+      case cbi: ComplexBigInt  => QuaternionBigInt(cbi.re, cbi.im, 0, 0)
+      case q: QuaternionBigInt => q
+      case _                   => sys.error("can't convert from " + a)
+    }
+
   def toComplexRational(a: Number): ComplexRational =
     a match {
       case bi: BigInt          => ComplexRational(toRational(bi))
       case i: boxed.Integer    => ComplexRational(toRational(i))
       case r: Rational         => ComplexRational(r)
-      case cbi: ComplexBigInt  => ComplexRational(toRational(cbi.re), toRational(cbi.re))
+      case cbi: ComplexBigInt  => ComplexRational(toRational(cbi.re), toRational(cbi.im))
       case cr: ComplexRational => cr
+      case _                   => sys.error("can't convert from " + a)
+    }
+
+  def toQuaternionRational(a: Number): QuaternionRational =
+    a match {
+      case bi: BigInt          => QuaternionRational(toRational(bi))
+      case i: boxed.Integer    => QuaternionRational(toRational(i))
+      case r: Rational         => QuaternionRational(r)
+      case cbi: ComplexBigInt  => QuaternionRational(toRational(cbi.re), toRational(cbi.im), 0, 0)
+      case cr: ComplexRational => QuaternionRational(cr.re, cr.im, 0, 0)
+      case q: QuaternionBigInt => QuaternionRational(toRational(q.a), toRational(q.b), toRational(q.c), toRational(q.d))
       case _                   => sys.error("can't convert from " + a)
     }
 
@@ -122,10 +151,19 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
     }
 
   def maybeDemote(n: ComplexBigInt): (Type, Number) =
-    if (n.re == 0)
+    if (n.im == 0)
       maybeDemote(n.re)
     else
       (ComplexBigIntType, n)
+
+  def maybeDemote(n: QuaternionBigInt): (Type, Number) =
+    if (n.c == 0 && n.d == 0) {
+      if (n.b == 0)
+        maybeDemote(n.a)
+      else
+        maybeDemote(ComplexBigInt(n.a, n.b))
+    } else
+      (QuaternionBigIntType, n)
 
   def maybeDemote(n: ComplexRational): (Type, Number) =
     if (n.im.isZero)
@@ -136,6 +174,8 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
           (BigIntType, n.re.n)
       else
         (RationalType, n.re)
+    else if (n.re.isInt && n.im.isInt)
+      (ComplexBigIntType, ComplexBigInt(n.re.n, n.im.n))
     else
       (ComplexRationalType, n)
 

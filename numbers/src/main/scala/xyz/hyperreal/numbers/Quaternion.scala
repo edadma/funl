@@ -84,7 +84,7 @@ abstract class Quaternion[T: Numeric, F: Fractional, Q <: Quaternion[T, F, Q, P]
     if (this == zero)
       promote(zerof, zerof, zerof, zerof)
     else
-      this \ norm
+      this.promote / norm
 
   lazy val arg: F = _acos(fdivide(fractional(a), norm))
 

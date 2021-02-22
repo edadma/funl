@@ -26,7 +26,11 @@ object QuaternionDAL extends DAL {
     ComplexBigIntType -> ((l: Number, r: Number) => maybeDemote(toComplexBigInt(l) + toComplexBigInt(r))),
     ComplexRationalType -> ((l: Number, r: Number) => maybeDemote(toComplexRational(l) + toComplexRational(r))),
     ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) + toComplexDouble(r))),
-    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) + toComplexBigDecimal(r)))
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) + toComplexBigDecimal(r))),
+    QuaternionBigIntType -> ((l: Number, r: Number) => maybeDemote(toQuaternionBigInt(l) + toQuaternionBigInt(r))),
+    QuaternionRationalType -> ((l: Number, r: Number) => maybeDemote(toQuaternionRational(l) + toQuaternionRational(r))),
+    QuaternionDoubleType -> ((l: Number, r: Number) => (QuaternionDoubleType, toQuaternionDouble(l) + toQuaternionDouble(r))),
+    QuaternionBigDecType -> ((l: Number, r: Number) => (QuaternionBigDecType, toQuaternionBigDecimal(l) + toQuaternionBigDecimal(r)))
   )
 
   operation(
