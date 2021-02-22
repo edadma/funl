@@ -114,7 +114,7 @@ abstract class DAL(implicit var bdmath: BigDecimalMath) {
   protected def bigIntPow(n: Number, e: Number): (Type, Number) =
     e match {
       case i: boxed.Integer =>
-        val res = BigInt(i).pow(abs(i))
+        val res = toBigInt(n).pow(abs(i))
 
         if (i < 0) maybeDemote(Rational.oneOver(res))
         else maybeDemote(res)

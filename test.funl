@@ -1,4 +1,5 @@
-if 'aaa12cc' ? tab(many('a')) & write(repn(2, ccls(digits))) & write(rep1(string('c')))
-  write('match')
-else
-  write('mismatch')
+;;def triples( n ) = [(a, b, c) | a <- 1..n-2, b <- a+1..n-1, c <- b+1..n if a^2 + b^2 == c^2]
+
+;;write( triples(20) )
+
+write(5^2)
