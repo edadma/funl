@@ -65,13 +65,11 @@ abstract class Quaternion[T: Numeric, F: Fractional, Q <: Quaternion[T, F, Q, P]
 
   def onef: F = implicitly[Fractional[F]].one
 
-  lazy val norm2: T = a * a + b * b + c * c + d * d
+  lazy val norm: T = a * a + b * b + c * c + d * d
 
-  lazy val norm: F = _sqrt(fractional(norm2))
+  lazy val abs: F = _sqrt(fractional(norm))
 
-  def abs: F = norm
-
-  lazy val vnorm: F = _sqrt(fractional(b * b + c * c + d * d))
+  lazy val absv: F = _sqrt(fractional(b * b + c * c + d * d))
 
   def floor: P = promote(_floor(fractional(a)), _floor(fractional(b)), _floor(fractional(c)), _floor(fractional(d)))
 
@@ -82,17 +80,17 @@ abstract class Quaternion[T: Numeric, F: Fractional, Q <: Quaternion[T, F, Q, P]
 
   lazy val sgn: P =
     if (this == zero) zero.promote
-    else this.promote / norm
+    else this.promote / abs
 
-  lazy val arg: F = _acos(fdivide(fractional(a), norm))
+  lazy val arg: F = _acos(fdivide(fractional(a), abs))
 
   //protected implicit def int2T(n: Int): T = implicitly[Numeric[T]].fromInt(n)
 
   lazy val im: Q = (this - conj) / 2
 
-  lazy val ln: P = promote(_ln(norm)) + im.sgn * arg
+  lazy val ln: P = promote(_ln(abs)) + im.sgn * arg
 
-  def exp: P = promote(_exp(fractional(a))) * (promote(_cos(im.norm)) + im.sgn * _sin(im.norm))
+  def exp: P = promote(_exp(fractional(a))) * (promote(_cos(im.abs)) + im.sgn * _sin(im.abs))
 
   def sin: P = promote(onef)
 
@@ -188,7 +186,7 @@ abstract class Quaternion[T: Numeric, F: Fractional, Q <: Quaternion[T, F, Q, P]
 
   def unary_- : Q = quaternion(-a, -b, -c, -d)
 
-  def inverse: Q = conj / norm2
+  def inverse: Q = conj / norm
 
   override def equals(o: Any): Boolean =
     o match {

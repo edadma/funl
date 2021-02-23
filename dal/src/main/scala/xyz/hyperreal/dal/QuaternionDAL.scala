@@ -98,7 +98,11 @@ object QuaternionDAL extends DAL {
     ComplexBigIntType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
     ComplexRationalType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
     ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) / toComplexDouble(r))),
-    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) / toComplexBigDecimal(r)))
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) / toComplexBigDecimal(r))),
+    QuaternionBigIntType -> ((l: Number, r: Number) => (QuaternionDoubleType, toQuaternionDouble(l) / toQuaternionDouble(r))),
+    QuaternionRationalType -> ((l: Number, r: Number) => (QuaternionDoubleType, toQuaternionDouble(l) / toQuaternionDouble(r))),
+    QuaternionDoubleType -> ((l: Number, r: Number) => (QuaternionDoubleType, toQuaternionDouble(l) / toQuaternionDouble(r))),
+    QuaternionBigDecType -> ((l: Number, r: Number) => (QuaternionBigDecType, toQuaternionBigDecimal(l) / toQuaternionBigDecimal(r))),
   )
 
   operation(
@@ -118,7 +122,11 @@ object QuaternionDAL extends DAL {
     ComplexBigIntType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) ^ toComplexDouble(r))),
     ComplexRationalType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) ^ toComplexDouble(r))),
     ComplexDoubleType -> ((l: Number, r: Number) => (ComplexDoubleType, toComplexDouble(l) ^ toComplexDouble(r))),
-    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) ^ toComplexBigDecimal(r)))
+    ComplexBigDecType -> ((l: Number, r: Number) => (ComplexBigDecType, toComplexBigDecimal(l) ^ toComplexBigDecimal(r))),
+    QuaternionBigIntType -> ((l: Number, r: Number) => (QuaternionDoubleType, toQuaternionDouble(l) ^ toQuaternionDouble(r))),
+    QuaternionRationalType -> ((l: Number, r: Number) => (QuaternionDoubleType, toQuaternionDouble(l) ^ toQuaternionDouble(r))),
+    QuaternionDoubleType -> ((l: Number, r: Number) => (QuaternionDoubleType, toQuaternionDouble(l) ^ toQuaternionDouble(r))),
+    QuaternionBigDecType -> ((l: Number, r: Number) => (QuaternionBigDecType, toQuaternionBigDecimal(l) ^ toQuaternionBigDecimal(r))),
   )
 
   operation(
@@ -139,10 +147,14 @@ object QuaternionDAL extends DAL {
     RationalType -> ((l: Number, r: Number) => boolean(toRational(l) == toRational(r))),
     DoubleType -> ((l: Number, r: Number) => boolean(l.doubleValue == r.doubleValue)),
     BigDecType -> ((l: Number, r: Number) => boolean(toBigDecimal(l) == toBigDecimal(r))),
-    ComplexBigIntType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) == toComplexDouble(r))),
-    ComplexRationalType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) == toComplexDouble(r))),
+    ComplexBigIntType -> ((l: Number, r: Number) => boolean(toComplexBigInt(l) == toComplexBigInt(r))),
+    ComplexRationalType -> ((l: Number, r: Number) => boolean(toComplexRational(l) == toComplexRational(r))),
     ComplexDoubleType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) == toComplexDouble(r))),
-    ComplexBigDecType -> ((l: Number, r: Number) => boolean(toComplexBigDecimal(l) == toComplexBigDecimal(r)))
+    ComplexBigDecType -> ((l: Number, r: Number) => boolean(toComplexBigDecimal(l) == toComplexBigDecimal(r))),
+    QuaternionBigIntType -> ((l: Number, r: Number) => boolean(toQuaternionBigInt(l) == toQuaternionBigInt(r))),
+    QuaternionRationalType -> ((l: Number, r: Number) => boolean(toQuaternionRational(l) == toQuaternionRational(r))),
+    QuaternionDoubleType -> ((l: Number, r: Number) => boolean(toQuaternionDouble(l) == toQuaternionDouble(r))),
+    QuaternionBigDecType -> ((l: Number, r: Number) => boolean(toQuaternionBigDecimal(l) == toQuaternionBigDecimal(r)))
   )
 
   relation(
@@ -156,7 +168,11 @@ object QuaternionDAL extends DAL {
     ComplexBigIntType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) != toComplexDouble(r))),
     ComplexRationalType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) != toComplexDouble(r))),
     ComplexDoubleType -> ((l: Number, r: Number) => boolean(toComplexDouble(l) != toComplexDouble(r))),
-    ComplexBigDecType -> ((l: Number, r: Number) => boolean(toComplexBigDecimal(l) != toComplexBigDecimal(r)))
+    ComplexBigDecType -> ((l: Number, r: Number) => boolean(toComplexBigDecimal(l) != toComplexBigDecimal(r))),
+    QuaternionBigIntType -> ((l: Number, r: Number) => boolean(toQuaternionBigInt(l) == toQuaternionBigInt(r))),
+    QuaternionRationalType -> ((l: Number, r: Number) => boolean(toQuaternionRational(l) == toQuaternionRational(r))),
+    QuaternionDoubleType -> ((l: Number, r: Number) => boolean(toQuaternionDouble(l) == toQuaternionDouble(r))),
+    QuaternionBigDecType -> ((l: Number, r: Number) => boolean(toQuaternionBigDecimal(l) == toQuaternionBigDecimal(r)))
   )
 
   relation(
