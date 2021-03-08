@@ -1,6 +1,6 @@
 ThisBuild / organization  := "xyz.hyperreal"
 ThisBuild / version       := "0.1.0-snapshot.1"
-ThisBuild / scalaVersion  := "2.13.4"
+ThisBuild / scalaVersion  := "2.13.5"
 ThisBuild / resolvers     += "Hyperreal Repository" at "https://dl.bintray.com/edadma/maven"
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation", "-feature", "-unchecked",
@@ -24,16 +24,11 @@ lazy val bvm = project
   )
 
 lazy val dal = project
-  .dependsOn(numbers)
   .settings(
-    name := "dal"
+    name := "dal",
+    libraryDependencies += "xyz.hyperreal" %% "numbers" % "0.1.0"
   )
-  
-lazy val numbers = project
-  .settings(
-    name := "numbers"
-  )
-  
+
 lazy val matrix = project
   .dependsOn(dal)
   .settings(

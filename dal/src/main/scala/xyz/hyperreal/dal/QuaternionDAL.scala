@@ -15,6 +15,20 @@ object QuaternionDAL extends DAL {
   special(BigDecType, ComplexRationalType, ComplexBigDecType)
   special(BigDecType, ComplexDoubleType, ComplexBigDecType)
 
+  special(DoubleType, QuaternionBigIntType, QuaternionDoubleType)
+  special(BigDecType, QuaternionBigIntType, QuaternionBigDecType)
+  special(RationalType, QuaternionBigIntType, QuaternionRationalType)
+  special(DoubleType, QuaternionRationalType, QuaternionDoubleType)
+  special(BigDecType, QuaternionRationalType, QuaternionBigDecType)
+  special(BigDecType, QuaternionDoubleType, QuaternionBigDecType)
+
+  special(ComplexDoubleType, QuaternionBigIntType, QuaternionDoubleType)
+  special(ComplexBigDecType, QuaternionBigIntType, QuaternionBigDecType)
+  special(ComplexRationalType, QuaternionBigIntType, QuaternionRationalType)
+  special(ComplexDoubleType, QuaternionRationalType, QuaternionDoubleType)
+  special(ComplexBigDecType, QuaternionRationalType, QuaternionBigDecType)
+  special(ComplexBigDecType, QuaternionDoubleType, QuaternionBigDecType)
+
   operation(
     Symbol("+"),
     IntType -> ((l: Number, r: Number) => maybePromote(l.longValue + r.longValue)),
