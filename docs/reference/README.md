@@ -13,6 +13,7 @@ the language cannot disagree for long.
 | page | what it covers |
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Generators](generators.md) | expressions with many values, backtracking, `!`, `\|`, `to`, ranges, `&`, `yield`, reversible assignment, bounded expressions, `every`, `for`, `break`/`continue` and labels |
 
 ## How a page is checked
 
