@@ -482,7 +482,7 @@ pattern, and a lookbehind compiles its body in the opposite one.
 **Semantics are leftmost-first backtracking, Perl's and JavaScript's, not POSIX's leftmost-longest.**
 A machine whose alternatives are tried in order cannot be leftmost-longest without exploring every
 match, and goal-directed evaluation wants the order anyway. [The implementation
-chapter](implementation.md#regex-the-att-data-and-a-second-oracle) says what that means for the AT&T
+chapter](implementation.md#regex-the-att-data-and-tests-worked-by-hand) says what that means for the AT&T
 conformance data, which is written for POSIX.
 
 ### The combinators are the same patterns

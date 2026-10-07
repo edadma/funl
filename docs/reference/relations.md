@@ -212,11 +212,50 @@ anne
 Inside a relation, a name means one of these, in order:
 
 1. a parameter of the head is a variable of the clause;
-2. a name that is defined at the top level — a function, a relation, a `data` constructor — means
-   that definition;
+2. a name that is defined at the top level — a function, a relation, a `data` constructor, a
+   `val` — means that definition, and a `val` means its value;
 3. any other name is a new logic variable of the clause, unbound each time the clause is entered:
    `z` in `path` above, `f` and `m` in `full_siblings`;
 4. `_` is a new anonymous variable at each place it is written.
+
+A `val` is read where the relation is defined, so a rule can name a limit or a constant once instead
+of in every clause. A `var`, a name declared with `free`, and a name a plain assignment makes can
+change, so a relation does not see them: in a rule body such a name is a clause variable like any
+other.
+
+```funl
+val limit = 10
+val origin = (0, 0)
+
+def under(x) :- x < limit
+def at_origin(p) :- p ~ origin
+
+free q
+
+write( under(3) )
+write( under(30) )
+if at_origin(q) then write( q )
+```
+
+```output
+()
+(0, 0)
+```
+
+Here `count` is a `var`, so in `small` it is a new, unbound clause variable, and `<` cannot compare
+with it:
+
+```funl
+var count = 5
+
+def small(x) :- x < count
+
+write( small(3) )
+```
+
+```error
+instantiation error: '<' was given an unbound variable
+```
 
 A clause variable written only once draws a warning, because it is usually a misspelling of another
 one. Starting the name with `_` (`_child`) says the single use is intended, and draws none:
@@ -418,7 +457,7 @@ def q(x) :- p(x) & !
 ```
 
 ```error
-expected an expression
+a FunL relation has no cut
 ```
 
 ## Collecting all solutions

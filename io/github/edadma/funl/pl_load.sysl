@@ -314,6 +314,10 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
     var goals: Buf[LoadStep] = buf()
     var inits: Buf[ReadClause] = buf()
 
+    // The reader's flag as the file found it: a `double_quotes` directive changes it while the file
+    // is read, and again, in its place, when the directives run.
+    val quotes = current().flags.double_quotes
+
     loop
         val c = next_clause(&r) match
             Done -> break
@@ -369,6 +373,10 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
                 by_key.put(key, groups.len())
                 groups.push(Group(name, n, cs))
     end loop
+
+    val v = current()
+
+    v.flags.double_quotes = quotes
 
     if report.has_errors() then return Err(why)
 
@@ -499,8 +507,11 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
             if n == "import" && args.len() == 1 && current().funl_front_end
                 return import_directive(src, report, args.at(0), goals, why)
 
-            // `set_prolog_flag/2` is carried out now, so `double_quotes` governs the clauses after it.
-            if n == "set_prolog_flag" && args.len() == 2
+            // `set_prolog_flag(double_quotes, _)` is carried out now as well, so it governs the clauses
+            // read after it. **Every flag is also set again as a goal in its place among the
+            // directives**, so a directive before it sees the flag as it was, and one after it sees the
+            // new value -- `load_file` puts the reader's flag back once the file is read.
+            if n == "set_prolog_flag" && args.len() == 2 && is_atom_named(args.at(0), "double_quotes")
                 var vars: Buf[Value] = buf()
 
                 val flag = term_value(args.at(0), &vars)
@@ -512,9 +523,9 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
 
                 set_flag(flag.unwrap(), value.unwrap()) match
                     Ok(_) -> ()
-                    Err(f) -> report.add(error(t.span, fault_text(f)))
-
-                return why
+                    Err(f) ->
+                        report.add(error(t.span, fault_text(f)))
+                        return why
 
             // `dynamic/1` is carried out now too: the file's own clauses for the predicates it
             // names are added to the database rather than compiled as static code.
@@ -536,6 +547,11 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
 
     goals.push(Goal(c))
     why
+
+// Whether `t` is the atom `name`.
+private is_atom_named(t: &Term, name: string) -> bool = t.kind match
+    TAtom(id) -> atom_name(id) == name
+    _ -> false
 
 // `:- op(P, T, Names)`, where `Names` is a name or a list of them.
 private op_directive(report: *Report, t: &Term, args: Buf[&Term])

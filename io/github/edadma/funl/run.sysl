@@ -148,7 +148,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             v.stack.push(Int(n))
             Ok(Next)
         LoadSlot(depth, slot) ->
-            v.stack.push(slot_of(frame_up(v, depth)?, slot)?)
+            v.stack.push(slot_of(link(v, depth)?, slot)?)
             Ok(Next)
         NewVar(slot) ->
             set_slot(v.frame, slot, Var(new_var()?))?
@@ -278,6 +278,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
                     if t.items.len() != n then return Ok(Fails)
 
                     push_parts(v, t.items)
+                    Ok(Next)
+
+                // The compound `tuple(...)` a Prolog caller builds is a tuple, as the term mapping has it.
+                Compound(c) ->
+                    if c.args.len() != n || atom_name(c.functor) != "tuple" then return Ok(Fails)
+
+                    push_parts(v, c.args)
                     Ok(Next)
                 Var(_) -> Err(instantiation_error("instantiation error: a tuple pattern was given an unbound variable"))
                 _ -> Ok(Fails)

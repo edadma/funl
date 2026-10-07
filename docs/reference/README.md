@@ -22,6 +22,7 @@ the language cannot disagree for long.
 | [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
 | [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |
 | [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
+| [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic and rationals, standard order, grammar rules, `format`, the builtin set |
 
 ## How a page is checked
 
