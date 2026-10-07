@@ -188,7 +188,7 @@ SETOF_SORTS_BY_THE_STANDARD_ORDER_OF_TERMS_AND_DROPS_DUPLICATES()
         "write( setof(x, r(x)) )\n" +
         "write( findall(x, r(x)).length )\n"
 
-    assert_eq(ran_funl(text), "[1, 2, [], a, b, s, f(1), f(2), [1], g(1, 2)]\n11\nsucceeded")
+    assert_eq(ran_funl(text), "[1, 2, [], a, b, \"s\", f(1), f(2), [1], g(1, 2)]\n11\nsucceeded")
 
 @test
 SETOF_PUTS_VARIABLES_FIRST_BY_AGE()
@@ -248,41 +248,54 @@ AN_INDEX_KEYS_TERMS_BY_FUNCTOR_AND_LISTS_BY_EMPTY_OR_NOT()
 A_LIST_IN_A_HEAD_UNIFIES_BOTH_WAYS()
     val text = "def\n" +
         "  first(h:_, h)\n" +
-        "  pair([a, b], (a, b))\n" +
-        "free x, l\n" +
+        "  swapped([a, b], [b, a])\n" +
+        "free x, l, y, z\n" +
         "if first([7, 8], x) then write(x)\n" +
         "if first(l, 3) then write(l)\n" +
-        "if pair([1, 2], x) then write(x)\n" +
-        "if pair([1, 2, 3], x) then write(#three) else write(#not_two)\n"
+        "if swapped([1, 2], y) then write(y)\n" +
+        "if swapped([1, 2, 3], z) then write(#three) else write(#not_two)\n"
 
     val said = ran_funl(text)
 
     assert(said.starts_with("7\n[3 | "), said)
-    assert(said.ends_with("(1, 2)\nnot_two\nsucceeded"), said)
+    assert(said.ends_with("[2, 1]\nnot_two\nsucceeded"), said)
 
 // What a program walking a list of `n` elements down a relation says, and its control stack's peak.
-private walked(n: long) -> Said
-    val text = "def\n" +
-        "  len([], a, a)\n" +
-        "  len(_:t, a, n) :- b ~ a + 1 & len(t, b, n)\n" +
-        s"val xs = [i | i <- 1..$n]\n" +
-        "free n\n" +
-        "if len(xs, 0, n) then write(n)\n"
+// With `first`, the list is the relation's first argument, which the index keys; otherwise it is the
+// second, and every clause is tried.
+private walked(n: long, first: bool) -> Said
+    val clauses = if first
+        "  len(_:t, a, n) :- b ~ a + 1 & len(t, b, n)\n  len([], a, a)\n"
+    else
+        "  len(a, _:t, n) :- b ~ a + 1 & len(b, t, n)\n  len(a, [], a)\n"
+    val query = if first then "if len(xs, 0, n) then write(n)\n" else "if len(0, xs, n) then write(n)\n"
+    val text = "def\n" + clauses + s"val xs = [i | i <- 1..$n]\n" + "free n\n" + query
 
-    run_on(1073741824, 67108864, 2, () -> compiled_text(text))
+    run_on(67108864, 16777216, 2, () -> compiled_text(text))
 
 // The index leaves no choice point for a call whose list is not empty, so the recursion is
 // deterministic and its control stack stays at the same height however long the list. Run on a roomy
 // heap alone: a heap collected at every step would mark the whole list at every instruction.
 @test
 A_RECURSIVE_RELATION_OVER_A_LONG_LIST_RUNS_IN_CONSTANT_CONTROL_STACK()
-    val short = walked(1000)
-    val long = walked(100000)
+    val short = walked(1000, true)
+    val long = walked(100000, true)
 
     assert_eq(short.text, "1000\nsucceeded")
     assert_eq(long.text, "100000\nsucceeded")
     assert_eq(long.control_peak, short.control_peak, "the control stack grew with the list")
-    assert(long.control_peak <= 4, s"the control stack reached ${long.control_peak} entries")
+    // A statement's mark and the marks and choice points of the code around the walk; the walk's own
+    // hundred thousand calls add none.
+    assert_eq(long.control_peak, 3, "the control stack's peak")
+
+// The index is what makes it so: walking the list as the second argument, which nothing keys, leaves
+// a choice point at every element for the empty-list clause that was not tried.
+@test
+THE_SAME_RECURSION_WITHOUT_AN_INDEX_GROWS_ITS_CONTROL_STACK()
+    val said = walked(1000, false)
+
+    assert_eq(said.text, "1000\nsucceeded")
+    assert(said.control_peak > 1000, s"the control stack reached only ${said.control_peak} entries")
 
 // The same walk on both heaps, short enough for the stress heap.
 @test
@@ -290,8 +303,8 @@ A_RECURSIVE_RELATION_OVER_A_LIST_SAYS_THE_SAME_ON_BOTH_HEAPS()
     val text = "def\n" +
         "  len([], a, a)\n" +
         "  len(_:t, a, n) :- b ~ a + 1 & len(t, b, n)\n" +
-        "free n\n" +
+        "free n, m\n" +
         "if len([4, 5, 6, 7], 0, n) then write(n)\n" +
-        "if len(1..20, 0, n) then write(n)\n"
+        "if len(1..20, 0, m) then write(m)\n"
 
     assert_eq(ran_funl(text), "4\n20\nsucceeded")

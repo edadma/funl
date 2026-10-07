@@ -57,9 +57,9 @@ LIST_PATTERNS_MATCH_A_LIST_OR_A_RANGE_OR_FAIL()
     assert_eq(ran_funl("def\n  f( [] ) = #empty\n  f( [_] ) = #one\n  f( _:_:_ ) = #more\n\nwrite( f([]), f(1..0), f([5]), f(5..5), f([1, 2, 3]), f(1..) )\n"),
         "empty, empty, one, one, more, more\nsucceeded")
     assert_eq(ran_funl("def f( [] ) = 0\ndef f( [x] ) = x\nwrite( f([1, 2]) )\n"),
-        "fault: f@16: argument match not found: no clause of 'f' matches ([1, 2])")
+        "fault: f@19: argument match not found: no clause of 'f' matches ([1, 2])")
     assert_eq(ran_funl("def f( h:t ) = h\nwrite( f(3) )\n"),
-        "fault: f@9: argument match not found: no clause of 'f' matches (3)")
+        "fault: f@10: argument match not found: no clause of 'f' matches (3)")
 
 @test
 IN_SUCCEEDS_WITH_THE_LEFT_OPERAND_OR_FAILS()
