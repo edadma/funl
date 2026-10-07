@@ -305,8 +305,11 @@ before they run — that drive `g` to exhaustion and collect a copy of `t` at ea
 
 ```
 free c
-write( findall(c, parent(#don, c)) )        ;; [#randy, #anne]
+write( findall(c, parent(#don, c)) )        ;; [randy, anne]
 ```
+
+`write` prints an atom bare, without its `#`, as Prolog's `write/1` does; the `#` is how an atom is
+written in source, not part of its name.
 
 The copy is taken because the bindings that made `t` are undone as soon as the next solution is
 asked for. The list being built is held in an operand cell for the duration, never in a sysl local,
