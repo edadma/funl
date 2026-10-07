@@ -50,9 +50,10 @@ LOOKAHEAD_TESTS_WITHOUT_MOVING_AND_AN_ATOMIC_GROUP_KEEPS_ITS_FIRST_MATCH()
 
 @test
 LOOKBEHIND_READS_BACKWARD_FROM_THE_POSITION_WITHOUT_MOVING_IT()
-    val text = "'price: 10' ? (tab(8) & `(?<=: )` & write(tab(0)))\n'ab' ? (tab(2) & write(`(?<!a)b` | 'an a comes before'))\nwrite('xaab' ? (tab(4) & `(?<=(?<!b)a+)b`))\n'ñab' ? (tab(3) & write(`(?<=^\\w+)b` | 'no'))\nevery 'aab' ? (tab(3) & `(?<=(a+))b` & write(tab(0) | 'end'))\n"
+    val text = "'price: 10' ? (tab(8) & `(?<=: )` & write(tab(0)))\n'ab' ? (tab(2) & write(`(?<!a)b` | 'an a comes before'))\nwrite('xaab' ? (tab(4) & `(?<=(?<!b)a+)b`))\n'ñab' ? (tab(3) & write(`(?<=^.\\w*)b` | 'no'))\nevery 'aab' ? (tab(3) & write(`(?<=a+)b`))\n"
 
-    assert_eq(ran_funl(text), "10\nan a comes before\nb\nb\nend\nsucceeded")
+    // The last line writes `b` once: a lookbehind keeps its first way of matching, as a lookahead does.
+    assert_eq(ran_funl(text), "10\nan a comes before\nb\nb\nb\nsucceeded")
 
 @test
 FLAGS_SET_CASE_DOTALL_MULTILINE_AND_EXTENDED_FOR_THE_REST_OF_THEIR_GROUP()

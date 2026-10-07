@@ -42,11 +42,11 @@ end corpus
 // `string(e)` and `ccls(e)` have no lookbehind of their own to stand in -- a regex literal holds no
 // expressions -- but every pattern compiles in both directions, so their reverse instructions are run
 // here directly: scan `subject` to its end, then step back over `operand` as `op` reads it, and write
-// the text stepped over.
-private stepped_back(subject: string, operand: Value, op: Op) -> string
+// the text stepped over. An operand of `None` is the integer 1, which neither can match.
+private stepped_back(subject: string, operand: Option[string], op: Op) -> string
     ran(() -> stepped_back_chunk(subject, operand, op))
 
-private stepped_back_chunk(subject: string, operand: Value, op: Op) -> Result[usize, string]
+private stepped_back_chunk(subject: string, operand: Option[string], op: Op) -> Result[usize, string]
     var e = emit("back")
 
     e.op(PushConst(e.constant(new_str(subject)?)))
@@ -55,9 +55,13 @@ private stepped_back_chunk(subject: string, operand: Value, op: Op) -> Result[us
     for c in subject.chars
         e.op(Char(c, false))
 
+    val x = operand match
+        Some(s) -> new_str(s)?
+        None -> Int(1)
+
     e.op(RxBegin(0))
     e.op(SavePos)
-    e.op(PushConst(e.constant(operand)))
+    e.op(PushConst(e.constant(x)))
     e.op(op)
     e.op(RxEnd)
     say(&e)
@@ -66,18 +70,18 @@ private stepped_back_chunk(subject: string, operand: Value, op: Op) -> Result[us
 
 @test
 STRING_AND_CCLS_STEP_BACK_OVER_WHAT_THEY_MATCH_IN_REVERSE()
-    assert_eq(stepped_back("xñb", new_str("ñb").unwrap(), LitOfRev), "ñb\nsucceeded")
-    assert_eq(stepped_back("xab", new_str("").unwrap(), LitOfRev), "\nsucceeded")
-    assert_eq(stepped_back("xab", new_str("xb").unwrap(), LitOfRev), "failed")
-    assert_eq(stepped_back("ab", new_str("xab").unwrap(), LitOfRev), "failed")
-    assert_eq(stepped_back("añ", new_str("ñz").unwrap(), ClassOfRev), "ñ\nsucceeded")
-    assert_eq(stepped_back("ab", new_str("a").unwrap(), ClassOfRev), "failed")
-    assert_eq(stepped_back("", new_str("a").unwrap(), ClassOfRev), "failed")
+    assert_eq(stepped_back("xñb", Some("ñb"), LitOfRev), "ñb\nsucceeded")
+    assert_eq(stepped_back("xab", Some(""), LitOfRev), "\nsucceeded")
+    assert_eq(stepped_back("xab", Some("xb"), LitOfRev), "failed")
+    assert_eq(stepped_back("ab", Some("xab"), LitOfRev), "failed")
+    assert_eq(stepped_back("añ", Some("ñz"), ClassOfRev), "ñ\nsucceeded")
+    assert_eq(stepped_back("ab", Some("a"), ClassOfRev), "failed")
+    assert_eq(stepped_back("", Some("a"), ClassOfRev), "failed")
 
 @test
 STRING_AND_CCLS_IN_REVERSE_FAULT_ON_WHAT_THEY_CANNOT_MATCH()
-    assert_eq(stepped_back("ab", Int(1), LitOfRev), "fault: back@7: `string` matches a string, and was given the integer 1")
-    assert_eq(stepped_back("ab", Int(1), ClassOfRev), "fault: back@7: `ccls` matches a character of a cset or a string, and was given the integer 1")
+    assert_eq(stepped_back("ab", None, LitOfRev), "fault: back@7: `string` matches a string, and was given the integer 1")
+    assert_eq(stepped_back("ab", None, ClassOfRev), "fault: back@7: `ccls` matches a character of a cset or a string, and was given the integer 1")
 
 @test
 LOOKAROUND_AND_BACKREFERENCES_AGREE_WITH_PCRE2_SPAN_FOR_SPAN()
