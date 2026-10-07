@@ -375,6 +375,51 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         ScanLeave(n) ->
             close_scans(v, n)?
             Ok(Next)
+        Char(c, fold) -> Ok(fails_if(rx_char(v, c, fold)?))
+        Class(k) -> Ok(fails_if(rx_class(v, k)?))
+        ClassOf -> Ok(fails_if(rx_class_of(v, pop(v)?)?))
+        AnyChar(dotall) -> Ok(fails_if(rx_any(v, dotall)?))
+        LitOf -> Ok(fails_if(rx_lit_of(v, pop(v)?)?))
+        Backref(n, fold) -> Ok(fails_if(rx_backref(v, n, fold)?))
+        GroupStart ->
+            v.stack.push(Int(long(v.pos)))
+            Ok(Next)
+        GroupEnd(n) ->
+            val start = popped_position(pop(v)?)?
+
+            set_capture(v, n, GroupSpan(start, v.pos))
+            Ok(Next)
+        Assert(a) -> Ok(fails_if(rx_assert(v, a)?))
+        SavePos ->
+            v.stack.push(Int(long(v.pos)))
+            Ok(Next)
+        RestorePos ->
+            val at = popped_position(pop(v)?)?
+
+            set_scan(v, v.subject, at)
+            Ok(Next)
+        RepNext(lo, hi, exit, lazy) ->
+            rep_next(v, lo, hi, exit, lazy)?
+            Ok(Next)
+        RepStep(top, lo) ->
+            rep_step(v, top, lo)?
+            Ok(Next)
+        Barrier ->
+            v.stack.push(Int(long(v.control.len())))
+            Ok(Next)
+        CutTo ->
+            val h = popped_position(pop(v)?)?
+
+            cut_to(v, h, false)
+            Ok(Next)
+        RxBegin(groups) ->
+            rx_begin(v, groups)
+            Ok(Next)
+        RxEnd ->
+            val start = popped_position(pop(v)?)?
+
+            v.stack.push(rx_end(v, start)?)
+            Ok(Next)
 end execute
 
 // Push a tuple's items or a term's arguments, the last first, so the first is on top for the

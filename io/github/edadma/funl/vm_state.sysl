@@ -52,6 +52,13 @@ struct Vm
     // `break`, `continue` or `yield` leaving it, puts back.
     scans: Buf[ScanSaved]
 
+    // What each capture group of the regex matched last, group 0 the whole match. Changed only through
+    // `set_capture`, which trails the old span.
+    captures: Buf[GroupSpan]
+
+    // The character classes the program's regexes test, by the index a `Class` instruction carries.
+    classes: Buf[RxClass]
+
     // Unification's work list, empty between instructions.
     work: Buf[Value]
 
@@ -91,6 +98,12 @@ struct ScanSaved
     subject: Value
     pos: usize
 
+// What a capture group matched: the character positions it began and ended at, counted from 1 as
+// the scan position is -- or, `start` 0, nothing.
+struct GroupSpan
+    start: usize
+    end: usize
+
 extern malloc(bytes: usize) -> *u8
 extern free(block: *u8)
 
@@ -104,7 +117,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
     if block == null then panic("funl could not take a heap of the size this VM asked for")
 
     var v = Vm(
-        buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), 0,
+        buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
         buf(), map(), buf(), buf(), buf(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0)
 

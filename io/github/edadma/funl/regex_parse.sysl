@@ -1,0 +1,778 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+import sysl.text.{chars_of, from_utf8_unchecked}
+
+// Regex literal syntax, read into a pattern tree (`regex_tree.sysl`): the tree the pattern
+// combinators build too, and the one `compile_regex.sysl` turns into the machine's instructions.
+//
+// **The syntax is Perl's, as PCRE2 reads it**, because PCRE2 is the oracle the patterns are checked
+// against: groups numbered by their opening parenthesis, named groups, `(?:`, lookahead, atomic groups,
+// greedy, lazy and possessive quantifiers, backreferences, `\Q...\E`, and the flags `i`, `m`, `s` and
+// `x`. A position in an error is a byte offset into the pattern's text, which the lexer hands over
+// exactly as written, so it is also an offset from the literal's first character in the source.
+//
+// **Flags are settled here, not when the pattern runs.** A flag is lexically scoped -- `(?i)` holds to
+// the end of the group it is written in, `(?i:p)` for `p` alone -- so each node is built carrying what
+// the flags in force where it was written made of it: a character that ignores case, a dot that
+// matches a newline, an anchor that knows about lines.
+
+// The largest count a quantifier may write, as in PCRE2.
+private const MaxRepeat: usize = 65535
+
+// A refusal: what is wrong, at bytes `at ..< at + len` of the pattern.
+struct RxError
+    at: usize
+    len: usize
+    message: string
+    note: string
+
+// A pattern read from its text, and how many capture groups it numbers.
+struct Parsed
+    pat: &Pat
+    groups: usize
+
+// A numbered backreference, checked against the group count once the whole pattern is read: a
+// reference may come before the group it names.
+private struct RxRef
+    n: usize
+    at: usize
+    len: usize
+
+private struct RxParser
+    text: string
+    at: usize
+    groups: usize
+    names: Map[string, usize]
+    refs: Buf[RxRef]
+
+    // The flags in force: `i`, `m`, `s` and `x`.
+    fold: bool
+    multiline: bool
+    dotall: bool
+    extended: bool
+
+    at_end(self) -> bool = self.at >= self.text.bytes.len
+
+    peek(self) -> u8 = if self.at < self.text.bytes.len then self.text.bytes[self.at] else 0
+
+    peek_at(self, n: usize) -> u8 = if self.at + n < self.text.bytes.len then self.text.bytes[self.at + n] else 0
+end RxParser
+
+private fail_at[T](at: usize, len: usize, message: string, note: string) -> Result[T, RxError] =
+    Err(RxError(at, len, message, note))
+
+// Read regex text into a pattern tree, or say what is wrong with it and where.
+parse_regex(text: string) -> Result[Parsed, RxError]
+    var p = RxParser(text, 0, 0, map(), buf(), false, false, false, false)
+    val body = alternation(&p)?
+
+    if !p.at_end() then return fail_at(p.at, 1, "this `)` closes no group", "a literal parenthesis is written `\\)`")
+
+    for r in p.refs.view()
+        if r.n > p.groups
+            val has = if p.groups == 0 then "has no groups" else s"has only ${p.groups}"
+
+            return fail_at(r.at, r.len, s"this refers to group ${r.n}, and the pattern $has", "a group is numbered by its `(`, counting from 1")
+
+    Ok(Parsed(body, p.groups))
+end parse_regex
+
+private alternation(p: *RxParser) -> Result[&Pat, RxError]
+    var alts: Buf[&Pat] = buf()
+
+    alts.push(sequence(p)?)
+
+    while p.peek() == u8('|') && !p.at_end()
+        p.at += 1
+        alts.push(sequence(p)?)
+
+    if alts.len() == 1 then Ok(alts.at(0)) else Ok(PAlt(alts))
+
+private sequence(p: *RxParser) -> Result[&Pat, RxError]
+    var items: Buf[&Pat] = buf()
+
+    loop
+        skip_extended(p)
+
+        if p.at_end() then break
+
+        val b = p.peek()
+
+        if b == u8('|') || b == u8(')') then break
+
+        atom(p)? match
+            Some(a) -> items.push(quantified(p, a)?)
+            None -> ()
+
+    if items.len() == 0 then return Ok(PEmpty)
+
+    if items.len() == 1 then Ok(items.at(0)) else Ok(PSeq(items))
+
+// Under `x`, whitespace and `#` comments between items are not part of the pattern.
+private skip_extended(p: *RxParser)
+    if !p.extended then return
+
+    while !p.at_end()
+        val b = p.peek()
+
+        if b == u8(' ') || (b >= 9 && b <= 13)
+            p.at += 1
+        elif b == u8('#')
+            while !p.at_end() && p.peek() != u8('\n')
+                p.at += 1
+        else
+            return
+
+// One item, or `None` for something that matches nothing and repeats nothing: `(?i)`, `(?#...)`,
+// a stray `\E`.
+private atom(p: *RxParser) -> Result[Option[&Pat], RxError]
+    val start = p.at
+    val b = p.peek()
+
+    if b == u8('(') then return group(p)
+
+    if b == u8('[') then return Ok(Some(class(p)?))
+
+    if b == u8('\\') then return escape(p)
+
+    if b == u8('*') || b == u8('+') || b == u8('?')
+        return fail_at(start, 1, "this quantifier has nothing to repeat", s"a literal `${from_utf8_unchecked(p.text.bytes[start..<start + 1])}` is written with a `\\` before it")
+
+    if b == u8('{') && braces(p).is_some()
+        return fail_at(start, p.at - start, "this quantifier has nothing to repeat", "a literal `{` is written `\\{`")
+
+    p.at += 1
+
+    if b == u8('.') then return Ok(Some(PAny(p.dotall)))
+
+    if b == u8('^') then return Ok(Some(PAnchor(if p.multiline then LineStart else SubjectStart)))
+
+    if b == u8('$') then return Ok(Some(PAnchor(if p.multiline then LineEnd else SubjectEndNewline)))
+
+    p.at = start
+    Ok(Some(PChar(next_char(p), p.fold)))
+end atom
+
+// The character at the position, which it moves past.
+private next_char(p: *RxParser) -> char
+    val bytes = p.text.bytes
+    val c = chars_of(bytes[p.at..<bytes.len]).peek().unwrap()
+
+    p.at += 1
+
+    while p.at < bytes.len && (bytes[p.at] & 192) == 128
+        p.at += 1
+
+    c
+
+// A quantifier after item `a`, if one follows it.
+private quantified(p: *RxParser, a: &Pat) -> Result[&Pat, RxError]
+    skip_extended(p)
+
+    val start = p.at
+    val b = p.peek()
+    var lo: usize = 0
+    var hi: usize = Unbounded
+
+    if p.at_end()
+        return Ok(a)
+    elif b == u8('*')
+        p.at += 1
+    elif b == u8('+')
+        p.at += 1
+        lo = 1
+    elif b == u8('?')
+        p.at += 1
+        hi = 1
+    elif b == u8('{')
+        braces(p) match
+            Some(bounds) ->
+                if bounds.at(0) == Unbounded || (bounds.at(1) != Unbounded && bounds.at(1) > MaxRepeat) || bounds.at(0) > MaxRepeat
+                    return fail_at(start, p.at - start, s"a repeat count is at most $MaxRepeat", "")
+
+                if bounds.at(1) < bounds.at(0)
+                    return fail_at(start, p.at - start, "this quantifier's bounds are out of order", "`{n,m}` repeats at least `n` and at most `m` times")
+
+                lo = bounds.at(0)
+                hi = bounds.at(1)
+            None -> return Ok(a)
+    else
+        return Ok(a)
+
+    var greed = Greedy
+
+    if p.peek() == u8('?') && !p.at_end()
+        p.at += 1
+        greed = Lazy
+    elif p.peek() == u8('+') && !p.at_end()
+        p.at += 1
+        greed = Possessive
+
+    val after = p.peek()
+
+    if !p.at_end() && (after == u8('*') || after == u8('+') || after == u8('?'))
+        return fail_at(p.at, 1, "a quantifier cannot repeat a quantifier", "group the repeated item first: `(?:a*)*`")
+
+    Ok(PRepeat(a, lo, hi, greed))
+end quantified
+
+// `{n}`, `{n,}` or `{n,m}` at the position: its bounds, moving past it -- or `None`, leaving the
+// position alone, when the brace does not begin one and is an ordinary character. A count too large
+// to read is answered as `Unbounded`, for the caller to refuse.
+private braces(p: *RxParser) -> Option[Buf[usize]]
+    val start = p.at
+
+    p.at += 1
+
+    val lo = digits(p) match
+        Some(n) -> n
+        None ->
+            p.at = start
+            return None
+
+    var hi = lo
+
+    if p.peek() == u8(',')
+        p.at += 1
+
+        hi = digits(p) match
+            Some(n) -> n
+            None -> Unbounded
+
+    if p.peek() != u8('}') || p.at_end()
+        p.at = start
+        return None
+
+    p.at += 1
+
+    var out: Buf[usize] = buf()
+
+    out.push(lo)
+    out.push(hi)
+    Some(out)
+
+// A run of decimal digits, or `None` when there is none; a count that will not fit is `Unbounded`.
+private digits(p: *RxParser) -> Option[usize]
+    var n: usize = 0
+    var any = false
+
+    while !p.at_end() && p.peek() >= u8('0') && p.peek() <= u8('9')
+        if n < 100000000 then n = n * 10 + usize(p.peek() - u8('0')) else n = Unbounded
+
+        p.at += 1
+        any = true
+
+    if any then Some(n) else None
+
+// -- groups ---------------------------------------------------------------------------------------
+
+private group(p: *RxParser) -> Result[Option[&Pat], RxError]
+    val open = p.at
+    val fold = p.fold
+    val multiline = p.multiline
+    val dotall = p.dotall
+    val extended = p.extended
+
+    p.at += 1
+
+    if p.peek() != u8('?') || p.at_end()
+        p.groups += 1
+
+        val n = p.groups
+        val body = closed_body(p, open)?
+
+        restore_flags(p, fold, multiline, dotall, extended)
+        return Ok(Some(PGroup(n, body)))
+
+    p.at += 1
+
+    val kind = p.peek()
+
+    if p.at_end() then return fail_at(open, p.at - open, "this group is not closed", "a literal parenthesis is written `\\(`")
+
+    if kind == u8('#')
+        while !p.at_end() && p.peek() != u8(')')
+            p.at += 1
+
+        if p.at_end() then return fail_at(open, 3, "this comment is not closed", "a comment is written `(?#...)`")
+
+        p.at += 1
+        return Ok(None)
+
+    if kind == u8(':') || kind == u8('=') || kind == u8('!') || kind == u8('>')
+        p.at += 1
+
+        val body = closed_body(p, open)?
+
+        restore_flags(p, fold, multiline, dotall, extended)
+
+        if kind == u8(':') then return Ok(Some(body))
+
+        if kind == u8('>') then return Ok(Some(pat(PAtomic(body))))
+
+        return Ok(Some(pat(PLook(body, true, kind == u8('!')))))
+
+    if kind == u8('<') && (p.peek_at(1) == u8('=') || p.peek_at(1) == u8('!'))
+        return fail_at(open, 4, "lookbehind is not supported yet", "it is matched backwards from the position, which this engine does not compile yet")
+
+    if kind == u8('<') || kind == u8('\'') || (kind == u8('P') && p.peek_at(1) == u8('<'))
+        if kind == u8('P') then p.at += 1
+
+        val close = if p.peek() == u8('\'') then u8('\'') else u8('>')
+
+        p.at += 1
+
+        val name = group_name(p, close)?
+
+        if p.names.get(name).is_some()
+            return fail_at(open, p.at - open, s"two groups are named `$name`", "a group's name is its own")
+
+        p.groups += 1
+
+        val n = p.groups
+
+        p.names.put(name, n)
+
+        val body = closed_body(p, open)?
+
+        restore_flags(p, fold, multiline, dotall, extended)
+        return Ok(Some(PGroup(n, body)))
+
+    if kind == u8('P') && p.peek_at(1) == u8('=')
+        p.at += 2
+
+        val name_at = p.at
+        val name = group_name(p, u8(')'))?
+
+        return Ok(Some(named_ref(p, name, name_at)?))
+
+    flag_group(p, open, fold, multiline, dotall, extended)
+end group
+
+// `(?flags)`, which sets flags for the rest of the enclosing group, or `(?flags:p)`, which sets them for
+// `p` alone; a `-` turns the flags after it off.
+private flag_group(p: *RxParser, open: usize, fold: bool, multiline: bool, dotall: bool, extended: bool) -> Result[Option[&Pat], RxError]
+    var on = true
+
+    loop
+        if p.at_end() then return fail_at(open, p.at - open, "this group is not closed", "a literal parenthesis is written `\\(`")
+
+        val f = p.peek()
+
+        if f == u8(')')
+            p.at += 1
+            return Ok(None)
+
+        if f == u8(':')
+            p.at += 1
+
+            val body = closed_body(p, open)?
+
+            restore_flags(p, fold, multiline, dotall, extended)
+            return Ok(Some(body))
+
+        if f == u8('-')
+            on = false
+        elif f == u8('i')
+            p.fold = on
+        elif f == u8('m')
+            p.multiline = on
+        elif f == u8('s')
+            p.dotall = on
+        elif f == u8('x')
+            p.extended = on
+        elif (f >= u8('a') && f <= u8('z')) || (f >= u8('A') && f <= u8('Z'))
+            return fail_at(p.at, 1, s"`${from_utf8_unchecked(p.text.bytes[p.at..<p.at + 1])}` is not a flag", "the flags are `i` (ignore case), `m` (multiline), `s` (dot matches newline) and `x` (extended)")
+        else
+            return fail_at(open, p.at + 1 - open, "this kind of group is not supported", "the groups are `(p)`, `(?<name>p)`, `(?:p)`, `(?=p)`, `(?!p)`, `(?>p)` and the flag groups")
+
+        p.at += 1
+end flag_group
+
+private restore_flags(p: *RxParser, fold: bool, multiline: bool, dotall: bool, extended: bool)
+    p.fold = fold
+    p.multiline = multiline
+    p.dotall = dotall
+    p.extended = extended
+
+// A group's alternatives and the `)` closing it, the group having opened at `open`.
+private closed_body(p: *RxParser, open: usize) -> Result[&Pat, RxError]
+    val body = alternation(p)?
+
+    if p.at_end() then return fail_at(open, 1, "this group is not closed", "a literal parenthesis is written `\\(`")
+
+    p.at += 1
+    Ok(body)
+
+// A group name ending at `close`, which it moves past.
+private group_name(p: *RxParser, close: u8) -> Result[string, RxError]
+    val start = p.at
+
+    while !p.at_end() && is_name_byte(p.peek(), p.at == start)
+        p.at += 1
+
+    if p.at == start || p.peek() != close || p.at_end()
+        return fail_at(start, if p.at > start then p.at - start else 1, "a group name is expected here", "a name is letters, digits and `_`, not starting with a digit")
+
+    val name = from_utf8_unchecked(p.text.bytes[start..<p.at])
+
+    p.at += 1
+    Ok(name)
+
+private is_name_byte(b: u8, first: bool) -> bool
+    if b == u8('_') || (b >= u8('a') && b <= u8('z')) || (b >= u8('A') && b <= u8('Z')) then return true
+
+    !first && b >= u8('0') && b <= u8('9')
+
+// A backreference to the group called `name`, which must be named before it.
+private named_ref(p: *RxParser, name: string, at: usize) -> Result[&Pat, RxError]
+    p.names.get(name) match
+        Some(n) -> Ok(PBackref(n, p.fold))
+        None -> fail_at(at, name.bytes.len, s"no group named `$name` comes before this", "a group is named `(?<name>p)`")
+
+// -- escapes --------------------------------------------------------------------------------------
+
+private escape(p: *RxParser) -> Result[Option[&Pat], RxError]
+    val start = p.at
+
+    p.at += 1
+
+    if p.at_end() then return fail_at(start, 1, "this `\\` escapes nothing", "a literal backslash is written `\\\\`")
+
+    val b = p.peek()
+
+    shorthand(b) match
+        Some(k) ->
+            p.at += 1
+            return Ok(Some(PSet(k)))
+        None -> ()
+
+    if b == u8('b') || b == u8('B') || b == u8('A') || b == u8('z') || b == u8('Z')
+        p.at += 1
+
+        return Ok(Some(PAnchor(escaped_anchor(b))))
+
+    if b >= u8('1') && b <= u8('9')
+        val n = digits(p).unwrap()
+
+        p.refs.push(RxRef(n, start, p.at - start))
+        return Ok(Some(PBackref(n, p.fold)))
+
+    if b == u8('g') then return Ok(Some(numbered_ref(p, start)?))
+
+    if b == u8('k')
+        p.at += 1
+
+        val close = if p.peek() == u8('<') then u8('>') elif p.peek() == u8('{') then u8('}') elif p.peek() == u8('\'') then u8('\'') else u8(0)
+
+        if close == u8(0) || p.at_end() then return fail_at(start, 2, "`\\k` is followed by a group name", "`\\k<name>`")
+
+        p.at += 1
+
+        val name_at = p.at
+        val name = group_name(p, close)?
+
+        return Ok(Some(named_ref(p, name, name_at)?))
+
+    if b == u8('Q')
+        p.at += 1
+
+        var items: Buf[&Pat] = buf()
+
+        while !p.at_end() && !(p.peek() == u8('\\') && p.peek_at(1) == u8('E'))
+            items.push(PChar(next_char(p), p.fold))
+
+        if !p.at_end() then p.at += 2
+
+        return Ok(if items.len() == 0 then None elif items.len() == 1 then Some(items.at(0)) else Some(PSeq(items)))
+
+    if b == u8('E')
+        p.at += 1
+        return Ok(None)
+
+    Ok(Some(PChar(escaped_char(p, start)?, p.fold)))
+end escape
+
+private escaped_anchor(b: u8) -> Anchor
+    if b == u8('b') then return WordBoundary
+
+    if b == u8('B') then return NotWordBoundary
+
+    if b == u8('A') then return SubjectStart
+
+    if b == u8('z') then return SubjectEnd
+
+    SubjectEndNewline
+
+// `\g{n}`, `\gn`, `\g{-n}` (counting back from the last group opened) and `\g{name}`.
+private numbered_ref(p: *RxParser, start: usize) -> Result[&Pat, RxError]
+    p.at += 1
+
+    val braced = p.peek() == u8('{') && !p.at_end()
+
+    if braced then p.at += 1
+
+    val back = p.peek() == u8('-') && !p.at_end()
+
+    if back then p.at += 1
+
+    val n = digits(p) match
+        Some(k) -> k
+        None ->
+            if braced && !back
+                val name_at = p.at
+                val name = group_name(p, u8('}'))?
+
+                return named_ref(p, name, name_at)
+
+            return fail_at(start, p.at - start, "`\\g` is followed by a group number", "`\\g{2}`, or `\\g{-1}` for the group opened last")
+
+    if braced
+        if p.peek() != u8('}') || p.at_end() then return fail_at(start, p.at - start, "`\\g{` is closed by `}`", "`\\g{2}`")
+
+        p.at += 1
+
+    val target = if back then (if n == 0 || n > p.groups then 0 else p.groups + 1 - n) else n
+
+    if target == 0 then return fail_at(start, p.at - start, "this refers to no group", "`\\g{-1}` is the group opened last before it")
+
+    p.refs.push(RxRef(target, start, p.at - start))
+    Ok(PBackref(target, p.fold))
+
+// The class a backslash letter stands for: `\d`, `\w` and `\s`, and their complements.
+private shorthand(b: u8) -> Option[RxClass]
+    val lower = if b >= u8('a') then b else b + 32
+
+    if lower != u8('d') && lower != u8('w') && lower != u8('s') then return None
+
+    val name = if lower == u8('d') then "digit" elif lower == u8('w') then "word" else "space"
+    var k = empty_class(false)
+    val set = named_set(name).unwrap()
+
+    if b >= u8('a') then k.set = set else k.excluded.push(set)
+
+    Some(k)
+
+// The character an escape that stands for one character names, the backslash at `start` and the
+// position just after it.
+private escaped_char(p: *RxParser, start: usize) -> Result[char, RxError]
+    val b = p.peek()
+
+    if b == u8('t') || b == u8('n') || b == u8('r') || b == u8('f') || b == u8('e') || b == u8('a')
+        p.at += 1
+
+        val u: u32 = if b == u8('t') then 9 elif b == u8('n') then 10 elif b == u8('r') then 13 elif b == u8('f') then 12 elif b == u8('e') then 27 else 7
+
+        return Ok(char(u))
+
+    if b == u8('0')
+        p.at += 1
+
+        var u: u32 = 0
+        var k = 0
+
+        while k < 2 && p.peek() >= u8('0') && p.peek() <= u8('7') && !p.at_end()
+            u = u * 8 + u32(p.peek() - u8('0'))
+            p.at += 1
+            k += 1
+
+        return Ok(char(u))
+
+    if b == u8('x')
+        p.at += 1
+
+        if p.peek() == u8('{') && !p.at_end()
+            p.at += 1
+
+            var u: u32 = 0
+            var k = 0
+
+            while hex_value(p.peek()) < 16 && !p.at_end()
+                if u < 1114112 then u = u * 16 + hex_value(p.peek())
+
+                p.at += 1
+                k += 1
+
+            if k == 0 || p.peek() != u8('}') || p.at_end() || u > 1114111 || (u >= 55296 && u <= 57343)
+                return fail_at(start, p.at - start, "`\\x{...}` holds a character's code in hexadecimal", "`\\x{41}` is `A`")
+
+            p.at += 1
+            return Ok(char(u))
+
+        var u: u32 = 0
+        var k = 0
+
+        while k < 2 && hex_value(p.peek()) < 16 && !p.at_end()
+            u = u * 16 + hex_value(p.peek())
+            p.at += 1
+            k += 1
+
+        return Ok(char(u))
+
+    if b == u8('c')
+        p.at += 1
+
+        val x = p.peek()
+
+        if p.at_end() || x < 32 || x > 126 then return fail_at(start, 2, "`\\c` is followed by a printable ASCII character", "`\\cA` is control-A")
+
+        p.at += 1
+
+        val upper = if x >= u8('a') && x <= u8('z') then x - 32 else x
+
+        return Ok(char(u32(upper ^ 64)))
+
+    if (b >= u8('a') && b <= u8('z')) || (b >= u8('A') && b <= u8('Z')) || (b >= u8('0') && b <= u8('9'))
+        return fail_at(start, 2, s"`\\${from_utf8_unchecked(p.text.bytes[p.at..<p.at + 1])}` is not an escape this engine knows", "a backslash before a letter or digit is an escape; before anything else, it makes that character literal")
+
+    Ok(next_char(p))
+end escaped_char
+
+private hex_value(b: u8) -> u32
+    if b >= u8('0') && b <= u8('9') then return u32(b - u8('0'))
+
+    if b >= u8('a') && b <= u8('f') then return u32(b - u8('a')) + 10
+
+    if b >= u8('A') && b <= u8('F') then return u32(b - u8('A')) + 10
+
+    16
+
+// -- classes ----------------------------------------------------------------------------------------
+
+private class(p: *RxParser) -> Result[&Pat, RxError]
+    val open = p.at
+    var k = empty_class(p.fold)
+
+    p.at += 1
+
+    if p.peek() == u8('^') && !p.at_end()
+        k.negated = true
+        p.at += 1
+
+    var first = true
+
+    loop
+        if p.at_end() then return fail_at(open, 1, "this character class is not closed", "a literal `[` is written `\\[`")
+
+        val b = p.peek()
+
+        if b == u8(']') && !first
+            p.at += 1
+            break
+
+        first = false
+
+        val item_at = p.at
+
+        class_set(p)? match
+            Some(s) ->
+                if p.peek() == u8('-') && p.peek_at(1) != u8(']') && p.at + 1 < p.text.bytes.len
+                    return fail_at(item_at, p.at + 1 - item_at, "a range cannot start at a class", "a literal `-` goes first or last in the class")
+
+                merge_class(&k, s)
+                continue
+            None -> ()
+
+        val lo = class_char(p)?
+
+        if p.peek() == u8('-') && p.peek_at(1) != u8(']') && p.at + 1 < p.text.bytes.len
+            p.at += 1
+
+            val hi_at = p.at
+
+            if class_set(p)?.is_some() then return fail_at(item_at, p.at - item_at, "a range cannot end at a class", "a literal `-` goes first or last in the class")
+
+            p.at = hi_at
+
+            val hi = class_char(p)?
+
+            if u32(hi) < u32(lo) then return fail_at(item_at, p.at - item_at, "this range runs backwards", "a range is written low to high: `[a-z]`")
+
+            add_range(&k, u32(lo), u32(hi))
+        else
+            add_range(&k, u32(lo), u32(lo))
+
+    Ok(PSet(k))
+end class
+
+// The members of `s` added to `k`.
+private merge_class(k: *RxClass, s: RxClass)
+    if s.negated
+        k.excluded.push(s.set)
+        return
+
+    for u in 0..<128
+        val c = char(u32(u))
+
+        if s.set.has(c) then k.set.add(c)
+
+    for w in s.set.wide.view()
+        k.set.add(char(w))
+
+    for r in s.ranges.view()
+        k.ranges.push(r)
+
+    for e in s.excluded.view()
+        k.excluded.push(e)
+
+// A set inside a class -- `\d`, `\W`, `[:alpha:]`, `[:^space:]` -- moving past it, or `None`, leaving the
+// position alone.
+private class_set(p: *RxParser) -> Result[Option[RxClass], RxError]
+    val start = p.at
+    val b = p.peek()
+
+    if b == u8('\\')
+        shorthand(p.peek_at(1)) match
+            Some(k) ->
+                p.at += 2
+                return Ok(Some(k))
+            None -> return Ok(None)
+
+    if b != u8('[') || p.peek_at(1) != u8(':') then return Ok(None)
+
+    p.at += 2
+
+    val negated = p.peek() == u8('^')
+
+    if negated then p.at += 1
+
+    val name_at = p.at
+
+    while !p.at_end() && p.peek() >= u8('a') && p.peek() <= u8('z')
+        p.at += 1
+
+    if p.peek() != u8(':') || p.peek_at(1) != u8(']')
+        p.at = start
+        return Ok(None)
+
+    val name = from_utf8_unchecked(p.text.bytes[name_at..<p.at])
+
+    p.at += 2
+
+    named_set(name) match
+        Some(set) ->
+            var k = empty_class(false)
+
+            k.set = set
+            k.negated = negated
+            Ok(Some(k))
+        None -> fail_at(start, p.at - start, s"`$name` is not a POSIX class", "the classes are alpha, digit, alnum, word, upper, lower, space, blank, punct, print, graph, cntrl, xdigit and ascii")
+end class_set
+
+// One character of a class, written or escaped.
+private class_char(p: *RxParser) -> Result[char, RxError]
+    if p.peek() != u8('\\') then return Ok(next_char(p))
+
+    val start = p.at
+
+    p.at += 1
+
+    if p.at_end() then return fail_at(start, 1, "this `\\` escapes nothing", "a literal backslash is written `\\\\`")
+
+    if p.peek() == u8('b')
+        p.at += 1
+        return Ok(char(u32(8)))
+
+    escaped_char(p, start)

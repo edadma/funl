@@ -186,6 +186,10 @@ enum ExprKind
     // its value is `e`'s. `x ?= e` is `x = x ? e`.
     ScanE(subject: &Expr, body: &Expr)
 
+    // `` `a(b|c)*` ``: a regex, read into its pattern tree, which numbers `groups` capture groups. It
+    // matches at the scan position, and its value is the text it matched.
+    RegexE(pat: &Pat, groups: usize)
+
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
 end ExprKind

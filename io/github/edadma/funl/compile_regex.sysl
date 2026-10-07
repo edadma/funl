@@ -1,0 +1,237 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Patterns compiled forward into the machine's instructions, and the pattern combinators read into
+// the same trees a regex literal is.
+//
+// **A pattern is ordinary code, so it backtracks with the program around it**: an alternative is a
+// `Choice`, a repetition's "one more turn or stop" is a `Choice`, and lookahead and atomic groups
+// commit with the program's own `Barrier` and `CutTo`. Matched inside `s ? e`, a pattern's value is
+// the text it matched, and the scan position has moved past it.
+//
+//     p q                p; q
+//     p | q              Choice(l); p; Branch(end); l: q; end:
+//     (p)                GroupStart; p; GroupEnd(n)
+//     p?                 Choice(skip); p; skip:
+//     p??                Choice(take); Branch(skip); take: p; skip:
+//     p{lo,hi}           PushInt(0); top: RepNext(lo, hi, exit); SavePos; p; RepStep(top, lo); exit: Pop
+//     (?=p)              Barrier; SavePos; p; RestorePos; CutTo
+//     (?!p)              Barrier; Choice(ok); p; CutTo; Fail; ok: Pop
+//     (?>p), p*+         Barrier; p; CutTo
+//     ccls(e)            e; ClassOf
+//     string(e)          e; LitOf
+//     a pattern's value  RxBegin(groups); SavePos; p; RxEnd
+//
+// `*`, `+` and `{n,m}` are all the counted loop. Its count, a turn's starting position, a group's
+// start and a lookaround's saved position and barrier height are operand cells, so a choice point
+// inside the pattern saves them with the rest of the expression's cells and failure puts them back.
+
+// The combinators, which build patterns when the program is compiled: what each is called, and how
+// many arguments it takes.
+private combinator_arity(n: string) -> usize
+    if n == "repn" then return 2
+
+    if n == "string" || n == "ccls" || n == "rep" || n == "rep1" || n == "opt" || n == "rrep" || n == "rrep1" || n == "ropt" then return 1
+
+    0
+
+// Whether a call of `n`, which means `m`, is a pattern combinator: the name, where nothing the program
+// declares takes it.
+is_combinator(m: Meaning, n: string) -> bool
+    if combinator_arity(n) == 0 then return false
+
+    m match
+        Unknown -> true
+        _ -> false
+
+// The resolver's check of a combinator call: as many arguments as it takes, a pattern where it
+// repeats one, and `repn`'s count written as an integer.
+check_combinator(w: *Walk, n: string, at: Span, args: Buf[&Expr])
+    val want = combinator_arity(n)
+
+    if args.len() != want
+        w.report.add(error(at, s"`$n` takes ${counted(want, "argument")}, and this call gives ${args.len()}"))
+        return
+
+    if n == "string" || n == "ccls" then return
+
+    if n == "repn"
+        val count = args.at(0)
+
+        count.kind match
+            IntE(k) -> if k < 0 then w.report.add(error(count.span, "`repn` repeats a pattern a number of times that is not negative"))
+            _ -> w.report.add(error(count.span, "`repn` takes its count as an integer written in the program")
+                .with_note("the pattern is built when the program is compiled, so its count is fixed then"))
+
+    val p = args.at(want - 1)
+
+    if !is_pattern(w, p)
+        w.report.add(error(p.span, s"`$n` repeats a pattern, and this is not one")
+            .with_note("a pattern is a regex literal, `` `a+` ``, or a combinator: `string`, `ccls`, `rep`, `rep1`, `repn`, `opt`, `rrep`, `rrep1`, `ropt`"))
+
+private is_pattern(w: *Walk, x: &Expr) -> bool
+    x.kind match
+        RegexE(_, _) -> true
+        CallE(n, at, _) -> is_combinator(w.meaning(n, at.start), n)
+        _ -> false
+
+// The pattern a regex literal or a combinator call builds.
+pattern_of(c: Ctx, x: &Expr) -> Result[Parsed, string]
+    x.kind match
+        RegexE(p, groups) -> Ok(Parsed(p, groups))
+        CallE(n, _, args) -> combinator(c, n, args)
+        _ -> Err("a pattern combinator was given something the resolver should have refused")
+
+// The pattern combinator `n` builds from `args`.
+combinator(c: Ctx, n: string, args: Buf[&Expr]) -> Result[Parsed, string]
+    if n == "string" then return Ok(Parsed(pat(PExprString(args.at(0))), 0))
+
+    if n == "ccls" then return Ok(Parsed(pat(PExprSet(args.at(0))), 0))
+
+    if n == "repn"
+        val count = args.at(0).kind match
+            IntE(k) -> usize(k)
+            _ -> return Err("`repn` was given a count the resolver should have refused")
+
+        val inner = pattern_of(c, args.at(1))?
+
+        return Ok(Parsed(pat(PRepeat(inner.pat, count, count, Greedy)), inner.groups))
+
+    val inner = pattern_of(c, args.at(0))?
+    val lazy = n == "rrep" || n == "rrep1" || n == "ropt"
+    val lo: usize = if n == "rep1" || n == "rrep1" then 1 else 0
+    val hi: usize = if n == "opt" || n == "ropt" then 1 else Unbounded
+
+    Ok(Parsed(pat(PRepeat(inner.pat, lo, hi, if lazy then Lazy else Greedy)), inner.groups))
+
+// A pattern as an expression: matched at the scan position, producing the text it matched.
+compile_pattern_value(e: *Emit, c: Ctx, p: &Pat, groups: usize) -> Result[unit, string]
+    e.op(RxBegin(groups))
+    e.op(SavePos)
+    compile_pat(e, Some(c), p)?
+    e.op(RxEnd)
+    Ok(())
+
+// A pattern searched for from the scan position: matched at the first position from there where it
+// can be, and from the next one on backtracking. Group 0 is the match; the text is its value.
+compile_search(e: *Emit, p: &Pat, groups: usize) -> Result[unit, string]
+    e.op(RxBegin(groups))
+    compile_pat(e, None, pat(PRepeat(pat(PAny(true)), 0, Unbounded, Lazy)))?
+    e.op(SavePos)
+    compile_pat(e, None, p)?
+    e.op(RxEnd)
+    Ok(())
+
+// Pattern `p`'s instructions. `c` compiles the expressions inside a combinator's pattern; a pattern
+// read from a literal has none.
+compile_pat(e: *Emit, c: Option[Ctx], p: &Pat) -> Result[unit, string]
+    *p match
+        PEmpty -> ()
+        PChar(ch, fold) -> e.op(Char(ch, fold))
+        PAny(dotall) -> e.op(AnyChar(dotall))
+        PSet(k) ->
+            val v = current()
+
+            v.classes.push(k)
+            e.op(Class(v.classes.len() - 1))
+        PAnchor(a) -> e.op(Assert(a))
+        PSeq(items) ->
+            for x in items.view()
+                compile_pat(e, c, x)?
+        PAlt(items) ->
+            val end = e.label()
+
+            for i in 0..<items.len()
+                if i + 1 < items.len()
+                    val next = e.label()
+
+                    e.op(Choice(next))
+                    compile_pat(e, c, items.at(i))?
+                    e.op(Branch(end))
+                    e.place(next)
+                else
+                    compile_pat(e, c, items.at(i))?
+
+            e.place(end)
+        PGroup(n, body) ->
+            e.op(GroupStart)
+            compile_pat(e, c, body)?
+            e.op(GroupEnd(n))
+        PRepeat(body, lo, hi, greed) -> repeat(e, c, body, lo, hi, greed)?
+        PLook(body, ahead, negated) ->
+            if !ahead then return Err("lookbehind is matched in reverse, which is not compiled yet")
+
+            if negated
+                val ok = e.label()
+
+                e.op(Barrier)
+                e.op(Choice(ok))
+                compile_pat(e, c, body)?
+                e.op(CutTo)
+                e.op(Fail)
+                e.place(ok)
+                e.op(Pop)
+            else
+                e.op(Barrier)
+                e.op(SavePos)
+                compile_pat(e, c, body)?
+                e.op(RestorePos)
+                e.op(CutTo)
+        PAtomic(body) ->
+            e.op(Barrier)
+            compile_pat(e, c, body)?
+            e.op(CutTo)
+        PBackref(n, fold) -> e.op(Backref(n, fold))
+        PExprSet(x) ->
+            compile_value(e, in_pattern(c)?, x)?
+            e.op(ClassOf)
+        PExprString(x) ->
+            compile_value(e, in_pattern(c)?, x)?
+            e.op(LitOf)
+
+    Ok(())
+end compile_pat
+
+private in_pattern(c: Option[Ctx]) -> Result[Ctx, string]
+    c match
+        Some(x) -> Ok(x)
+        None -> Err("a pattern holding an expression was compiled with nothing to compile it in")
+
+private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed: Greed) -> Result[unit, string]
+    if greed == Possessive
+        e.op(Barrier)
+        repeat(e, c, body, lo, hi, Greedy)?
+        e.op(CutTo)
+        return Ok(())
+
+    if lo == 0 && hi == 1
+        val skip = e.label()
+
+        if greed == Lazy
+            val take = e.label()
+
+            e.op(Choice(take))
+            e.op(Branch(skip))
+            e.place(take)
+        else
+            e.op(Choice(skip))
+
+        compile_pat(e, c, body)?
+        e.place(skip)
+        return Ok(())
+
+    val top = e.label()
+    val exit = e.label()
+
+    e.op(PushInt(0))
+    e.place(top)
+    e.op(RepNext(lo, hi, exit, greed == Lazy))
+    e.op(SavePos)
+    compile_pat(e, c, body)?
+    e.op(RepStep(top, lo))
+    e.place(exit)
+    e.op(Pop)
+    Ok(())
+end repeat

@@ -16,6 +16,10 @@ enum Tok
     IntLit(n: long)
     StrLit(text: string)
 
+    // A regex between backticks, its text exactly as written: the regex parser reads its escapes,
+    // `` \` `` among them.
+    RegexLit(text: string)
+
     // A double-quoted string with `$name` or `${e}` written into it. The token carries nothing: the
     // parser reads the literal again from the source at the token's span, taking it apart into its
     // text and the expressions in its holes.
@@ -130,6 +134,7 @@ describe(t: Tok) -> string
         AtomLit(s) -> s"`#$s`"
         IntLit(n) -> s"`$n`"
         StrLit(_) -> "a string"
+        RegexLit(_) -> "a regex"
         InterpLit -> "a string"
         Newline -> "the end of the line"
         Indent -> "an indented line"
@@ -376,6 +381,7 @@ starts_expr(t: Tok) -> bool
         AtomLit(_) -> true
         IntLit(_) -> true
         StrLit(_) -> true
+        RegexLit(_) -> true
         InterpLit -> true
         UndefinedW -> true
         Every -> true

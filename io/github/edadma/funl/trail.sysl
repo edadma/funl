@@ -28,6 +28,9 @@ enum Undo
     // `subject` at `pos` off `scans`.
     ScanClosed(subject: Value, pos: usize)
 
+    // Regex capture group `group` was set, and had captured `old`.
+    Capture(group: usize, old: GroupSpan)
+
 // Bind an unbound variable.
 //
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
@@ -97,6 +100,15 @@ close_scans(v: *Vm, n: usize) -> Result[unit, string]
     set_scan(v, outer.subject, outer.pos)
     Ok(())
 
+// Make capture group `n` have captured `g`, recording what it held for failure to put back.
+set_capture(v: *Vm, n: usize, g: GroupSpan)
+    while v.captures.len() <= n
+        v.captures.push(GroupSpan(0, 0))
+
+    if v.control.len() > 0 then v.trail.push(Capture(n, v.captures.at(n)))
+
+    v.captures.set(n, g)
+
 // Undo every trail entry above height `h`, newest first.
 undo_trail_to(v: *Vm, h: usize)
     while v.trail.len() > h
@@ -111,6 +123,7 @@ undo_trail_to(v: *Vm, h: usize)
                 v.pos = pos
             Some(ScanOpened) -> v.scans.pop()
             Some(ScanClosed(subject, pos)) -> v.scans.push(ScanSaved(subject, pos))
+            Some(Capture(group, old)) -> v.captures.set(group, old)
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
@@ -119,8 +132,8 @@ undo_trail_to(v: *Vm, h: usize)
 // survived. A binding is kept when its variable is older than that entry -- resuming it must unbind
 // the variable -- and dropped otherwise. A reversible assignment is dropped when the commit ends a
 // bounded expression (`ends`), which makes it permanent, and kept at a cut, which ends none; so is a
-// change of the scan state. With no
-// entry left, nothing can resume, and the trail is emptied.
+// change of the scan state. A capture group's old span is kept while any entry is. With no entry
+// left, nothing can resume, and the trail is emptied.
 commit_trail(v: *Vm, h: usize, ends: bool)
     val n = v.control.len()
 
@@ -141,6 +154,7 @@ commit_trail(v: *Vm, h: usize, ends: bool)
             Scan(_, _) -> !ends
             ScanOpened -> !ends
             ScanClosed(_, _) -> !ends
+            Capture(_, _) -> true
 
         if keep
             v.trail.set(kept, u)

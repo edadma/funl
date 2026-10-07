@@ -1,0 +1,14 @@
+The *.txt data files here (all but exclusions.txt and this one) are the AT&T testregex data as
+packaged by Christopher Kuklewicz in Haskell's regex-posix-unittest-1.1 (data-dir/), under the
+licence in LICENSE. They are copied unchanged from the old FunL repository (funl-2021,
+bvm/regex-posix-unittest-1.1/data-dir/), whose regex tests were generated from them.
+
+Each line is: an id, a pattern, a subject, and the expected match -- `(start,end)` for the whole
+match and then for each group, 0-based character offsets, `(?,?)` or `(-1,-1)` for a group that
+took no part, or NOMATCH. A pattern of SAME repeats the line before's; a subject of NULL is the
+empty string. A negative id gives a second answer for the same pattern and subject, one a
+different conforming implementation produces.
+
+The data is written for POSIX leftmost-longest matching. This engine is leftmost-first, as Perl
+and PCRE2 are, so exclusions.txt lists every line where the two semantics give different answers,
+each with the reason; tests_regex_att.sysl reads both.

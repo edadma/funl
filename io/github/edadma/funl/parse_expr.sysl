@@ -64,6 +64,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         AtomLit(a) -> expr(AtomE(a), t.span)
         IntLit(n) -> number(p, n, t.span)
         StrLit(s) -> expr(StrE(s), t.span)
+        RegexLit(r) -> regex_literal(p, r, t.span)
         InterpLit -> interpolated(p, t)
         UndefinedW -> expr(UndefE, t.span)
         TrueW -> expr(BoolE(true), t.span)
@@ -730,3 +731,17 @@ private partial_function(stmts: Buf[Stmt], span: Span) -> Option[&Expr]
 
     Some(expr(LambdaE(id, clauses), span))
 end partial_function
+
+// A regex literal, its text read into a pattern tree; a mistake in it is reported where it is in the
+// source, the text starting one past the opening backtick.
+private regex_literal(p: *Parser, text: string, at: Span) -> &Expr
+    parse_regex(text) match
+        Ok(r) -> expr(RegexE(r.pat, r.groups), at)
+        Err(e) ->
+            val from = at.start + 1 + e.at
+            var d = error(Span(from, from + e.len), e.message)
+
+            if e.note != "" then d = d.with_note(e.note)
+
+            p.report.add(d)
+            expr(BadE, at)

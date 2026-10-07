@@ -1,0 +1,194 @@
+module io.github.edadma.funl
+
+// The regex instructions: what each one tests at the scan position, and how it moves it.
+//
+// **A regex runs on the scan state and nothing else.** The position is the scan's, every movement of
+// it is a `set_scan` the trail records, and a capture is a `set_capture` it records too -- so a
+// regex's choice points are ordinary ones, and failing back to one puts the position and the
+// captures back as they were when it was pushed. Positions are character positions from 1, the
+// scan's own; the subject's cursor makes stepping through it in order cheap.
+
+// The string a regex matches against.
+private rx_subject(v: *Vm) -> Result[*StrObj, string]
+    v.subject match
+        Str(p) -> Ok(p)
+        _ -> Err("a regex matches the subject of a scan `s ? e`, and no scan is running")
+
+// The character at position `at` of `p`, if `at` is not the end.
+private char_here(p: *StrObj, at: usize) -> Option[char] = if at >= 1 && at <= p.chars then Some(char_at(p, at - 1)) else None
+
+// A position the instructions keep on the operand stack.
+popped_position(x: Value) -> Result[usize, string]
+    x match
+        Int(n) -> Ok(usize(n))
+        _ -> Err("a regex instruction found no position on the stack")
+
+// Step over `n` characters.
+private advance(v: *Vm, n: usize) = set_scan(v, v.subject, v.pos + n)
+
+rx_char(v: *Vm, c: char, fold: bool) -> Result[bool, string]
+    val p = rx_subject(v)?
+
+    char_here(p, v.pos) match
+        Some(x) ->
+            if !same_char(x, c, fold) then return Ok(false)
+
+            advance(v, 1)
+            Ok(true)
+        None -> Ok(false)
+
+rx_class(v: *Vm, k: usize) -> Result[bool, string]
+    val p = rx_subject(v)?
+
+    if k >= v.classes.len() then return Err(s"there is no character class $k")
+
+    char_here(p, v.pos) match
+        Some(x) ->
+            if !v.classes.at(k).has(x) then return Ok(false)
+
+            advance(v, 1)
+            Ok(true)
+        None -> Ok(false)
+
+// `ccls(c)`: the character at the position is in cset `c`, or is a character of string `c`.
+rx_class_of(v: *Vm, set: Value) -> Result[bool, string]
+    val p = rx_subject(v)?
+
+    val x = char_here(p, v.pos) match
+        Some(x) -> x
+        None -> return Ok(false)
+
+    val holds = deref(set) match
+        CSet(k) -> k.set.has(x)
+        Str(s) -> char_set(s.s).has(x)
+        other -> return Err(s"`ccls` matches a character of a cset or a string, and was given ${described(other)}")
+
+    if !holds then return Ok(false)
+
+    advance(v, 1)
+    Ok(true)
+
+rx_any(v: *Vm, dotall: bool) -> Result[bool, string]
+    val p = rx_subject(v)?
+
+    char_here(p, v.pos) match
+        Some(x) ->
+            if !dotall && x == '\n' then return Ok(false)
+
+            advance(v, 1)
+            Ok(true)
+        None -> Ok(false)
+
+// `string(s)`: the subject continues with `s` at the position.
+rx_lit_of(v: *Vm, s: Value) -> Result[bool, string]
+    val p = rx_subject(v)?
+
+    val text = deref(s) match
+        Str(t) -> t
+        other -> return Err(s"`string` matches a string, and was given ${described(other)}")
+
+    var at = v.pos
+
+    for c in text.s.chars
+        char_here(p, at) match
+            Some(x) -> if x != c then return Ok(false)
+            None -> return Ok(false)
+
+        at += 1
+
+    set_scan(v, v.subject, at)
+    Ok(true)
+
+rx_backref(v: *Vm, n: usize, fold: bool) -> Result[bool, string]
+    val p = rx_subject(v)?
+
+    if n >= v.captures.len() then return Ok(false)
+
+    val g = v.captures.at(n)
+
+    if g.start == 0 then return Ok(false)
+
+    var at = v.pos
+
+    for k in g.start..<g.end
+        val want = char_at(p, k - 1)
+
+        char_here(p, at) match
+            Some(x) -> if !same_char(x, want, fold) then return Ok(false)
+            None -> return Ok(false)
+
+        at += 1
+
+    set_scan(v, v.subject, at)
+    Ok(true)
+
+rx_assert(v: *Vm, a: Anchor) -> Result[bool, string]
+    val p = rx_subject(v)?
+    val at = v.pos
+    val end = p.chars + 1
+
+    a match
+        SubjectStart -> Ok(at == 1)
+        SubjectEnd -> Ok(at == end)
+        SubjectEndNewline -> Ok(at == end || (at + 1 == end && newline_at(p, at)))
+        LineStart -> Ok(at == 1 || newline_at(p, at - 1))
+        LineEnd -> Ok(at == end || newline_at(p, at))
+        WordBoundary -> Ok(word_before(p, at) != word_after(p, at))
+        NotWordBoundary -> Ok(word_before(p, at) == word_after(p, at))
+
+private newline_at(p: *StrObj, at: usize) -> bool
+    char_here(p, at) match
+        Some(x) -> x == '\n'
+        None -> false
+
+private word_before(p: *StrObj, at: usize) -> bool = if at <= 1 then false else is_word_char(char_at(p, at - 2))
+
+private word_after(p: *StrObj, at: usize) -> bool
+    char_here(p, at) match
+        Some(x) -> is_word_char(x)
+        None -> false
+
+// The top of a counted loop, its count the cell on top of the stack.
+rep_next(v: *Vm, lo: usize, hi: usize, exit: usize, lazy: bool) -> Result[unit, string]
+    val n = popped_position(v.stack.at(v.stack.len() - 1))?
+
+    if n < lo then return Ok(())
+
+    if n >= hi
+        v.ip = exit
+        return Ok(())
+
+    if lazy
+        push_choice(v, v.ip)
+        v.ip = exit
+    else
+        push_choice(v, exit)
+
+    Ok(())
+
+// The end of a turn of a counted loop: the position the turn began at on top, the count under it.
+rep_step(v: *Vm, top: usize, lo: usize) -> Result[unit, string]
+    val began = popped_position(v.stack.pop().unwrap())?
+    val at = v.stack.len() - 1
+    val n = popped_position(v.stack.at(at))? + 1
+
+    v.stack.set(at, Int(long(n)))
+
+    if v.pos == began && n >= lo then return Ok(())
+
+    v.ip = top
+    Ok(())
+
+// Groups 0 to `groups` have captured nothing.
+rx_begin(v: *Vm, groups: usize)
+    for i in 0..groups
+        if i < v.captures.len() && v.captures.at(i).start != 0 then set_capture(v, i, GroupSpan(0, 0))
+
+// The regex that began at `start` has matched up to the position: group 0 is that span, and the
+// value is its text.
+rx_end(v: *Vm, start: usize) -> Result[Value, string]
+    val p = rx_subject(v)?
+
+    set_capture(v, 0, GroupSpan(start, v.pos))
+
+    if start <= v.pos then new_str(chars_between(p, start - 1, v.pos - 1)) else new_str(chars_between(p, v.pos - 1, start - 1))

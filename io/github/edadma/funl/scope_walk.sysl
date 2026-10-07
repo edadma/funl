@@ -189,8 +189,12 @@ walk(w: *Walk, e: &Expr)
                         w.report.add(error(e.span, s"`$n` is not defined")
                             .with_note("a name is a parameter, a `val`, a function, or declared with `free`"))
         CallE(n, at, args) ->
-            if is_swap(w.meaning(n, at.start), n)
+            val m = w.meaning(n, at.start)
+
+            if is_swap(m, n)
                 swapped(w, args, e.span)
+            elif is_combinator(m, n)
+                check_combinator(w, n, at, args)
             else
                 callable(w, n, at, args.len())
 
@@ -208,6 +212,7 @@ walk(w: *Walk, e: &Expr)
                 walk(w, x)
         IndexE(c, k) -> walk_two(w, c, k)
         ScanE(s, body) -> walk_two(w, s, body)
+        RegexE(_, _) -> ()
         SetElemE(c, k, _, x, _) ->
             walk_two(w, c, k)
             walk(w, x)
@@ -545,6 +550,7 @@ hoist_expr(w: *Walk, e: &Expr)
                 hoist_expr(w, x)
         IndexE(c, k) -> hoist_two(w, c, k)
         ScanE(s, body) -> hoist_two(w, s, body)
+        RegexE(_, _) -> ()
         SetElemE(c, k, _, x, _) ->
             hoist_two(w, c, k)
             hoist_expr(w, x)

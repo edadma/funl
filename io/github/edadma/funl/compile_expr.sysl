@@ -275,6 +275,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(ScanBegin)
             compile_value(e, c.in_scan(), body)?
             e.op(ScanEnd)
+        RegexE(p, groups) -> compile_pattern_value(e, c, p, groups)?
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
@@ -363,6 +364,15 @@ call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool
 
     if is_swap(m, n)
         compile_swap(e, c, args)?
+
+        if tail then e.op(Return)
+
+        return Ok(())
+
+    if is_combinator(m, n)
+        val built = combinator(c, n, args)?
+
+        compile_pattern_value(e, c, built.pat, built.groups)?
 
         if tail then e.op(Return)
 

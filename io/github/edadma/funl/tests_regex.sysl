@@ -1,0 +1,140 @@
+module io.github.edadma.funl
+@tests
+
+// Regex literals and the pattern combinators, matched inside scans: what they produce, how they move
+// the position, how they backtrack with the program around them, and what is refused and where.
+
+// -- matching at the scan position ------------------------------------------------------------------
+
+@test
+A_REGEX_MATCHES_AT_THE_POSITION_PRODUCES_WHAT_IT_MATCHED_AND_MOVES_PAST_IT()
+    val text = "'abc123' ? (write(`[a-z]+`) & write(tab(0)))\n'abc123' ? write(`[0-9]+` | 'not at the start')\n"
+
+    assert_eq(ran_funl(text), "abc\n123\nnot at the start\nsucceeded")
+
+@test
+A_REGEX_STEPS_OVER_CHARACTERS_NOT_BYTES()
+    val text = "write('ñaña' ? `(ña)+`)\n'añb' ? (`a.` & write(tab(0)))\nwrite('日本語' ? `\\w|日.`)\n"
+
+    assert_eq(ran_funl(text), "ñaña\nb\n日本\nsucceeded")
+
+@test
+A_LATER_FAILURE_RESUMES_THE_PATTERNS_NEXT_WAY_OF_MATCHING()
+    val text = "every 'abcd' ? (write(`(a|ab)(c|bcd)`) & write(tab(0)))\n'abcd' ? (`(a|ab)(c|bcd)` & pos(4) & write('stopped at 4'))\n"
+
+    assert_eq(ran_funl(text), "abcd\n\nabc\nd\nstopped at 4\nsucceeded")
+
+@test
+A_PATTERN_RESUMED_AFTER_ITS_SCAN_ENDED_SEES_ITS_OWN_SUBJECT_AGAIN()
+    val text = "every write('abc' ? `a|ab|abc`)\nevery write('xy' ? `x*?`)\n"
+
+    assert_eq(ran_funl(text), "a\nab\nabc\n\nx\nsucceeded")
+
+@test
+GREEDY_LAZY_AND_POSSESSIVE_REPETITION_GIVE_THEIR_MATCHES_IN_THEIR_ORDERS()
+    val text = "every write('aaa' ? `a{1,3}`)\nevery write('aaa' ? `a{1,3}?`)\nwrite('aaa' ? `a++a` | 'possessive gives nothing back')\nwrite('aaa' ? `a+a`)\n"
+
+    assert_eq(ran_funl(text), "aaa\naa\na\na\naa\naaa\npossessive gives nothing back\naaa\nsucceeded")
+
+@test
+A_COUNTED_REPETITION_TAKES_ITS_BOUNDS_AND_AN_EMPTY_TURN_ENDS_A_LOOP()
+    val text = "write('aaaa' ? `a{2}`)\nwrite('aaaa' ? `a{2,}`)\nwrite('a{2' ? `a{2`)\nwrite('ab' ? `(a|)*b`)\n"
+
+    assert_eq(ran_funl(text), "aa\naaaa\na{2\nab\nsucceeded")
+
+@test
+LOOKAHEAD_TESTS_WITHOUT_MOVING_AND_AN_ATOMIC_GROUP_KEEPS_ITS_FIRST_MATCH()
+    val text = "'price: 10' ? (write(`\\w+(?=:)`) & write(tab(0)))\nwrite('abc' ? `(?!b)\\w` | 'no')\nwrite('bc' ? `(?!b)\\w` | 'no')\nwrite('aab' ? `(?>a|aa)b` | 'atomic')\nwrite('aab' ? `(?:a|aa)b` | 'no')\n"
+
+    assert_eq(ran_funl(text), "price\n: 10\na\nno\natomic\naab\nsucceeded")
+
+@test
+FLAGS_SET_CASE_DOTALL_MULTILINE_AND_EXTENDED_FOR_THE_REST_OF_THEIR_GROUP()
+    val text = "write('HeLLo' ? `(?i)hello`)\nwrite('HeLLo' ? `(?i:h)ELLO` | 'case is back')\nwrite('a\\nb' ? `a.b` | 'dot stops at a newline')\nwrite('a\\nb' ? `(?s)a.b` | 'no')\nwrite('x\\ny' ? `x$` | 'no')\nwrite('x\\ny' ? `(?m)x$\\n^y` | 'no')\nwrite('aaab' ? `(?x) a +  b # the a's, then b` | 'no')\nwrite('a b' ? `(?x)a\\ b`)\n"
+
+    assert_eq(ran_funl(text), "HeLLo\ncase is back\ndot stops at a newline\na\nb\nno\nx\ny\naaab\na b\nsucceeded")
+
+@test
+CLASSES_TAKE_RANGES_ESCAPES_POSIX_NAMES_AND_NEGATION()
+    val text = "write('x-_]' ? `[a-z][-0-9][\\w][]]`)\nwrite('a1 ' ? `[[:alpha:]][[:^alpha:]][\\s]`)\nwrite('é' ? `[à-ÿ]`)\nwrite('Q' ? `[^a-z\\d]`)\nwrite('é' ? `(?i)É`)\n"
+
+    assert_eq(ran_funl(text), "x-_]\na1 \né\nQ\né\nsucceeded")
+
+@test
+ANCHORS_AND_ESCAPES_MATCH_WHERE_THEY_SAY()
+    val text = "write('ab' ? (tab(2) & `^b`) | 'not at the start')\nwrite('ab' ? (`a\\b` | 'no boundary'))\nwrite('a b' ? `a\\b \\bb`)\nwrite('ab' ? `a\\Bb`)\nwrite('ab\\n' ? `ab\\Z` | 'no')\nwrite('ab\\n' ? `ab\\z` | 'not the very end')\nwrite('a.b\\t' ? `a\\.\\x62\\t`)\nwrite('a+b' ? `\\Qa+b\\E`)\n"
+
+    assert_eq(ran_funl(text), "not at the start\nno boundary\na b\nab\nab\nnot the very end\na.b\t\na+b\nsucceeded")
+
+@test
+A_BACKREFERENCE_MATCHES_WHAT_ITS_GROUP_CAPTURED_AND_FAILS_ON_ONE_THAT_CAPTURED_NOTHING()
+    val text = "write('abab' ? `(ab)\\1`)\nwrite('xyxy' ? `(?<pair>xy)\\k<pair>`)\nwrite('aAa' ? `(?i)(a)\\1\\g{-1}`)\nwrite('b' ? `(a)?b\\1` | 'unset group')\nwrite('aa' ? `(a)\\g1`)\n"
+
+    assert_eq(ran_funl(text), "abab\nxyxy\naAa\nunset group\naa\nsucceeded")
+
+@test
+THE_COMBINATORS_BUILD_THE_PATTERNS_A_LITERAL_DOES()
+    val text = "val vowels = 'aeiou'\nval w = 'ab'\n'aeixab' ? (write(rep1(ccls(vowels))) & write(string('x')) & write(string(w)))\nevery write('aaa' ? rrep(string('a')))\nwrite('b' ? opt(string('a')))\nwrite('b' ? rep1(string('a')) | 'rep1 wants one')\nwrite('aab' ? (rep(`a`) & `b`))\nevery write('a' ? ropt(string('a')))\nwrite('aaa' ? repn(2, `a`))\n"
+
+    assert_eq(ran_funl(text), "aei\nx\nab\n\na\naa\naaa\n\nrep1 wants one\nb\n\na\naa\nsucceeded")
+
+@test
+A_PROGRAM_THAT_DEFINES_A_COMBINATORS_NAME_CALLS_ITS_OWN()
+    val text = "def rep(x) = x + 1\nwrite(rep(1))\n"
+
+    assert_eq(ran_funl(text), "2\nsucceeded")
+
+// -- what is refused --------------------------------------------------------------------------------
+
+@test
+A_MALFORMED_REGEX_IS_REFUSED_AT_THE_PLACE_IN_IT_THAT_IS_WRONG()
+    assert_eq(complaints("'a' ? `ab(c`\n"), "error 1:10 this group is not closed\n")
+    assert_eq(complaints("'a' ? `a[bc`\n"), "error 1:9 this character class is not closed\n")
+    assert_eq(complaints("'a' ? `a|*b`\n"), "error 1:10 this quantifier has nothing to repeat\n")
+    assert_eq(complaints("'a' ? `[z-a]`\n"), "error 1:9 this range runs backwards\n")
+    assert_eq(complaints("'a' ? `a{3,2}`\n"), "error 1:9 this quantifier's bounds are out of order\n")
+    assert_eq(complaints("'a' ? `a)`\n"), "error 1:9 this `)` closes no group\n")
+    assert_eq(complaints("'a' ? `a**`\n"), "error 1:10 a quantifier cannot repeat a quantifier\n")
+    assert_eq(complaints("'a' ? `[[:alfa:]]`\n"), "error 1:9 `alfa` is not a POSIX class\n")
+
+@test
+AN_UNKNOWN_FLAG_OR_ESCAPE_IS_REFUSED_WHERE_IT_IS_WRITTEN()
+    assert_eq(complaints("'a' ? `(?iq)a`\n"), "error 1:11 `q` is not a flag\n")
+    assert_eq(complaints("'a' ? `a\\y`\n"), "error 1:9 `\\y` is not an escape this engine knows\n")
+
+// A backslash ending a literal escapes the closing backtick, so this one is reached only by text that
+// does not come from a literal.
+@test
+A_BACKSLASH_ENDING_A_PATTERN_ESCAPES_NOTHING()
+    parse_regex("a\\") match
+        Ok(_) -> panic("a pattern ending in a backslash was read")
+        Err(e) ->
+            assert_eq(e.message, "this `\\` escapes nothing")
+            assert_eq(e.at, 1)
+
+@test
+A_BACKREFERENCE_TO_A_GROUP_THE_PATTERN_DOES_NOT_HAVE_IS_REFUSED()
+    assert_eq(complaints("'a' ? `(a)\\2`\n"), "error 1:11 this refers to group 2, and the pattern has only 1\n")
+    assert_eq(complaints("'a' ? `a\\1`\n"), "error 1:9 this refers to group 1, and the pattern has no groups\n")
+    assert_eq(complaints("'a' ? `\\k<x>(?<x>a)`\n"), "error 1:11 no group named `x` comes before this\n")
+    assert_eq(complaints("'a' ? `(?<x>a)(?<x>b)`\n"), "error 1:15 two groups are named `x`\n")
+
+@test
+LOOKBEHIND_IS_REFUSED_UNTIL_PATTERNS_ARE_COMPILED_IN_REVERSE()
+    assert_eq(complaints("'a' ? `(?<=a)b`\n"), "error 1:8 lookbehind is not supported yet\n")
+
+@test
+A_REGEX_NOT_CLOSED_ON_ITS_LINE_IS_REFUSED_WHERE_IT_OPENS()
+    assert_eq(complaints("'a' ? `ab\nwrite(1)\n"), "error 1:7 this regex is not closed before the end of the line\n")
+
+@test
+A_COMBINATOR_GIVEN_WHAT_IS_NOT_A_PATTERN_IS_REFUSED()
+    assert_eq(complaints("'a' ? rep('a')\n"), "error 1:11 `rep` repeats a pattern, and this is not one\n")
+    assert_eq(complaints("val n = 2\n'a' ? repn(n, `a`)\n"), "error 2:12 `repn` takes its count as an integer written in the program\n")
+    assert_eq(complaints("'a' ? rep(`a`, `b`)\n"), "error 1:7 `rep` takes 1 argument, and this call gives 2\n")
+
+@test
+A_REGEX_OUTSIDE_A_SCAN_OR_A_CCLS_OF_A_NUMBER_IS_A_FAULT()
+    assert_eq(ran_funl("write(`a`)\n"), "fault: main@4: a regex matches the subject of a scan `s ? e`, and no scan is running")
+    assert_eq(ran_funl("'a' ? ccls(1)\n"), "fault: main@7: `ccls` matches a character of a cset or a string, and was given the integer 1")
+    assert_eq(ran_funl("'a' ? string(2)\n"), "fault: main@7: `string` matches a string, and was given the integer 2")

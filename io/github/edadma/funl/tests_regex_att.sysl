@@ -1,0 +1,218 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.text.{fields, split, str_builder}
+
+// The AT&T testregex data under `tests/regex/`, read directly and checked in three tiers, each exact:
+//
+// 1. **match or no match**, on every line;
+// 2. **the overall span of the first match**, on every line where POSIX's leftmost-longest and this
+//    engine's leftmost-first agree on it;
+// 3. **every capture span**, on every line not in `tests/regex/exclusions.txt`.
+//
+// The data is POSIX's, and this engine is Perl's and PCRE2's, so where the two semantics differ the
+// exclusion list says so, a line at a time, with the reason: `span` where they disagree about the
+// whole match, `captures` where they agree about it and disagree about a group. An exclusion a line
+// no longer needs is a failure too, so the list cannot outlive what it excuses.
+//
+// Each line runs on both heaps, as every program in the suite does: the pattern is searched for in
+// the subject from position 1, leftmost first, and the spans its groups captured are written out.
+
+private const Dir: string = "tests/regex/"
+
+private struct Excused
+    file: string
+    line: usize
+    tier: string
+    used: bool
+
+private read_data(name: string) -> string = read_text(Dir + name) match
+    Ok(t) -> t
+    Err(e) -> panic(s"cannot read $Dir$name (run the suite from the project root): $e")
+
+// The exclusion list: `file line tier reason`, tab-separated, `#` starting a comment line.
+private exclusions() -> Buf[Excused]
+    var out: Buf[Excused] = buf()
+
+    for row in split(read_data("exclusions.txt"), "\n")
+        if row.bytes.len == 0 || row.bytes[0] == u8('#') then continue
+
+        val cols = split(row, "\t")
+
+        if cols.len < 4 || cols[3].bytes.len == 0 then panic(s"exclusions.txt: `$row` is not `file<TAB>line<TAB>tier<TAB>reason`")
+
+        if cols[2] != "span" && cols[2] != "captures" then panic(s"exclusions.txt: `$row` names tier `${cols[2]}`, which is neither `span` nor `captures`")
+
+        out.push(Excused(cols[0], line_number(cols[1]), cols[2], false))
+
+    out
+
+private line_number(s: string) -> usize
+    var n: usize = 0
+
+    for b in s.bytes
+        if b < u8('0') || b > u8('9') then panic(s"exclusions.txt: `$s` is not a line number")
+
+        n = n * 10 + usize(b - u8('0'))
+
+    n
+
+// What searching for `pattern` in `subject` comes to: the spans, 0-based as the data writes them, or
+// `NOMATCH`, or why it could not be run.
+private searched(pattern: string, subject: string) -> string
+    val said = ran(() -> search_chunk(pattern, subject))
+
+    if said == "failed" then return "NOMATCH"
+
+    val lines = split(said, "\n")
+
+    if lines.len == 2 && lines[1] == "succeeded" then lines[0] else s"[$said]"
+
+private search_chunk(pattern: string, subject: string) -> Result[usize, string]
+    val parsed = parse_regex(pattern) match
+        Ok(p) -> p
+        Err(e) -> return Err(s"refused at ${e.at}: ${e.message}")
+
+    val spans = register(current(), "spans", 1, write_spans)
+    var e = emit("search")
+
+    e.op(PushConst(e.constant(new_str(subject)?)))
+    e.op(ScanBegin)
+    compile_search(&e, parsed.pat, parsed.groups)?
+    e.op(Pop)
+    e.op(PushInt(long(parsed.groups)))
+    e.op(Native(spans, 1))
+    e.op(Halt)
+    finish(e)
+
+// Write groups 0 to the argument's span as the data writes them.
+private write_spans(base: usize, argc: usize) -> Result[Value, string]
+    val v = current()
+
+    val groups = arg(base, 0) match
+        Int(n) -> usize(n)
+        _ -> return Err("spans wants a group count")
+
+    var out = str_builder()
+
+    for i in 0..groups
+        val g = if i < v.captures.len() then v.captures.at(i) else GroupSpan(0, 0)
+
+        if g.start == 0 then out.push("(?,?)") else out.push(s"(${g.start - 1},${g.end - 1})")
+
+    v.output.push(out.finish())
+    Ok(Unit)
+
+// The data's expected answer, with an unset group written one way.
+private normal(expected: string) -> string
+    val parts = split(expected, "(-1,-1)")
+    var out = str_builder()
+
+    for i in 0..<parts.len
+        if i > 0 then out.push("(?,?)")
+
+        out.push(parts[i])
+
+    out.finish()
+
+private first_span(spans: string) -> string
+    val close = split(spans, ")")
+
+    close[0] + ")"
+
+// Check every line of data file `name`; the failures, one a line.
+private att(name: string) -> string
+    var excused = exclusions()
+    var failures = str_builder()
+    var previous = ""
+    var line_no: usize = 0
+
+    for row in split(read_data(name + ".txt"), "\n")
+        line_no += 1
+
+        val cols = fields(row)
+
+        if cols.len == 0 then continue
+
+        if cols.len != 4 then panic(s"$name.txt:$line_no is not `id pattern subject expected`")
+
+        val pattern = if cols[1] == "SAME" then previous else cols[1]
+
+        previous = pattern
+
+        val subject = if cols[2] == "NULL" then "" else cols[2]
+        val want = normal(cols[3])
+        val got = searched(pattern, subject)
+        val here = s"$name.txt:$line_no (id ${cols[0]}) `$pattern` on `$subject`"
+
+        var excuse = ""
+
+        for i in 0..<excused.len()
+            val x = excused.at(i)
+
+            if x.file == name && x.line == line_no
+                excuse = x.tier
+                excused.set(i, Excused(x.file, x.line, x.tier, true))
+
+        if want == "NOMATCH" || got == "NOMATCH" || got.bytes[0] != u8('(')
+            if want != got then failures.push(s"tier 1: $here wants $want, got $got\n")
+
+            if excuse != "" then failures.push(s"stale: $here is excused at `$excuse` and agrees on match\n")
+
+            continue
+
+        val span_agrees = first_span(got) == first_span(want)
+
+        if !span_agrees && excuse != "span" then failures.push(s"tier 2: $here wants $want, got $got\n")
+
+        if span_agrees && got != want && excuse == "" then failures.push(s"tier 3: $here wants $want, got $got\n")
+
+        if excuse == "span" && span_agrees then failures.push(s"stale: $here is excused at `span` and its span agrees ($got)\n")
+
+        if excuse == "captures" && got == want then failures.push(s"stale: $here is excused at `captures` and agrees ($got)\n")
+
+        if excuse == "captures" && !span_agrees then failures.push(s"wrong tier: $here is excused at `captures` and its span differs ($got)\n")
+
+    for x in excused.view()
+        if x.file == name && !x.used then failures.push(s"stale: exclusions.txt names $name.txt:${x.line}, which is not a data line\n")
+
+    failures.finish()
+end att
+
+@test
+ATT_BASIC3()
+    assert_eq(att("basic3"), "")
+
+@test
+ATT_CLASS()
+    assert_eq(att("class"), "")
+
+@test
+ATT_FORCED_ASSOC()
+    assert_eq(att("forced-assoc"), "")
+
+@test
+ATT_LEFT_ASSOC()
+    assert_eq(att("left-assoc"), "")
+
+@test
+ATT_NULLSUB3()
+    assert_eq(att("nullsub3"), "")
+
+@test
+ATT_OSX_BSD_CRITICAL()
+    assert_eq(att("osx-bsd-critical"), "")
+
+@test
+ATT_REPETITION2()
+    assert_eq(att("repetition2"), "")
+
+@test
+ATT_RIGHT_ASSOC()
+    assert_eq(att("right-assoc"), "")
+
+@test
+ATT_TOTEST()
+    assert_eq(att("totest"), "")

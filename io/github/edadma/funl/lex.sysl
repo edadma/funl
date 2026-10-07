@@ -101,6 +101,27 @@ lex(src: Source, report: *Report) -> Tokens[Tok]
 end lex
 
 // Whether nothing but a comment is left on this line.
+// Move past a regex literal from its opening backtick, answering whether its closing one was found
+// on the same line. A backslash takes the byte after it along, so `` \` `` does not close it.
+private read_regex(s: *Scanner) -> bool
+    s.bump()
+
+    loop
+        val b = s.peek() match
+            Some(b) -> b
+            None -> return false
+
+        if b == u8('\n') then return false
+
+        s.bump()
+
+        if b == u8('`') then return true
+
+        if b == u8('\\')
+            s.peek() match
+                Some(n) -> if n != u8('\n') then s.bump()
+                None -> ()
+
 private blank_rest(s: *Scanner) -> bool
     s.peek() match
         None -> true
@@ -194,6 +215,21 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
 
                 report.add(error(Span(at.start, at.start + 1), s"this string is $e").with_label("opened here"))
                 s.skip_to_line_end()
+
+        return true
+
+    // **A regex runs to the closing backtick on its line**, and its text is kept exactly as written, so
+    // a position in it is an offset from the literal's first character.
+    if c == u8('`')
+        if read_regex(s)
+            out.push(RegexLit(from_utf8_unchecked(src.text(Span(start + 1, s.at - 1)))), Span(start, s.at))
+        else
+            report.add(error(Span(start, start + 1), "this regex is not closed before the end of the line")
+                .with_label("opened here").with_note("a backtick inside a regex is written `\\``"))
+            s.skip_to_line_end()
+
+            // An empty regex in its place, so the expression it was part of is not refused as well.
+            out.push(RegexLit(""), Span(start, s.at))
 
         return true
 

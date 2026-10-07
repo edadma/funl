@@ -1,0 +1,213 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.unicode.{to_lower as lower_char, to_upper as upper_char}
+
+// The pattern tree a regex literal is read into and the pattern combinators build, and the character
+// classes in it.
+//
+// **Flags are already settled in a tree.** A flag is lexically scoped, so the parser builds each node
+// carrying what the flags in force where it was written made of it: a character that ignores case, a
+// dot that matches a newline, an anchor that knows about lines. Nothing about flags is left to decide
+// when the pattern runs.
+
+// The upper bound of a repetition with none.
+const Unbounded: usize = 4294967295
+
+// How a repetition chooses between one more turn and stopping.
+enum Greed
+    // As many turns as can be had, giving them back one at a time.
+    Greedy
+
+    // As few as will do, taking one more at a time.
+    Lazy
+
+    // As many as can be had, and never giving any back: an atomic group around a greedy repetition.
+    Possessive
+
+// A zero-width test of where the position is.
+enum Anchor
+    // `\A`, and `^` without `m`: the start of the subject.
+    SubjectStart
+
+    // `\z`: the end of the subject.
+    SubjectEnd
+
+    // `\Z`, and `$` without `m`: the end of the subject, or just before a newline that ends it.
+    SubjectEndNewline
+
+    // `^` with `m`: the start of the subject or just after a newline.
+    LineStart
+
+    // `$` with `m`: the end of the subject or just before a newline.
+    LineEnd
+
+    // `\b` and `\B`: between a word character and a character that is not one, or not.
+    WordBoundary
+    NotWordBoundary
+
+// A pattern.
+enum Pat
+    // Matches the empty string.
+    PEmpty
+
+    // One character; `fold`, ignoring case.
+    PChar(c: char, fold: bool)
+
+    // Any character but a newline, or -- `dotall` -- any character.
+    PAny(dotall: bool)
+
+    // One character of a class.
+    PSet(cls: RxClass)
+
+    PAnchor(a: Anchor)
+
+    // The items one after another.
+    PSeq(items: Buf[&Pat])
+
+    // The first item that matches, the others tried in order on backtracking.
+    PAlt(items: Buf[&Pat])
+
+    // Capture group `n`, numbered from 1.
+    PGroup(n: usize, body: &Pat)
+
+    // `body` at least `lo` times and at most `hi`, which may be `Unbounded`.
+    PRepeat(body: &Pat, lo: usize, hi: usize, greed: Greed)
+
+    // `(?=p)` and `(?!p)` (`negated`), and -- `ahead` false -- `(?<=p)` and `(?<!p)`.
+    PLook(body: &Pat, ahead: bool, negated: bool)
+
+    // `(?>p)`: `p`'s first match, which nothing after it can make it change.
+    PAtomic(body: &Pat)
+
+    // The text group `n` matched; `fold`, ignoring case.
+    PBackref(n: usize, fold: bool)
+
+    // `ccls(e)`: one character of the cset, or the string, that `e` produces when the pattern runs.
+    PExprSet(e: &Expr)
+
+    // `string(e)`: the string `e` produces when the pattern runs.
+    PExprString(e: &Expr)
+end Pat
+
+pat(k: Pat) -> &Pat = k
+
+// A character class.
+//
+// **Its ASCII members are a `CharSet`, and so are the other characters it lists**; a range that runs
+// past ASCII keeps the part beyond it as a pair of bounds, and `\D`, `\W`, `\S` and a negated POSIX
+// class are "every character but these", kept as the set they leave out.
+struct RxClass
+    set: CharSet
+
+    // Bounds of ranges beyond ASCII, each pair inclusive.
+    ranges: Buf[u32]
+
+    // Sets whose complement the class holds.
+    excluded: Buf[CharSet]
+
+    // `[^...]`.
+    negated: bool
+
+    // Written under `i`: a character is in the class when either of its cases is.
+    fold: bool
+
+    has(self, c: char) -> bool
+        var inside = class_holds(self, c)
+
+        if !inside && self.fold
+            inside = class_holds(self, lower_char(c)) || class_holds(self, upper_char(c))
+
+        inside != self.negated
+end RxClass
+
+private class_holds(k: RxClass, c: char) -> bool
+    if k.set.has(c) then return true
+
+    val u = u32(c)
+    var i: usize = 0
+
+    while i + 1 < k.ranges.len()
+        if u >= k.ranges.at(i) && u <= k.ranges.at(i + 1) then return true
+
+        i += 2
+
+    for s in k.excluded.view()
+        if !s.has(c) then return true
+
+    false
+
+empty_class(fold: bool) -> RxClass = RxClass(CharSet(0, 0, buf()), buf(), buf(), false, fold)
+
+// Add the characters `lo` to `hi` to a class.
+add_range(k: *RxClass, lo: u32, hi: u32)
+    var u = lo
+
+    while u <= hi && u < 128
+        k.set.add(char(u))
+        u += 1
+
+    if u <= hi
+        k.ranges.push(u)
+        k.ranges.push(hi)
+
+// Whether `a` and `b` are the same character, or -- `fold` -- the same but for case.
+same_char(a: char, b: char, fold: bool) -> bool
+    if a == b then return true
+
+    if !fold then return false
+
+    lower_char(a) == lower_char(b) || upper_char(a) == upper_char(b)
+
+// What `\w` matches: an ASCII letter or digit, or `_`.
+is_word_char(c: char) -> bool
+    val u = u32(c)
+
+    (u >= 48 && u <= 57) || (u >= 65 && u <= 90) || (u >= 97 && u <= 122) || u == 95
+
+// The ASCII characters of a POSIX class or a backslash class, by name.
+named_set(name: string) -> Option[CharSet]
+    val known = name == "alpha" || name == "digit" || name == "alnum" || name == "word" || name == "upper" ||
+        name == "lower" || name == "space" || name == "blank" || name == "punct" || name == "print" ||
+        name == "graph" || name == "cntrl" || name == "xdigit" || name == "ascii"
+
+    if !known then return None
+
+    var set = CharSet(0, 0, buf())
+
+    for u in 0..<128
+        val c = char(u32(u))
+
+        if in_named(name, u32(u)) then set.add(c)
+
+    Some(set)
+
+// Whether ASCII character `k` is in the class called `name`.
+private in_named(name: string, k: u32) -> bool
+    if name == "alpha" then return (k >= 65 && k <= 90) || (k >= 97 && k <= 122)
+
+    if name == "digit" then return k >= 48 && k <= 57
+
+    if name == "alnum" then return (k >= 48 && k <= 57) || (k >= 65 && k <= 90) || (k >= 97 && k <= 122)
+
+    if name == "word" then return is_word_char(char(k))
+
+    if name == "upper" then return k >= 65 && k <= 90
+
+    if name == "lower" then return k >= 97 && k <= 122
+
+    if name == "space" then return k == 32 || (k >= 9 && k <= 13)
+
+    if name == "blank" then return k == 32 || k == 9
+
+    if name == "punct" then return (k >= 33 && k <= 47) || (k >= 58 && k <= 64) || (k >= 91 && k <= 96) || (k >= 123 && k <= 126)
+
+    if name == "print" then return k >= 32 && k <= 126
+
+    if name == "graph" then return k >= 33 && k <= 126
+
+    if name == "cntrl" then return k < 32 || k == 127
+
+    if name == "xdigit" then return (k >= 48 && k <= 57) || (k >= 65 && k <= 70) || (k >= 97 && k <= 102)
+
+    true
