@@ -4,13 +4,14 @@
 // The module is `io.github.edadma.funl`, the repository's address `github.com/edadma/funl` reversed.
 // The executable is named for the package, so nothing at the root may be called `funl`: the prefix
 // is what lets `main.sysl` live inside the module rather than beside a directory of the same name.
-//
-// **No `sysl` floor yet.** The compiler this builds with is a pre-release that reports its version
-// as `0.0.1`; the floor is added when the first released compiler is the one in use.
 
 package {
   name    = "funl"
   version = "0.0.1"
+
+  // The first released compiler of the self-hosted line. The floor moves only when something here
+  // genuinely needs a newer compiler, never to track the newest release.
+  sysl = "0.1.0-alpha.1"
 }
 
 // **`gc` is the heap.** Every FunL value that points anywhere is a collected object -- a logic
