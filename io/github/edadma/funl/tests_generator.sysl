@@ -48,10 +48,44 @@ A_STEP_OF_ZERO_IS_REFUSED()
     generator_fault("write( 1 to 5 by 0 )\n", "a step cannot be zero")
 
 @test
-A_RANGE_COUNTS_ONLY_WITH_INTEGERS()
-    generator_fault("write( 1 to 'a' )\n", "`to` counts with integers and was given the string 'a'")
-    generator_fault("write( 1 until 4 by #x )\n", "`until` counts with integers")
+A_RANGE_COUNTS_ONLY_WITH_NUMBERS()
+    generator_fault("write( 1 to 'a' )\n", "`to` counts with numbers and was given the string 'a'")
+    generator_fault("write( 1/2 until 4 by #x )\n", "`until` counts with numbers and was given the atom x")
     generator_fault("free x\nwrite( x to 3 )\n", "instantiation error: `to` was given an unbound variable")
+    generator_fault("free x\nwrite( 0.5 to x )\n", "instantiation error: `to` was given an unbound variable")
+
+@test
+A_RATIONAL_STEP_COUNTS_EXACTLY()
+    assert_eq(ran_funl("every write( 0 to 1 by 1/3 )\n"), "0\n1/3\n2/3\n1\nsucceeded")
+
+@test
+A_REAL_STEP_MAKES_EVERY_VALUE_A_REAL()
+    val text = "every write( 0 to 1 by 0.25 )\nevery write( 0.5 until 2 )\n"
+
+    assert_eq(ran_funl(text), "0.0\n0.25\n0.5\n0.75\n1.0\n0.5\n1.5\nsucceeded")
+
+// A real step's rounding accumulates, and the end is compared exactly: `0.1` three times is just
+// past `0.3`.
+@test
+A_REAL_RANGE_STOPS_BY_PLAIN_COMPARISON()
+    assert_eq(ran_funl("every write( 0 to 0.3 by 0.1 )\n"), "0.0\n0.1\n0.2\nsucceeded")
+
+@test
+INTEGERS_AND_RATIONALS_MIX_IN_A_RANGE()
+    val text = "every write( 1 to 2 by 1/2 )\nevery write( 1/2 to 3 )\nevery write( 10^20 to 10^20 + 1 )\n"
+
+    assert_eq(ran_funl(text), "1\n3/2\n2\n1/2\n3/2\n5/2\n100000000000000000000\n100000000000000000001\nsucceeded")
+
+@test
+A_NEGATIVE_RATIONAL_STEP_COUNTS_DOWN()
+    val text = "every write( 1 until 0 by -1/4 )\nwrite( 1/2 to 1 by -1/3 )\nwrite( #after )\n"
+
+    assert_eq(ran_funl(text), "1\n3/4\n1/2\n1/4\nafter\nsucceeded")
+
+@test
+A_REAL_STEP_OF_ZERO_IS_REFUSED()
+    generator_fault("write( 0 to 1 by 0.0 )\n", "`to ... by 0.0` would produce 0.0 for ever: a step cannot be zero")
+    generator_fault("write( 1/2 until 1 by -0.0 )\n", "a step cannot be zero")
 
 // -- ! --------------------------------------------------------------------------------------------
 

@@ -1,0 +1,14 @@
+;; The FunL definitions the Prolog reference page imports into Prolog.
+
+data point(x, y)
+
+def sides(#square, 4)
+def sides(#triangle, 3)
+
+def corner() = point(1, 2)
+def pair(a) = (a, a * 2)
+def upto(n) = 1 to n
+def inverse(n) = 1 / n
+def ages() = {alice: 30}
+def nothing() = ()
+def unset() = undefined

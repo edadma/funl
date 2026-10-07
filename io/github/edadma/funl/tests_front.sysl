@@ -76,6 +76,20 @@ A_RULE_WITH_NO_BODY_IS_REFUSED_AT_THE_END_OF_ITS_LINE()
     assert_eq(complaints("def p(x) :-\nwrite(#a)\n"), "error 1:12 expected an expression\n")
 
 @test
+A_CUT_IN_A_RELATION_BODY_IS_REFUSED_WITH_WHAT_TO_USE_INSTEAD()
+    val message = "a FunL relation has no cut: `!` is the generator operator and needs an operand; " +
+        "commit with `if ... then ... else`, or take only the first solution in a bounded position"
+
+    assert_eq(complaints("def max(x, y, z) :- x >= y & ! & z ~ x\n"), "error 1:30 " + message + "\n")
+    assert_eq(complaints("def p(1)\ndef q(x) :- p(x) & !\n"), "error 2:20 " + message + "\n")
+    assert_eq(complaints("def q(x) :- (p(x) & !)\n"), "error 1:21 " + message + "\n")
+    assert_eq(complaints("def q(x) :- r(x, !)\n"), "error 1:18 " + message + "\n")
+
+@test
+BANG_WITH_AN_OPERAND_IS_NOT_REFUSED_AS_A_CUT()
+    assert_eq(complaints("def q(x) :- x ~ !([1, 2])\nevery write( ![3] )\n"), "")
+
+@test
 A_MISSING_CLOSING_BRACKET_IS_REPORTED_ONCE()
     assert_eq(complaints("write(#a\n"), "error 1:9 expected `,` or `)`\n")
 

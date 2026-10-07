@@ -7,8 +7,7 @@ import sysl.text.{chars_of, from_utf8_unchecked}
 // Regex literal syntax, read into a pattern tree (`regex_tree.sysl`): the tree the pattern
 // combinators build too, and the one `compile_regex.sysl` turns into the machine's instructions.
 //
-// **The syntax is Perl's, as PCRE2 reads it**, because PCRE2 is the oracle the patterns are checked
-// against: groups numbered by their opening parenthesis, named groups, `(?:`, lookahead, atomic groups,
+// **The syntax is Perl's**: groups numbered by their opening parenthesis, named groups, `(?:`, lookahead, atomic groups,
 // greedy, lazy and possessive quantifiers, backreferences, `\Q...\E`, and the flags `i`, `m`, `s` and
 // `x`. A position in an error is a byte offset into the pattern's text, which the lexer hands over
 // exactly as written, so it is also an offset from the literal's first character in the source.
@@ -18,7 +17,7 @@ import sysl.text.{chars_of, from_utf8_unchecked}
 // the flags in force where it was written made of it: a character that ignores case, a dot that
 // matches a newline, an anchor that knows about lines.
 
-// The largest count a quantifier may write, as in PCRE2.
+// The largest count a quantifier may write.
 private const MaxRepeat: usize = 65535
 
 // A refusal: what is wrong, at bytes `at ..< at + len` of the pattern.

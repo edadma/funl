@@ -70,6 +70,6 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
         Err(r) ->
             val now = refusal(why, report, r)
 
-            report.add(error(named.span, s"`$file` could not be loaded").with_note(inner.render(fl, column_shift(file))))
+            report.add(error(named.span, s"`$file` could not be loaded").with_note(render_report(inner, doc, fl)))
             now
 end import_directive

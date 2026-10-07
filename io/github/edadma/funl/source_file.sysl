@@ -37,7 +37,7 @@ compile_text(file: string, text: string) -> Compiled
 
     var report = full_report()
     val chunk = if file.ends_with(".pl") then prolog_program(src, &report) else compile_program(src, &report)
-    val said = if report.is_empty() then "" else report.render(src, column_shift(file))
+    val said = if report.is_empty() then "" else render_report(report, doc, src)
 
     chunk match
         Some(at) -> Ready(at, said)

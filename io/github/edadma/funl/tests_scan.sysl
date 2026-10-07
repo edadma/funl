@@ -162,7 +162,8 @@ A_GENERATOR_RESUMED_AFTER_A_JUMP_OUT_OF_AN_INNER_SCAN_SEES_ITS_SUBJECT()
     assert_eq(ran_funl(text), "llo\nlo\no\nllo\nlo\no\nsucceeded")
 
 // `yield` from inside a scan gives the caller its own scan back, and resuming the generator gives
-// the generator its scan back, at the position it had.
+// the generator its scan back, at the position it had. The last `yield` is the function's last
+// value: resumed after it, the function fails.
 @test
 YIELD_FROM_INSIDE_A_SCAN_SWAPS_THE_SCANS_EACH_WAY()
     val text = "def g()\n" +
@@ -172,4 +173,63 @@ YIELD_FROM_INSIDE_A_SCAN_SWAPS_THE_SCANS_EACH_WAY()
         "    yield tab(0)\n" +
         "'outer' ? (tab(2) & every write(g(), tab(0)))\n"
 
-    assert_eq(ran_funl(text), "b, uter\nbc, uter\n(), uter\nsucceeded")
+    assert_eq(ran_funl(text), "b, uter\nbc, uter\nsucceeded")
+
+// A `yield` that is the last thing a scan does, where the scan is the last thing the function does,
+// is the function's last `yield`: resumed, the function fails rather than producing `()`. That holds
+// however the scan is written -- the body's statement, `= e`, under an `if` either way round, nested
+// in another scan, or in a `where` function.
+@test
+A_FINAL_YIELD_INSIDE_A_SCAN_ENDS_THE_FUNCTION()
+    val text = "def g()\n" +
+        "  'a' ? yield 1\n" +
+        "every write( g() )\n" +
+        "def h() = 'a' ? yield 2\n" +
+        "every write( h() )\n" +
+        "def i( x )\n" +
+        "  if x\n" +
+        "    'a' ? yield 3\n" +
+        "  else\n" +
+        "    yield 0\n" +
+        "every write( i(true) )\n" +
+        "def j( x )\n" +
+        "  'a' ?\n" +
+        "    if x then yield 4 else yield 0\n" +
+        "every write( j(true) )\n" +
+        "def k() = 'a' ? ('b' ? yield 5)\n" +
+        "every write( k() )\n" +
+        "def l() = m()\n" +
+        "  where\n" +
+        "    m()\n" +
+        "      yield 6\n" +
+        "      'a' ? yield 7\n" +
+        "every write( l() )\n"
+
+    assert_eq(ran_funl(text), "1\n2\n3\n4\n5\n6\n7\nsucceeded")
+
+// A `yield` inside a scan that is not the last thing the function does produces its value and,
+// resumed, carries on with the rest of the scan -- `move(1)` undone, as failing back past it does.
+@test
+A_YIELD_INSIDE_A_SCAN_THAT_IS_NOT_LAST_CARRIES_ON()
+    val text = "def g()\n" +
+        "  'abc' ?\n" +
+        "    yield move(1)\n" +
+        "    tab(0)\n" +
+        "every write( g() )\n" +
+        "def h()\n" +
+        "  'xy' ? yield move(1)\n" +
+        "  'done'\n" +
+        "every write( h() )\n"
+
+    assert_eq(ran_funl(text), "a\nabc\nx\ndone\nsucceeded")
+
+// A call that is the last thing a scan does is made with the scan's subject in force, and each of
+// its values leaves the scan on the way out of the function.
+@test
+A_CALL_LAST_IN_A_SCAN_SEES_THE_SCANS_SUBJECT()
+    val text = "def m( n ) = if n == 0 then tab(0) else 's' + n ? m(n - 1)\n" +
+        "write( m(3) )\n" +
+        "def k() = 'p' ? 'qr' ? tab(0)\n" +
+        "'zz' ? write( k(), tab(0) )\n"
+
+    assert_eq(ran_funl(text), "s1\nqr, zz\nsucceeded")

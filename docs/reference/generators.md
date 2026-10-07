@@ -30,7 +30,7 @@ every write( 1 to 3 )
 | `!c` | each element of a list, array, set, string or range `c` |
 | `a \| b` | every value of `a`, then every value of `b` |
 | `\|e` | the values of `e`, then `e`'s values again, for as long as each round produces one |
-| `i to j`, `i until j`, optional `by k` | the integers from `i` up to `j`, inclusive (`to`) or exclusive (`until`) of `j`, in steps of `k` |
+| `i to j`, `i until j`, optional `by k` | the numbers from `i` to `j`, inclusive (`to`) or exclusive (`until`) of `j`, in steps of `k` (1 when there is no `by`) |
 | a call to a generating function | each value the function produces |
 
 ```funl
@@ -85,6 +85,71 @@ every write( |(n < 3 and (n = n + 1)) )
 3
 ```
 
+## `to` counts with any number
+
+`to` and `until` count with integers, rationals and reals alike. Each value is the one before plus
+the step, by the same arithmetic as `+`, so a rational step counts exactly, and integers and
+rationals mix as they do in `+`. A negative step counts down. A real step makes every value a real,
+the first one included:
+
+```funl
+every write( 0 to 1 by 1/4 )
+every write( 1 to 2 by 0.5 )
+every write( 3/2 until 0 by -1/2 )
+```
+
+```output
+0
+1/4
+1/2
+3/4
+1
+1.0
+1.5
+2.0
+3/2
+1
+1/2
+```
+
+The range stops at the first value that is past `j`: greater than `j` for `to` and greater than or
+equal for `until` when counting up, less than or less than or equal when counting down. The
+comparison is the plain one, with no tolerance, so a real step's rounding shows. Adding `0.1` three
+times gives `0.30000000000000004`, which is past `0.3`; the rational step reaches `3/10` exactly:
+
+```funl
+every write( 0 to 0.3 by 0.1 )
+every write( 0 to 3/10 by 1/10 )
+```
+
+```output
+0.0
+0.1
+0.2
+0
+1/10
+1/5
+3/10
+```
+
+A step of zero, of any kind, is refused, and so is anything that is not a number:
+
+```funl
+every write( 1 to 2 by 0.0 )
+```
+
+```error
+`to ... by 0.0` would produce 1.0 for ever: a step cannot be zero
+```
+
+```funl
+every write( 1 to 'ten' )
+```
+
+```error
+`to` counts with numbers and was given the string 'ten'
+```
+
 ## A range is a value; `to` is a generator
 
 `1..5` is a range: one value, which can be stored, written and iterated. `1 to 5` produces five
@@ -115,6 +180,16 @@ for v <- 10.. do if v > 12 then break else write( v )
 ```
 
 `write( 1 to 5 )` writes only `1`, because a statement stops at its first result (below).
+
+A range value counts with integers only; for other numbers, use `to`:
+
+```funl
+write( 0..1/2 )
+```
+
+```error
+a range counts with integers, and its end is the rational 1/2
+```
 
 ## Backtracking into a generator
 

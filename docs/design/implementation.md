@@ -209,7 +209,7 @@ and a test that needs a real file (consult, `:- import`) writes the literal to a
 programs for people to read, and no test reads or runs them. An example may show what a unit test
 checks, and the test then holds its own copy as a literal.
 
-### Regex: the AT&T data, and a second oracle
+### Regex: the AT&T data, and tests worked by hand
 
 **The regex data is Haskell's `regex-posix-unittest` package** — the AT&T `testregex` files
 `basic3`, `class`, `forced-assoc`, `left-assoc`, `nullsub3`, `osx-bsd-critical`, `repetition2`,
@@ -227,15 +227,12 @@ which matters, because the AT&T data is written for POSIX and this engine is not
 > and leftmost-first coincide, which is most of them. *Every capture span* must agree on every line
 > not in `tests/regex/exclusions.txt`, a file listing each line where the two semantics genuinely
 > differ, each with the reason, which the test reads — so the list cannot grow without a sentence
-> being written. **And a second oracle for the semantics this engine actually has**: the same
-> patterns run through PCRE2 (`sysl-lang/pcre2`), as a test-only dependency, compared span for span,
-> because a single oracle is an opinion and this one is about a different semantics.
-> **The second oracle is live**: `pcre2` is a `dev_dependencies` entry of the root package, and
-> `tests_regex_pcre2.sysl` runs all 428 AT&T lines and all 75 `lookaround.txt` lines through PCRE2,
-> exact on every span and group. `lookbehind.txt` is compared too: PCRE2 refuses 20 of its lines as
-> unbounded (counted, nothing to compare) and answers 9 differently, which
-> `tests/regex/pcre2_lookbehind.txt` lists with the reason; a listed line that comes to agree fails.
-> **Rejected:** an any-match rule, which passes the data and proves little.
+> being written. **What the AT&T data does not reach** — lookahead, lookbehind (matched right to left
+> from the position, so of any length) and backreferences — is checked by unit tests in
+> `tests_regex_lookaround.sysl`: a pattern and a subject as string literals, with the spans of the
+> first match beside them, each worked out by hand under leftmost-first backtracking.
+> **Rejected:** an any-match rule, which passes the data and proves little; and comparing against
+> another regex engine, since this engine's semantics are its own and are stated by its tests.
 
 ### Logic and Prolog
 
