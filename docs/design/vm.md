@@ -499,10 +499,12 @@ across kinds is exact — `1/3 < 0.3333333333333333` compares the rational with 
 binary value — and **equality across kinds is numeric** for FunL's `==` (`1 == 1.0` succeeds) while
 **unification is not** (`1 ~ 1.0` fails), for the reason the [logic chapter](logic.md) gives.
 
-`sysl.math.bigint` supplies `BigInt` and `sysl.math.decimal` supplies `Decimal`; the rational type
-is written here over `BigInt`, with every result normalised by the gcd. Printing follows slate's
-`decimal.sysl` approach — exact digit generation rather than `printf` — so a real prints as the
-shortest decimal that reads back as the same double.
+**The tower is not FunL's: it is the `sysl-lang/dal` package**, sysl's counterpart of the Scala DAL —
+a tagged number with the promotion, overflow and demotion rules above, exact comparison across
+kinds, and printing by exact digit generation rather than `printf`, so a real prints as the shortest
+decimal that reads back as the same double. It is built on the standard library's
+`sysl.math.bigint`, `sysl.math.decimal` and `sysl.math.rational`. FunL's arithmetic and Prolog's
+`is/2` both call it; what FunL adds is only the mapping between `dal`'s number and the `Value` enum.
 
 ## What the collector has to see
 
