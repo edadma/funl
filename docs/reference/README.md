@@ -13,6 +13,7 @@ the language cannot disagree for long.
 | page | what it covers |
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
 
 ## How a page is checked
 

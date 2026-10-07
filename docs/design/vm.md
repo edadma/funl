@@ -470,9 +470,14 @@ end before its start. Lookaround is then four short sequences:
 
 **A lookbehind may therefore be any pattern at all** — unbounded repetition, alternatives of
 different lengths, nested lookaround, backreferences — because it is not matched by trying start
-points behind `pos`; it is matched backwards *from* `pos`. PCRE2 refuses an unbounded lookbehind
-outright. The compiler takes a direction with each pattern, and a lookbehind compiles
-its body in the opposite one.
+points behind `pos`; it is matched backwards *from* `pos`. The compiler takes a direction with each
+pattern, and a lookbehind compiles its body in the opposite one.
+
+> **Decided — lookbehind is JavaScript's.** A lookbehind is matched right to left from the
+> position, as ES2018 specifies, so inside it alternatives, repetition, group captures,
+> backreferences and atomic groups resolve as a right-to-left match does: the alternative tried
+> first is the one taken, a repeated group keeps its leftmost turn, and a backreference sees a group
+> written to its right.
 
 **Semantics are leftmost-first backtracking, Perl's and JavaScript's, not POSIX's leftmost-longest.**
 A machine whose alternatives are tried in order cannot be leftmost-longest without exploring every
