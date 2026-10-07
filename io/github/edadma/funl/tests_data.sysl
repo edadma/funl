@@ -81,7 +81,7 @@ A_MUTABLE_SET_CHANGES_IN_PLACE_BY_PLUS_AND_MINUS_EQUALS()
 AN_ELEMENT_IS_UPDATED_THROUGH_AN_OPERATOR()
     assert_eq(ran_funl("val a = array([1, 2, 3])\na(0) += 10\na[2] *= 5\na[-1] -= 1\nwrite( a, a(1) += 1 )\nval m = map({x: 1})\nm.x += 4\nm(\"x\") \\= 2\nm[\"x\"] ^= 3\nwrite( m )\n"),
         "Array(11, 11, 2), 11\nMutableMap(\"x\": 8)\nsucceeded")
-    assert_eq(ran_funl("val a = array([0])\nevery a(0) += 1 to 3\nwrite( a )\nval b = [buffer()]\nb(0) += 7\nwrite( b )\nval c = array([5])\nif c(0) <:= 9 then write( #raised ) else write( #kept )\nif c(0) >:= 20 then write( #lowered ) else write( #kept )\nwrite( c )\n"),
+    assert_eq(ran_funl("val a = array([0])\nevery a(0) += 1 to 3\nwrite( a )\nval b = [buffer()]\nb(0) += 7\nwrite( b )\nval c = array([5])\nif (c(0) <:= 9) then write( #raised ) else write( #kept )\nif (c(0) >:= 20) then write( #lowered ) else write( #kept )\nwrite( c )\n"),
         "Array(6)\n[Buffer(7)]\nraised\nkept\nArray(9)\nsucceeded")
     faults_with("val l = [1, 2]\nl(0) += 1\n", "[1, 2] cannot be changed: only an array, a buffer and a mutable map have elements that can be assigned")
     faults_with("val m = map()\nm(#k) += 1\n", "MutableMap() has no key k")

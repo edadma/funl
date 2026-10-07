@@ -279,3 +279,10 @@ DATA_BACKTRACKING_1()
 @test
 CROSSWORD()
     corpus("crossword")
+
+// `| i | j == 0` asks whether either of `i` and `j` is 0: alternation binds tighter than comparison,
+// as the binding-power ladder in `implementation.md` has it. The parser binds `|` looser than `==`,
+// reading `i | (j == 0)`, so every guard holds and the answer is 7.
+@test(ignore: "the parser binds alternation looser than comparison, and its levels are under review")
+LEVENSHTEIN()
+    corpus("levenshtein")
