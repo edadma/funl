@@ -30,15 +30,16 @@ directives run at load time** (`:- dynamic`, `:- op`, `:- initialization`), exac
 
 ## A Prolog with no FunL in it
 
-**The logic core stands alone, and a standalone Prolog is built on it.** The machine is two layers:
-a **logic core** — terms (atoms, numbers, compounds, variables, lists), the control stack, choice
-points, the trail, frames, calls and returns, unification, clause selection and the `Get`
-instructions — and **FunL on top**, which adds its own value kinds (strings as FunL has them,
-tuples, closures, maps) and its own instructions (generators, scanning, regex) through an extension
-seam the core never names. The core imports nothing from the FunL layer.
+**There is one machine, and a standalone Prolog is a second front end to it.** The VM is unified:
+one instruction set and single-level dispatch — one match over the instruction kind in one run loop,
+as slate's interpreter does it. Some instructions are emitted only for Prolog code (clause
+indexing, cut to a clause's barrier), some only for FunL (generators, scanning, regex) and most are
+shared (choice points, the trail, frames, calls, unification); all of them live in the same enum and
+the same loop, with no layering and no extension seam.
 
-**The standalone Prolog is the core, the Prolog reader, the Prolog builtins and an ISO top level**
-(`?- goal.`, `;` for the next answer, `consult/1`), and nothing else. It knows only standard Prolog:
+**The standalone Prolog is that machine with the Prolog reader, the Prolog builtins and an ISO top
+level** (`?- goal.`, `;` for the next answer, `consult/1`), and nothing else; its front end never
+emits a FunL-only instruction. It knows only standard Prolog:
 no FunL syntax, no FunL builtins, no FunL value kinds reachable from it. The same Prolog program
 runs identically in it and through `funl family.pl`; the difference is only what else is loaded.
 
