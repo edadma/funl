@@ -354,7 +354,7 @@ FLOOR_DIVISION_ROUNDS_TOWARD_NEGATIVE_INFINITY()
 @test
 FLOOR_DIVISION_REFUSES_A_ZERO_DIVISOR_AND_WHAT_IS_NOT_A_NUMBER()
     faulted_with("write( 1 // 0 )\n", "1 // 0 divides by zero")
-    faulted_with("write( #a // 2 )\n", "'//' wants numbers and was given a")
+    faulted_with("write( #a // 2 )\n", "'//' wants numbers and was given the atom a")
     faulted_with("write( 2.5 // 0 )\n", "2.5 // 0 divides by zero")
     faulted_with("var k\nwrite( 1 // k )\n", "'//' wants numbers and was given undefined")
 
@@ -413,8 +413,20 @@ NUMBERS_COMPARE_BY_VALUE_ACROSS_KINDS_AND_UNIFY_BY_KIND()
 A_RESULT_WITH_NO_NUMBER_IS_AN_ERROR()
     faulted_with("write( 1 \\ 0 )\n", "divides by zero")
     faulted_with("write( 2.5 div 5 )\n", "'div' asks whether one integer divides another, and was given the real 2.5")
-    faulted_with("write( #a + 1 )\n", "'+' wants numbers and was given a")
+    faulted_with("write( #a + 1 )\n", "'+' wants numbers and was given the atom a")
     faulted_with("write( 1 < 'a' )\n", "'<' cannot compare the integer 1 with the string 'a'")
+
+@test
+A_FAULT_NAMES_THE_KIND_OF_AN_ATOM_OR_A_STRUCTURE_IT_WAS_GIVEN()
+    faulted_with("write( #a * 2 )\n", "'*' wants numbers and was given the atom a")
+    faulted_with("write( [] * 2 )\n", "'*' wants numbers and was given the empty list")
+    faulted_with("write( [1, 2] * 2 )\n", "'*' wants numbers and was given the list [1, 2]")
+    faulted_with("write( (1, 2) * 2 )\n", "'*' wants numbers and was given the tuple (1, 2)")
+    faulted_with("write( (1..3) * 2 )\n", "'*' wants numbers and was given the range 1..3")
+    faulted_with("write( 2 * #b )\n", "'*' wants numbers and was given the atom b")
+    faulted_with("data P(x)\nwrite( P(1) * 2 )\n", "'*' wants numbers and was given the record P(1)")
+    faulted_with("data P(x)\nwrite( P * 2 )\n", "'*' wants numbers and was given a record constructor")
+    faulted_with("write( cset(\"abc\") * 2 )\n", "'*' wants numbers and was given a cset")
 
 @test
 A_NUMBER_TOUCHING_A_NAME_OR_A_PARENTHESIS_MULTIPLIES_AND_A_SPACE_MAKES_IT_A_CALL()

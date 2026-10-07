@@ -180,52 +180,14 @@ every write( (1 to 3) > 1 or 10 )
 10
 ```
 
-## Generating functions
+A function whose body ends in a generator, or which uses `yield`, is a generator too; see
+[Generator functions](functions.md#generator-functions).
 
-A function whose body ends in a generator is a generator: its body passes every value through to
-the caller. `yield e` produces `e`'s value and leaves the function suspended where it is; asking for
-another value resumes it after the `yield`. A function that falls off its end after a `yield` has
-nothing more to produce, and fails.
+## A search is an expression
 
-```funl
-def upto( n ) = 1 to n
-
-def twice()
-  yield 'first'
-  yield 'second'
-
-every write( upto(3) )
-every write( twice() )
-write( twice() )
-```
-
-```output
-1
-2
-3
-first
-second
-first
-```
-
-## Reversible assignment
-
-`name <- e` assigns like `=`, but the assignment is undone when evaluation backtracks over it:
-
-```funl
-x = 0
-every (x <- 1 to 3) & write( x )
-write( x )
-```
-
-```output
-1
-2
-3
-0
-```
-
-Generators, comparisons and reversible assignment together make a search one expression. This
+Generators, comparisons and reversible assignment (`<-`, which is undone when evaluation
+backtracks over it; see [Assignment and scope](assignment.md)) together make a search one
+expression. This
 places five queens on a 5×5 board so that none attacks another: the row is chosen by a generator,
 each constraint is a comparison, and the placement is reversible, so a failing constraint backtracks
 into the generator for the next row.

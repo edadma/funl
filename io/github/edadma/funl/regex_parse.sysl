@@ -393,7 +393,7 @@ private flag_group(p: *RxParser, open: usize, fold: bool, multiline: bool, dotal
         elif (f >= u8('a') && f <= u8('z')) || (f >= u8('A') && f <= u8('Z'))
             return fail_at(p.at, 1, s"`${from_utf8_unchecked(p.text.bytes[p.at..<p.at + 1])}` is not a flag", "the flags are `i` (ignore case), `m` (multiline), `s` (dot matches newline) and `x` (extended)")
         else
-            return fail_at(open, p.at + 1 - open, "this kind of group is not supported", "the groups are `(p)`, `(?<name>p)`, `(?:p)`, `(?=p)`, `(?!p)`, `(?>p)` and the flag groups")
+            return fail_at(open, p.at + 1 - open, "this kind of group is not supported", "the groups are `(p)`, `(?<name>p)`, `(?:p)`, `(?=p)`, `(?!p)`, `(?<=p)`, `(?<!p)`, `(?>p)`, the flag groups and `(?#...)`")
 
         p.at += 1
 end flag_group
