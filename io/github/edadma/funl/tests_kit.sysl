@@ -34,20 +34,34 @@ struct Said
     // How many chunks the VM held when the run ended.
     chunks: usize
 
+    // The warnings compiling it rendered, or `""`. They are not part of `text`, so a transcript reads
+    // the same whether or not its program drew a warning.
+    warned: string
+
 outcome_text(o: Outcome) -> string = o match
     Succeeded -> "succeeded"
     Failed -> "failed"
     Faulted(m) -> s"fault: $m"
 
 // Run what `build` makes on a VM with this heap and schedule.
-run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, string]) -> Said
+run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, string]) -> Said =
+    run_compiled(heap, floor, growth, () -> build() match
+        Ok(chunk) -> Ready(chunk, "")
+        Err(e) -> Compiled.Refused(e))
+
+// Run what `build` compiles on a VM with this heap and schedule, keeping the warnings it rendered.
+run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled) -> Said
     var v = new_vm(heap, floor, growth)
     val was = enter(&v)
     var out = str_builder()
+    var warned = ""
 
     val outcome = build() match
-        Ok(chunk) -> outcome_text(run(&v, chunk))
-        Err(e) -> s"assembly: $e"
+        Ready(chunk, said) ->
+            warned = said
+            outcome_text(run(&v, chunk))
+        Compiled.Refused(e) -> s"assembly: $e"
+        CannotRead(why) -> s"assembly: $why"
 
     for line in v.output.view()
         out.push(line)
@@ -55,17 +69,22 @@ run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, stri
 
     out.push(outcome)
 
-    val said = Said(out.finish(), v.collections, v.trail.len(), v.control_peak, v.chunks.len())
+    val said = Said(out.finish(), v.collections, v.trail.len(), v.control_peak, v.chunks.len(), warned)
 
     dispose_vm(&v)
     leave(was)
     said
-end run_on
+end run_compiled
 
 roomy(build: () -> Result[usize, string]) -> Said = run_on(RoomyHeap, RoomyFloor, 2, build)
 
 // Collect before every instruction.
 stressed(build: () -> Result[usize, string]) -> Said = run_on(TightHeap, 0, 0, build)
+
+// `roomy` and `stressed` for a build that keeps its warnings.
+roomy_compiled(build: () -> Compiled) -> Said = run_compiled(RoomyHeap, RoomyFloor, 2, build)
+
+stressed_compiled(build: () -> Compiled) -> Said = run_compiled(TightHeap, 0, 0, build)
 
 // The transcript of `build`, which must be the same on both heaps.
 ran(build: () -> Result[usize, string]) -> string
