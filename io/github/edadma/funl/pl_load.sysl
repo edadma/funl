@@ -43,8 +43,12 @@ struct Origin
 // No file's: a builtin, the library, a predicate made while the program runs.
 nowhere() -> Origin = Origin("", "")
 
-// Where `offset` is in `src`, as `file:line:column`.
-located(src: Source, offset: usize) -> string = s"${src.name}:${src.locate(offset)}"
+// Where `offset` is in `src`, as `file:line:column` -- the column the file's reader sees, a literate
+// file's tangle having taken `column_shift` off every line.
+located(src: Source, offset: usize) -> string
+    val at = src.locate(offset)
+
+    s"${src.name}:${at.line}:${at.col + column_shift(src.name)}"
 
 // Where a predicate's code came from, which says what may change it.
 enum PredKind

@@ -1,0 +1,30 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.{Diagnostic, Source, literate_indent, tangle_literate}
+import sysl.text.Search
+
+// Literate FunL: a file named `.lfunl` is a Markdown document whose four-column-indented blocks are
+// the program, under exactly sysl's `.lsysl` rules -- prose between blocks ends nothing, a fenced
+// block is an illustration, an indented block under a list item is prose. `sh.sysl.parsing` does the
+// tangling; what is FunL's is only which files it applies to.
+//
+// **The name decides and nothing else.** A `.funl` file is read as it stands, however its lines are
+// indented.
+//
+// **Prose is blanked rather than removed**, so a line in the tangled source is the document's line;
+// a column is `literate_indent` short, and `column_shift` is what a report's `render` adds back, so a
+// diagnostic names the line and column of the file the reader has open.
+
+const LiterateFunl: string = ".lfunl"
+
+is_literate_funl(file: string) -> bool = file.ends_with(LiterateFunl)
+
+// The source a FunL file compiles from: the document itself, or the program a literate one holds.
+// A refusal's span is an offset into `doc`, so it renders against `doc`.
+funl_source(doc: Source) -> Result[Source, Diagnostic]
+    if !is_literate_funl(doc.name) then return Ok(doc)
+
+    tangle_literate(doc)
+
+// The columns a position in `file`'s compiled source is short of the file's own.
+column_shift(file: string) -> usize = if is_literate_funl(file) then literate_indent else 0

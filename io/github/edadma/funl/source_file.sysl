@@ -1,0 +1,42 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.{full_report, source_of}
+import sysl.fs.read_text
+import sysl.text.Search
+
+// What became of a file handed to the `funl` driver.
+enum Compiled
+    // It could not be read, and why.
+    CannotRead(why: string)
+
+    // It was refused, and its diagnostics rendered.
+    Refused(said: string)
+
+    // Its chunk, ready to run, and any warnings rendered.
+    Ready(chunk: usize, said: string)
+
+// Read `file` and compile it into the running VM: a `.pl` file as a Prolog program, a `.lfunl` file
+// as literate FunL (tangled first), anything else as FunL.
+//
+// **Every diagnostic names the line and column of the file the reader has open**, a literate file's
+// included: a refusal of the document is rendered against it, and the program's diagnostics are moved
+// by the columns its tangle took off.
+compile_file(file: string) -> Compiled
+    val text = read_text(file) match
+        Ok(t) -> t
+        Err(e) -> return CannotRead(s"$e")
+
+    val doc = source_of(file, text)
+
+    val src = funl_source(doc) match
+        Ok(s) -> s
+        Err(d) -> return Refused(d.render(doc))
+
+    var report = full_report()
+    val chunk = if file.ends_with(".pl") then prolog_program(src, &report) else compile_program(src, &report)
+    val said = if report.is_empty() then "" else report.render(src, column_shift(file))
+
+    chunk match
+        Some(at) -> Ready(at, said)
+        None -> Refused(said)
+end compile_file

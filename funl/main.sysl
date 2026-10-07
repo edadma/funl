@@ -1,10 +1,8 @@
 import io.github.edadma.funl.*
-import sh.sysl.parsing.{full_report, source_of}
-import sysl.fs.read_text
-import sysl.text.Search
 
-// The driver: `funl <program.fl>` compiles the program, runs it, and prints what it wrote. A file
-// named `.pl` is a Prolog program: it is loaded, its directives and `initialization/1` goals run.
+// The driver: `funl <program.funl>` compiles the program, runs it, and prints what it wrote. A file
+// named `.lfunl` is literate FunL, tangled first. A file named `.pl` is a Prolog program: it is
+// loaded, its directives and `initialization/1` goals run.
 //
 // **It sits at the project root, outside the module**, so the package can be a dependency too: the
 // `prolog` executable (`prolog/`) is a second program over the same module, and a program has one
@@ -22,35 +20,28 @@ main(args: []string)
         return
 
     if args.len != 2
-        eprints("usage: funl <program.fl | program.pl>\n")
+        eprints("usage: funl <program.funl | program.lfunl | program.pl>\n")
         exit(2)
 
-    val file = args[1]
-
-    val text = read_text(file) match
-        Ok(t) -> t
-        Err(e) ->
-            eprints(s"funl: cannot read $file: $e\n")
-            exit(2)
-
-    exit(run_file(file, text))
+    exit(run_file(args[1]))
 end main
 
-// Compile and run `text`, read from `file`; the status to exit with.
-private run_file(file: string, text: string) -> int
-    val src = source_of(file, text)
+// Compile and run `file`; the status to exit with.
+private run_file(file: string) -> int
     var v = new_vm(HeapBytes, CollectFloor, Growth)
     val was = enter(&v)
-    var report = full_report()
     var status = 0
 
-    val chunk = if file.ends_with(".pl") then prolog_program(src, &report) else compile_program(src, &report)
+    compile_file(file) match
+        CannotRead(why) ->
+            eprints(s"funl: cannot read $file: $why\n")
+            status = 2
+        Refused(said) ->
+            eprints(said)
+            status = 1
+        Ready(at, said) ->
+            eprints(said)
 
-    if !report.is_empty() then eprints(report.render(src))
-
-    chunk match
-        None -> status = 1
-        Some(at) ->
             val outcome = run(&v, at)
 
             for line in v.output.view()
