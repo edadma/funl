@@ -169,19 +169,31 @@ dcg_body(b: &Term, s0: &Term, s: &Term, fresh: *usize) -> Result[&Term, DcgFault
             if n == 1 && name == "{}"
                 val g = args.at(0)
 
-                val goal = g.kind match
-                    TVar(_) ->
-                        var one: Buf[&Term] = buf()
+                // A goal that is not yet known to be callable is called through `call/1`, so one
+                // that turns out not to be is the error named by itself, not by the conjunction the
+                // rule became.
+                val direct = g.kind match
+                    TAtom(_) -> true
+                    TComp(_, _) -> true
+                    TConst(x) -> deref(x) match
+                        Atom(_) -> true
+                        Compound(_) -> true
+                        _ -> false
+                    _ -> false
 
-                        one.push(g)
-                        dcg_compound("call", one, g.span)
-                    _ -> g
+                val goal = if direct then g else dcg_compound("call", one_goal(g), g.span)
 
                 return Ok(dcg_and(goal, dcg_unify(s0, s, at), at))
 
             dcg_non_terminal(b, s0, s, "a grammar body")
         _ -> Err(dcg_fault("callable", b, "a grammar body is made of non-terminals, terminal lists, strings and control constructs, and this is none of them"))
 end dcg_body
+
+private one_goal(g: &Term) -> Buf[&Term]
+    var one: Buf[&Term] = buf()
+
+    one.push(g)
+    one
 
 // `s0 = [t1, ..., tn|s]` for the terminal list `l`, which must be a whole list.
 private dcg_terminals(l: &Term, s0: &Term, s: &Term, what: string) -> Result[&Term, DcgFault]

@@ -70,7 +70,7 @@ DOUBLE_QUOTES_DECIDES_WHAT_THE_CLAUSES_AFTER_IT_READ()
 @test
 A_FLAG_DIRECTIVE_THAT_IS_REFUSED_IS_REPORTED()
     assert_eq(prolog_complaints(":- set_prolog_flag(double_quotes, bytes).\n"),
-        "error 1:1 set_prolog_flag/2: flag double_quotes cannot be bytes\n")
+        "error 1:4 set_prolog_flag/2: flag double_quotes cannot be bytes\n")
 
 @test
 CALL_REFUSES_A_BODY_WITH_A_PART_THAT_IS_NOT_CALLABLE_BEFORE_RUNNING_ANY_OF_IT()
