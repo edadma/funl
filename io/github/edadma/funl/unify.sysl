@@ -5,8 +5,8 @@ import sysl.buf.{Buf, buf}
 // Unification, and the head-unification instructions built on it.
 //
 // **Iterative, with an explicit work list**, so a deep term cannot overflow the sysl stack. The list
-// is `Vm.work`, used as a stack of pairs and empty between instructions; nothing here allocates, so
-// no collection can run while a value sits in it.
+// is `Vm.work`, used as a stack of pairs and empty between instructions; nothing here allocates on
+// the collected heap, so no collection can run while a value sits in it.
 
 // Push a pair for the running unification to visit. Not `private`: an extension kind whose values
 // have parts unifies them through this.
@@ -63,7 +63,13 @@ private identical(a: Value, b: Value) -> bool = a match
 // cannot loop. **Kinds are compared before values. When two unbound variables meet, the younger is
 // bound to the older** -- by `id`, which is creation order exactly where two stamps can be equal --
 // so the binding usually needs no trail entry. There is no occurs check.
-unify(a: Value, b: Value) -> bool
+unify(a: Value, b: Value) -> bool = unify_with(a, b, false)
+
+// Unify `a` with `b` as `unify` does, but refusing to bind a variable to a term that contains it
+// (`unify_with_occurs_check/2`), so the result is never a cyclic term.
+unify_checked(a: Value, b: Value) -> bool = unify_with(a, b, true)
+
+private unify_with(a: Value, b: Value, check: bool) -> bool
     val v = current()
     val base = v.work.len()
 
@@ -73,28 +79,33 @@ unify(a: Value, b: Value) -> bool
         val y = deref(v.work.pop().unwrap())
         val x = deref(v.work.pop().unwrap())
 
-        if !step(x, y)
+        if !step(x, y, check)
             v.work.truncate(base)
             return false
 
     true
-end unify
+end unify_with
 
-// One pair, both dereferenced.
-private step(x: Value, y: Value) -> bool
+// One pair, both dereferenced; `check` refuses a binding the occurs check fails.
+private step(x: Value, y: Value, check: bool) -> bool
     if identical(x, y) then return true
 
     x match
         Var(p) ->
             y match
                 Var(q) -> if p.id < q.id then bind(q, x) else bind(p, y)
-                _ -> bind(p, y)
+                _ ->
+                    if check && occurs_in(x, y) then return false
+
+                    bind(p, y)
 
             return true
         _ -> ()
 
     y match
         Var(q) ->
+            if check && occurs_in(y, x) then return false
+
             bind(q, x)
             return true
         _ -> ()
@@ -152,6 +163,31 @@ private step(x: Value, y: Value) -> bool
         Buffer(_) -> false
         Ctor(_) -> false
 end step
+
+// Whether unbound variable `x` occurs anywhere inside term `t`.
+private occurs_in(x: Value, t: Value) -> bool
+    var work: Buf[Value] = buf()
+
+    work.push(t)
+
+    loop
+        val u = work.pop() match
+            Some(u) -> deref(u)
+            None -> return false
+
+        if identical(x, u) then return true
+
+        u match
+            Compound(p) ->
+                for a in p.args.view()
+                    work.push(a)
+            Cons(p) ->
+                work.push(p.head)
+                work.push(p.tail)
+            Tuple(p) ->
+                for a in p.items.view()
+                    work.push(a)
+            _ -> ()
 
 // Whether two values are equal, an instantiation error counting as not.
 private equal_or_not(x: Value, y: Value) -> bool = equal_values(x, y, "~") match

@@ -4,7 +4,7 @@ import sysl.buf.{Buf, buf}
 import sysl.container.{Map, map}
 
 // Prolog's builtins that inspect and build terms: the type tests, `functor/3`, `arg/3`, `=../2`,
-// `copy_term/2`, `term_variables/2` and `compare/3`.
+// `copy_term/2`, `term_variables/2`, `compare/3` and `unify_with_occurs_check/2`.
 //
 // **A list cell is the compound `'[|]'(H, T)`** to all of them, as in SWI-Prolog 7, where `'.'` is no
 // longer the list functor; and a FunL tuple is the compound `tuple(...)` the term mapping makes it.
@@ -28,6 +28,7 @@ install_prolog_terms(v: *Vm)
     register_generator(v, "copy_term/2", 2, pl_copy_term)
     register_generator(v, "term_variables/2", 2, pl_term_variables)
     register_generator(v, "compare/3", 3, pl_compare)
+    register_generator(v, "unify_with_occurs_check/2", 2, (b, n, c) -> answer(unify_checked(arg(b, 0), arg(b, 1))))
 
 // -- What every Prolog builtin answers with --------------------------------------------------------
 

@@ -1,0 +1,199 @@
+module io.github.edadma.funl
+@tests
+
+// One test for each defect of the 2019 Prolog engine (`prolog.md` § "The 2019 engine's defects, and
+// what rules each one out"), named after the defect it rules out. Each would have failed on that
+// engine: its cut and mark points lived in global registers, its meta-call was bounded, its `==`
+// compared identity, and several builtins were missing or stubs.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Whether `goal` succeeds, fails, or the formal term of the error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+// `defs` loaded, then every solution `X` of `goal` written, one a line.
+private every(defs: string, goal: string) -> string =
+    ran_prolog(defs + s":- forall($goal, (writeq(X), nl)).\n")
+
+// `goal` run once, then `X` written.
+private gives(goal: string) -> string =
+    ran_prolog(s":- $goal, writeq(X), nl.\n")
+
+private const Ps: string = "p(1).\np(2).\np(3).\n"
+
+@test
+A_CUT_DOES_NOT_LEAK_INTO_THE_CALLER()
+    // The cut in `c` commits `c`, not the `p(X)` its caller is still backtracking into.
+    assert_eq(every(Ps + "c :- !.\nq(X) :- p(X), c.\n", "q(X)"), ok("1\n2\n3"))
+    assert_eq(every(Ps + "c :- !.\nc.\nq(X) :- (c, X = a ; X = b).\n", "q(X)"), ok("a\nb"))
+    assert_eq(every(Ps + "c(Y) :- p(Y), !.\nq(X-Y) :- p(X), c(Y).\n", "q(X)"), ok("1-1\n2-1\n3-1"))
+
+    // A cut in a deeper clause, the caller's own cut still in force after it.
+    assert_eq(every(Ps + "c :- !.\nq(X) :- p(X), c, !.\nq(9).\n", "q(X)"), ok("1"))
+
+@test
+A_NESTED_IF_THEN_ELSE_DOES_NOT_CORRUPT_THE_OUTER_ONE()
+    val t = "t(X, R) :- ( X > 0 -> ( X > 5 -> R = big ; R = small ) ; R = neg ).\n"
+
+    assert_eq(every(t, "(member(N, [7, 3, -1]), t(N, X))"), ok("big\nsmall\nneg"))
+
+    // The inner condition commits, its then-branch fails, and the outer condition fails with it: the
+    // outer else runs, not the inner one.
+    assert_eq(every("s(R) :- ( (true -> fail ; R = inner) -> true ; R = outer ).\n", "s(X)"), ok("outer"))
+
+    // An inner `->` inside the outer condition leaves the outer one committing to its first solution.
+    assert_eq(every("u(X) :- ( member(Y, [1, 2]), (Y > 1 -> true ; true) -> X = Y ; X = none ).\n", "u(X)"), ok("1"))
+
+    // An inner `->` after a generator does not cut the generator.
+    assert_eq(every("w(X) :- member(X, [1, 2, 3]), (X > 1 -> true ; fail).\n", "w(X)"), ok("2\n3"))
+
+@test
+CALL_1_DOES_NOT_BEHAVE_AS_ONCE()
+    assert_eq(every("", "call(member(X, [a, b, c]))"), ok("a\nb\nc"))
+    assert_eq(every("", "call((member(X, [a, b]), true))"), ok("a\nb"))
+    assert_eq(every("", "call(member, X, [x, y])"), ok("x\ny"))
+    assert_eq(every("", "(G = member(X, [1, 2]), call(G))"), ok("1\n2"))
+
+    // `once/1` is the bounded one.
+    assert_eq(every("", "once(member(X, [a, b, c]))"), ok("a"))
+
+    assert_eq(holds("call(_)"), ok("instantiation_error"))
+    assert_eq(holds("call(1)"), ok("type_error(callable,1)"))
+
+@test
+IDENTITY_COMPARES_COMPOUND_TERMS_BY_STRUCTURE()
+    assert_eq(holds("f(a, g(b)) == f(a, g(b))"), ok("yes"))
+    assert_eq(holds("[1, 2, 3] == [1, 2, 3]"), ok("yes"))
+    assert_eq(holds("f(a) == f(b)"), ok("no"))
+    assert_eq(holds("f(a) == g(a)"), ok("no"))
+    assert_eq(holds("f(a) == f(a, a)"), ok("no"))
+    assert_eq(holds("f(X) == f(Y)"), ok("no"))
+    assert_eq(holds("f(X) == f(X)"), ok("yes"))
+    assert_eq(holds("(X = Y, f(X, a) == f(Y, a))"), ok("yes"))
+    assert_eq(holds("f(a, g(b)) \\== f(a, g(c))"), ok("yes"))
+    assert_eq(holds("f(a, g(b)) \\== f(a, g(b))"), ok("no"))
+
+@test
+A_VARIABLE_IS_IDENTICAL_TO_ITSELF()
+    assert_eq(holds("X == X"), ok("yes"))
+    assert_eq(holds("(X = Y, X == Y)"), ok("yes"))
+    assert_eq(holds("(X = f(Z), X == f(Z))"), ok("yes"))
+    assert_eq(holds("X \\== X"), ok("no"))
+
+    // Two distinct variables are not identical, and testing binds neither.
+    assert_eq(holds("(X == Y ; var(X), var(Y), X \\== Y)"), ok("yes"))
+
+@test
+UNIFYING_A_VARIABLE_WITH_ITSELF_TERMINATES()
+    assert_eq(holds("(X = X, var(X))"), ok("yes"))
+    assert_eq(holds("(X = Y, Y = X, X = 1, Y == 1)"), ok("yes"))
+    assert_eq(holds("(f(X, Y) = f(Y, X), X = a, Y == a)"), ok("yes"))
+    assert_eq(holds("(X = Y, f(X, Y) = f(Y, X), var(X))"), ok("yes"))
+    assert_eq(holds("unify_with_occurs_check(X, X)"), ok("yes"))
+    assert_eq(holds("unify_with_occurs_check(X, f(X))"), ok("no"))
+    assert_eq(holds("unify_with_occurs_check(f(X, Y), f(Y, g(X)))"), ok("no"))
+    assert_eq(holds("unify_with_occurs_check([a|T], T)"), ok("no"))
+    assert_eq(gives("(unify_with_occurs_check(f(X, a), f(g(Y), Y)), Y == a)"), ok("g(a)"))
+
+@test
+THERE_IS_A_STANDARD_ORDER_OF_TERMS()
+    assert_eq(gives("msort([g(a, b), f(a), \"s\", b, a, 2, 1], X)"), ok("[1,2,a,b,\"s\",f(a),g(a,b)]"))
+    assert_eq(gives("compare(X, 1, a)"), ok("<"))
+    assert_eq(gives("compare(X, f(b), f(a))"), ok(">"))
+    assert_eq(gives("compare(X, f(a), f(a))"), ok("="))
+    assert_eq(holds("(V @< 1, 1 @< a, a @< \"a\", \"a\" @< f(a), f(z) @< g(a), g(z) @< f(a, a))"), ok("yes"))
+    assert_eq(gives("sort([c, a, b, a], X)"), ok("[a,b,c]"))
+    assert_eq(holds("compare(foo, a, b)"), ok("domain_error(order,foo)"))
+
+// The 2019 engine compared numbers by value, so `1 = 1.0` succeeded. Floats wait for the numeric
+// tower; until it lands the kinds that exist are compared first in the same way.
+@test
+UNIFICATION_COMPARES_KINDS_BEFORE_VALUES()
+    assert_eq(holds("1 = '1'"), ok("no"))
+    assert_eq(holds("1 = \"1\""), ok("no"))
+    assert_eq(holds("a = \"a\""), ok("no"))
+    assert_eq(holds("f(1) = f('1')"), ok("no"))
+    assert_eq(holds("1 = 1"), ok("yes"))
+
+@test(ignore: "Prolog has no floats until FunL's numeric tower lands")
+AN_INTEGER_DOES_NOT_UNIFY_WITH_A_FLOAT_OF_EQUAL_VALUE()
+    assert_eq(holds("1 = 1.0"), ok("no"))
+    assert_eq(holds("f(1) = f(1.0)"), ok("no"))
+    assert_eq(holds("1 == 1.0"), ok("no"))
+    assert_eq(holds("(X = 1.0, X = 1)"), ok("no"))
+
+    // Arithmetic comparison is by value.
+    assert_eq(holds("1 =:= 1.0"), ok("yes"))
+    assert_eq(holds("1.0 = 1.0"), ok("yes"))
+
+@test
+AN_UNBOUND_VARIABLE_IN_ARITHMETIC_IS_AN_INSTANTIATION_ERROR_NOT_A_STACK_OVERFLOW()
+    assert_eq(holds("X is Y + 1"), ok("instantiation_error"))
+    assert_eq(holds("X is ((Y + 1) * 2) - 3"), ok("instantiation_error"))
+    assert_eq(holds("Y < 3"), ok("instantiation_error"))
+    assert_eq(holds("(Y = Z, X is Z * 2)"), ok("instantiation_error"))
+    assert_eq(holds("X is foo + 1"), ok("type_error(evaluable,foo/0)"))
+    assert_eq(holds("(Y = 2, X is Y + 1, X == 3)"), ok("yes"))
+
+@test
+IS_WITH_A_NUMBER_ON_THE_LEFT_COMPILES_AND_COMPARES()
+    val defs = "five :- 5 is 2 + 3.\nsix :- 6 is 2 + 3.\nsum(X) :- 7 is X + 3.\n"
+
+    assert_eq(ran_prolog(defs + ":- (five -> write(yes) ; write(no)), nl, (six -> write(yes) ; write(no)), nl, (sum(4) -> write(yes) ; write(no)), nl.\n"),
+        ok("yes\nno\nyes"))
+    assert_eq(ran_prolog(defs + ":- catch(sum(_), error(E, _), true), write(E), nl.\n"), ok("instantiation_error"))
+    assert_eq(holds("(X = 5, X is 2 + 3)"), ok("yes"))
+    assert_eq(holds("foo is 1"), ok("no"))
+
+@test
+FINDALL_IS_NOT_A_STUB()
+    assert_eq(gives("findall(Y, member(Y, [a, b, c]), X)"), ok("[a,b,c]"))
+    assert_eq(gives("findall(Y, fail, X)"), ok("[]"))
+    assert_eq(gives("findall(A-B, (member(A, [1, 2]), member(B, [a, b])), X)"), ok("[1-a,1-b,2-a,2-b]"))
+    assert_eq(holds("findall(Y, G, X)"), ok("instantiation_error"))
+    assert_eq(holds("findall(Y, true, foo)"), ok("type_error(list,foo)"))
+
+@test
+ASSERTA_ADDS_A_CLAUSE_FIRST()
+    assert_eq(gives("(asserta(r(1)), asserta(r(2)), findall(Y, r(Y), X))"), ok("[2,1]"))
+    assert_eq(gives("(asserta((s(Y) :- Y = rule)), asserta(s(fact)), findall(Y, s(Y), X))"), ok("[fact,rule]"))
+    assert_eq(holds("asserta(_)"), ok("instantiation_error"))
+    assert_eq(holds("asserta(3)"), ok("type_error(callable,3)"))
+    assert_eq(holds("asserta(atom_length(a, 1))"), ok("permission_error(modify,static_procedure,atom_length/2)"))
+
+@test
+ASSERTZ_EXISTS_AND_ADDS_A_CLAUSE_LAST()
+    assert_eq(gives("(assertz(r(1)), assertz(r(2)), asserta(r(0)), findall(Y, r(Y), X))"), ok("[0,1,2]"))
+    assert_eq(holds("assertz(_)"), ok("instantiation_error"))
+    assert_eq(holds("assertz((foo :- 1))"), ok("type_error(callable,1)"))
+
+@test
+RETRACT_EXISTS()
+    assert_eq(gives("(assertz(r(1)), assertz(r(2)), retract(r(1)), findall(Y, r(Y), X))"), ok("[2]"))
+    assert_eq(holds("(assertz(r(1)), retract(r(9)))"), ok("no"))
+    assert_eq(holds("retract(_)"), ok("instantiation_error"))
+    assert_eq(holds("retract(atom_length(_, _))"), ok("permission_error(modify,static_procedure,atom_length/2)"))
+
+@test
+CATCH_EXISTS()
+    assert_eq(gives("catch(throw(oops), X, true)"), ok("oops"))
+    assert_eq(gives("catch(atom_length(_, _), error(X, _), true)"), ok("instantiation_error"))
+    assert_eq(gives("(catch(member(X, [a, b]), _, true), X == b)"), ok("b"))
+
+    // A ball no catcher unifies with goes on out.
+    assert_eq(gives("catch(catch(throw(inner), outer, true), X, true)"), ok("inner"))
+
+@test
+BAGOF_EXISTS()
+    assert_eq(gives("bagof(Y, member(Y, [c, a, c]), X)"), ok("[c,a,c]"))
+    assert_eq(every("", "bagof(Y, member(K-Y, [b-1, a-2, b-3]), X)"), ok("[2]\n[1,3]"))
+    assert_eq(holds("bagof(Y, fail, X)"), ok("no"))
+    assert_eq(holds("bagof(Y, G, X)"), ok("instantiation_error"))
+
+@test
+SETOF_EXISTS()
+    assert_eq(gives("setof(Y, member(Y, [c, a, c, b]), X)"), ok("[a,b,c]"))
+    assert_eq(gives("setof(Y, K^member(Y-K, [b-1, a-2, b-3]), X)"), ok("[a,b]"))
+    assert_eq(holds("setof(Y, fail, X)"), ok("no"))
+    assert_eq(holds("setof(Y, 1, X)"), ok("type_error(callable,1)"))
