@@ -17,7 +17,7 @@ import sysl.buf.{Buf, buf}
 private const MaxDepth: usize = 400
 
 // An expression at binding power `bp`.
-parse_expr(p: *Parser, bp: u8) -> &Expr
+parse_expr(p: *Parser, bp: u16) -> &Expr
     val t = p.look() match
         Some(t) -> t
         None ->
@@ -41,7 +41,7 @@ parse_expr(p: *Parser, bp: u8) -> &Expr
     e
 end parse_expr
 
-private lbp(t: Spanned[Tok]) -> u8 = power(t.value).left
+private lbp(t: Spanned[Tok]) -> u16 = power(t.value).left
 
 private nud(t: Spanned[Tok], p: *Parser) -> &Expr
     t.value match
