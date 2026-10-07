@@ -113,8 +113,9 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
     v.ip = 0
     Ok(())
 
-// Call the function value beneath the top `argc` values, in tail position when `tail`.
-call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, Fault]
+// Call the function value beneath the top `argc` values, in tail position when `tail`. False where
+// the callee was a collection and held nothing under the key: the call fails.
+call_value(v: *Vm, argc: usize, tail: bool) -> Result[bool, Fault]
     val n = v.stack.len()
 
     if argc >= n then return Err(Broken(s"a call wants a function and $argc arguments and the operand stack holds $n"))
@@ -130,7 +131,8 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, Fault]
                 v.stack.set(i - 1, v.stack.at(i))
 
             v.stack.truncate(n - 1)
-            return make_record(v, usize(id), argc)
+            make_record(v, usize(id), argc)?
+            return Ok(true)
         _ ->
             callee match
                 Var(_) -> return Err(instantiation_error("instantiation error: an unbound variable was called"))
@@ -143,11 +145,15 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, Fault]
             if argc != 1
                 return Err(domain_error("one_key", callee, s"${described(callee)} is indexed by one key, and was given $argc arguments"))
 
-            val x = element_get(callee, v.stack.at(n - 1), false)?
+            val found = element_get(callee, v.stack.at(n - 1), false)?
 
             v.stack.truncate(n - 2)
-            v.stack.push(x)
-            return Ok(())
+
+            found match
+                Some(x) ->
+                    v.stack.push(x)
+                    return Ok(true)
+                None -> return Ok(false)
 
     // The callee's cell goes, the arguments close up over it; the closure stays reachable through
     // `c` for the frame being made, and nothing collects before the frame holds it.
@@ -156,7 +162,9 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, Fault]
 
     v.stack.truncate(n - 1)
 
-    if tail then tail_into(v, c.chunk, argc, c.up) else open_frame(v, c.chunk, argc, c.up)
+    if tail then tail_into(v, c.chunk, argc, c.up)? else open_frame(v, c.chunk, argc, c.up)?
+
+    Ok(true)
 
 // Whether a value is reached by call syntax, `c(i)`: a list, a range, a tuple, a string, an array, a
 // buffer, a map or a record.

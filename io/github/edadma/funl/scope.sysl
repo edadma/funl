@@ -267,8 +267,11 @@ struct Resolved
         var b = blk
         var p = pos
         var d = depth
+        var reached_top = false
 
         while at != NoScope
+            if at == self.top then reached_top = true
+
             val s = self.scopes.at(at)
 
             s.find(b, name, p) match
@@ -284,8 +287,23 @@ struct Resolved
             p = Anywhere
             d += 1
 
+        // A relation clause has no parent, yet a constructor is a constant, which needs no static
+        // link to reach: the top level's are seen from a relation too.
+        if !reached_top
+            self.top_constructor(name) match
+                Some(id) -> return Constructor(id)
+                None -> ()
+
         self.global(name)
     end meaning_above
+
+    // The constructor the top level's root block declares as `name`, wherever it is written.
+    top_constructor(self, name: string) -> Option[usize]
+        val s = self.scopes.at(self.top)
+
+        s.find(0, name, Anywhere) match
+            Some(d) -> s.ctors.get(d.slot)
+            None -> None
 
     // What `name` means among the top-level definitions and the builtins.
     global(self, name: string) -> Meaning
@@ -313,10 +331,7 @@ resolve(prog: Program, top_up: usize, report: *Report) -> Resolved
     var pending: Buf[usize] = buf()
 
     for i in 0..<res.rels.len()
-        if res.rels.at(i).function
-            pending.push(i)
-        else
-            resolve_relation(&res, i, &pending, report)
+        if res.rels.at(i).function then pending.push(i)
 
     var top = scope()
     var w = walker(&res, report, &pending, &top, res.top, false, false)
@@ -327,6 +342,10 @@ resolve(prog: Program, top_up: usize, report: *Report) -> Resolved
         walk_stmt(&w, s)
 
     res.scopes.set(res.top, top)
+
+    // A relation's clauses are read once the top level is complete, so they see its constructors.
+    for i in 0..<res.rels.len()
+        if !res.rels.at(i).function then resolve_relation(&res, i, &pending, report)
 
     var i: usize = 0
 
@@ -383,10 +402,19 @@ private kind_text(k: ClauseKind) -> string = k match
 private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report: *Report)
     val r = res.rels.at(ri)
     var ids: Buf[usize] = buf()
+    var clauses: Buf[Clause] = buf()
 
-    for c in r.clauses.view()
+    for written in r.clauses.view()
         val sid = new_scope_id(res)
         var sc = scope()
+        var params: Buf[&Expr] = buf()
+
+        for p in written.params.view()
+            params.push(head_atoms(res, p))
+
+        val c = Clause(written.name, written.head, params, written.kind)
+
+        clauses.push(c)
 
         for p in c.params.view()
             walk_head(&sc, p, report)
@@ -413,8 +441,31 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
     var done = res.rels.at(ri)
 
     done.scopes = ids
+    done.clauses = clauses
     res.rels.set(ri, done)
 end resolve_relation
+
+// A head argument with each name that means a constructor with no fields written as that
+// constructor's atom (`logic.md` § "Atoms"): `red`, after `data hue = red | green`, is `#red` in a
+// head as in a body, and every other name is a clause variable.
+private head_atoms(res: *Resolved, p: &Expr) -> &Expr
+    p.kind match
+        Ref(n) ->
+            res.top_constructor(n) match
+                Some(id) -> if current().ctors.at(id).fields.len() == 0 then expr(AtomE(n), p.span) else p
+                None -> p
+        CallE(n, at, args) -> expr(CallE(n, at, heads_atoms(res, args)), p.span)
+        ListE(items) -> expr(ListE(heads_atoms(res, items)), p.span)
+        ConsE(h, t) -> expr(ConsE(head_atoms(res, h), head_atoms(res, t)), p.span)
+        _ -> p
+
+private heads_atoms(res: *Resolved, ps: Buf[&Expr]) -> Buf[&Expr]
+    var out: Buf[&Expr] = buf()
+
+    for p in ps.view()
+        out.push(head_atoms(res, p))
+
+    out
 
 // A head argument: a variable, `_`, a constant, or a term or list of those.
 private walk_head(sc: *Scope, p: &Expr, report: *Report)

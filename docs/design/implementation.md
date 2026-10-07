@@ -92,7 +92,7 @@ builtin id, or marked process-wide with a reason — is written on day one, whil
 |---|---|
 | `sh.sysl.parsing` | spans, the cursor, literal reading, interpolation, diagnostics and `Report`, `layout`, `pratt` |
 | `sh.sysl.gc` | the heap: `Kind`s, `alloc`, `collect`, finalizers |
-| `sysl-lang/dal` 0.1.0 | the numeric tower: `Int` → `Big` → `Rat` → `Real` (`Dec` is not in 0.1.0), promotion, overflow, demotion, exact comparison and printing, over the standard library's `bigint` and `rational` |
+| `sysl-lang/dal` 0.1.1 | the numeric tower: `Int` → `Big` → `Rat` → `Real` (`Dec` is not in 0.1.x), promotion, overflow, demotion, exact comparison and printing, over the standard library's `bigint` and `rational` |
 
 **No C library is bound**, and none is needed for the language: regex is the machine's own, numbers
 are the standard library's, and there is no event loop. The binary needs nothing installed. A line
@@ -114,7 +114,10 @@ about.
 - **A parse error is a node**, so one pass reports every mistake in a file through a `Report`.
 - **Indentation is `layout`'s**, Python-style off-side lines, with brackets suspending it. The tokens
   nominated to open a block when they end a line are `->`, `=`, `then`, `else`, `do`, `?` and `:-`,
-  so a lambda or a scan written as an argument can still have an indented body.
+  so a lambda or a scan written as an argument can still have an indented body. **A line ending in an
+  infix operator continues onto the next**, which is indented deeper than the line the statement
+  began on and opens and closes nothing (`layout`'s `continues`), so n-queens' condition runs over
+  two lines with no bracket; `..`, `++` and `--` end a line as postfix operators and continue nothing.
 - **The binding-power ladder**, lowest first: assignment forms (`=`, `<-`, `?=`,
   `+=` …) · scanning `?` · `or` · `and` · `not` · comparison, `in`, `is` · alternation `|` ·
   conjunction `&` · `fail` / `break` / `return` / `yield` · cons `:` (right) · ranges `..` and `to` ·
