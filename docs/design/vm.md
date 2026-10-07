@@ -470,14 +470,19 @@ end before its start. Lookaround is then four short sequences:
 
 **A lookbehind may therefore be any pattern at all** — unbounded repetition, alternatives of
 different lengths, nested lookaround, backreferences — because it is not matched by trying start
-points behind `pos`; it is matched backwards *from* `pos`. PCRE2 refuses an unbounded lookbehind
-outright. The compiler takes a direction with each pattern, and a lookbehind compiles
-its body in the opposite one.
+points behind `pos`; it is matched backwards *from* `pos`. The compiler takes a direction with each
+pattern, and a lookbehind compiles its body in the opposite one.
+
+> **Decided — lookbehind is JavaScript's.** A lookbehind is matched right to left from the
+> position, as ES2018 specifies, so inside it alternatives, repetition, group captures,
+> backreferences and atomic groups resolve as a right-to-left match does: the alternative tried
+> first is the one taken, a repeated group keeps its leftmost turn, and a backreference sees a group
+> written to its right.
 
 **Semantics are leftmost-first backtracking, Perl's and JavaScript's, not POSIX's leftmost-longest.**
 A machine whose alternatives are tried in order cannot be leftmost-longest without exploring every
 match, and goal-directed evaluation wants the order anyway. [The implementation
-chapter](implementation.md#regex-the-att-data-and-a-second-oracle) says what that means for the AT&T
+chapter](implementation.md#regex-the-att-data-and-tests-worked-by-hand) says what that means for the AT&T
 conformance data, which is written for POSIX.
 
 ### The combinators are the same patterns
@@ -552,7 +557,8 @@ their two kinds, with three rules on top:
   becomes `Int`, a `Rat` with denominator 1 becomes an integer.
 - **An inexact result is never demoted.** `Real` and `Dec` stay what they are.
 
-Integer `/` produces a `Rat` when the division is not exact; `\` is integer division. Comparison
+Integer `/` produces a `Rat` when the division is not exact; `\` is integer division, which floors (the quotient rounded toward negative infinity, so `-7 \ 2`
+is `-4`). Comparison
 across kinds is exact — `1/3 < 0.3333333333333333` compares the rational with the double's exact
 binary value — and **equality across kinds is numeric** for FunL's `==` (`1 == 1.0` succeeds) while
 **unification is not** (`1 ~ 1.0` fails), for the reason the [logic chapter](logic.md) gives.

@@ -83,18 +83,32 @@ private clause_body(e: *Emit, c: Ctx, b: FnBody) -> Result[unit, string]
 end clause_body
 
 // A function body in tail position: every path through it ends in `Return`, a call there in a tail
-// call.
+// call. A scan `s ? e` there keeps its body in tail position, so a `yield` that is the last thing
+// the scan does is the last thing the function does; every path out of the scan's body leaves it
+// (`ScanLeave`) on the way to `Return`, and a call inside it is an ordinary call, made with the
+// scan's subject in force.
 body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
-        CallE(n, at, args) -> call_named(e, c, n, at.start, args, true)?
+        CallE(n, at, args) ->
+            if c.scans > 0
+                value_tail(e, c, x)?
+            else
+                call_named(e, c, n, at.start, args, true)?
         ApplyE(f, args) ->
-            compile_value(e, c, f)?
+            if c.scans > 0
+                value_tail(e, c, x)?
+            else
+                compile_value(e, c, f)?
 
-            for a in args.view()
-                compile_value(e, c, a)?
+                for a in args.view()
+                    compile_value(e, c, a)?
 
-            e.op(TailCallValue(args.len()))
-            e.op(Return)
+                e.op(TailCallValue(args.len()))
+                e.op(Return)
+        ScanE(s, body) ->
+            compile_value(e, c, s)?
+            e.op(ScanBegin)
+            body_tail(e, c.in_scan(), body)?
         IfE(cond, yes, no) ->
             val other = e.label()
 
@@ -127,15 +141,22 @@ body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                     _ ->
                         compile_stmt(e, inner, s)?
                         e.op(PushUnit)
+                        leave_scans(e, inner.scans)
                         e.op(Return)
         ReturnE(_) -> compile_value(e, c, x)?
         YieldE(a) -> suspend(e, c, a, true)?
-        _ ->
-            compile_value(e, c, x)?
-            e.op(Return)
+        _ -> value_tail(e, c, x)?
 
     Ok(())
 end body_tail
+
+// `x` in tail position as an ordinary value: each of its values leaves the scans open around it and
+// is returned.
+private value_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    compile_value(e, c, x)?
+    leave_scans(e, c.scans)
+    e.op(Return)
+    Ok(())
 
 // -- patterns ---------------------------------------------------------------------------------------
 

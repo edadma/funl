@@ -13,11 +13,21 @@ the language cannot disagree for long.
 | page | what it covers |
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Generators](generators.md) | expressions with many values, backtracking, `!`, `\|`, `to`, ranges, `&`, searches, bounded expressions, `every`, `for`, `break`/`continue` and labels |
+| [Assignment and scope](assignment.md) | `=`, compound assignment, `++`/`--`, multiple assignment, `val` and `var`, block scope, reversible assignment `<-`, `in` and `not in` |
+| [Data](data.md) | tuples, lists, maps, sets, comprehensions, arrays, buffers, maps with a default, records, `undefined`, types and `is` |
+| [Functions](functions.md) | `def`, lambdas, operator sections, clauses and guards, patterns, `where`, generator functions, `yield` and `return`, partial function literals |
+| [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max` |
+| [Relations](relations.md) | logic variables, unification `~`, atoms, facts and rules, two-way head unification, calling between functions and relations, negation, `findall`/`bagof`/`setof` |
+| [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
+| [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |
+| [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
 | [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic and rationals, standard order, grammar rules, `format`, the builtin set |
 
 ## How a page is checked
 
-A fenced block tagged `funl` (or `prolog`) is a program, and what follows it says what kind:
+A fenced block tagged `funl` (or `prolog`, or `lfunl`) is a program, and what follows it says what
+kind:
 
 - followed by an `output` block, it is run and must print exactly that;
 - followed by an `error` block, it must be refused — at compile time or by a fault — with a message
@@ -26,3 +36,10 @@ A fenced block tagged `funl` (or `prolog`) is a program, and what follows it say
 
 The claim for a program is the first `output` or `error` block after it and before the next program,
 so a page may put other blocks between a program and what it prints.
+
+A block tagged `lfunl` is a whole literate document, compiled exactly as `funl` compiles a `.lfunl`
+file. The word after `lfunl` is the document's file name (`document.lfunl` if there is none), and an
+`error` block quotes positions as lines and columns of the document itself. A literate document has
+fences of its own, so its outer fence is longer than any inside it — four backticks around inner
+fences of three — and the block ends only at a fence at least as long as the one that opened it,
+with nothing after it.

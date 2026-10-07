@@ -9,7 +9,8 @@ import sysl.text.Search
 //
 // **Scopes nest as frames do.** The top level is one scope; each clause of a function or a lambda is
 // a scope whose parent is the scope the function was written in; a relation clause is a scope with
-// no parent. A name is looked for in the scope it is written in, then in each parent -- every step
+// no parent, which sees only what the top level fixes: its constructors, `val`s and `where`
+// functions. A name is looked for in the scope it is written in, then in each parent -- every step
 // one static link at run time -- then among the top-level definitions and the builtins.
 //
 // **Definitions are hoisted.** Every top-level clause joins the definition of its name before any
@@ -287,15 +288,37 @@ struct Resolved
             p = Anywhere
             d += 1
 
-        // A relation clause has no parent, yet a constructor is a constant, which needs no static
-        // link to reach: the top level's are seen from a relation too.
+        // A relation clause has no parent, yet it sees what the top level's root block fixes: a
+        // constructor, a `val`, and a function a `where` defines there (`logic.md` § "Variables in a
+        // relation", rule 2). Each is reached by the frame the top level's name names, never by a
+        // count of static links. A `var`, a `free` variable and a plain assignment's name are not
+        // fixed, and stay clause variables.
         if !reached_top
-            self.top_constructor(name) match
-                Some(id) -> return Constructor(id)
-                None -> ()
+            val m = self.top_fixed(name)
+
+            m match
+                Unknown -> ()
+                _ -> return m
 
         self.global(name)
     end meaning_above
+
+    // What `name` means as the top level's root block fixes it, seen from a relation clause.
+    top_fixed(self, name: string) -> Meaning
+        val s = self.scopes.at(self.top)
+
+        s.find(0, name, Anywhere) match
+            Some(d) ->
+                s.ctors.get(d.slot) match
+                    Some(id) -> return Constructor(id)
+                    None -> ()
+
+                if d.fixed then return Local(self.top_up, d.slot, true)
+            None -> ()
+
+        s.fns.get(name) match
+            Some(r) -> Function(r, self.top_up)
+            None -> Unknown
 
     // The constructor the top level's root block declares as `name`, wherever it is written.
     top_constructor(self, name: string) -> Option[usize]

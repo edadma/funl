@@ -24,14 +24,14 @@ A_LIST_A_RANGE_A_TUPLE_AND_A_STRING_ARE_INDEXED_BY_CALL_SYNTAX()
     assert_eq(ran_funl("write( [1, 2, 3](3) | \"none\", [1, 2](-1) | \"none\", [](0) | \"none\", \"ab\"(2) | \"none\", (1..3)(3) | \"none\", (1, 2)(2) | \"none\" )\n"),
         "none, none, none, none, none, none\nsucceeded")
     assert_eq(ran_funl("write( [1, 2, 3](3) )\nwrite( \"after\" )\n"), "after\nsucceeded")
-    assert_eq(ran_funl("write( [1](#a) )\n"), "fault: main@6: an index is an integer, and this one is a")
+    assert_eq(ran_funl("write( [1](#a) )\n"), "fault: main@6: an index is an integer, and this one is the atom a")
 
 @test
 LENGTH_COUNTS_ELEMENTS_AND_CHARACTERS()
     assert_eq(ran_funl("write( [7, 8].length, [].length, (1..3).length, (1..<3).length, (1..10 by 3).length, (10..1 by -3).length, (1..0).length, \"héllo\".length, (1, 2).length )\n"),
         "2, 0, 3, 2, 4, 4, 0, 5, 2\nsucceeded")
     assert_eq(ran_funl("write( (1..).length )\n"), "fault: main@5: the range 1.. has no end, and no length")
-    assert_eq(ran_funl("write( [1].size )\n"), "fault: main@5: [1] has no field 'size'")
+    assert_eq(ran_funl("write( [1].size )\n"), "fault: main@5: the list [1] has no field 'size'")
     assert_eq(ran_funl("write( 5.length )\n"), "fault: main@3: the integer 5 has no length")
 
 @test
@@ -41,7 +41,7 @@ A_RANGE_IS_A_VALUE_PRINTED_AS_IT_IS_WRITTEN()
     assert_eq(ran_funl("write( 1..3 == [1, 2, 3], [] == (1..0), 1..3 == 1..3, 1..3 != [1, 2] )\n"),
         "[1, 2, 3], 1..0, 1..3, [1, 2]\nsucceeded")
     assert_eq(ran_funl("write( 1..3 by 0 )\n"), "fault: main@5: a range from 1 by 0 would never move: a step cannot be zero")
-    assert_eq(ran_funl("write( 1..#a )\n"), "fault: main@5: a range counts with integers, and its end is a")
+    assert_eq(ran_funl("write( 1..#a )\n"), "fault: main@5: a range counts with integers, and its end is the atom a")
 
 // An endless range is iterated lazily: nothing is made but the next element.
 @test
@@ -64,7 +64,7 @@ AN_ENDLESS_RANGE_TAKES_A_STEP()
 A_COUNTED_RANGE_STOPS_BEFORE_ITS_START_PLUS_ITS_COUNT()
     assert_eq(ran_funl("write( 1..+3, 5..+4 by 2, (2..+0).length, [x | x <- 2..+3] )\nval n = 2\nevery write( !(n..+n) )\n"),
         "1..<4, 5..<9 by 2, 0, [2, 3, 4]\n2\n3\nsucceeded")
-    assert_eq(unplaced(ran_funl("write( 1..+#a )\n")), "fault: main: a range counts with integers, and its count is a")
+    assert_eq(unplaced(ran_funl("write( 1..+#a )\n")), "fault: main: a range counts with integers, and its count is the atom a")
     assert_eq(unplaced(ran_funl("write( 9223372036854775807..+2 )\n")), "fault: main: a range from 9223372036854775807 counting 2 does not end in 64 bits")
 
 @test

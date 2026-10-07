@@ -1,5 +1,7 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal
+import sh.sysl.dal.Number
 import sysl.math.checked_add
 import sysl.text.{from_utf8_unchecked, is_char_boundary}
 
@@ -189,18 +191,34 @@ gen_next(v: *Vm) -> Result[bool, Fault]
     Ok(true)
 end gen_next
 
-// `GenRange`: the next integer of `i to j by k` (`inclusive`) or `i until j by k`, the three cells
+// `GenRange`: the next number of `i to j by k` (`inclusive`) or `i until j by k`, the three cells
 // on top, or failure once the range is spent.
+//
+// **A range counts over the whole numeric tower.** Each value is the one before plus the step, by
+// `+`'s own arithmetic, so integers and rationals count exactly and a real step accumulates a
+// real's rounding. Where the step is a real the start is made a real too, so every value of the
+// range is one kind. The range stops at the first value that compares past `j` -- by `>` (`>=`
+// for `until`) going up and `<` (`<=`) going down, with no tolerance -- and a NaN anywhere ends it
+// at once. Three 64-bit integers take the fast path below without entering the tower.
 gen_range(v: *Vm, inclusive: bool) -> Result[bool, Fault]
     val top = v.stack.len()
 
     if top < 3 then return Err(Broken("a range's cursor is three cells and the operand stack holds fewer"))
 
     val word = if inclusive then "to" else "until"
-    val cur = bound(v.stack.at(top - 3), word)?
-    val last = bound(v.stack.at(top - 2), word)?
-    val step = bound(v.stack.at(top - 1), word)?
+    val c = bound(v.stack.at(top - 3), word)?
+    val l = bound(v.stack.at(top - 2), word)?
+    val s = bound(v.stack.at(top - 1), word)?
 
+    (c, l, s) match
+        (Int(i), Int(j), Int(k)) -> return int_range(v, top, word, i, j, k, inclusive)
+        _ -> ()
+
+    num_range(v, top, word, c, l, s, inclusive)
+end gen_range
+
+// A range whose start, end and step are all 64-bit integers.
+private int_range(v: *Vm, top: usize, word: string, cur: long, last: long, step: long, inclusive: bool) -> Result[bool, Fault]
     if step == 0
         return Err(domain_error("non_zero", Int(0), s"`$word ... by 0` would produce $cur for ever: a step cannot be zero"))
 
@@ -220,7 +238,45 @@ gen_range(v: *Vm, inclusive: bool) -> Result[bool, Fault]
     v.stack.truncate(top - 3)
     v.stack.push(Int(cur))
     Ok(true)
-end gen_range
+end int_range
+
+// A range over numbers of any kind: an integer past 64 bits, a rational, a real, or a mix.
+private num_range(v: *Vm, top: usize, word: string, c: Value, last: Value, step: Value, inclusive: bool) -> Result[bool, Fault]
+    val p = funl_policy()
+    val s = num_of(step).unwrap()
+    val l = num_of(last).unwrap()
+
+    // A real step makes the start a real, so that `0 to 1 by 0.5` is three reals.
+    val cur = (c, step) match
+        (Real(_), _) -> c
+        (_, Real(_)) -> num_answer(p.add(num_of(c).unwrap(), Number.Real(0.0)), "+", c, step)?
+        _ -> c
+
+    dal.compare(s, Number.Int(0)) match
+        Some(0) -> return Err(domain_error("non_zero", step, s"`$word ... by ${render(step)}` would produce ${render(cur)} for ever: a step cannot be zero"))
+        None ->
+            v.stack.truncate(top - 3)
+            return Ok(false)
+        _ -> ()
+
+    val n = num_of(cur).unwrap()
+
+    if num_past(n, l, s, inclusive)
+        v.stack.truncate(top - 3)
+        return Ok(false)
+
+    val next = num_answer(p.add(n, s), "+", cur, step)?
+
+    if !num_past(num_of(next).unwrap(), l, s, inclusive)
+        v.stack.set(top - 3, next)
+        v.stack.set(top - 2, last)
+        v.stack.set(top - 1, step)
+        push_choice(v, v.ip - 1)
+
+    v.stack.truncate(top - 3)
+    v.stack.push(cur)
+    Ok(true)
+end num_range
 
 // Entry `i` of a map as `!` produces it: the pair `(key, value)`.
 private entry(m: *MapObj, i: usize) -> Result[Value, string]
@@ -230,18 +286,31 @@ private entry(m: *MapObj, i: usize) -> Result[Value, string]
     t.items.set(1, m.vals.at(i))
     Ok(Tuple(t))
 
-// A range's bound or step, which must be an integer.
-private bound(x: Value, word: string) -> Result[long, Fault]
-    deref(x) match
-        Int(n) -> Ok(n)
+// A range's start, end or step, which must be a number.
+private bound(x: Value, word: string) -> Result[Value, Fault]
+    val y = deref(x)
+
+    if is_num(y) then return Ok(y)
+
+    y match
         Var(_) -> Err(instantiation_error(s"instantiation error: `$word` was given an unbound variable"))
-        y -> Err(type_error("integer", y, s"`$word` counts with integers and was given ${described(y)}"))
+        _ -> Err(type_error("number", y, s"`$word` counts with numbers and was given ${described(y)}"))
 
 // Whether `n` is beyond where a range stepping by `step` towards `last` stops.
 private past(n: long, last: long, step: long, inclusive: bool) -> bool
     if step > 0 then return if inclusive then n > last else n >= last
 
     if inclusive then n < last else n <= last
+
+// `past` over the tower. A value that compares with nothing, a NaN, is past every end.
+private num_past(n: Number, last: Number, step: Number, inclusive: bool) -> bool
+    val c = dal.compare(n, last) match
+        Some(k) -> k
+        None -> return true
+
+    if dal.sign(step) > 0 then return if inclusive then c > 0 else c >= 0
+
+    if inclusive then c < 0 else c <= 0
 
 // `ChangeMark(to)`, ending a round of `|e` that produced a value.
 //

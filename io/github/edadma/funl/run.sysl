@@ -148,7 +148,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             v.stack.push(Int(n))
             Ok(Next)
         LoadSlot(depth, slot) ->
-            v.stack.push(slot_of(frame_up(v, depth)?, slot)?)
+            v.stack.push(slot_of(link(v, depth)?, slot)?)
             Ok(Next)
         NewVar(slot) ->
             set_slot(v.frame, slot, Var(new_var()?))?
