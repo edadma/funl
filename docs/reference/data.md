@@ -362,6 +362,53 @@ blank
 point(1, 2)
 ```
 
+A record is known by its constructor's name and number of fields, so a term of that shape is that
+record however it was made: by a relation's head, by unification, or by Prolog. It is `is point`, it
+matches a `point(a, b)` pattern, and its fields are read by name. The examples load
+[`data/points.pl`](data/points.pl), whose `corner/1` holds `point(1, 2)` and whose `built/1` makes
+`point(3, 4)` with `=..`.
+
+```funl
+import "data/points.pl"
+data point(x, y)
+
+def origin( point(0, 0) )
+def sum( point(a, b) ) = a + b
+
+free p, q, r
+corner( p )
+built( q )
+origin( r )
+write( p is point, p.x, p.y, sum(p) )
+write( q is point, q.x, q.y, sum(q) )
+write( r is point, r.x, r.y, sum(r) )
+```
+
+```output
+point(1, 2), 1, 2, 3
+point(3, 4), 3, 4, 7
+point(0, 0), 0, 0, 0
+```
+
+A term with the same name and a different number of fields is a `record`, as every compound term
+is, but it is not a `point` and has no fields named `x` and `y`. The file's `solid/1` holds
+`point(1, 2, 3)`:
+
+```funl
+import "data/points.pl"
+data point(x, y)
+
+free s
+solid( s )
+write( s is record )
+write( s is point )
+write( s.x )
+```
+
+```output
+point(1, 2, 3)
+```
+
 A name is looked up first among the program's own `data` types, then among its constructors, and
 then among the built-in names, so a program's own `data list` hides the built-in `list` from `is`:
 

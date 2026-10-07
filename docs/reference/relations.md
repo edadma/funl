@@ -258,7 +258,27 @@ instantiation error: '<' was given an unbound variable
 ```
 
 A clause variable written only once draws a warning, because it is usually a misspelling of another
-one. Starting the name with `_` (`_child`) says the single use is intended, and draws none:
+one. The program still compiles and runs:
+
+```funl
+def parent(#don, #randy)
+def parent(#don, #anne)
+def has_child(x) :- parent(x, child)
+
+write( has_child(#don) )
+write( 'done' )
+```
+
+```warning
+warning: `child` appears only once in this clause of `has_child`
+```
+
+```output
+()
+done
+```
+
+Starting the name with `_` (`_child`) says the single use is intended, and draws none:
 
 ```funl
 def parent(#don, #randy)

@@ -17,7 +17,7 @@ import sysl.buf.{Buf, buf}
 //     every g do b           g; Pop; MarkThrough; b; Unmark; Fail
 //     a statement            Mark(next); e; Unmark; next:
 //     !c                     c; GenStart; GenNext
-//     i to j by k            i; j; k; GenRange(true)
+//     i to j by k            i; j; k; PushInt(0); GenRange(true)
 //     |e                     top: MarkThrough; e; ChangeMark(top)
 //     yield e                Choice(after); e; [ScanLeave(n)]; Return; after: PushUnit
 //     return e               e; [ScanLeave(n)]; ReturnCommit
@@ -199,6 +199,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 Some(k) -> compile_value(e, c, k)?
                 None -> e.op(PushInt(1))
 
+            e.op(PushInt(0))
             e.op(GenRange(inclusive))
         RepAltE(a) ->
             val top = e.label()

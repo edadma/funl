@@ -191,30 +191,36 @@ gen_next(v: *Vm) -> Result[bool, Fault]
     Ok(true)
 end gen_next
 
-// `GenRange`: the next number of `i to j by k` (`inclusive`) or `i until j by k`, the three cells
-// on top, or failure once the range is spent.
+// `GenRange`: the next number of `i to j by k` (`inclusive`) or `i until j by k`, or failure once
+// the range is spent. The cursor is the four cells on top: the start `i`, the end `j`, the step `k`
+// and a count `n`, and the value it stands for is `i + n*k`.
 //
-// **A range counts over the whole numeric tower.** Each value is the one before plus the step, by
-// `+`'s own arithmetic, so integers and rationals count exactly and a real step accumulates a
-// real's rounding. Where the step is a real the start is made a real too, so every value of the
-// range is one kind. The range stops at the first value that compares past `j` -- by `>` (`>=`
-// for `until`) going up and `<` (`<=`) going down, with no tolerance -- and a NaN anywhere ends it
-// at once. Three 64-bit integers take the fast path below without entering the tower.
+// **A range counts over the whole numeric tower.** The `n`-th value is the start plus `n` times
+// the step, by `+`'s and `*`'s own arithmetic, so integers and rationals count exactly and a real
+// value is rounded once rather than accumulating the rounding of every step before it. Where the
+// step is a real the start is made a real too, so every value of the range is one kind. The range
+// stops at the first value that compares past `j` -- by `>` (`>=` for `until`) going up and `<`
+// (`<=`) going down, with no tolerance -- and a NaN anywhere ends it at once. Four 64-bit integers
+// take the fast path below without entering the tower; there addition is exact, so the start
+// itself moves on by the step and the count stays 0.
 gen_range(v: *Vm, inclusive: bool) -> Result[bool, Fault]
     val top = v.stack.len()
 
-    if top < 3 then return Err(Broken("a range's cursor is three cells and the operand stack holds fewer"))
+    if top < 4 then return Err(Broken("a range's cursor is four cells and the operand stack holds fewer"))
 
     val word = if inclusive then "to" else "until"
-    val c = bound(v.stack.at(top - 3), word)?
-    val l = bound(v.stack.at(top - 2), word)?
-    val s = bound(v.stack.at(top - 1), word)?
+    val c = bound(v.stack.at(top - 4), word)?
+    val l = bound(v.stack.at(top - 3), word)?
+    val s = bound(v.stack.at(top - 2), word)?
+    val n = v.stack.at(top - 1) match
+        Int(k) -> k
+        _ -> return Err(Broken("a range's count is not an integer"))
 
     (c, l, s) match
         (Int(i), Int(j), Int(k)) -> return int_range(v, top, word, i, j, k, inclusive)
         _ -> ()
 
-    num_range(v, top, word, c, l, s, inclusive)
+    num_range(v, top, word, c, l, s, n, inclusive)
 end gen_range
 
 // A range whose start, end and step are all 64-bit integers.
@@ -223,60 +229,74 @@ private int_range(v: *Vm, top: usize, word: string, cur: long, last: long, step:
         return Err(domain_error("non_zero", Int(0), s"`$word ... by 0` would produce $cur for ever: a step cannot be zero"))
 
     if past(cur, last, step, inclusive)
-        v.stack.truncate(top - 3)
+        v.stack.truncate(top - 4)
         return Ok(false)
 
     checked_add(cur, step) match
         Some(next) ->
             if !past(next, last, step, inclusive)
-                v.stack.set(top - 3, Int(next))
-                v.stack.set(top - 2, Int(last))
-                v.stack.set(top - 1, Int(step))
+                v.stack.set(top - 4, Int(next))
+                v.stack.set(top - 3, Int(last))
+                v.stack.set(top - 2, Int(step))
+                v.stack.set(top - 1, Int(0))
                 push_choice(v, v.ip - 1)
         None -> ()
 
-    v.stack.truncate(top - 3)
+    v.stack.truncate(top - 4)
     v.stack.push(Int(cur))
     Ok(true)
 end int_range
 
-// A range over numbers of any kind: an integer past 64 bits, a rational, a real, or a mix.
-private num_range(v: *Vm, top: usize, word: string, c: Value, last: Value, step: Value, inclusive: bool) -> Result[bool, Fault]
+// A range over numbers of any kind: an integer past 64 bits, a rational, a real, or a mix. `c` is
+// the start and `n` the count of values already produced.
+private num_range(v: *Vm, top: usize, word: string, c: Value, last: Value, step: Value, n: long, inclusive: bool) -> Result[bool, Fault]
     val p = funl_policy()
     val s = num_of(step).unwrap()
     val l = num_of(last).unwrap()
 
     // A real step makes the start a real, so that `0 to 1 by 0.5` is three reals.
-    val cur = (c, step) match
+    val start = (c, step) match
         (Real(_), _) -> c
         (_, Real(_)) -> num_answer(p.add(num_of(c).unwrap(), Number.Real(0.0)), "+", c, step)?
         _ -> c
 
     dal.compare(s, Number.Int(0)) match
-        Some(0) -> return Err(domain_error("non_zero", step, s"`$word ... by ${render(step)}` would produce ${render(cur)} for ever: a step cannot be zero"))
+        Some(0) -> return Err(domain_error("non_zero", step, s"`$word ... by ${render(step)}` would produce ${render(start)} for ever: a step cannot be zero"))
         None ->
-            v.stack.truncate(top - 3)
+            v.stack.truncate(top - 4)
             return Ok(false)
         _ -> ()
 
-    val n = num_of(cur).unwrap()
+    val cur = nth_value(start, step, n)?
 
-    if num_past(n, l, s, inclusive)
-        v.stack.truncate(top - 3)
+    if num_past(num_of(cur).unwrap(), l, s, inclusive)
+        v.stack.truncate(top - 4)
         return Ok(false)
 
-    val next = num_answer(p.add(n, s), "+", cur, step)?
+    val next = nth_value(start, step, n + 1)?
 
     if !num_past(num_of(next).unwrap(), l, s, inclusive)
-        v.stack.set(top - 3, next)
-        v.stack.set(top - 2, last)
-        v.stack.set(top - 1, step)
+        v.stack.set(top - 4, c)
+        v.stack.set(top - 3, last)
+        v.stack.set(top - 2, step)
+        v.stack.set(top - 1, Int(n + 1))
         push_choice(v, v.ip - 1)
 
-    v.stack.truncate(top - 3)
+    v.stack.truncate(top - 4)
     v.stack.push(cur)
     Ok(true)
 end num_range
+
+// The `n`-th value of a range from `start` by `step`: `start` itself, then `start + n*step`, each
+// by the arithmetic `+` and `*` use, so a real value carries a single multiplication's and a
+// single addition's rounding however far along the range it is.
+private nth_value(start: Value, step: Value, n: long) -> Result[Value, Fault]
+    if n == 0 then return Ok(start)
+
+    val p = funl_policy()
+    val times = num_answer(p.mul(Number.Int(n), num_of(step).unwrap()), "*", Int(n), step)?
+
+    num_answer(p.add(num_of(start).unwrap(), num_of(times).unwrap()), "+", start, times)
 
 // Entry `i` of a map as `!` produces it: the pair `(key, value)`.
 private entry(m: *MapObj, i: usize) -> Result[Value, string]

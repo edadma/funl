@@ -57,6 +57,42 @@ A_RECORD_IS_OF_ITS_CLASS_WHICH_IS_ITS_CONSTRUCTOR()
     assert_eq(ran_funl("data point(x, y)\nwrite( point(1, 2) is point, point(1, 2) is record, ((1, 2) is point) | \"no\" )\n"),
         "point(1, 2), point(1, 2), no\nsucceeded")
 
+// A Prolog file making `point/2` terms three ways, and a `point/3` and an `other/2` that are no point.
+private const MakesPoints: string ="made(point(1, 2)).\n" +
+    "univ(T) :- T =.. [point, 3, 4].\n" +
+    "built(T) :- functor(T, point, 2), arg(1, T, 5), arg(2, T, 6).\n" +
+    "three(point(1, 2, 3)).\n" +
+    "other(other(1, 2)).\n"
+
+// The transcript of a program declaring `point(x, y)` and importing `MakesPoints`, then `rest`.
+private ran_made_points(rest: string) -> string
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, "points.pl", MakesPoints)
+
+    ran_funl(s"import \"$file\"\ndata point(x, y)\ndef sum( point(a, b) ) = a + b\ndef sum( _ ) = #none\n" + rest)
+
+@test
+A_TERM_PROLOG_MADE_IN_A_RECORDS_SHAPE_IS_THAT_RECORD_AND_HAS_ITS_FIELDS()
+    assert_eq(ran_made_points("free p\nmade(p)\nwrite( p is point, p is record, p.x, p['y'], sum(p) )\n"),
+        "point(1, 2), point(1, 2), 1, 2, 3\nsucceeded")
+    assert_eq(ran_made_points("free p\nuniv(p)\nwrite( p is point, p.x, p.y, sum(p) )\n"), "point(3, 4), 3, 4, 7\nsucceeded")
+    assert_eq(ran_made_points("free p\nbuilt(p)\nwrite( p is point, p.x, p.y, sum(p) )\n"), "point(5, 6), 5, 6, 11\nsucceeded")
+
+@test
+A_TERM_A_RELATION_HEAD_MADE_IN_A_RECORDS_SHAPE_HAS_ITS_FIELDS()
+    assert_eq(ran_funl("data point(x, y)\ndef origin( point(0, 1) )\nfree p\norigin(p)\nwrite( p is point, p.x, p.y )\n"),
+        "point(0, 1), 0, 1\nsucceeded")
+
+@test
+A_TERM_OF_THE_WRONG_ARITY_OR_NAME_IS_NO_RECORD_OF_THAT_CONSTRUCTOR_AND_HAS_NO_FIELDS()
+    assert_eq(ran_made_points("free p\nthree(p)\nwrite( (p is point) | #no, p is record, p.x | #nofield, sum(p) )\n"),
+        "no, point(1, 2, 3), nofield, none\nsucceeded")
+    assert_eq(ran_made_points("free p\nother(p)\nwrite( (p is point) | #no, p is record, p.x | #nofield, sum(p) )\n"),
+        "no, other(1, 2), nofield, none\nsucceeded")
+    assert_eq(ran_made_points("free p\nmade(p)\nwrite( p.z | #nofield )\n"), "nofield\nsucceeded")
+
 @test
 A_DATA_TYPE_NAMED_LIKE_ONE_OF_ITS_CONSTRUCTORS_MEANS_THE_WHOLE_TYPE()
     assert_eq(ran_funl("data tree = tree(l, r) | leaf\nwrite( leaf is tree, tree(leaf, leaf) is tree )\n"), "leaf, tree(leaf, leaf)\nsucceeded")
