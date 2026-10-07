@@ -1,0 +1,20 @@
+;; SICP 1.2.3  Orders of Growth
+
+;; Exercise 1.15: how many times is `p` applied when `sine(12.15)` is evaluated?
+
+def cube( x ) = x^3
+
+var applied = 0
+
+def p( x ) =
+  applied += 1
+  3x - 4*cube( x )
+
+def abs( x ) = if x >= 0 then x else -x
+
+def sine( angle ) =
+  if not abs( angle ) > 0.1 then angle
+  else p( sine(angle / 3.0) )
+
+sine( 12.15 )
+write( applied )

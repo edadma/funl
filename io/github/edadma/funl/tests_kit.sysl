@@ -2,7 +2,8 @@ module io.github.edadma.funl
 @tests
 
 import sh.sysl.parsing.{full_report, source_of}
-import sysl.text.{Search, str_builder}
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, split, str_builder}
 
 // The harness: assemble a program into a fresh VM, run it, and answer what it said.
 //
@@ -179,6 +180,34 @@ prolog_complaints(text: string) -> string
     leave(was)
     out.finish()
 end prolog_complaints
+
+// -- Reasons files ------------------------------------------------------------------------------
+
+// The names a corpus's reasons file lists, a row `name<TAB>reason` each, `#` starting a comment row.
+// `file` names it in the complaint about a malformed row.
+reason_names(file: string, text: string) -> Buf[string]
+    var out: Buf[string] = buf()
+
+    for row in split(text, "\n")
+        if row.bytes.len == 0 || row.bytes[0] == u8('#') then continue
+
+        val cols = split(row, "\t")
+
+        if cols.len < 2 || cols[1].bytes.len == 0 then panic(s"$file: `$row` is not `name<TAB>reason`")
+
+        out.push(cols[0])
+
+    out
+
+// What is wrong with corpus entry `name`, whose run said `got` where `want` was owed: an entry not
+// met and not `excused`, or one excused and met, which is stale. The empty string when neither.
+excuse_verdict(name: string, got: string, want: string, excused: bool) -> string
+    val met = got == want
+
+    if met && excused then return s"stale: $name is listed in the reasons file and is met\n"
+    if !met && !excused then return s"$name got\n${got}\nwant\n${want}\n"
+
+    ""
 
 // The id of builtin `name`, which the test is about to emit a call to.
 builtin(name: string) -> usize = native_id(name).unwrap()

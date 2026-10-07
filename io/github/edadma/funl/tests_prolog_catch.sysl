@@ -68,7 +68,8 @@ A_CATCH_WHOSE_GOAL_HAS_SUCCEEDED_NO_LONGER_CATCHES()
     val text = ":- catch((catch(p(X), E, (write(inner(E)), nl)), X = 2, throw(after)), O, (write(outer(O)), nl)).\n"
 
     assert_eq(ran_prolog(Three + text), "outer(after)\nsucceeded")
-    assert_eq(unplaced(ran_prolog(":- catch(true, _, write(wrong)), throw(late).\n")).index_of("uncaught exception: late").is_some(), true)
+    assert_eq(ran_prolog(":- catch(true, _, write(wrong)), throw(late).\n"),
+        "Warning: directive raised late: catch(true, _, write(wrong)), throw(late)\nsucceeded")
 
 @test
 BACKTRACKING_INTO_THE_GOAL_PUTS_THE_CATCH_BACK_IN_FORCE()
@@ -116,10 +117,13 @@ CONSULTING_A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR()
     assert_eq(ran_prolog(":- catch(consult(\"tests/prolog/missing.pl\"), error(F, _), true), writeq(F), nl.\n"),
         "existence_error(source_sink,\"tests/prolog/missing.pl\")\nsucceeded")
 
+// A directive's error nothing inside it catches is the load's warning (`tests_prolog_control.sysl`);
+// a call from FunL that raises one ends the run with it.
 @test
 AN_ERROR_NOTHING_CATCHES_PRINTS_ITS_MESSAGE()
-    assert_eq(unplaced(ran_prolog(":- nope.\n")).index_of("unknown procedure nope/0").is_some(), true)
-    assert_eq(unplaced(ran_prolog(":- throw(error(my_error, here)).\n")).index_of("uncaught exception: error(my_error, here)").is_some(), true)
+    assert_eq(ran_prolog(":- nope.\n"), "Warning: directive raised unknown procedure nope/0: nope\nsucceeded")
+    assert_eq(ran_prolog(":- throw(error(my_error, here)).\n"),
+        "Warning: directive raised error(my_error,here): throw(error(my_error, here))\nsucceeded")
 
 @test
 CATCH_AND_THROW_ARE_REACHED_THROUGH_CALL()

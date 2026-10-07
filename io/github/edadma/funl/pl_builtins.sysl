@@ -32,13 +32,13 @@ install_prolog(v: *Vm)
 
 // `'$directive_raised'(Ball, What, Text)`, the recovery a loaded file's directive runs under
 // (`pl_load.sysl`): a line saying directive `Text` raised `Ball` -- an error by its message, any
-// other ball as it is written -- and success, so the load goes on to the next.
+// other ball as `writeq/1` writes it -- and success, so the load goes on to the next.
 private pl_directive_raised(base: usize, argc: usize) -> Result[Value, Fault]
     val ball = arg(base, 0)
 
     val said = error_message(ball) match
         Some(m) -> m
-        None -> render(ball)
+        None -> term_text(ball, write_opts(true, false, true))
 
     val what = deref(arg(base, 1)) match
         Str(s) -> s.s

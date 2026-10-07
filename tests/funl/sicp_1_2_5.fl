@@ -1,0 +1,7 @@
+;; SICP 1.2.5  Greatest Common Divisors
+
+def gcd( a, 0 ) = a
+def gcd( a, b ) = gcd( b, a mod b )
+
+write( gcd(20, 12) )
+write( gcd(206, 40) )

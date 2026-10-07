@@ -1,0 +1,15 @@
+;; SICP 1.1.4  Compound Procedures
+
+def square( x ) = x * x
+
+write( square(21) )
+write( square(2 + 5) )
+write( square(square(3)) )
+
+def sum_of_squares( x, y ) = square( x ) + square( y )
+
+write( sum_of_squares(3, 4) )
+
+def f( a ) = sum_of_squares( a + 1, a * 2 )
+
+write( f(5) )

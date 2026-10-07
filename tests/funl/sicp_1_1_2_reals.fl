@@ -1,0 +1,10 @@
+;; SICP 1.1.2  Naming and the Environment: pi and a circle
+
+val pi = 3.14159
+val radius = 10
+
+write( pi * (radius * radius) )
+
+val circumference = 2 * pi * radius
+
+write( circumference )

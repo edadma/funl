@@ -1,0 +1,22 @@
+;; SICP 1.1.7  Example: Square Roots by Newton's Method
+
+def abs( x ) = if x >= 0 then x else -x
+
+def square( x ) = x * x
+
+def sqrt_iter( guess, x ) =
+  if good_enough( guess, x ) then guess
+  else sqrt_iter( improve(guess, x), x )
+
+def improve( guess, x ) = average( guess, x / guess )
+
+def average( x, y ) = (x + y) / 2
+
+def good_enough( guess, x ) = abs( square(guess) - x ) < 0.001
+
+def sqrt( x ) = sqrt_iter( 1.0, x )
+
+write( sqrt(9) )
+write( sqrt(100 + 37) )
+write( sqrt(sqrt(2) + sqrt(3)) )
+write( square(sqrt(1000)) )

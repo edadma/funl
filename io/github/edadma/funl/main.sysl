@@ -13,10 +13,10 @@ import sysl.text.Search
 
 const FunlVersion: string = "0.0.1"
 
-// The heap a program runs in, and the collector's schedule over it.
-private const HeapBytes: usize = 268435456
-private const CollectFloor: usize = 4194304
-private const Growth: usize = 2
+// The heap a program runs in, and the collector's schedule over it. The benchmark tests run on it too.
+const HeapBytes: usize = 268435456
+const CollectFloor: usize = 4194304
+const Growth: usize = 2
 
 main(args: []string)
     if args.len > 1 && args[1] == "--version"

@@ -1,0 +1,19 @@
+;; SICP 1.2.2  Tree Recursion
+
+;; Fibonacci numbers, tree-recursive
+def
+  fib( 0 ) = 0
+  fib( 1 ) = 1
+  fib( n ) = fib( n - 1 ) + fib( n - 2 )
+
+write( fib(10) )
+
+;; iterative
+def fib_2( n ) = fib_iter( 1, 0, n )
+
+def
+  fib_iter( a, b, 0 ) = b
+  fib_iter( a, b, count ) = fib_iter( a + b, a, count - 1 )
+
+write( fib_2(10) )
+write( fib_2(30) )

@@ -1,0 +1,9 @@
+;; SICP 1.3.2  Constructing Procedures Using Lambda: pi_sum with its procedures as lambdas
+
+def sum( term, a, next, b ) =
+  if a > b then 0
+  else term( a ) + sum( term, next(a), next, b )
+
+def pi_sum( a, b ) = sum( x -> 1.0 / (x * (x + 2)), a, x -> x + 4, b )
+
+write( 8 * pi_sum(1, 1000) )

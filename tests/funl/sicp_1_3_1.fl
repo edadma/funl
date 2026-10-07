@@ -1,0 +1,45 @@
+;; SICP 1.3.1  Procedures as Arguments
+
+def sum_integers( a, b ) =
+  if a > b then 0
+  else a + sum_integers( a + 1, b )
+
+write( sum_integers(1, 10) )
+
+def cube( x ) = x * x * x
+
+def sum_cubes( a, b ) =
+  if a > b then 0
+  else cube( a ) + sum_cubes( a + 1, b )
+
+write( sum_cubes(3, 7) )
+
+;; the pattern abstracted
+def sum( term, a, next, b ) =
+  if a > b then 0
+  else term( a ) + sum( term, next(a), next, b )
+
+def inc( n ) = n + 1
+
+def sum_cubes_2( a, b ) = sum( cube, a, inc, b )
+
+write( sum_cubes_2(1, 10) )
+
+def identity( x ) = x
+
+def sum_integers_2( a, b ) = sum( identity, a, inc, b )
+
+write( sum_integers_2(1, 10) )
+
+;; Exercise 1.32: accumulate, recursive, with sum as one case of it
+
+def accumulate( combiner, null_value, term, a, next, b ) =
+  if a > b then null_value
+  else combiner( term(a), accumulate(combiner, null_value, term, next(a), next, b) )
+
+def sum_2( term, a, next, b ) = accumulate( (+), 0, term, a, next, b )
+
+def product( term, a, next, b ) = accumulate( (*), 1, term, a, next, b )
+
+write( sum_2(cube, 1, inc, 10) )
+write( product(identity, 1, inc, 6) )

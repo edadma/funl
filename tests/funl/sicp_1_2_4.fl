@@ -1,0 +1,41 @@
+;; SICP 1.2.4  Exponentiation
+
+;; linear recursive
+def expt( b, 0 ) = 1
+def expt( b, n ) = b * expt( b, n - 1 )
+
+write( expt(3, 4) )
+
+;; linear iterative
+def expt_2( b, n ) = expt_iter( b, n, 1 )
+
+def expt_iter( _, 0, product ) = product
+def expt_iter( b, counter, product ) = expt_iter( b, counter - 1, b * product )
+
+write( expt_2(3, 4) )
+
+;; successive squaring
+def square( x ) = x * x
+
+def is_even( n ) = 2 div n
+
+def fast_expt( b, 0 ) = 1
+def fast_expt( b, n )
+  | is_even( n ) = square( fast_expt(b, n / 2) )
+  | otherwise = b * fast_expt( b, n - 1 )
+
+write( fast_expt(3, 4) )
+write( fast_expt(2, 10) )
+
+;; Exercise 1.16: successive squaring, iterative
+
+def fast_expt_iter( a, b, 0 ) = a
+def fast_expt_iter( a, b, n )
+  | is_even( n ) = fast_expt_iter( a, b * b, n / 2 )
+  | otherwise = fast_expt_iter( a * b, b, n - 1 )
+
+def fast_expt_2( b, n ) = fast_expt_iter( 1, b, n )
+
+write( fast_expt_2(2, 3) )
+write( fast_expt_2(3, 4) )
+write( fast_expt_2(2, 10) )
