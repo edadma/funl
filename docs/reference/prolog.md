@@ -184,6 +184,24 @@ string
 -1
 ```
 
+A rational is written `NrM`, as `writeq/1` writes one, so what is written reads back as the same
+number; `14r4` is `7r2`, and a denominator of 1 leaves an integer. Back-quoted text, `` `abc` ``, is a
+list of character codes.
+
+```prolog
+:- X = 7r2, writeq(X), nl.
+:- X = 14r4, writeq(X), nl.
+:- X is 7r2 + 1r2, writeq(X), nl.
+:- X = `abc`, writeq(X), nl.
+```
+
+```output
+7r2
+7r2
+4
+[97,98,99]
+```
+
 ### Operators
 
 `op(Priority, Type, Name)` adds an operator, or changes one, for the clauses read after it.
@@ -204,6 +222,22 @@ rule(a ===> b).
 a===>b
 ===>(a,b)
 ^^(a,^^(b,c))
+```
+
+`current_op(Priority, Type, Name)` enumerates the table, `,` included, in every mode. An argument
+that is bound must be of its kind: a priority from 0 to 1200 or an operator type, or it is a
+`domain_error`, and a name that is not an atom is a `type_error`.
+
+```prolog
+:- current_op(P, T, mod), writeq(op(P, T, mod)), nl.
+:- findall(T, current_op(_, T, -), Ts), msort(Ts, S), writeq(S), nl.
+:- catch(current_op(1201, _, _), error(E, _), (writeq(E), nl)).
+```
+
+```output
+op(400,yfx,mod)
+[fy,yfx]
+domain_error(operator_priority,1201)
 ```
 
 ### Double-quoted text
@@ -242,6 +276,29 @@ p(X) :- X = (1 + ).
 
 ```error
 a term was expected here
+```
+
+### Reading terms
+
+`read(T)` reads the next term from the input, up to the `.` that ends it, and `read_term(T, Options)`
+does the same with the options `variable_names(Vs)`, `variables(Vs)` and `singletons(Vs)`. At the
+`prolog` top level the input is the lines typed after the query; elsewhere it is standard input. At
+the end of the input the term read is `end_of_file`.
+
+`term_to_atom(T, A)` reads atom `A` as a term, its `.` optional, or, when `A` is unbound, writes `T`
+as `writeq/1` does. Text that does not read raises `syntax_error(What)`, whose message says where
+and what was expected there.
+
+```prolog
+:- term_to_atom(T, 'point(X, Y, X)'), T = point(1, 2, Z), writeq(T/Z), nl.
+:- term_to_atom((p :- q, r), A), writeq(A), nl.
+:- catch(term_to_atom(_, 'foo('), error(E, _), (writeq(E), nl)).
+```
+
+```output
+point(1,2,1)/1
+'p:-q,r'
+syntax_error('a term was expected, and the input ended')
 ```
 
 ## Control
@@ -871,12 +928,13 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 | arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3` |
 | database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1` *(library)*, `retractall/1` *(library)*, `abolish/1`, `clause/2`, `dynamic/1`, `current_predicate/1` *(library)* |
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3`, `aggregate_all/3` *(library)* |
-| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2` |
+| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `term_to_atom/2` |
 | lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
 | lists, built in | `length/2`, `msort/2`, `sort/2`, `keysort/2` |
 | global variables | `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2` |
 | output | `write/1`, `writeln/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2`, `nl/0`, `tab/1`, `put_char/1`, `format/1`, `format/2` |
-| flags and operators | `op/3`, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)* |
+| input | `read/1`, `read_term/2` |
+| flags and operators | `op/3`, `current_op/3` *(library)*, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)* |
 | grammar rules | `phrase/2`, `phrase/3` *(library)*, `dcg_translate_rule/2` |
 | loading | `consult/1` |
 

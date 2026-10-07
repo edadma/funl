@@ -165,6 +165,10 @@ private quoted_text(s: string, at: Span) -> &Term
 
     if how != "codes" && how != "chars" then return term(TStr(s), at)
 
+    text_list(s, how, at)
+
+// `s` as a list: of character codes when `how` is `codes`, and of one-character atoms otherwise.
+private text_list(s: string, how: string, at: Span) -> &Term
     var items: Buf[&Term] = buf()
 
     for c in chars_of(s.bytes)
@@ -193,6 +197,7 @@ private nud(t: Spanned[PlTok], r: *PlReader) -> Rd
         PlNumT(text) -> Rd(term(TNum(text), t.span), 0)
         PlVarT(name) -> Rd(term(TVar(variable(r, name)), t.span), 0)
         PlStrT(s) -> Rd(quoted_text(s, t.span), 0)
+        PlBackT(s) -> Rd(text_list(s, "codes", t.span), 0)
         PlOpen -> bracketed(r, t.span)
         PlOpenCT -> bracketed(r, t.span)
         PlLBracket -> list(r, t.span)
@@ -376,6 +381,7 @@ private pl_tag(t: PlTok) -> int = t match
     PlEnd -> 14
     PlBad -> 15
     PlNumT(_) -> 16
+    PlBackT(_) -> 17
 
 // Take the next token when it is of `want`'s kind.
 private accept(r: *PlReader, want: PlTok) -> bool
@@ -386,6 +392,49 @@ private accept(r: *PlReader, want: PlTok) -> bool
             r.take()
             true
         None -> false
+
+// Whether `text` holds the `.` that ends a clause -- outside quotes and comments -- so a read from
+// lines knows it has taken enough of them.
+holds_clause_end(text: string) -> bool
+    var report = full_report()
+    val toks = pl_lex(source_of("input", text), &report)
+
+    for i in 0..<toks.len()
+        toks.peek_at(i) match
+            Some(x) -> x.value match
+                PlEnd -> return true
+                _ -> ()
+            None -> ()
+
+    false
+
+// Where reading has got to: the end of the last token taken, 0 before the first.
+read_up_to(r: PlReader) -> usize = if r.toks.mark() == 0 then 0 else r.toks.previous().end
+
+// The whole of the input read as one term, with or without a `.` after it: what `term_to_atom/2`
+// reads an atom's text as.
+whole_term(r: *PlReader) -> Read
+    if r.toks.at_end() then return Done
+
+    r.names = buf()
+    r.failed = false
+
+    val t = term_at(r, 1200)
+
+    if !r.failed
+        accept(r, PlEnd)
+
+        r.look() match
+            Some(x) ->
+                x.value match
+                    PlBad -> r.failed = true
+                    _ -> refuse(r, x.span, "an operator, or the end of the text, was expected here")
+            None -> ()
+
+    if r.failed then return Skipped
+
+    Clause(ReadClause(t, r.names))
+end whole_term
 
 private expect(r: *PlReader, want: PlTok, what: string)
     if accept(r, want) then return

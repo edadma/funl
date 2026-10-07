@@ -142,6 +142,65 @@ A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR_AND_THE_SESSION_STARTS_ALL_THE_
     assert_eq(session([s"$d/no_such_file.pl"], ["X = 1."]),
         s"uncaught exception: error(existence_error(source_sink,'$d/no_such_file.pl'),_)\n?- X = 1.\nX = 1.\nstatus: 0")
 
+@test
+A_FILE_WITH_A_SYNTAX_ERROR_IS_REPORTED_WITH_WHERE_AND_WHAT_WAS_EXPECTED()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad = put(d, "bad.pl", "foo(a).\nbar(X :- .\n")
+    val where = s"$d/bad.pl"
+
+    assert_eq(session([], [s"consult('$bad').", "X = 1."]),
+        s"?- consult('$bad').\nuncaught exception: error(syntax_error('$where'),_)\n" +
+        s"consult could not load $where:\nerror: `,` or `)` was expected here\n --> $where:2:7\n  |\n2 | bar(X :- .\n  |       ^^\n" +
+        "?- X = 1.\nX = 1.\nstatus: 0")
+
+@test
+A_FILE_ON_THE_COMMAND_LINE_WITH_A_SYNTAX_ERROR_IS_REPORTED_WITH_WHERE_TOO()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad = put(d, "bad.pl", "p(X) :- X = (1 + ).\n")
+    val said = session([bad], [])
+
+    assert(said.contains(s" --> $d/bad.pl:1:18"), said)
+    assert(said.contains("error: a term was expected here"), said)
+
+// -- read/1 and read_term/2 read the lines after the query ------------------------------------------
+
+@test
+READ_TAKES_THE_NEXT_TERM_FROM_THE_LINES_AFTER_THE_QUERY()
+    assert_eq(session([], ["read(X).", "hello(world).", "Y = 1."]),
+        "?- read(X).\n|: hello(world).\nX = hello(world).\n?- Y = 1.\nY = 1.\nstatus: 0")
+
+@test
+READ_GOES_ON_OVER_LINES_AND_LEAVES_WHAT_FOLLOWS_A_TERM_FOR_THE_NEXT_READ()
+    assert_eq(session([], ["read(A), read(B), read(C).", "a. b(", "  1). c."]),
+        "?- read(A), read(B), read(C).\n|: a. b(\n|:   1). c.\nA = a,\nB = b(1),\nC = c.\nstatus: 0")
+
+@test
+READ_AT_THE_END_OF_THE_INPUT_IS_END_OF_FILE()
+    assert_eq(session([], ["read(X)."]), "?- read(X).\nX = end_of_file.\nstatus: 0")
+
+@test
+READ_TERM_NAMES_THE_VARIABLES_AND_FINDS_THE_SINGLETONS()
+    val query = "read_term(_T, [variable_names(_V), singletons(_S), variables(_Vs)]), _T = f(_A, _B, _C, _D, _E), " +
+        "_V == ['X'=_A, 'Y'=_B, '_Z'=_D], _S == ['Y'=_B, '_Z'=_D], _Vs == [_A, _B, _D, _E], _A == _C."
+
+    assert_eq(session([], [query, "f(X, Y, X, _Z, _)."]), s"?- $query\n|: f(X, Y, X, _Z, _).\ntrue.\nstatus: 0")
+
+@test
+READ_TERM_AT_THE_END_OF_THE_INPUT_GIVES_EMPTY_LISTS()
+    assert_eq(session([], ["read_term(T, [variable_names(V), singletons(S)])."]),
+        "?- read_term(T, [variable_names(V), singletons(S)]).\nT = end_of_file,\nV = [],\nS = [].\nstatus: 0")
+
+@test
+READ_OF_TEXT_THAT_DOES_NOT_READ_IS_A_SYNTAX_ERROR_SAYING_WHERE()
+    assert_eq(session([], ["read(X).", "foo(.", "read(Y).", "bar."]),
+        "?- read(X).\n|: foo(.\nuncaught exception: error(syntax_error('a term was expected here'),_)\n" +
+        "error: a term was expected here\n --> user_input:1:5\n  |\n1 | foo(.\n  |     ^\n" +
+        "?- read(Y).\n|: bar.\nY = bar.\nstatus: 0")
+
 // -- It knows standard Prolog and no FunL ---------------------------------------------------------
 
 @test

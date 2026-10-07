@@ -287,6 +287,11 @@ private library_text() -> string = raw"""
         ;   throw(error(type_error(atom, F), current_prolog_flag/2))
         ).
 
+    % current_op/3: each operator in the table (pl_read_term.sysl), its arguments checked first.
+    current_op(P, T, Op) :-
+        '$ops'(P, T, Op, Ops),
+        member(op(P, T, Op), Ops).
+
     % -- Lists ----------------------------------------------------------------------------------
 
     append([], L, L).

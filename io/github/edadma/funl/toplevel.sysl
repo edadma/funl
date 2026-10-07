@@ -39,6 +39,9 @@ toplevel(files: []string, line: &Fn(string) -> Option[string], say: &Fn(string) 
     val was = enter(&v)
     var status = 0
 
+    // `read/1` in a query reads the lines that follow it, as the queries are read.
+    v.input = line
+
     for f in files
         consult_named(&v, f, say)
 
@@ -212,10 +215,24 @@ private exception_text(ball: Value) -> string
     deref(ball) match
         Compound(e) ->
             if atom_name(e.functor) == "error" && e.args.len() == 2
-                return s"error(${answer_text(e.args.at(0))},_)"
+                val formal = s"error(${answer_text(e.args.at(0))},_)"
+
+                // Text that did not read says where, and what was expected there: the reader's
+                // diagnostic, which the term's message carries.
+                if is_syntax_error(e.args.at(0))
+                    error_message(ball) match
+                        Some(m) -> return s"$formal\n${m.trim()}"
+                        None -> ()
+
+                return formal
         _ -> ()
 
     answer_text(ball)
+
+private is_syntax_error(formal: Value) -> bool
+    deref(formal) match
+        Compound(c) -> atom_name(c.functor) == "syntax_error"
+        _ -> false
 
 // Whether failing back into the run could find another solution: a choice point, or a mark with
 // somewhere to go, is still on the control stack.

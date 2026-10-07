@@ -1,0 +1,62 @@
+module io.github.edadma.funl
+@tests
+
+// Reading terms while a program runs (`pl_read_term.sysl`): `term_to_atom/2` both ways,
+// `read_term/2`'s options and `read/1` over the top level's lines, and `current_op/3` over the
+// operator table -- each with the errors ISO gives them.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// `Goal` run in a directive: `yes` when it succeeds, `no` when it fails, and the formal term of an
+// error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(E, _), writeq(E)), nl.\n")
+
+@test
+TERM_TO_ATOM_READS_AN_ATOM_AS_A_TERM()
+    assert_eq(holds("term_to_atom(T, 'foo(X, Y, X)'), T = foo(A, B, C), A == C, A \\== B, var(A)"), ok("yes"))
+    assert_eq(ran_prolog(":- term_to_atom(T, 'a + b * c.'), write_canonical(T), nl.\n"), ok("+(a,*(b,c))"))
+    assert_eq(holds("term_to_atom(f(a), 'f(a)')"), ok("yes"))
+    assert_eq(holds("term_to_atom(f(b), 'f(a)')"), ok("no"))
+
+@test
+TERM_TO_ATOM_WRITES_A_TERM_AS_WRITEQ_DOES()
+    assert_eq(ran_prolog(":- term_to_atom(f('A b', \"s\", [1]), A), writeq(A), nl.\n"), ok("'f(\\'A b\\',\"s\",[1])'"))
+
+@test
+TERM_TO_ATOM_REFUSES_TEXT_THAT_DOES_NOT_READ()
+    assert_eq(holds("term_to_atom(_, 'foo(')"), ok("syntax_error('a term was expected, and the input ended')"))
+    assert_eq(holds("term_to_atom(_, 'a b')"), ok("syntax_error('an operator, or the end of the text, was expected here')"))
+    assert_eq(holds("term_to_atom(_, '')"), ok("syntax_error(end_of_file)"))
+
+@test
+TERM_TO_ATOM_WITH_NEITHER_SIDE_BOUND_IS_AN_INSTANTIATION_ERROR()
+    assert_eq(holds("term_to_atom(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("term_to_atom(_, f(x))"), ok("type_error(atom,f(x))"))
+
+@test
+CURRENT_OP_ENUMERATES_THE_OPERATOR_TABLE()
+    assert_eq(holds("current_op(P, T, mod), P == 400, T == yfx"), ok("yes"))
+    assert_eq(ran_prolog(":- findall(T, current_op(_, T, -), L), msort(L, S), writeq(S), nl.\n"), ok("[fy,yfx]"))
+    assert_eq(ran_prolog(":- findall(P-T, current_op(P, T, ','), L), writeq(L), nl.\n"), ok("[1000-xfy]"))
+    assert_eq(holds("current_op(_, _, nosuch)"), ok("no"))
+
+@test
+CURRENT_OP_SEES_AN_OPERATOR_OP_ADDS_AND_NOT_ONE_IT_REMOVES()
+    assert_eq(holds("op(700, xfx, ===>), current_op(700, xfx, ===>)"), ok("yes"))
+    assert_eq(holds("op(700, xfx, ===>), op(0, xfx, ===>), current_op(_, _, ===>)"), ok("no"))
+
+@test
+CURRENT_OP_CHECKS_ITS_ARGUMENTS_AS_ISO_DOES()
+    assert_eq(holds("current_op(1201, _, _)"), ok("domain_error(operator_priority,1201)"))
+    assert_eq(holds("current_op(a, _, _)"), ok("domain_error(operator_priority,a)"))
+    assert_eq(holds("current_op(_, yfy, _)"), ok("domain_error(operator_specifier,yfy)"))
+    assert_eq(holds("current_op(_, 1, _)"), ok("domain_error(operator_specifier,1)"))
+    assert_eq(holds("current_op(_, _, 1)"), ok("type_error(atom,1)"))
+
+@test
+READ_TERM_REFUSES_A_BAD_OPTION_LIST()
+    assert_eq(holds("read_term(_, foo)"), ok("type_error(list,foo)"))
+    assert_eq(holds("read_term(_, [bar])"), ok("domain_error(read_option,bar)"))
+    assert_eq(holds("read_term(_, [_])"), ok("instantiation_error"))
+    assert_eq(holds("read_term(_, _)"), ok("instantiation_error"))

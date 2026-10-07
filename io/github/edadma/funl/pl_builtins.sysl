@@ -25,6 +25,7 @@ install_prolog(v: *Vm)
     install_prolog_lib(v)
     install_prolog_dcg(v)
     install_prolog_flags(v)
+    install_prolog_read(v)
 
     // FunL's `consult(file)`, which the compiler turns into the `Consult` instruction: registered so
     // the name resolves and its arity is checked, and never run as a builtin.
