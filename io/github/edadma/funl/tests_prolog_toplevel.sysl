@@ -9,7 +9,7 @@ import sysl.text.{Search, join}
 // the top level said -- and the status it ends with. This is the `prolog` executable with its
 // terminal swapped for the script.
 
-private const Family: string = "tests/prolog/toplevel_family.pl"
+private const FamilyFile: string = "tests/prolog/toplevel_family.pl"
 
 private struct Session
     script: Buf[string]
@@ -64,7 +64,7 @@ EVERY_BINDING_OF_AN_ANSWER_IS_SHOWN_QUOTED_AND_UNBOUND_ONES_ARE_LEFT_OUT()
 
 @test
 A_FILE_NAMED_ON_THE_COMMAND_LINE_IS_CONSULTED_BEFORE_THE_FIRST_QUERY()
-    assert_eq(session([Family], ["grandparent(tom, W).", ";", "parent(tom, C).", ";"]),
+    assert_eq(session([FamilyFile], ["grandparent(tom, W).", ";", "parent(tom, C).", ";"]),
         "loaded\n?- grandparent(tom, W).\nW = ann\n;\nfalse.\n?- parent(tom, C).\nC = bob\n;\nC = liz.\nstatus: 0")
 
 @test
