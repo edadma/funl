@@ -1,0 +1,66 @@
+;; Logic programming in FunL: relations, logic variables and unification.
+;;
+;; A `def` with no body is a fact and a `def` whose head is followed by `:-` is a rule; both make a
+;; relation, whose clauses are alternatives that are all tried. Heads are unified, not matched, so
+;; a relation runs in any direction. Inside a rule a name not otherwise in scope is a fresh logic
+;; variable; in ordinary code `free` declares one. `~` is unification.
+
+;; append runs forwards and backwards.
+def
+  append( [], ys, ys )
+  append( x:xs, ys, x:zs ) :- append( xs, ys, zs )
+
+free front, back
+every append( front, back, [1, 2, 3] ) do write( front, back )
+;; [], [1, 2, 3] / [1], [2, 3] / [1, 2], [3] / [1, 2, 3], []
+
+free whole
+if append( [1, 2], [3], whole ) then write( whole )   ;; [1, 2, 3]
+
+;; Paths through a directed graph, collected with findall.
+def
+  edge( #a, #b )
+  edge( #b, #c )
+  edge( #b, #d )
+  edge( #c, #d )
+
+  path( x, y, [x, y] ) :- edge( x, y )
+  path( x, y, x:p ) :- edge( x, z ) & path( z, y, p )
+
+free p
+write( findall(p, path(#a, #d, p)) )    ;; [[a, b, d], [a, b, c, d]]
+
+;; Negation as failure: a node with no outgoing edge.
+def
+  member( x, x:_ )
+  member( x, _:t ) :- member( x, t )
+
+  sink( n ) :- not edge( n, _ )
+
+free n
+write( findall(n, member(n, [#a, #b, #c, #d]) & sink(n)) )   ;; [d]
+
+;; An ordinary function inside a rule is an expression, and a comparison is a goal.
+def square( k ) = k * k
+
+def
+  square_of( k, s ) :- s ~ square( k )
+  big( s ) :- s > 50
+
+free k, s
+write( findall((k, s), member(k, [3, 6, 9, 12]) & square_of(k, s) & big(s)) )
+;; [(9, 81), (12, 144)]
+
+;; `if c then t else e` in a rule is Prolog's if-then-else: the condition commits to its first
+;; solution.
+def classify( x, c ) :- if member( x, [#a, #e, #i, #o, #u] ) then c ~ #vowel else c ~ #consonant
+
+free c
+every member( n, [#a, #b, #e] ) & classify( n, c ) do write( n, c )
+;; a, vowel / b, consonant / e, vowel
+
+;; Records unify like any compound term, so a pattern can be filled in from either side.
+data point(x, y)
+
+free y
+if point(3, y) ~ point(3, 4) then write( y )    ;; 4

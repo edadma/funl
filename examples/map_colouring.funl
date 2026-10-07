@@ -1,0 +1,30 @@
+;; Colouring a map with three colours, as a relation.
+;;
+;; The puzzle is stated, not programmed: `colour` lists the choices, `differ` says when two
+;; neighbours are acceptable, and `colouring` is one conjunction over the regions, written one
+;; line per conjunct. The relation machinery does the search: when a `differ` fails, it backtracks
+;; into the most recent `colour` choice.
+
+def
+  colour( #red )
+  colour( #green )
+  colour( #blue )
+
+  differ( a, b ) :- colour( a ) & colour( b ) & a != b
+
+;; Five regions: w borders x and y; x borders y and z; y borders z and v; z borders v.
+def colouring( w, x, y, z, v ) :-
+  colour( w )
+  differ( w, x ) & differ( w, y )
+  differ( x, y ) & differ( x, z )
+  differ( y, z ) & differ( y, v )
+  differ( z, v )
+
+free w, x, y, z, v
+
+if colouring( w, x, y, z, v ) then write( w, x, y, z, v )   ;; red, green, blue, red, green
+
+;; The `if` took the first solution and kept its bindings, so counting them all needs fresh
+;; variables.
+free a, b, c, d, e
+write( findall((a, b, c, d, e), colouring(a, b, c, d, e)).length )   ;; 6 colourings in all

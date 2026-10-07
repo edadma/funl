@@ -1,0 +1,36 @@
+;; Regular expressions: a regex literal is a matcher inside a scan, and it backtracks with
+;; everything else.
+;;
+;; A regex `like this` matches at the scan's position, moves past what it matched, and produces
+;; that text. Because it is an ordinary generator, `every` can ask it for every way it matches, and
+;; a later failure can make it give characters back. Lookbehind runs the pattern backwards from
+;; the position, so it may be any pattern at all, unbounded repetition included.
+
+;; Forward matching at the position.
+'abc123' ? (write( `[a-z]+` ) & write( tab(0) ))          ;; abc, then 123
+write( 'abc123' ? `[0-9]+` | 'no digits at the start' )   ;; no digits at the start
+
+;; Every way an alternation can match, in order.
+every write( 'abc' ? `a|ab|abc` )                         ;; a, ab, abc
+
+;; Backtracking into a regex: `\w+` first takes all of "price", then gives characters back
+;; until the lookahead finds the colon.
+'price: 10' ? (write( `\w+(?=:)` ) & write( tab(0) ))     ;; price, then ": 10"
+
+;; Lookbehind: the text before the position must match. Here a number counts as a price only
+;; when "$ " (a dollar sign and any number of blanks) comes before it.
+def price( s ) = s ? (tab(upto(digits)) & `(?<=\$ *)\d+`)
+
+write( price('cost: $  42') | 'no price' )               ;; 42
+write( price('item 42') | 'no price' )                   ;; no price
+
+;; Negative lookbehind: every `b` that is not preceded by an `a`, shown with the character before
+;; it (`move(-2)` steps back over the two and produces them).
+every 'ab xb cb' ? (tab(upto('b')) & `(?<!a)b` & write( move(-2) ))   ;; xb, cb
+
+;; Groups, back-references and flags.
+write( 'abab' ? `(ab)\1` )                                ;; abab
+write( 'HeLLo' ? `(?i)hello` )                            ;; HeLLo
+
+;; Patterns can also be built from combinators; they become the same matchers.
+'123cc' ? (write( rep(ccls(digits)) ) & write( rep1(string('c')) ))   ;; 123, then cc

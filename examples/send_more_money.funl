@@ -1,0 +1,37 @@
+;; SEND + MORE = MONEY, solved by backtracking through generators.
+;;
+;; `digit(used)` is a generator: it produces, one at a time, every digit not already taken. The
+;; search is a single conjunction: each `(x = digit(...))` binds a letter, and each comparison
+;; after it is a test that either succeeds or fails. A failing test backtracks into the most recent
+;; generator for its next digit, so the columns are checked from the right as soon as their
+;; letters are known, and most of the 1.8 million assignments are never tried.
+
+def digit( used )
+  for d <- 0..9 if not (d in used)
+    yield d
+
+def value( ds )
+  var v = 0
+
+  for d <- ds
+    v = 10v + d
+
+  v
+
+every ((d = digit([])) & (e = digit([d])) &
+       (y = digit([d, e])) == (d + e) % 10 &
+       (n = digit([d, e, y])) & (r = digit([d, e, y, n])) &
+       (n + r + (d + e) \ 10) % 10 == e &
+       (o = digit([d, e, y, n, r])) &
+       (s = digit([d, e, y, n, r, o])) > 0 &
+       (m = digit([d, e, y, n, r, o, s])) > 0 &
+       value([s, e, n, d]) + value([m, o, r, e]) == value([m, o, n, e, y]))
+  write( "  ${value([s, e, n, d])}" )
+  write( "+ ${value([m, o, r, e])}" )
+  write( "= ${value([m, o, n, e, y])}" )
+
+;; prints the one solution:
+;;
+;;     9567
+;;   + 1085
+;;   = 10652
