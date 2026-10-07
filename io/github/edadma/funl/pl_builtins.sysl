@@ -9,6 +9,7 @@ module io.github.edadma.funl
 
 install_prolog(v: *Vm)
     install_prolog_output(v)
+    install_prolog_format(v)
     register(v, "op/3", 3, pl_op)
     register_generator(v, "==/2", 2, (b, n, c) -> ordered_if(b, (o) -> o == 0))
     register_generator(v, "\\==/2", 2, (b, n, c) -> ordered_if(b, (o) -> o != 0))

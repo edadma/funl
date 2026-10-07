@@ -32,10 +32,10 @@ eval(A / B, V) :- eval(A, X), eval(B, Y), V is X // Y.
 calc(Text) :-
     atom_codes(Text, Codes),
     (   phrase(expr(Tree), Codes)
-    ->  catch(( eval(Tree, V), write(Text = V), nl ),
+    ->  catch(( eval(Tree, V), format("~w=~w~n", [Text, V]) ),
               error(evaluation_error(zero_divisor), _),
-              ( write(Text), write(': division by zero'), nl ))
-    ;   write(Text), write(': not an expression'), nl
+              format("~w: division by zero~n", [Text]))
+    ;   format("~w: not an expression~n", [Text])
     ).
 
 main :-
@@ -47,4 +47,4 @@ main :-
     calc('2+*3'),             % 2+*3: not an expression
     calc('2^100'),            % 2^100: not an expression
     X is 2 ^ 100,
-    write(X), nl.             % 1267650600228229401496703205376 -- integers are unbounded
+    format("~D~n", [X]).      % 1,267,650,600,228,229,401,496,703,205,376 -- integers are unbounded

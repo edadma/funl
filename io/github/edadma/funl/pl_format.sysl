@@ -1,0 +1,457 @@
+module io.github.edadma.funl
+
+import sh.sysl.dal
+import sh.sysl.dal.Number
+import sysl.buf.{Buf, buf}
+import sysl.math.bigint as big
+import sysl.text.{char_from_u32, chars_of, str_builder}
+
+// Prolog's `format/1` and `format/2`, in SWI-Prolog's meaning.
+//
+// **The text is built whole and then written**, so a format that raises writes nothing. Column
+// stops (`~t`, `~|`, `~+`) work on the text since the last stop: the fill points the segment holds
+// say where the padding goes, and the column the line is at when the call begins is what `~N|` and
+// `~N+` count from.
+//
+// The directives: `~w ~p ~q ~a ~d ~D ~s ~e ~f ~g ~n ~c ~r ~R ~~ ~i ~* ~t ~| ~+`. A numeric argument
+// is digits, `*` (taken from the arguments) or a backquote and a character (its code).
+
+extern snprintf(out: *u8, size: usize, fmt: *u8, ...) -> int
+
+install_prolog_format(v: *Vm)
+    register(v, "format/1", 1, (b, n) -> pl_format(arg(b, 0), Nil))
+    register(v, "format/2", 2, (b, n) -> pl_format(arg(b, 0), arg(b, 1)))
+
+// A place where `~t` pads: the character offset in the segment, and the character to pad with.
+private struct Fill
+    at: usize
+    ch: char
+
+private struct Pen
+    // What has been finished.
+    done: string
+
+    // The text since the last column stop, and the fill points inside it.
+    seg: string
+    fills: Buf[Fill]
+
+    // The column of the last stop.
+    stop: usize
+
+    args: Buf[Value]
+    next: usize
+
+private pl_format(fmt: Value, args: Value) -> Result[Value, Fault]
+    val cs = format_chars(fmt)?
+    var p = Pen("", "", buf(), char_count(current().line), args_list(args)?, 0)
+
+    run(&p, cs)?
+
+    if p.next < p.args.len() then return Err(format_error("too many arguments"))
+
+    put_text(p.done + p.seg)
+    Ok(Unit)
+
+// The arguments: a list is the list, and any other term is the one argument.
+private args_list(a: Value) -> Result[Buf[Value], Fault]
+    val x = deref(a)
+
+    x match
+        Nil -> Ok(buf())
+        Cons(_) ->
+            if is_proper_list(x) then return list_items(x, "format/2")
+            if is_partial_list(x) then return list_items(x, "format/2")
+
+            single(x)
+        _ -> single(x)
+
+private single(x: Value) -> Result[Buf[Value], Fault]
+    var items: Buf[Value] = buf()
+
+    items.push(x)
+    Ok(items)
+
+// The characters of the format: an atom or a string, a code list or a character list.
+private format_chars(x: Value) -> Result[Buf[char], Fault]
+    val t = format_text(x)?
+    var out: Buf[char] = buf()
+
+    for c in chars_of(t.bytes)
+        out.push(c)
+
+    Ok(out)
+
+private format_text(x: Value) -> Result[string, Fault]
+    val y = deref(x)
+
+    y match
+        Atom(id) -> Ok(atom_name(id))
+        Nil -> Ok("")
+        Str(p) -> Ok(p.s)
+        Cons(_) -> list_chars(y, "format/2")
+        Var(_) -> Err(instantiation_error("instantiation error: format was given an unbound format"))
+        _ -> Err(type_error("text", y, s"format wants an atom, a string or a list of characters, and was given ${described(y)}"))
+
+// The text of a list of character codes or of one-character atoms.
+private list_chars(l: Value, who: string) -> Result[string, Fault]
+    var out = str_builder()
+    var at = deref(l)
+
+    loop
+        at match
+            Nil -> return Ok(out.finish())
+            Cons(p) ->
+                val e = deref(p.head)
+
+                e match
+                    Int(k) ->
+                        if k < 0 || k > 1114111 then return Err(type_error("character_code", e, s"$who was given $k, which is not a character code"))
+
+                        char_from_u32(u32(k)) match
+                            Some(c) -> out.push_char(c)
+                            None -> return Err(type_error("character_code", e, s"$who was given $k, which is not a character code"))
+                    Atom(id) ->
+                        val name = atom_name(id)
+
+                        if !one_char(name) then return Err(type_error("text", l, s"$who wants a list of characters"))
+
+                        out.push(name)
+                    Var(_) -> return Err(instantiation_error(s"instantiation error: $who's text has an unbound element"))
+                    _ -> return Err(type_error("text", l, s"$who wants a list of characters or codes"))
+
+                at = deref(p.tail)
+            Var(_) -> return Err(instantiation_error(s"instantiation error: $who's text ends in an unbound variable"))
+            _ -> return Err(type_error("text", l, s"$who wants a list of characters or codes"))
+
+private take(p: *Pen) -> Result[Value, Fault]
+    if p.next >= p.args.len() then return Err(format_error("not enough arguments"))
+
+    val x = p.args.at(p.next)
+
+    p.next += 1
+    Ok(deref(x))
+
+private is_digit(c: char) -> bool = c >= '0' && c <= '9'
+
+private run(p: *Pen, cs: Buf[char]) -> Result[unit, Fault]
+    var i: usize = 0
+
+    while i < cs.len()
+        val c = cs.at(i)
+
+        i += 1
+
+        if c != '~'
+            put(p, text_of_char(c))
+            continue
+
+        if i >= cs.len() then return Err(format_error("truncated format specification"))
+
+        // The numeric argument.
+        var have = false
+        var num: long = 0
+        val first = cs.at(i)
+
+        if first == '*'
+            val x = take(p)?
+
+            x match
+                Int(k) ->
+                    if k < 0 then return Err(type_error("not_less_than_zero", x, "format's ~* wants a count that is not negative"))
+
+                    num = k
+                _ -> return Err(kind_error(x, "integer", s"format's ~* wants an integer, and was given ${described(x)}"))
+
+            have = true
+            i += 1
+        elif first == '`'
+            if i + 1 >= cs.len() then return Err(format_error("truncated format specification"))
+
+            num = long(u32(cs.at(i + 1)))
+            have = true
+            i += 2
+        elif is_digit(first)
+            while i < cs.len() && is_digit(cs.at(i))
+                num = num * 10 + long(u32(cs.at(i))) - 48
+                i += 1
+
+            have = true
+
+        if i >= cs.len() then return Err(format_error("truncated format specification"))
+
+        val d = cs.at(i)
+
+        i += 1
+        directive(p, d, have, num)?
+
+    Ok(())
+end run
+
+private text_of_char(c: char) -> string
+    var b = str_builder()
+
+    b.push_char(c)
+    b.finish()
+
+private directive(p: *Pen, d: char, have: bool, num: long) -> Result[unit, Fault]
+    if d == 'w'
+        put(p, term_text(take(p)?, write_opts(false, false, true)))
+    elif d == 'p' || d == 'q'
+        put(p, term_text(take(p)?, write_opts(true, false, true)))
+    elif d == 'a'
+        put(p, atomic_text(take(p)?)?)
+    elif d == 'd' || d == 'D'
+        put(p, integer_text(take(p)?, if have then num else 0, d == 'D', d)?)
+    elif d == 's'
+        put(p, string_text(take(p)?)?)
+    elif d == 'e' || d == 'f' || d == 'g'
+        put(p, float_text(take(p)?, d, if have then num else 6)?)
+    elif d == 'n'
+        var k = if have then num else 1
+
+        while k > 0
+            put(p, "\n")
+            k -= 1
+    elif d == 'c'
+        val x = take(p)?
+        val code = x match
+            Int(k) -> k
+            _ -> return Err(kind_error(x, "integer", s"format's ~c wants a character code, and was given ${described(x)}"))
+        val ch = code_to_char(x, code)?
+        var k = if have then num else 1
+
+        while k > 0
+            put(p, text_of_char(ch))
+            k -= 1
+    elif d == 'r' || d == 'R'
+        if !have then return Err(format_error("~r requires a radix argument"))
+        if num < 2 || num > 36 then return Err(format_error("the radix of ~r must be between 2 and 36"))
+
+        put(p, radix_text(take(p)?, int(num), d == 'R')?)
+    elif d == '~'
+        put(p, "~")
+    elif d == 'i'
+        take(p)?
+    elif d == 't'
+        val ch = if have then code_to_char(Int(num), num)? else ' '
+
+        p.fills.push(Fill(char_count(p.seg), ch))
+    elif d == '|'
+        stop_at(p, if have then usize(num) else p.stop + char_count(p.seg))
+    elif d == '+'
+        stop_at(p, p.stop + (if have then usize(num) else 8))
+    else
+        return Err(existence_error("format_character", atom(text_of_char(d)), s"format has no directive ~${text_of_char(d)}"))
+
+    Ok(())
+end directive
+
+private code_to_char(x: Value, code: long) -> Result[char, Fault]
+    if code < 0 || code > 1114111 then return Err(type_error("character_code", x, s"format was given $code, which is not a character code"))
+
+    char_from_u32(u32(code)) match
+        Some(c) -> Ok(c)
+        None -> Err(type_error("character_code", x, s"format was given $code, which is not a character code"))
+
+// Text onto the segment. A newline ends the line, so the column starts again after it.
+private put(p: *Pen, t: string)
+    var seen = false
+    var width: usize = 0
+
+    for c in chars_of(t.bytes)
+        if c == '\n'
+            seen = true
+            width = 0
+        else
+            width += 1
+
+    if !seen
+        p.seg = p.seg + t
+        return
+
+    p.done = p.done + p.seg + t
+    p.seg = ""
+    p.fills = buf()
+    p.stop = width
+
+// Pad the segment to column `target`, at its fill points or after it if it has none, and finish it.
+private stop_at(p: *Pen, target: usize)
+    val have = p.stop + char_count(p.seg)
+
+    if target > have
+        val pad = target - have
+
+        if p.fills.len() == 0
+            p.seg = p.seg + repeated(' ', pad)
+        else
+            p.seg = padded(p.seg, p.fills, pad)
+
+    p.done = p.done + p.seg
+    p.seg = ""
+    p.fills = buf()
+    p.stop = if target > have then target else have
+
+// `seg` with `pad` characters spread over its fill points, the remainder going to the last ones.
+private padded(seg: string, fills: Buf[Fill], pad: usize) -> string
+    val n = fills.len()
+    val each = pad / n
+    var extra = pad - each * n
+    var widths: Buf[usize] = buf()
+
+    for k in 0..<n
+        widths.push(each)
+
+    var k = n
+
+    while extra > 0
+        k -= 1
+        widths.set(k, widths.at(k) + 1)
+        extra -= 1
+
+    var out = str_builder()
+    var at: usize = 0
+
+    for c in chars_of(seg.bytes)
+        for k in 0..<n
+            if fills.at(k).at == at then out.push(repeated(fills.at(k).ch, widths.at(k)))
+
+        out.push_char(c)
+        at += 1
+
+    for k in 0..<n
+        if fills.at(k).at >= at then out.push(repeated(fills.at(k).ch, widths.at(k)))
+
+    out.finish()
+
+private repeated(c: char, n: usize) -> string
+    var out = str_builder()
+
+    for k in 0..<n
+        out.push_char(c)
+
+    out.finish()
+
+// `~a`: the text of an atomic value.
+private atomic_text(x: Value) -> Result[string, Fault]
+    x match
+        Atom(id) -> Ok(atom_name(id))
+        Nil -> Ok("[]")
+        Str(p) -> Ok(p.s)
+        Var(_) -> Err(instantiation_error("instantiation error: format's ~a was given an unbound variable"))
+        _ ->
+            if is_num(x) then return Ok(written_number(x))
+
+            Err(type_error("atomic", x, s"format's ~a wants an atomic value, and was given ${described(x)}"))
+
+// `~s`: a string, or a list of character codes or characters.
+private string_text(x: Value) -> Result[string, Fault]
+    x match
+        Str(p) -> Ok(p.s)
+        Nil -> Ok("")
+        Cons(_) -> list_chars(x, "format's ~s")
+        Var(_) -> Err(instantiation_error("instantiation error: format's ~s was given an unbound variable"))
+        _ -> Err(type_error("text", x, s"format's ~s wants a string or a list of characters, and was given ${described(x)}"))
+
+// `~Nd` and `~ND`: an integer, with a decimal point `places` digits from the right, and for `~D`
+// its integer part in groups of three.
+private integer_text(x: Value, places: long, grouped: bool, d: char) -> Result[string, Fault]
+    if !is_int(x)
+        return Err(kind_error(x, "integer", s"format's ~${text_of_char(d)} wants an integer, and was given ${described(x)}"))
+
+    val whole = written_number(x)
+    val neg = whole.bytes[0] == u8('-')
+    var digits = if neg then whole[1..<whole.bytes.len] else whole
+    val want = usize(places)
+
+    while char_count(digits) <= want
+        digits = "0" + digits
+
+    val n = char_count(digits)
+    var ip = chars_between_text(digits, 0, n - want)
+    val fp = chars_between_text(digits, n - want, n)
+
+    if grouped then ip = grouped_text(ip)
+
+    val point = if want > 0 then "." + fp else ""
+
+    Ok((if neg then "-" else "") + ip + point)
+
+private chars_between_text(s: string, from: usize, to: usize) -> string
+    var out = str_builder()
+    var at: usize = 0
+
+    for c in chars_of(s.bytes)
+        if at >= from && at < to then out.push_char(c)
+
+        at += 1
+
+    out.finish()
+
+// `digits` with a comma before every third digit from the right.
+private grouped_text(digits: string) -> string
+    val n = char_count(digits)
+    var out = str_builder()
+    var at: usize = 0
+
+    for c in chars_of(digits.bytes)
+        if at > 0 && (n - at) % 3 == 0 then out.push(",")
+
+        out.push_char(c)
+        at += 1
+
+    out.finish()
+
+// `~Ne`, `~Nf` and `~Ng`: a number with `places` digits. An integer is written exactly by `~f`.
+private float_text(x: Value, kind: char, places: long) -> Result[string, Fault]
+    if !is_num(x)
+        return Err(kind_error(x, "number", s"format's ~${text_of_char(kind)} wants a number, and was given ${described(x)}"))
+
+    if places > 1000 then return Err(format_error("the precision of ~e, ~f and ~g is at most 1000"))
+
+    if kind == 'f' && is_int(x)
+        val whole = written_number(x)
+
+        return Ok(if places > 0 then whole + "." + repeated('0', usize(places)) else whole)
+
+    val r = dal.to_real(num_of(x).unwrap())
+
+    Ok(real_text(kind, int(places), r))
+
+private real_text(kind: char, places: int, r: real) -> string
+    var out: [1500]u8
+    var k: int = 0
+
+    if kind == 'e'
+        k = snprintf(&out[0], 1500, c"%.*e", places, r)
+    elif kind == 'f'
+        k = snprintf(&out[0], 1500, c"%.*f", places, r)
+    else
+        k = snprintf(&out[0], 1500, c"%.*g", places, r)
+
+    var b = str_builder()
+
+    for i in 0..<usize(k)
+        b.push_char(char(out[i]))
+
+    b.finish()
+
+// `~Nr` and `~NR`: an integer in radix `radix`, in capitals for `~R`.
+private radix_text(x: Value, radix: int, capitals: bool) -> Result[string, Fault]
+    if !is_int(x)
+        return Err(kind_error(x, "integer", s"format's ~r wants an integer, and was given ${described(x)}"))
+
+    val n = num_of(x).unwrap() match
+        Number.Int(k) -> big.from_int(k)
+        Number.Big(b) -> b
+        _ -> big.zero()
+
+    val text = big.to_string_radix(n, radix)
+
+    if !capitals then return Ok(text)
+
+    var out = str_builder()
+
+    for c in chars_of(text.bytes)
+        out.push_char(if c >= 'a' && c <= 'z' then char(u32(c) - 32) else c)
+
+    Ok(out.finish())

@@ -136,6 +136,10 @@ wrong_count(name: string, argc: usize, msg: string) -> Fault
 // `float_overflow`, `undefined`.
 evaluation_error(what: string, msg: string) -> Fault = raised(term1("evaluation_error", atom(what)), msg)
 
+// A format string or its arguments that `format/1-2` cannot carry out: `format(Message)`, as
+// SWI-Prolog raises it.
+format_error(msg: string) -> Fault = raised(term1("format", atom(msg)), msg)
+
 // An answer the machine has no way to hold: `representation_error(What)`.
 representation_error(what: string, msg: string) -> Fault = raised(term1("representation_error", atom(what)), msg)
 

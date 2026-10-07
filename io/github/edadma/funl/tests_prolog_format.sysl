@@ -1,0 +1,236 @@
+module io.github.edadma.funl
+@tests
+
+// Prolog's `format/1` and `format/2`: every directive, column alignment, the forms the format and
+// the arguments may take, and the errors.
+
+// What `goal` writes, with a newline after it.
+private shown(goal: string) -> string = ran_prolog(s":- $goal, nl.\n")
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// The formal term of the error `goal` raises.
+private raised(goal: string) -> string =
+    ran_prolog(s":- catch(($goal, F = none), error(F, _), true), nl, write(F), nl.\n")
+
+@test
+FORMAT_WRITES_A_FORMAT_WITH_NO_DIRECTIVES()
+    assert_eq(shown("format(\"hello\")"), ok("hello"))
+    assert_eq(shown("format('hello')"), ok("hello"))
+    assert_eq(shown("format(\"hello\", [])"), ok("hello"))
+
+@test
+THE_FORMAT_MAY_BE_AN_ATOM_A_STRING_A_CODE_LIST_OR_A_CHARACTER_LIST()
+    assert_eq(shown("format('~w', [a])"), ok("a"))
+    assert_eq(shown("format(\"~w\", [a])"), ok("a"))
+    assert_eq(shown("format([0'~, 0'w], [a])"), ok("a"))
+    assert_eq(shown("format(['~', w, '!'], [a])"), ok("a!"))
+    assert_eq(shown("format([], [])"), ok(""))
+
+@test
+THE_ARGUMENTS_ARE_A_LIST_OR_ONE_TERM()
+    assert_eq(shown("format(\"~w ~w\", [a, b])"), ok("a b"))
+    assert_eq(shown("format(\"~w\", a)"), ok("a"))
+    assert_eq(shown("format(\"~w\", f(x))"), ok("f(x)"))
+    assert_eq(shown("format(\"~w\", \"str\")"), ok("str"))
+    assert_eq(shown("format(\"~w\", [[1, 2]])"), ok("[1,2]"))
+
+@test
+W_P_AND_Q_WRITE_THE_TERM_AS_WRITE_PRINT_AND_WRITEQ_DO()
+    assert_eq(shown("format(\"~w\", ['A b'])"), ok("A b"))
+    assert_eq(shown("format(\"~q\", ['A b'])"), ok("'A b'"))
+    assert_eq(shown("format(\"~p\", ['A b'])"), ok("'A b'"))
+    assert_eq(shown("format(\"~w\", [1 + 2 * 3])"), ok("1+2*3"))
+    assert_eq(shown("format(\"~q\", [f('X', \"s\")])"), ok("f('X',\"s\")"))
+
+@test
+A_WRITES_THE_TEXT_OF_AN_ATOMIC_VALUE()
+    assert_eq(shown("format(\"~a\", ['A b'])"), ok("A b"))
+    assert_eq(shown("format(\"~a\", [\"str\"])"), ok("str"))
+    assert_eq(shown("format(\"~a\", [42])"), ok("42"))
+    assert_eq(shown("format(\"~a\", [[]])"), ok("[]"))
+
+@test
+D_WRITES_AN_INTEGER_AND_A_COLUMN_ARGUMENT_PLACES_A_DECIMAL_POINT()
+    assert_eq(shown("format(\"~d\", [42])"), ok("42"))
+    assert_eq(shown("format(\"~d\", [-42])"), ok("-42"))
+    assert_eq(shown("format(\"~0d\", [42])"), ok("42"))
+    assert_eq(shown("format(\"~2d\", [1234])"), ok("12.34"))
+    assert_eq(shown("format(\"~2d\", [5])"), ok("0.05"))
+    assert_eq(shown("format(\"~2d\", [-5])"), ok("-0.05"))
+    assert_eq(shown("format(\"~1d\", [0])"), ok("0.0"))
+    assert_eq(shown("format(\"~d\", [123456789012345678901234567890])"), ok("123456789012345678901234567890"))
+
+@test
+CAPITAL_D_GROUPS_THE_INTEGER_PART_BY_THREES()
+    assert_eq(shown("format(\"~D\", [999])"), ok("999"))
+    assert_eq(shown("format(\"~D\", [1000])"), ok("1,000"))
+    assert_eq(shown("format(\"~D\", [-1234567])"), ok("-1,234,567"))
+    assert_eq(shown("format(\"~2D\", [1234567])"), ok("12,345.67"))
+    assert_eq(shown("format(\"~D\", [1180591620717411303424])"), ok("1,180,591,620,717,411,303,424"))
+
+@test
+S_WRITES_A_STRING_OR_A_LIST_OF_CODES_OR_CHARACTERS()
+    assert_eq(shown("format(\"~s\", [\"abc\"])"), ok("abc"))
+    assert_eq(shown("format(\"~s\", [[104, 105]])"), ok("hi"))
+    assert_eq(shown("format(\"~s\", [[h, i]])"), ok("hi"))
+    assert_eq(shown("format(\"[~s]\", [[]])"), ok("[]"))
+
+@test
+E_F_AND_G_WRITE_A_FLOAT_WITH_A_PRECISION()
+    assert_eq(shown("format(\"~e\", [100.0])"), ok("1.000000e+02"))
+    assert_eq(shown("format(\"~3e\", [12345.678])"), ok("1.235e+04"))
+    assert_eq(shown("format(\"~f\", [3.14159])"), ok("3.141590"))
+    assert_eq(shown("format(\"~2f\", [3.14159])"), ok("3.14"))
+    assert_eq(shown("format(\"~0f\", [3.7])"), ok("4"))
+    assert_eq(shown("format(\"~2f\", [-0.005])"), ok("-0.01"))
+    assert_eq(shown("format(\"~g\", [0.5])"), ok("0.5"))
+    assert_eq(shown("format(\"~g\", [1000000.0])"), ok("1e+06"))
+    assert_eq(shown("format(\"~3g\", [3.14159])"), ok("3.14"))
+
+@test
+F_WRITES_AN_INTEGER_EXACTLY_AND_E_AND_G_TAKE_ONE_AS_A_FLOAT()
+    assert_eq(shown("format(\"~2f\", [3])"), ok("3.00"))
+    assert_eq(shown("format(\"~0f\", [3])"), ok("3"))
+    assert_eq(shown("format(\"~1f\", [10000000000000000000000])"), ok("10000000000000000000000.0"))
+    assert_eq(shown("format(\"~e\", [3])"), ok("3.000000e+00"))
+    assert_eq(shown("format(\"~g\", [3])"), ok("3"))
+
+@test
+N_WRITES_NEWLINES()
+    assert_eq(shown("format(\"a~nb\")"), ok("a\nb"))
+    assert_eq(shown("format(\"a~2nb\")"), ok("a\n\nb"))
+    assert_eq(shown("format(\"a~0nb\")"), ok("ab"))
+
+@test
+C_WRITES_A_CHARACTER_FROM_ITS_CODE_AND_REPEATS_IT()
+    assert_eq(shown("format(\"~c\", [65])"), ok("A"))
+    assert_eq(shown("format(\"~3c\", [0'x])"), ok("xxx"))
+    assert_eq(shown("format(\"~c\", [955])"), ok("λ"))
+
+@test
+R_AND_CAPITAL_R_WRITE_AN_INTEGER_IN_A_RADIX()
+    assert_eq(shown("format(\"~8r\", [64])"), ok("100"))
+    assert_eq(shown("format(\"~2r\", [5])"), ok("101"))
+    assert_eq(shown("format(\"~16r\", [255])"), ok("ff"))
+    assert_eq(shown("format(\"~16R\", [255])"), ok("FF"))
+    assert_eq(shown("format(\"~36r\", [35])"), ok("z"))
+    assert_eq(shown("format(\"~16r\", [-255])"), ok("-ff"))
+    assert_eq(shown("format(\"~16r\", [1180591620717411303424])"), ok("400000000000000000"))
+
+@test
+TILDE_I_AND_STAR_WORK_ON_THE_ARGUMENTS()
+    assert_eq(shown("format(\"a~~b\")"), ok("a~b"))
+    assert_eq(shown("format(\"~w~i~w\", [a, b, c])"), ok("ac"))
+    assert_eq(shown("format(\"~*c\", [3, 0'z])"), ok("zzz"))
+    assert_eq(shown("format(\"~*d\", [2, 1234])"), ok("12.34"))
+    assert_eq(shown("format(\"~`-t~5|\")"), ok("-----"))
+
+@test
+T_AND_A_COLUMN_STOP_ALIGN_TEXT()
+    assert_eq(shown("format(\"[~w~t~8|]\", [ab])"), ok("[ab     ]"))
+    assert_eq(shown("format(\"[~t~w~8|]\", [ab])"), ok("[     ab]"))
+    assert_eq(shown("format(\"[~t~w~t~8|]\", [ab])"), ok("[  ab   ]"))
+    assert_eq(shown("format(\"[~t~w~t~9|]\", [ab])"), ok("[   ab   ]"))
+    assert_eq(shown("format(\"[~`*t~w~`*t~9|]\", [ab])"), ok("[***ab***]"))
+    assert_eq(shown("format(\"[~45t~w~8|]\", [ab])"), ok("[-----ab]"))
+    assert_eq(shown("format(\"~w~t~6|~w\", [ab, cd])"), ok("ab    cd"))
+
+@test
+A_COLUMN_STOP_WITH_NO_FILL_POINT_PADS_AFTER_THE_TEXT()
+    assert_eq(shown("format(\"~w~8|~w\", [ab, cd])"), ok("ab      cd"))
+
+@test
+TEXT_LONGER_THAN_ITS_COLUMN_IS_NOT_CUT()
+    assert_eq(shown("format(\"~w~t~3|~w\", [abcdef, x])"), ok("abcdefx"))
+    assert_eq(shown("format(\"~t~w~3|~w\", [abcdef, x])"), ok("abcdefx"))
+
+@test
+PLUS_STOPS_A_COLUMN_RELATIVE_TO_THE_PREVIOUS_STOP()
+    assert_eq(shown("format(\"~w~t~6+~w~t~6+~w\", [a, b, c])"), ok("a     b     c"))
+    assert_eq(shown("format(\"~w~t~10|~w~t~4+~w\", [a, b, c])"), ok("a         b   c"))
+    assert_eq(shown("format(\"~w~t~+~w\", [a, b])"), ok("a       b"))
+    assert_eq(shown("format(\"~t~w~6+~t~w~6+\", [ab, cd])"), ok("    ab    cd"))
+
+@test
+COLUMNS_COUNT_FROM_THE_COLUMN_THE_LINE_IS_AT()
+    assert_eq(ran_prolog(":- write(abc), format(\"~w~t~6|~w\", [d, e]), nl.\n"), ok("abcd  e"))
+    assert_eq(ran_prolog(":- write(abc), format(\"~t~w~8|\", [d]), nl.\n"), ok("abc    d"))
+
+@test
+A_NEWLINE_STARTS_THE_COLUMNS_AGAIN()
+    assert_eq(shown("format(\"abc~n~w~t~4|~w\", [x, y])"), ok("abc\nx   y"))
+
+@test
+A_TABLE_OF_NUMBERS_LINES_UP()
+    assert_eq(shown("format(\"~w~t~8|~t~d~6+~n~w~t~8|~t~d~6+\", [one, 1, three, 300])"),
+        ok("one          1\nthree      300"))
+
+@test
+A_FORMAT_WITH_TOO_FEW_ARGUMENTS_RAISES_A_FORMAT_ERROR()
+    assert_eq(raised("format(\"~w\", [])"), ok("\nformat(not enough arguments)"))
+    assert_eq(raised("format(\"~w ~w\", [a])"), ok("\nformat(not enough arguments)"))
+    assert_eq(raised("format(\"~d\")"), ok("\nformat(not enough arguments)"))
+    assert_eq(raised("format(\"~*c\", [3])"), ok("\nformat(not enough arguments)"))
+
+@test
+A_FORMAT_WITH_TOO_MANY_ARGUMENTS_RAISES_A_FORMAT_ERROR()
+    assert_eq(raised("format(\"~w\", [a, b])"), ok("\nformat(too many arguments)"))
+    assert_eq(raised("format(\"hello\", [a])"), ok("\nformat(too many arguments)"))
+
+@test
+AN_UNKNOWN_DIRECTIVE_IS_AN_EXISTENCE_ERROR()
+    assert_eq(raised("format(\"~y\", [a])"), ok("\nexistence_error(format_character,y)"))
+    assert_eq(raised("format(\"~z\")"), ok("\nexistence_error(format_character,z)"))
+
+@test
+A_TRUNCATED_DIRECTIVE_AND_A_MISSING_RADIX_ARE_FORMAT_ERRORS()
+    assert_eq(raised("format(\"abc~\")"), ok("\nformat(truncated format specification)"))
+    assert_eq(raised("format(\"~3\")"), ok("\nformat(truncated format specification)"))
+    assert_eq(raised("format(\"~r\", [5])"), ok("\nformat(~r requires a radix argument)"))
+    assert_eq(raised("format(\"~1r\", [5])"), ok("\nformat(the radix of ~r must be between 2 and 36)"))
+    assert_eq(raised("format(\"~37r\", [5])"), ok("\nformat(the radix of ~r must be between 2 and 36)"))
+
+@test
+A_WRONG_ARGUMENT_TYPE_IS_A_TYPE_ERROR()
+    assert_eq(raised("format(\"~d\", [a])"), ok("\ntype_error(integer,a)"))
+    assert_eq(raised("format(\"~d\", [1.5])"), ok("\ntype_error(integer,1.5)"))
+    assert_eq(raised("format(\"~D\", [x])"), ok("\ntype_error(integer,x)"))
+    assert_eq(raised("format(\"~e\", [a])"), ok("\ntype_error(number,a)"))
+    assert_eq(raised("format(\"~f\", [\"1.5\"])"), ok("\ntype_error(number,1.5)"))
+    assert_eq(raised("format(\"~g\", [f(x)])"), ok("\ntype_error(number,f(x))"))
+    assert_eq(raised("format(\"~c\", [a])"), ok("\ntype_error(integer,a)"))
+    assert_eq(raised("format(\"~8r\", [a])"), ok("\ntype_error(integer,a)"))
+    assert_eq(raised("format(\"~8r\", [1.5])"), ok("\ntype_error(integer,1.5)"))
+    assert_eq(raised("format(\"~a\", [f(x)])"), ok("\ntype_error(atomic,f(x))"))
+    assert_eq(raised("format(\"~s\", [abc])"), ok("\ntype_error(text,abc)"))
+    assert_eq(raised("format(\"~s\", [[a, bc]])"), ok("\ntype_error(text,[a,bc])"))
+    assert_eq(raised("format(\"~*c\", [a, 0'x])"), ok("\ntype_error(integer,a)"))
+    assert_eq(raised("format(\"~*c\", [-1, 0'x])"), ok("\ntype_error(not_less_than_zero,-1)"))
+    assert_eq(raised("format(123, [])"), ok("\ntype_error(text,123)"))
+    assert_eq(raised("format(f(x), [])"), ok("\ntype_error(text,f(x))"))
+    assert_eq(raised("format([a|b], [])"), ok("\ntype_error(text,[a|b])"))
+    assert_eq(raised("format([1114112], [])"), ok("\ntype_error(character_code,1114112)"))
+
+@test
+AN_UNBOUND_ARGUMENT_OR_FORMAT_IS_AN_INSTANTIATION_ERROR()
+    assert_eq(raised("format(_, [])"), ok("\ninstantiation_error"))
+    assert_eq(raised("format(\"~d\", [_])"), ok("\ninstantiation_error"))
+    assert_eq(raised("format(\"~a\", [_])"), ok("\ninstantiation_error"))
+    assert_eq(raised("format(\"~s\", [_])"), ok("\ninstantiation_error"))
+    assert_eq(raised("format(\"~e\", [_])"), ok("\ninstantiation_error"))
+    assert_eq(raised("format(\"~w\", [a | _])"), ok("\ninstantiation_error"))
+    assert_eq(raised("format([a | _], [])"), ok("\ninstantiation_error"))
+    assert_eq(raised("format([_], [])"), ok("\ninstantiation_error"))
+
+@test
+A_FORMAT_THAT_RAISES_WRITES_NOTHING()
+    assert_eq(ran_prolog(":- catch(format(\"abc~w~w\", [x]), _, true), write(after), nl.\n"), ok("after"))
+
+@test
+FORMAT_IS_AVAILABLE_AS_A_PROLOG_GOAL_IN_A_RULE()
+    val program = "greet(Name) :- format(\"hello, ~w!~n\", [Name]).\n" +
+        ":- greet(world).\n" +
+        ":- greet('big world').\n"
+
+    assert_eq(ran_prolog(program), ok("hello, world!\nhello, big world!"))

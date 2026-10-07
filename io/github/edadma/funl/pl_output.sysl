@@ -1,6 +1,6 @@
 module io.github.edadma.funl
 
-import sysl.text.chars_of
+import sysl.text.{chars_of, str_builder}
 
 // Prolog's output: the `write` family, `nl/0`, `tab/1` and `put_char/1`. Text goes onto the line
 // `nl/0` ends (`Vm.line`), as FunL's `write` puts it.
@@ -20,6 +20,22 @@ private out(text: string)
     val v = current()
 
     v.line = v.line + text
+
+// `t` onto the current line, each newline in it ending the line as `nl/0` does.
+put_text(t: string)
+    val v = current()
+    var line = str_builder()
+
+    line.push(v.line)
+
+    for c in chars_of(t.bytes)
+        if c == '\n'
+            v.output.push(line.finish())
+            line = str_builder()
+        else
+            line.push_char(c)
+
+    v.line = line.finish()
 
 // The first argument, written with options `o`.
 private written(base: usize, o: WriteOpts) -> Result[Value, Fault]
