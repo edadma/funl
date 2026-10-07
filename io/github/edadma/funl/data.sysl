@@ -187,11 +187,16 @@ element_get(c: Value, key: Value, bracket: bool) -> Result[Option[Value], Fault]
         _ -> element_at(x, Int(i))
 end element_get
 
-// What map `m` holds under `key`, or `None` where it holds nothing.
+// What map `m` holds under `key`: its default where it holds nothing and has one, `None` where it
+// has neither.
 private value_under(m: *MapObj, key: Value) -> Result[Option[Value], Fault]
     map_find(m, key)? match
         Some(i) -> Ok(Some(m.vals.at(i)))
-        None -> Ok(None)
+        None -> Ok(map_default(m))
+
+// What a lookup of a key map `m` does not hold answers: its default, without adding the key, or
+// `None` -- failure -- where it has none.
+map_default(m: *MapObj) -> Option[Value] = if m.defaulted then Some(m.fallback) else None
 
 private integer(key: Value) -> Result[long, Fault] = deref(key) match
     Int(n) -> Ok(n)

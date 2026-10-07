@@ -60,9 +60,14 @@ struct SetObj
 
 // A map's keys and the values under them, in step, in the order the keys were first added. A key is
 // found by equality, as `==` decides it.
+//
+// **A mutable map made by `map(c, x)` has a default**: `defaulted` is set and `fallback` is `x`, which
+// a lookup of a key the map does not hold answers instead of failing. The default is never an entry.
 struct MapObj
     keys: Buf[Value]
     vals: Buf[Value]
+    defaulted: bool
+    fallback: Value
 
 // An array's or a buffer's elements.
 struct ArrayObj

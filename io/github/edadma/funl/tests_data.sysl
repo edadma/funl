@@ -58,6 +58,43 @@ A_MUTABLE_MAP_TAKES_NEW_KEYS_BY_CALL_FIELD_AND_BRACKET()
     faults_with("write( map(5) )\n", "'map' wants a list and reached the integer 5")
     faults_with("write( map([1]) )\n", "'map' makes an entry of a pair `(key, value)`, and was given the integer 1")
 
+// `map(c, x)`: a missing key reads as the default `x`, Icon's `table(x)`, and the read adds nothing.
+@test
+A_MAP_WITH_A_DEFAULT_READS_IT_FOR_A_MISSING_KEY_WITHOUT_ADDING_IT()
+    assert_eq(ran_funl("val m = map({}, 0)\nwrite( m(\"zzz\"), m.zzz, m[7], m.length )\nif \"zzz\" in m then write( #in ) else write( #out )\nwrite( m )\n"),
+        "0, 0, 0, 0\nout\nMutableMap()\nsucceeded")
+    assert_eq(ran_funl("val m = map([(1, 10)], 0)\nwrite( m(1), m(2) )\n"), "10, 0\nsucceeded")
+
+@test
+AN_UPDATE_OF_A_NEW_KEY_IN_A_MAP_WITH_A_DEFAULT_STARTS_FROM_IT_AND_ADDS_THE_KEY()
+    assert_eq(ran_funl("val m = map({}, 0)\nm(#a) += 1\nm(#a) += 1\nm.b -= 3\nm[#c] += 5\nwrite( m, m.length )\n"),
+        "MutableMap(a: 2, \"b\": -3, c: 5), 3\nsucceeded")
+
+@test
+MEMBERSHIP_SIZE_AND_ITERATION_SEE_ONLY_THE_ENTRIES_OF_A_MAP_WITH_A_DEFAULT()
+    assert_eq(ran_funl("val m = map([(1, 10)], 0)\nwrite( m(2), m.length )\nif 2 in m then write( #in ) else write( #out )\nif 1 in m then write( #in ) else write( #out )\nfor (k, v) <- m\n  write( k, v )\nevery write( !m )\n"),
+        "0, 1\nout\nin\n1, 10\n(1, 10)\nsucceeded")
+
+// Icon's trap, kept as Icon has it: the default is one value, so every missing key reads the same
+// collection. `+=` on a buffer appends to it in place, so it changes the shared default and adds no
+// key, exactly as Icon's `put(t[k], x)` does; only an assignment adds one.
+@test
+A_COLLECTION_DEFAULT_IS_ONE_OBJECT_SHARED_BY_EVERY_MISSING_KEY()
+    assert_eq(ran_funl("val m = map({}, buffer())\nm(#x) += 1\nm(#y) += 2\nwrite( m(#x), m(#y), m(#zzz), m.length )\nm(#z) = buffer([3])\nwrite( m(#z), m(#x), m.length )\n"),
+        "Buffer(1, 2), Buffer(1, 2), Buffer(1, 2), 0\nBuffer(3), Buffer(1, 2), 1\nsucceeded")
+
+@test
+A_MAP_WITHOUT_A_DEFAULT_STILL_FAILS_ON_A_MISSING_KEY()
+    assert_eq(ran_funl("val m = map({a: 1})\nwrite( m(\"b\") | \"none\", m.b | \"none\" )\nm(#k) += 1\nwrite( m )\n"),
+        "none, none\nMutableMap(\"a\": 1)\nsucceeded")
+    assert_eq(ran_funl("val d = map({}, 0)\nval c = map(d)\nwrite( d(#q), c(#q) | \"none\" )\n"), "0, none\nsucceeded")
+    assert_eq(ran_funl("write( {a: 1}(\"b\") | \"none\" )\n"), "none\nsucceeded")
+
+@test
+A_MAP_WITH_A_DEFAULT_REFUSES_A_WRONG_COUNT_OR_A_NON_COLLECTION()
+    faults_with("write( map({}, 0, 1) )\n", "'map' takes no argument, a collection, or a collection and a default, and was given 3")
+    faults_with("write( map(5, 0) )\n", "'map' wants a list and reached the integer 5")
+
 // A mutable map is its own identity: equal only to itself, never to another with the same entries.
 @test
 WHAT_CHANGES_IN_PLACE_IS_EQUAL_ONLY_TO_ITSELF()

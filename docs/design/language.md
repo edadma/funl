@@ -13,7 +13,8 @@ was chosen to close a rough edge.
 
 **The central rule: evaluating an expression either produces a value or fails, and failure is not
 an error.** It is the ordinary way to say "no". A comparison that does not hold fails; a lookup that
-finds nothing fails; `fail` fails on purpose.
+finds nothing fails; `fail` fails on purpose. The one lookup that does not is a mutable map made
+with a default, `map(c, x)` (§ "Data"), which answers `x` for a key it does not hold.
 
 ```
 if 3 < 5
@@ -267,11 +268,39 @@ choice, and never to nothing.
 | tuple | `(1, 2)` |
 | list | `[1, 2, 3]`, `x:xs`, comprehensions `[x^2 \| x <- 1..10 if odd(x)]` |
 | set, map | `{1, 2}`, `{a: 1, "b": 2}`, set comprehension `{x \ 2 \| x <- 1..5}` |
-| mutable | `array(n)`, `buffer()`, `map(m)`, `set(s)` |
+| mutable | `array(n)`, `buffer()`, `map(m)`, `map(m, default)`, `set(s)` |
 | records | `data point(x, y)`; `data shape = circle(r) \| square(s)` |
 
 Elements are reached by call syntax and by field syntax: `r.a`, `r("b")`, `r(1)`, `m.a`, `m("a")`,
 `[3, 4, 5](1)`. A field write on a mutable map adds the key.
+
+**A mutable map can have a default, as Icon's `table(x)` does**: `map(c, x)` is `map(c)` whose
+missing keys read as `x` instead of failing. So counting needs no membership test:
+
+```
+val counts = map( {}, 0 )
+every counts( words(text) ) += 1     ;; a new word reads 0, and the assignment adds it
+write( counts("zzz") )               ;; 0, and "zzz" is still not a key
+```
+
+- **Reading a missing key gives the default and adds nothing**: `m(k)`, `m[k]` and `m.k` alike.
+  `m.length` is still the size, since a collection's `length` is answered before the default.
+- **Assigning adds the key**, and an update such as `+=` or `-=` is a read and an assignment, so it
+  starts from the default and adds the key.
+- **The default is not an entry**: `k in m`, `m.length`, `for (k, v) <- m` and `!m` see only the
+  keys that were assigned.
+- **The default is one value, never copied**, Icon's behaviour and Icon's trap: with
+  `map({}, buffer())` every missing key reads the *same* buffer, and `m(k) += x` appends to that
+  shared buffer in place without adding `k`. A collection per key is made by assigning one.
+- **`map(m)` copies entries, not a default**, and a map made with `map()` or `map(c)` fails on a
+  missing key exactly as an immutable map does.
+- `map` with three or more arguments is an `existence_error` for `map/3`, and a first argument that
+  is not a collection is a type error, as for `map(c)`.
+
+> **Decided — do immutable map literals carry a default?**
+> **Decision: no.** `{…}` has no spelling for one, as Icon has none for a table literal, and a lookup
+> in an immutable map always fails on a missing key. A default belongs to a map that is being
+> filled, which is a mutable one; `map({a: 1}, 0)` is the way to get both.
 
 **`undefined` is the value of a declared variable that was never assigned**, and two prefix
 operators test it: `\x` succeeds if `x` is defined and `/x` if it is undefined. Both are

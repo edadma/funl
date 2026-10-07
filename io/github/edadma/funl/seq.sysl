@@ -318,7 +318,8 @@ end length_of
 
 // `x.name`: a record's field, a map's key, a buffer's `removeLast`, or any collection's `length`.
 // `None` -- failure -- where a record or a map holds nothing under the name; any other value has no
-// such field at all, which is an error.
+// such field at all, which is an error. A map's default answers only after `length`, so `m.length`
+// is its size unless it holds the key `"length"`, with or without a default.
 field_of(x: Value, name: u32) -> Result[Option[Value], Fault]
     data_field(x, name)? match
         Some(y) -> return Ok(Some(y))
@@ -331,7 +332,7 @@ field_of(x: Value, name: u32) -> Result[Option[Value], Fault]
     deref(x) match
         Compound(_) -> return Ok(None)
         Map(_) -> return Ok(None)
-        MutMap(_) -> return Ok(None)
+        MutMap(m) -> return Ok(map_default(m))
         _ -> ()
 
     Err(existence_error("field", Atom(name), s"${described(x)} has no field '$n'"))

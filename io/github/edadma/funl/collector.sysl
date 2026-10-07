@@ -106,6 +106,8 @@ trace_map(p: *u8, h: *gc.Heap)
     mark_values(h, o.keys)
     mark_values(h, o.vals)
 
+    if o.defaulted then mark_value(h, o.fallback)
+
 finalize_map(p: *u8)
     val o: *MapObj = ptr_cast(p)
 

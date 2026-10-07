@@ -35,13 +35,20 @@ private do_buffer(base: usize, argc: usize) -> Result[Value, Fault]
     Ok(Buffer(filled(arg(base, 0), "'buffer'")?))
 
 // `map()`: an empty mutable map. `map(m)`: a mutable map of the entries of map `m`, or of the pairs
-// `(key, value)` a collection holds.
+// `(key, value)` a collection holds. `map(c, x)`: the same, with default `x`, which a lookup of a key
+// the map does not hold answers instead of failing. The default is the one value `x`, shared by every
+// such lookup, never a copy. `map(m)` of a map with a default takes its entries and not its default.
 private do_map(base: usize, argc: usize) -> Result[Value, Fault]
-    if argc > 1 then return Err(at_most_one("map", argc))
+    if argc > 2
+        return Err(wrong_count("map", argc, s"'map' takes no argument, a collection, or a collection and a default, and was given $argc"))
 
     val m = new_map()?
 
     if argc == 0 then return Ok(MutMap(m))
+
+    if argc == 2
+        m.defaulted = true
+        m.fallback = arg(base, 1)
 
     val x = deref(arg(base, 0))
 
