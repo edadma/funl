@@ -23,6 +23,8 @@ main :-
     basket_total([apple, bread, grapes], T),
     euros(T, E),
     write(E), nl,                             % 11r2 -- FunL's exact 11/2, in Prolog's spelling
+    Sale is E - E / 10,                       % a tenth off: arithmetic on a rational stays exact
+    write(Sale), nl,                          % 99r20
     findall(S, sizes(S), Sizes),
     write(Sizes), nl,                         % [small,large]
     forall((price(X, _), unit(X, kilo)),      % unit/2 commits in its `if`, so X is bound first
