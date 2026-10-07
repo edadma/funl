@@ -86,46 +86,42 @@ EVERY_GUARD_FAILING_IN_THE_LAST_CLAUSE_IS_NO_MATCH()
 
 @test
 WHERE_VALUES_ARE_SEEN_BY_THE_GUARDS_AND_WHERE_FUNCTIONS_ARE_MUTUALLY_RECURSIVE()
-    val text = "def pow( _, 0 ) = 1\n" +
-        "def pow( x, n ) | n > 0 = pow_( x, n - 1, x )\n" +
+    val text = "def parity( n ) | n >= 0 = say( n )\n" +
         "  where\n" +
-        "    pow_( _, 0, v ) = v\n" +
-        "    pow_( u, n, v )\n" +
-        "      | even( n ) = pow_( u*u, n/2, v )\n" +
-        "      | otherwise = pow_( u, n - 1, u*v )\n" +
-        "    even( 0 ) = true\n" +
-        "    even( n ) = odd( n - 1 )\n" +
-        "    odd( 0 ) = fail\n" +
-        "    odd( n ) = even( n - 1 )\n" +
-        "def pow( _, _ ) = error( \"pow: negative exponent\" )\n" +
+        "    say( k ) | ev( k ) = #even\n" +
+        "    say( _ ) = #odd\n" +
+        "    ev( 0 ) = true\n" +
+        "    ev( k ) = od( k - 1 )\n" +
+        "    od( 0 ) = fail\n" +
+        "    od( k ) = ev( k - 1 )\n" +
+        "def parity( _ ) = error( \"parity: negative\" )\n" +
         "def size( n )\n" +
-        "  | n < small = #small\n" +
+        "  | n < limit = #small\n" +
         "  | otherwise = #large\n" +
         "  where\n" +
-        "    (small, _) = (10, 20)\n" +
-        "write( pow(3, 0), pow(3, 1), pow(3, 13), pow(2, 62) )\n" +
+        "    (limit, _) = (10, 20)\n" +
+        "write( parity(0), parity(7), parity(12) )\n" +
         "write( size(4), size(40) )\n" +
-        "write( pow(2, -1) )\n"
+        "write( parity(-1) )\n"
 
     val said = ran_funl(text)
 
-    assert(said.starts_with("1, 3, 1594323, 4611686018427387904\nsmall, large\nfault: "), said)
-    assert(said.contains("pow: negative exponent"), said)
+    assert(said.starts_with("even, odd, even\nsmall, large\nfault: "), said)
+    assert(said.contains("parity: negative"), said)
 
 @test
 A_WHERE_ON_THE_CLAUSE_LINE_AND_A_NESTED_WHERE_BOTH_BIND()
     val text = "def f( x ) = g( x ) where g( y ) = y + 1\n" +
-        "def pow( x, n ) = f( x, n, 1 )\n" +
+        "def digits( n ) = count( n, 1 )\n" +
         "  where\n" +
-        "    f( _, 0, y ) = y\n" +
-        "    f( x, n, y ) = g( x, n )\n" +
+        "    count( m, c ) = step( m )\n" +
         "      where\n" +
-        "        g( x, n )\n" +
-        "          | 2 div n = g( x*x, n/2 )\n" +
-        "          | otherwise = f( x, n - 1, x*y )\n" +
-        "write( f(1), pow(2, 10) )\n"
+        "        step( k )\n" +
+        "          | k < 10 = c\n" +
+        "          | otherwise = count( k // 10, c + 1 )\n" +
+        "write( f(1), digits(7), digits(12345) )\n"
 
-    assert_eq(ran_funl(text), "2, 1024\nsucceeded")
+    assert_eq(ran_funl(text), "2, 1, 5\nsucceeded")
 
 // -- lambdas, closures, sections ------------------------------------------------------------------
 
@@ -137,6 +133,75 @@ A_LAMBDA_CLOSES_OVER_WHAT_IT_MENTIONS_AND_OUTLIVES_THE_FRAME_IT_WAS_MADE_IN()
         "write( add2(1), add5(1), adder(10)(1) )\n"
 
     assert_eq(ran_funl(text), "3, 6, 11\nsucceeded")
+
+@test
+A_NESTED_FUNCTION_CLOSES_OVER_ITS_ENCLOSING_PARAMETERS_AND_LOCALS_AND_OUTLIVES_THEM()
+    val text = "def scaler( k )\n" +
+        "  val offset = k * 10\n" +
+        "  def scale( v ) = v * k + offset\n" +
+        "  scale\n" +
+        "def apply_twice( fn, v ) = fn( fn(v) )\n" +
+        "val by3 = scaler( 3 )\n" +
+        "write( by3(1), scaler(2)(5), apply_twice(by3, 1) )\n"
+
+    assert_eq(ran_funl(text), "33, 30, 129\nsucceeded")
+
+@test
+A_CLOSURE_MADE_SEVERAL_CALLS_DEEP_KEEPS_THE_VALUES_OF_THE_FRAMES_IT_NAMES()
+    // `tag` is made by the innermost of several calls of `descend`, and names `label` and `depth`
+    // of the `tagger` frame beneath them all.
+    val text = "def tagger( label, depth )\n" +
+        "  def descend( d ) =\n" +
+        "    if d == 0\n" +
+        "      def tag( n ) = (label, n, depth)\n" +
+        "      tag\n" +
+        "    else\n" +
+        "      descend( d - 1 )\n" +
+        "  descend( depth )\n" +
+        "val t = tagger( #deep, 4 )\n" +
+        "write( t(1), tagger(#flat, 0)(2), t(3) )\n"
+
+    assert_eq(ran_funl(text), "(deep, 1, 4), (flat, 2, 0), (deep, 3, 4)\nsucceeded")
+
+@test
+A_LAMBDA_THAT_RETURNS_A_LAMBDA_TAKES_ITS_ARGUMENTS_ONE_AT_A_TIME()
+    val text = "val sum3 = a -> b -> c -> a + b + c\n" +
+        "val curry = f -> x -> y -> f( x, y )\n" +
+        "val uncurry = f -> (x, y) -> f( x )( y )\n" +
+        "val pair = (x, y) -> (x, y)\n" +
+        "val tenth = curry( pair )( 10 )\n" +
+        "write( sum3(1)(20)(300), tenth(#a), tenth(#b) )\n" +
+        "write( uncurry(curry(pair))(#x, #y), uncurry(sum3(1))(2, 3) )\n"
+
+    assert_eq(ran_funl(text), "321, (10, a), (10, b)\n(x, y), 6\nsucceeded")
+
+@test
+HIGHER_ORDER_FUNCTIONS_RECURSE_OVER_A_LIST_BY_ITS_HEAD_AND_TAIL()
+    val text = "def\n" +
+        "  fold( _, acc, [] ) = acc\n" +
+        "  fold( f, acc, h:t ) = fold( f, f(acc, h), t )\n" +
+        "  each( _, [] ) = []\n" +
+        "  each( f, h:t ) = f( h ) : each( f, t )\n" +
+        "  keep( _, [] ) = []\n" +
+        "  keep( p, h:t ) | p( h ) = h : keep( p, t )\n" +
+        "  keep( p, _:t ) = keep( p, t )\n" +
+        "write( fold((+), 0, each((* 3), keep((> 2), [5, 1, 4, 2]))) )\n" +
+        "write( each(x -> x : [], 7..9), fold((acc, x) -> x : acc, [], [1, 2, 3]) )\n"
+
+    assert_eq(ran_funl(text), "27\n[[7], [8], [9]], [3, 2, 1]\nsucceeded")
+
+@test
+TOP_LEVEL_FUNCTIONS_ARE_CALLED_BEFORE_THEIR_DEFINITIONS_AND_RECURSE_INTO_EACH_OTHER()
+    val text = "write( collatz_steps(6), hops(5) )\n" +
+        "def collatz_steps( 1 ) = 0\n" +
+        "def collatz_steps( n ) | 2 div n = 1 + collatz_steps( n / 2 )\n" +
+        "def collatz_steps( n ) = 1 + collatz_steps( 3n + 1 )\n" +
+        "def hops( 0 ) = #landed\n" +
+        "def hops( n ) = skips( n - 1 )\n" +
+        "def skips( 0 ) = #skipped\n" +
+        "def skips( n ) = hops( n - 1 )\n"
+
+    assert_eq(ran_funl(text), "8, skipped\nsucceeded")
 
 @test
 A_LAMBDA_TAKES_A_PARENTHESIZED_LIST_OF_PATTERNS_OR_NONE()

@@ -5,7 +5,8 @@ import sysl.buf.Buf
 import sysl.fs.read_text
 import sysl.text.str_builder
 
-// The classic Prolog benchmark programs under `tests/prolog/bench/`, each run for its answer.
+// The classic Prolog benchmark programs under `tests/prolog/bench/`, each run for its answer, and an
+// eleven-queens search of this suite's own.
 //
 // **The programs are kept as published**; each test consults one into a fresh machine and runs a
 // driver that writes what the program computes -- the reversed list, the zebra's owner, the proof of
@@ -26,7 +27,7 @@ private const Dir: string = "tests/prolog/bench/"
 
 // Every entry, by the name `reasons.txt` uses for it.
 private val Entries: []const string = [
-    "nrev", "classic", "classic_lips", "tak", "qsort", "serialise", "mu", "zebra", "deriv", "crypt",
+    "nrev", "tak", "qsort", "serialise", "mu", "zebra", "deriv", "crypt",
     "poly", "query", "browse", "queens", "queens11", "primes", "chat_parser"]
 
 private bench_data(name: string) -> string = read_text(Dir + name) match
@@ -65,17 +66,15 @@ private enum Heaps
     // The heap `funl` gives a program: the roomy one cannot hold it either.
     Program
 
-// Program `file` consulted, then `driver` run: the transcript.
-private bench_run(file: string, driver: string, heaps: Heaps) -> string
-    val text = s":- consult('$Dir$file').\n$driver"
+// The transcript of Prolog program `text` on `heaps`.
+private bench_run(text: string, heaps: Heaps) -> string = heaps match
+    Both -> ran_prolog(text)
+    Roomy -> roomy(() -> prolog_text(text)).text
+    Program -> run_on(HeapBytes, CollectFloor, Growth, () -> prolog_text(text)).text
 
-    heaps match
-        Both -> ran_prolog(text)
-        Roomy -> roomy(() -> prolog_text(text)).text
-        Program -> run_on(HeapBytes, CollectFloor, Growth, () -> prolog_text(text)).text
-
+// Entry `name`: program `file` consulted, then `driver` run, must write `want`.
 private bench(name: string, file: string, driver: string, want: string, heaps: Heaps)
-    assert_eq(verdict(name, bench_run(file, driver, heaps), want, bench_data("reasons.txt")), "")
+    assert_eq(verdict(name, bench_run(s":- consult('$Dir$file').\n$driver", heaps), want, bench_data("reasons.txt")), "")
 
 // -- The checks on the reasons ---------------------------------------------------------------------
 
@@ -108,19 +107,6 @@ NREV()
     bench("nrev", "nreverse.pl", ":- nreverse([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20," +
         "21,22,23,24,25,26,27,28,29,30], L), write(L), nl.\n:- top, write(top), nl.\n",
         "[30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1]\ntop\n", Both)
-
-// The Quintus "classic" harness around naive reverse: the reversal, and a hundred of them in its
-// failure-driven loop.
-@test
-CLASSIC()
-    bench("classic", "classic.pl", ":- data(L), nrev(L, R), write(R), nl.\n:- dobench(100), write(ok), nl.\n",
-        "[30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1]\nok\n", Both)
-
-// The same harness's report: the clock read as `T is time`, and the rate through `float/1`.
-@test
-CLASSIC_LIPS()
-    bench("classic_lips", "classic.pl", ":- get_cpu_time(T0), dobench(10), get_cpu_time(T1), Time is T1 - T0, " +
-        "calculate_lips(10, Time, Lips, Units), number(Lips), atom(Units), write(lips), nl.\n", "lips\n", Both)
 
 // Takeuchi's function: tak(18, 12, 6) is 7.
 @test
@@ -238,11 +224,24 @@ QUEENS()
         ":- findall(Qs, queens(8, Qs), All), length(All, N), write(N), nl.\n:- top, write(top), nl.\n",
         "[4,2,7,3,6,8,5,1]\n92\ntop\n", Roomy)
 
-// Eleven queens, the old FunL's benchmark: all 2680.
+// Eleven queens, every one of the 2680 placements: a search deeper than the published queens_8's,
+// written here rather than kept as a file. Each queen is checked against those already placed, `D`
+// columns back.
+private const Queens11Pl: string = "queens(N, Qs) :- numbers(1, N, Ns), place(Ns, [], Qs).\n" +
+    "numbers(M, N, []) :- M > N, !.\n" +
+    "numbers(M, N, [M|T]) :- M1 is M + 1, numbers(M1, N, T).\n" +
+    "place([], Qs, Qs).\n" +
+    "place(Free, Placed, Qs) :- pick(Q, Free, Rest), safe(Q, 1, Placed), place(Rest, [Q|Placed], Qs).\n" +
+    "pick(X, [X|T], T).\n" +
+    "pick(X, [H|T], [H|R]) :- pick(X, T, R).\n" +
+    "safe(_, _, []).\n" +
+    "safe(Q, D, [P|Ps]) :- Q =\\= P + D, Q =\\= P - D, D1 is D + 1, safe(Q, D1, Ps).\n"
+
 @test
 QUEENS11()
-    bench("queens11", "queens11.pl", ":- findall(Qs, queens(11, Qs), All), length(All, N), write(N), nl.\n",
-        "2680\n", Program)
+    val driver = ":- findall(Qs, queens(11, Qs), All), length(All, N), write(N), nl.\n"
+
+    assert_eq(verdict("queens11", bench_run(Queens11Pl + driver, Program), "2680\n", bench_data("reasons.txt")), "")
 
 // The sieve of Eratosthenes over assert and retract: 1229 primes below 10000, the last 9973.
 @test

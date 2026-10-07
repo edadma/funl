@@ -1,5 +1,0 @@
-def
-  factorial( 0 | 1 ) = 1
-  factorial( n ) = n*factorial( n - 1 )
-
-write( factorial(5) )

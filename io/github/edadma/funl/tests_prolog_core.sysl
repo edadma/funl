@@ -1,10 +1,10 @@
 module io.github.edadma.funl
 @tests
 
-// One test for each defect of the 2019 Prolog engine (`prolog.md` § "The 2019 engine's defects, and
-// what rules each one out"), named after the defect it rules out. Each would have failed on that
-// engine: its cut and mark points lived in global registers, its meta-call was bounded, its `==`
-// compared identity, and several builtins were missing or stubs.
+// The core of Prolog's behaviour, each in a test of its own: a cut and an if-then-else commit only
+// their own clause or condition, the meta-call gives every solution, `==` compares terms by
+// structure, unification compares kinds before values, arithmetic refuses an unbound variable, and
+// the database and all-solutions builtins do what the standard says.
 
 private ok(text: string) -> string = text + "\nsucceeded"
 
@@ -49,7 +49,7 @@ A_NESTED_IF_THEN_ELSE_DOES_NOT_CORRUPT_THE_OUTER_ONE()
     assert_eq(every("w(X) :- member(X, [1, 2, 3]), (X > 1 -> true ; fail).\n", "w(X)"), ok("2\n3"))
 
 @test
-CALL_1_DOES_NOT_BEHAVE_AS_ONCE()
+CALL_GIVES_EVERY_SOLUTION_OF_ITS_GOAL_AND_ONCE_ONLY_THE_FIRST()
     assert_eq(every("", "call(member(X, [a, b, c]))"), ok("a\nb\nc"))
     assert_eq(every("", "call((member(X, [a, b]), true))"), ok("a\nb"))
     assert_eq(every("", "call(member, X, [x, y])"), ok("x\ny"))
@@ -106,8 +106,8 @@ THERE_IS_A_STANDARD_ORDER_OF_TERMS()
     assert_eq(gives("sort([c, a, b, a], X)"), ok("[a,b,c]"))
     assert_eq(holds("compare(foo, a, b)"), ok("domain_error(order,foo)"))
 
-// The 2019 engine compared numbers by value, so `1 = 1.0` succeeded. Unification compares kinds
-// first, numbers among them: `1` and `1.0` are two terms, which only arithmetic calls equal.
+// Unification compares kinds first, numbers among them: `1` and `1.0` are two terms, which only
+// arithmetic calls equal.
 @test
 UNIFICATION_COMPARES_KINDS_BEFORE_VALUES()
     assert_eq(holds("1 = '1'"), ok("no"))
@@ -133,7 +133,7 @@ AN_INTEGER_DOES_NOT_UNIFY_WITH_A_FLOAT_OF_EQUAL_VALUE()
     assert_eq(gives("msort([2, 1.5, 1, 1.0, 2.0e0, 18446744073709551616], X)"), ok("[1.0,1,1.5,2.0,2,18446744073709551616]"))
 
 @test
-AN_UNBOUND_VARIABLE_IN_ARITHMETIC_IS_AN_INSTANTIATION_ERROR_NOT_A_STACK_OVERFLOW()
+AN_UNBOUND_VARIABLE_IN_ARITHMETIC_IS_AN_INSTANTIATION_ERROR()
     assert_eq(holds("X is Y + 1"), ok("instantiation_error"))
     assert_eq(holds("X is ((Y + 1) * 2) - 3"), ok("instantiation_error"))
     assert_eq(holds("Y < 3"), ok("instantiation_error"))
@@ -152,7 +152,7 @@ IS_WITH_A_NUMBER_ON_THE_LEFT_COMPILES_AND_COMPARES()
     assert_eq(holds("foo is 1"), ok("no"))
 
 @test
-FINDALL_IS_NOT_A_STUB()
+FINDALL_COLLECTS_EVERY_SOLUTION_AND_CHECKS_ITS_ARGUMENTS()
     assert_eq(gives("findall(Y, member(Y, [a, b, c]), X)"), ok("[a,b,c]"))
     assert_eq(gives("findall(Y, fail, X)"), ok("[]"))
     assert_eq(gives("findall(A-B, (member(A, [1, 2]), member(B, [a, b])), X)"), ok("[1-a,1-b,2-a,2-b]"))
@@ -168,20 +168,20 @@ ASSERTA_ADDS_A_CLAUSE_FIRST()
     assert_eq(holds("asserta(atom_length(a, 1))"), ok("permission_error(modify,static_procedure,atom_length/2)"))
 
 @test
-ASSERTZ_EXISTS_AND_ADDS_A_CLAUSE_LAST()
+ASSERTZ_ADDS_A_CLAUSE_LAST()
     assert_eq(gives("(assertz(r(1)), assertz(r(2)), asserta(r(0)), findall(Y, r(Y), X))"), ok("[0,1,2]"))
     assert_eq(holds("assertz(_)"), ok("instantiation_error"))
     assert_eq(holds("assertz((foo :- 1))"), ok("type_error(callable,1)"))
 
 @test
-RETRACT_EXISTS()
+RETRACT_REMOVES_THE_FIRST_MATCHING_CLAUSE()
     assert_eq(gives("(assertz(r(1)), assertz(r(2)), retract(r(1)), findall(Y, r(Y), X))"), ok("[2]"))
     assert_eq(holds("(assertz(r(1)), retract(r(9)))"), ok("no"))
     assert_eq(holds("retract(_)"), ok("instantiation_error"))
     assert_eq(holds("retract(atom_length(_, _))"), ok("permission_error(modify,static_procedure,atom_length/2)"))
 
 @test
-CATCH_EXISTS()
+CATCH_RECOVERS_FROM_A_BALL_ITS_CATCHER_UNIFIES_WITH()
     assert_eq(gives("catch(throw(oops), X, true)"), ok("oops"))
     assert_eq(gives("catch(atom_length(_, _), error(X, _), true)"), ok("instantiation_error"))
     assert_eq(gives("(catch(member(X, [a, b]), _, true), X == b)"), ok("b"))
@@ -190,14 +190,14 @@ CATCH_EXISTS()
     assert_eq(gives("catch(catch(throw(inner), outer, true), X, true)"), ok("inner"))
 
 @test
-BAGOF_EXISTS()
+BAGOF_GROUPS_SOLUTIONS_BY_THE_FREE_VARIABLES_AND_FAILS_ON_NONE()
     assert_eq(gives("bagof(Y, member(Y, [c, a, c]), X)"), ok("[c,a,c]"))
     assert_eq(every("", "bagof(Y, member(K-Y, [b-1, a-2, b-3]), X)"), ok("[2]\n[1,3]"))
     assert_eq(holds("bagof(Y, fail, X)"), ok("no"))
     assert_eq(holds("bagof(Y, G, X)"), ok("instantiation_error"))
 
 @test
-SETOF_EXISTS()
+SETOF_SORTS_AND_DEDUPLICATES_AND_HONOURS_THE_CARET()
     assert_eq(gives("setof(Y, member(Y, [c, a, c, b]), X)"), ok("[a,b,c]"))
     assert_eq(gives("setof(Y, K^member(Y-K, [b-1, a-2, b-3]), X)"), ok("[a,b]"))
     assert_eq(holds("setof(Y, fail, X)"), ok("no"))

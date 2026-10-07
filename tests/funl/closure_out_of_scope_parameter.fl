@@ -1,6 +1,0 @@
-def f( x )
-  def g( n ) = x + n
-
-  g
-
-write( f(3)(4) )

@@ -1,7 +1,0 @@
-def
-  foldl( f, z, [] )           = z
-  foldl( f, z, x:xs )         = foldl( f, f(z, x), xs )
-
-  sum( l ) = foldl( (+), 0, l )
-
-write( sum([n | n <- 1..1000-1 if 3 div n or 5 div n]) )
