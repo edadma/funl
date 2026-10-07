@@ -2,7 +2,7 @@ module io.github.edadma.funl
 @tests
 
 import sh.sysl.parsing.{full_report, source_of}
-import sysl.text.str_builder
+import sysl.text.{Search, str_builder}
 
 // The harness: assemble a program into a fresh VM, run it, and answer what it said.
 //
@@ -69,6 +69,27 @@ ran(build: () -> Result[usize, string]) -> string
 
     assert_eq(tight.text, calm.text, "the program said something different on a heap collected at every step")
     calm.text
+
+// Transcript `said` with its fault's instruction index taken out: `fault: f@19: m` reads `fault: f:
+// m`, so a test pinning a fault's text does not move whenever the code before the fault does.
+unplaced(said: string) -> string
+    val f = said.index_of("fault: ") match
+        Some(i) -> i
+        None -> return said
+
+    val tail = said.slice(f, said.bytes.len)
+
+    val at = tail.index_of("@") match
+        Some(i) -> i
+        None -> return said
+
+    val after = tail.slice(at, tail.bytes.len)
+
+    val colon = after.index_of(":") match
+        Some(i) -> i
+        None -> return said
+
+    said.slice(0, f + at) + after.slice(colon, after.bytes.len)
 
 // -- FunL source -------------------------------------------------------------------------------
 

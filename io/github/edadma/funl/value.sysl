@@ -49,8 +49,10 @@ enum Value
     // and read as a list wherever one is: iterated, indexed, matched by `h:t` and `[]`.
     Range(p: *RangeObj)
 
-    // A set of distinct values, in the order they were first added.
+    // A set of distinct values, in the order they were first added: `Set` immutable, written
+    // `{a, b}`, and `MutSet` changed in place, made by `set(s)`. Both are kinds of one object.
     Set(p: *SetObj)
+    MutSet(p: *SetObj)
 
     // A map from keys to values, in the order the keys were first added: `Map` immutable, written
     // `{k: v}`, and `MutMap` changed in place, made by `map(m)`. Both are kinds of one object.

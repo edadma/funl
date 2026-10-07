@@ -50,16 +50,35 @@ AN_ENDLESS_RANGE_IS_ITERATED_UNTIL_SOMETHING_STOPS_IT()
         "4\n1, 2..\nsucceeded")
     assert_eq(complaints("write( 1..< )\n"), "error 1:9 a range with `..<` needs an end to stop before\n")
 
+// `a.. by k` is the endless range with a step: a lazy list made one element at a time.
+@test
+AN_ENDLESS_RANGE_TAKES_A_STEP()
+    assert_eq(ran_funl("val r = 1.. by 2\nval h:t = r\nwrite( r, h, t, r(3), r[2], 7 in r, 10.. by -3 )\nfor x <- r\n  if x > 7 then break\n  write( x )\nif 4 in r then write( #yes ) else write( #no )\nwrite( (0.. by -5)(2), -10 in 0.. by -5 )\n"),
+        "1.. by 2, 1, 3.. by 2, 7, 3, 7, 10.. by -3\n1\n3\n5\n7\nno\n-10, -10\nsucceeded")
+    assert_eq(unplaced(ran_funl("write( 1.. by 0 )\n")), "fault: main: a range from 1 by 0 would never move: a step cannot be zero")
+    assert_eq(unplaced(ran_funl("write( (1.. by 2).length )\n")), "fault: main: the range 1.. by 2 has no end, and no length")
+    assert_eq(unplaced(ran_funl("write( [1] + (1.. by 2) )\n")), "fault: main: a list was given the endless range 1.. by 2, which has no last element")
+
+// `a..+n` counts `n` from `a`, stopping before `a + n`.
+@test
+A_COUNTED_RANGE_STOPS_BEFORE_ITS_START_PLUS_ITS_COUNT()
+    assert_eq(ran_funl("write( 1..+3, 5..+4 by 2, (2..+0).length, [x | x <- 2..+3] )\nval n = 2\nevery write( !(n..+n) )\n"),
+        "1..<4, 5..<9 by 2, 0, [2, 3, 4]\n2\n3\nsucceeded")
+    assert_eq(unplaced(ran_funl("write( 1..+#a )\n")), "fault: main: a range counts with integers, and its count is a")
+    assert_eq(unplaced(ran_funl("write( 9223372036854775807..+2 )\n")), "fault: main: a range from 9223372036854775807 counting 2 does not end in 64 bits")
+
 @test
 LIST_PATTERNS_MATCH_A_LIST_OR_A_RANGE_OR_FAIL()
     assert_eq(ran_funl("val [a, b] = [7, 8]\nwrite( a, b )\nval [c] = [1, 2]\nwrite( #after )\nfor (x:xs) <- [[1, 2], [3]]\n  write( x, xs )\n"),
         "7, 8\nafter\n1, [2]\n3, []\nsucceeded")
     assert_eq(ran_funl("def\n  f( [] ) = #empty\n  f( [_] ) = #one\n  f( _:_:_ ) = #more\n\nwrite( f([]), f(1..0), f([5]), f(5..5), f([1, 2, 3]), f(1..) )\n"),
         "empty, empty, one, one, more, more\nsucceeded")
-    assert_eq(ran_funl("def f( [] ) = 0\ndef f( [x] ) = x\nwrite( f([1, 2]) )\n"),
-        "fault: f@19: argument match not found: no clause of 'f' matches ([1, 2])")
-    assert_eq(ran_funl("def f( h:t ) = h\nwrite( f(3) )\n"),
-        "fault: f@10: argument match not found: no clause of 'f' matches (3)")
+    assert_eq(unplaced(ran_funl("def f( [] ) = 0\ndef f( [x] ) = x\nwrite( f([1, 2]) )\n")),
+        "fault: f: argument match not found: no clause of 'f' matches ([1, 2])")
+    assert_eq(unplaced(ran_funl("def f( h:t ) = h\nwrite( f(3) )\n")),
+        "fault: f: argument match not found: no clause of 'f' matches (3)")
+    assert_eq(unplaced("1\nfault: main@123: m: n"), "1\nfault: main: m: n")
+    assert_eq(unplaced("1\nsucceeded"), "1\nsucceeded")
 
 @test
 IN_SUCCEEDS_WITH_THE_LEFT_OPERAND_OR_FAILS()

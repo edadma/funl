@@ -204,8 +204,9 @@ enum Op
 
     // -- lists, ranges and sets (`seq.sysl`) -----------------------------------------------------------
 
-    // Pop a step, then -- unless `endless` -- an end, then a start, and push the range of them.
-    MakeRange(inclusive: bool, endless: bool)
+    // Pop a step, then -- unless `endless` -- an end, then a start, and push the range of them. When
+    // `counted` the end is a count, and the range stops before the start plus that count.
+    MakeRange(inclusive: bool, endless: bool, counted: bool)
 
     // Pop a value; when it is a non-empty list or range push its rest and then its first element,
     // which is on top, or fail.
@@ -256,9 +257,16 @@ enum Op
     // from 1 when `bracket` -- recording the old element on the trail when `back`; push the value.
     StoreElem(bracket: bool, back: bool)
 
-    // Pop `x`; add it to the end of the buffer slot `slot` of the frame `depth` static links up holds,
-    // and push the buffer: `b += x` where `b` is a `val`.
-    Append(depth: usize, slot: usize)
+    // Pop a value, a key and a collection; store `x op value` into the element the key names --
+    // counting from 1 when `bracket` -- `x` being what the element holds, and push it; or fail,
+    // leaving the element alone, for an ordering that does not hold. `+=` onto an element holding a
+    // buffer or a mutable set adds to it in place, as `Update` does.
+    UpdateElem(bracket: bool, o: BinOp)
+
+    // Pop `x`; add it to (`+`) or take it out of (`-`) the buffer or mutable set slot `slot` of the
+    // frame `depth` static links up holds, and push the collection: `b += x` and `s -= x` where the
+    // name is a `val`, which nothing can assign.
+    InPlace(depth: usize, slot: usize, o: BinOp)
 
     // Pop a key and a collection twice; exchange the two elements they name, the first counting from
     // 1 when `first`, the second when `second`; push `()`.

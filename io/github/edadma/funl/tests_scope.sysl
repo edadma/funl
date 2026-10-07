@@ -66,12 +66,13 @@ MULTIPLE_ASSIGNMENT_MAKES_EVERY_VALUE_BEFORE_STORING_ANY()
 A_PARENTHESIZED_SEQUENCE_IS_A_BLOCK_WHOSE_VALUE_IS_ITS_LAST_STATEMENTS()
     assert_eq(ran_funl("write( (1; 2; 3) )\nwrite( (val q = 4; q * q) )\nwrite( q )\n"), "3\n16\nundefined\nsucceeded")
 
-// `a += e` on a `val` assigns nothing -- it adds to the buffer `a` holds -- so it is checked as it runs
-// (`tests_data.sysl`); every other update of one is refused here.
+// `a += e` and `a -= e` on a `val` assign nothing -- they change the buffer or mutable set `a` holds --
+// so they are checked as they run (`tests_data.sysl`); every other update of one is refused here.
 @test
 A_VAL_AND_A_WHERE_VALUE_CANNOT_BE_ASSIGNED()
     assert_eq(complaints("val a = 1\na = 2\n"), "error 2:1 `a` is a `val`, and cannot be assigned\n")
-    assert_eq(complaints("val a = 1\na -= 2\n"), "error 2:1 `a` is a `val`, and cannot be assigned\n")
+    assert_eq(complaints("val a = 1\na *= 2\n"), "error 2:1 `a` is a `val`, and cannot be assigned\n")
+    assert_eq(complaints("val a = 1\na -= 2\n"), "")
     assert_eq(complaints("def f( x ) = (y = 2)\n  where y = 1\n"), "error 1:14 `y` is a `val`, and cannot be assigned\n")
 
 @test

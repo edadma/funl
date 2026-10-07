@@ -45,13 +45,21 @@ range_rest(r: *RangeObj) -> Result[Value, string]
         Some(n) -> new_range(n, r.last, r.step, r.inclusive, r.endless)
         None -> new_range(r.from, r.from, 1, false, false)
 
-// `MakeRange`: the step, the end unless `endless`, and the start on the stack become the range.
-make_range(v: *Vm, inclusive: bool, endless: bool) -> Result[unit, string]
+// `MakeRange`: the step, the end unless `endless`, and the start on the stack become the range;
+// when `counted` the end is a count of the range's span from its start.
+make_range(v: *Vm, inclusive: bool, endless: bool, counted: bool) -> Result[unit, string]
     val step = range_bound(pop_value(v)?, "step")?
-    val last = if endless then 0 else range_bound(pop_value(v)?, "end")?
+    val end = if endless then 0 else range_bound(pop_value(v)?, if counted then "count" else "end")?
     val from = range_bound(pop_value(v)?, "start")?
 
     if step == 0 then return Err(s"a range from $from by 0 would never move: a step cannot be zero")
+
+    var last = end
+
+    if counted
+        last = checked_add(from, end) match
+            Some(n) -> n
+            None -> return Err(s"a range from $from counting $end does not end in 64 bits")
 
     v.stack.push(new_range(from, last, step, inclusive, endless)?)
     Ok(())
@@ -102,6 +110,9 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, string]
                 out.extend(t.items.view())
                 return Ok(())
             Set(s) ->
+                out.extend(s.items.view())
+                return Ok(())
+            MutSet(s) ->
                 out.extend(s.items.view())
                 return Ok(())
             Array(a) ->
@@ -204,6 +215,7 @@ member(x: Value, c: Value) -> Result[bool, string]
                 return Ok((n - r.from) % r.step == 0)
             Tuple(t) -> return within(x, t.items)
             Set(s) -> return within(x, s.items)
+            MutSet(s) -> return within(x, s.items)
             Array(a) -> return within(x, a.items)
             Buffer(a) -> return within(x, a.items)
             Map(m) -> return Ok(map_find(m, x)?.is_some())
@@ -284,6 +296,7 @@ length_of(x: Value) -> Result[long, string]
             Ok(range_count(r))
         Tuple(t) -> Ok(long(t.items.len()))
         Set(s) -> Ok(long(s.items.len()))
+        MutSet(s) -> Ok(long(s.items.len()))
         Array(a) -> Ok(long(a.items.len()))
         Buffer(a) -> Ok(long(a.items.len()))
         Map(m) -> Ok(long(m.keys.len()))

@@ -357,22 +357,85 @@ swap_elements(v: *Vm, first: bool, second: bool) -> Result[unit, string]
     v.stack.push(Unit)
     Ok(())
 
-// `b += x` where `b` holds a buffer: `x` added to its end, in place. False where `held` is not a
-// buffer, and `+=` is the ordinary update.
-adds_in_place(held: Value, x: Value) -> bool
+// `held op= x` where `held` changes in place: `b += x` adds `x` to the end of buffer `b`, `s += x`
+// adds to mutable set `s` -- each element of a set `x`, as `+` does -- and `s -= x` takes out of it.
+// False for anything else, which `op=` updates as it would a number.
+changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, string]
     deref(held) match
         Buffer(b) ->
+            if o != Add then return Ok(false)
+
             b.items.push(x)
             current().allocated += sizeof(Value)
-            true
-        _ -> false
+            Ok(true)
+        MutSet(s) ->
+            o match
+                Add -> add_into(s, x)?
+                Sub -> take_out_of(s, x)?
+                _ -> return Ok(false)
 
-// `Append`: `b += x` where `b` is a `val`, which nothing can assign -- so it has to hold a buffer, and
-// `x` goes on its end.
-append_to(held: Value, x: Value) -> Result[Value, string]
-    if adds_in_place(held, x) then return Ok(held)
+            Ok(true)
+        _ -> Ok(false)
 
-    Err(s"`+=` on a `val` adds to the buffer it holds, and this one holds ${described(held)}")
+// `InPlace`: `b += x` or `s -= x` where the name is a `val`, which nothing can assign -- so it has to
+// hold a collection that changes in place.
+in_place(o: BinOp, held: Value, x: Value) -> Result[Value, string]
+    if changes_in_place(o, held, x)? then return Ok(held)
+
+    if o == Add then return Err(s"`+=` on a `val` adds to the buffer or the mutable set it holds, and this one holds ${described(held)}")
+
+    Err(s"`${op_text(o)}=` on a `val` takes out of the mutable set it holds, and this one holds ${described(held)}")
+
+// `UpdateElem`: `c(key) op= x`, the element read, combined with `x`, and written back; `None` when
+// the operation fails. An element holding a buffer or a mutable set is changed in place.
+update_element(c: Value, key: Value, bracket: bool, o: BinOp, x: Value) -> Result[Option[Value], string]
+    val held = element_get(c, key, bracket)?
+
+    if changes_in_place(o, held, x)? then return Ok(Some(held))
+
+    arith(o, held, x)? match
+        Some(y) ->
+            element_set(c, key, bracket, y, false)?
+            Ok(Some(y))
+        None -> Ok(None)
+
+// `x`, or each element of `x` when it is a set, added to `s`.
+private add_into(s: *SetObj, x: Value) -> Result[unit, string]
+    deref(x) match
+        Set(t) ->
+            for e in t.items.view()
+                set_add(s, e)?
+        MutSet(t) ->
+            for e in t.items.view()
+                set_add(s, e)?
+        y -> set_add(s, y)?
+
+    Ok(())
+
+// `x`, or each element of `x` when it is a set, taken out of `s`.
+private take_out_of(s: *SetObj, x: Value) -> Result[unit, string]
+    val other = deref(x)
+    var kept: Buf[Value] = buf()
+
+    for e in s.items.view()
+        if !gone(e, other)? then kept.push(e)
+
+    s.items.truncate(0)
+    s.items.extend(kept.view())
+    Ok(())
+
+// Whether `-` takes `e` out of a set: `e` is `other`, or one of its elements when it is a set.
+private gone(e: Value, other: Value) -> Result[bool, string]
+    other match
+        Set(t) -> within_set(e, t)
+        MutSet(t) -> within_set(e, t)
+        _ -> equal_values(e, other, "-")
+
+private within_set(e: Value, t: *SetObj) -> Result[bool, string]
+    for u in t.items.view()
+        if equal_values(e, u, "-")? then return Ok(true)
+
+    Ok(false)
 
 // -- `+` and `-` on sets and immutable maps ---------------------------------------------------------
 
@@ -391,12 +454,7 @@ combined(x: Value, y: Value) -> Result[Value, string]
         Set(s) ->
             val o = copy_set(s)?
 
-            other match
-                Set(t) ->
-                    for e in t.items.view()
-                        set_add(o, e)?
-                _ -> set_add(o, other)?
-
+            add_into(o, other)?
             Ok(Set(o))
         Map(m) ->
             val o = copy_map(m)?
@@ -424,17 +482,7 @@ removed(x: Value, y: Value) -> Result[Value, string]
             val o = new_set()?
 
             for e in s.items.view()
-                val gone = other match
-                    Set(t) ->
-                        var found = false
-
-                        for u in t.items.view()
-                            if equal_values(e, u, "-")? then found = true
-
-                        found
-                    _ -> equal_values(e, other, "-")?
-
-                if !gone
+                if !gone(e, other)?
                     o.items.push(e)
                     current().allocated += sizeof(Value)
 

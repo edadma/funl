@@ -93,9 +93,10 @@ enum Tok
     // `<-`: the binding of a `for` head or a comprehension, and reversible assignment `x <- e`.
     LeftArrow
 
-    // `..` and `..<`: a range, inclusive and exclusive of its end.
+    // `..` and `..<`: a range, inclusive and exclusive of its end. `..+`: a range of a count.
     DotDot
     DotDotLess
+    DotDotPlus
 
     // `{` and `}`: a set comprehension.
     LBrace
@@ -182,6 +183,7 @@ private spelling(t: Tok) -> string
         LeftArrow -> "<-"
         DotDot -> ".."
         DotDotLess -> "..<"
+        DotDotPlus -> "..+"
         LBrace -> "{"
         RBrace -> "}"
         Dot -> "."
@@ -288,6 +290,7 @@ power(t: Tok) -> Power
         Until -> left_assoc(RangePower)
         DotDot -> left_assoc(RangePower)
         DotDotLess -> left_assoc(RangePower)
+        DotDotPlus -> left_assoc(RangePower)
         Plus -> left_assoc(50)
         Minus -> left_assoc(50)
         Star -> left_assoc(60)

@@ -36,6 +36,7 @@ gen_start(v: *Vm) -> Result[unit, string]
         Tuple(_) -> ()
         Str(_) -> ()
         Set(_) -> ()
+        MutSet(_) -> ()
         Array(_) -> ()
         Buffer(_) -> ()
         Map(_) -> ()
@@ -96,6 +97,16 @@ gen_next(v: *Vm) -> Result[bool, string]
             rest = v.stack.at(top - 2)
             next = at + 1
             spent = next == n
+        MutSet(s) ->
+            // Its size read afresh at every step, as a buffer's is, since either can change in place.
+            if at >= long(s.items.len())
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = s.items.at(usize(at))
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next >= long(s.items.len())
         Array(a) ->
             if at >= long(a.items.len())
                 v.stack.truncate(top - 2)

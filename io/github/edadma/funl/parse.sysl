@@ -219,6 +219,7 @@ tag(t: Tok) -> u8
         Question -> 79
         QuestionEq -> 80
         RegexLit(_) -> 81
+        DotDotPlus -> 82
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.

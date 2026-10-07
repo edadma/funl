@@ -62,6 +62,34 @@ A_SET_IS_WRITTEN_AS_ITS_ELEMENTS_EACH_KEPT_ONCE()
     assert_eq(complaints("write( {1, a: 2} )\n"), "error 1:12 a set's items are values, and this is a map's `key: value`\n")
     assert_eq(complaints("write( {a: 1, 2} )\n"), "error 1:15 a map's entries are each written `key: value`\n")
 
+// `set(c)` copies; `+=` adds an element -- or each of a set's -- and `-=` takes out, in place.
+@test
+A_MUTABLE_SET_CHANGES_IN_PLACE_BY_PLUS_AND_MINUS_EQUALS()
+    assert_eq(ran_funl("val s = set()\ns += 1\ns += {2, 3}\ns += 1\nwrite( s, s.length, 2 in s, 9 not in s )\ns -= 2\nwrite( s )\ns -= set([1, 3])\nwrite( s, set(), set([3, 1, 3]), set(1..3) )\n"),
+        "MutableSet(1, 2, 3), 3, 2, 9\nMutableSet(1, 3)\nMutableSet(), MutableSet(), MutableSet(3, 1), MutableSet(1, 2, 3)\nsucceeded")
+    assert_eq(ran_funl("var t = set([1])\nval u = set(t)\nu += 2\nt += 7\nwrite( t, u, {0} + u, {1, 2} - u, seq(u) )\nevery write( !u )\nwrite( {x * 10 | x <- t} )\n"),
+        "MutableSet(1, 7), MutableSet(1, 2), {0, 1, 2}, {}, (1, 2)\n1\n2\n{10, 70}\nsucceeded")
+    assert_eq(ran_funl("val s = set([1])\nif s == set([1]) then write( #same ) else write( #different )\nwrite( s == s )\nval q = [s]\nq(0) += 5\nwrite( s )\n"),
+        "different\nMutableSet(1)\nMutableSet(1, 5)\nsucceeded")
+    faults_with("write( set(1, 2) )\n", "'set' takes no argument or one collection, and was given 2")
+    faults_with("write( set(5) )\n", "'set' wants a list and reached the integer 5")
+    faults_with("var s = set()\ns *= 2\n", "'*' wants numbers and was given MutableSet()")
+    faults_with("val s = {1}\ns += 2\n", "`+=` on a `val` adds to the buffer or the mutable set it holds, and this one holds {1}")
+
+// `c(k) op= e`: the collection and key made once, the element read, combined and written back.
+@test
+AN_ELEMENT_IS_UPDATED_THROUGH_AN_OPERATOR()
+    assert_eq(ran_funl("val a = array([1, 2, 3])\na(0) += 10\na[2] *= 5\na[-1] -= 1\nwrite( a, a(1) += 1 )\nval m = map({x: 1})\nm.x += 4\nm(\"x\") \\= 2\nm[\"x\"] ^= 3\nwrite( m )\n"),
+        "Array(11, 11, 2), 11\nMutableMap(\"x\": 8)\nsucceeded")
+    assert_eq(ran_funl("val a = array([0])\nevery a(0) += 1 to 3\nwrite( a )\nval b = [buffer()]\nb(0) += 7\nwrite( b )\nval c = array([5])\nif c(0) <:= 9 then write( #raised ) else write( #kept )\nif c(0) >:= 20 then write( #lowered ) else write( #kept )\nwrite( c )\n"),
+        "Array(6)\n[Buffer(7)]\nraised\nkept\nArray(9)\nsucceeded")
+    faults_with("val l = [1, 2]\nl(0) += 1\n", "[1, 2] cannot be changed: only an array, a buffer and a mutable map have elements that can be assigned")
+    faults_with("val m = map()\nm(#k) += 1\n", "MutableMap() has no key k")
+    faults_with("val a = array(1)\na(0) += 1\n", "'+' wants numbers and was given undefined")
+    faults_with("val a = array(1)\na(3) += 1\n", "index 3 is out of range")
+    assert_eq(complaints("f() += 1\n"), "error 1:1 only a variable or an element can be assigned through an operator\n")
+    assert_eq(complaints("1 += 1\n"), "error 1:1 only a variable or an element can be assigned through an operator\n")
+
 // -- arrays and buffers ----------------------------------------------------------------------------
 
 @test
@@ -77,8 +105,9 @@ A_BUFFER_GROWS_BY_PLUS_EQUALS_AND_SHRINKS_BY_REMOVE_LAST()
     assert_eq(ran_funl("val b = buffer()\nb += 1\nb += (2, 3)\nvar c = buffer([7])\nc += 8\nwrite( b, c, b.length )\nwrite( b.removeLast, b, buffer(1..3) )\n"),
         "Buffer(1, (2, 3)), Buffer(7, 8), 2\n(2, 3), Buffer(1), Buffer(1, 2, 3)\nsucceeded")
     faults_with("val b = buffer()\nwrite( b.removeLast )\n", "'removeLast' was asked of an empty buffer")
-    faults_with("val n = 5\nn += 1\n", "`+=` on a `val` adds to the buffer it holds, and this one holds the integer 5")
-    assert_eq(complaints("val n = 5\nn -= 1\n"), "error 2:1 `n` is a `val`, and cannot be assigned\n")
+    faults_with("val n = 5\nn += 1\n", "`+=` on a `val` adds to the buffer or the mutable set it holds, and this one holds the integer 5")
+    faults_with("val b = buffer()\nb -= 1\n", "`-=` on a `val` takes out of the mutable set it holds, and this one holds Buffer()")
+    assert_eq(complaints("val n = 5\nn *= 1\n"), "error 2:1 `n` is a `val`, and cannot be assigned\n")
 
 @test
 SEQ_TAKES_A_SNAPSHOT_THAT_LATER_CHANGES_DO_NOT_REACH()

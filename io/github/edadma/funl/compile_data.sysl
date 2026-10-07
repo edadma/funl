@@ -8,10 +8,11 @@ import sysl.buf.Buf
 //     {a, b, ...}            a; b; ...; MakeSet(n)
 //     c[i]                   c; i; Index
 //     c(k) = e               c; k; e; StoreElem              -- `<-` trails the old element
+//     c(k) op= e             c; k; e; UpdateElem(op)
 //     "a $x b"               "a "; x; " b"; Concat(3)
 //     swap(a(i), b(j))       a; i; b; j; SwapElems
 //     point(x, y)            x; y; MakeRecord(point)
-//     b += x, `b` a val      x; Append(b)
+//     b += x, `b` a val      x; InPlace(b, +)                -- `-=` too, out of a mutable set
 //
 // Every part is pushed before the instruction that combines them, so a generator in any part is
 // backtracked into as it is anywhere else, and each of its values makes its own map, string or store.
@@ -47,6 +48,14 @@ compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, bracket: bool, x: &Expr
     compile_value(e, c, key)?
     compile_value(e, c, x)?
     e.op(StoreElem(bracket, back))
+    Ok(())
+
+// An element updated through an operator: the collection, the key, the operand, and the update.
+compile_update(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, bracket: bool, o: BinOp, x: &Expr) -> Result[unit, string]
+    compile_value(e, c, coll)?
+    compile_value(e, c, key)?
+    compile_value(e, c, x)?
+    e.op(UpdateElem(bracket, o))
     Ok(())
 
 // `swap(a, b)`: both elements' collections and keys, then the exchange.

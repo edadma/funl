@@ -313,7 +313,9 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         else
             out.push(Greater, Span(start, s.at))
     elif c == u8('.') && s.accept(u8('.'))
-        out.push(if s.accept(u8('<')) then DotDotLess else DotDot, Span(start, s.at))
+        val k = if s.accept(u8('<')) then DotDotLess elif s.accept(u8('+')) then DotDotPlus else DotDot
+
+        out.push(k, Span(start, s.at))
     elif c == u8('.')
         out.push(Dot, Span(start, s.at))
     elif c == u8('{')

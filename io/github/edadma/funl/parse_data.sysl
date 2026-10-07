@@ -22,6 +22,16 @@ element_target(target: &Expr, value: &Expr, back: bool, at: Span) -> Option[&Exp
         FieldE(c, n) -> Some(expr(SetElemE(c, expr(StrE(n), target.span), false, value, back), at))
         _ -> None
 
+// The element `target` names updated through `o` with `value`: `name(k) op= e`, `c(k) op= e`,
+// `c[k] op= e` or `c.name op= e`. `None` for a target that is not an element.
+element_update(target: &Expr, o: BinOp, value: &Expr, at: Span) -> Option[&Expr]
+    element_target(target, value, false, at) match
+        Some(x) ->
+            x.kind match
+                SetElemE(c, k, bracket, _, _) -> Some(expr(UpdateElemE(c, k, bracket, o, value), at))
+                _ -> None
+        None -> None
+
 // Whether `target` is shaped like an element: something an `=` can write into.
 is_element(target: &Expr) -> bool = element_target(target, target, false, target.span).is_some()
 

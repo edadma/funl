@@ -322,6 +322,9 @@ walk(w: *Walk, e: &Expr)
             walk(w, a)
             walk_maybe(w, upto)
             walk_maybe(w, by)
+        RangeCountE(a, n, by) ->
+            walk_two(w, a, n)
+            walk_maybe(w, by)
         CompE(id, elem, gens, _) -> walk_comprehension(w, id, elem, gens, e.span)
         InE(a, c, _) -> walk_two(w, a, c)
         DefinedE(x, _) -> walk(w, x)
@@ -341,8 +344,10 @@ walk(w: *Walk, e: &Expr)
         CompoundE(n, o, x) ->
             walk(w, x)
 
-            // `b += x` on a `val` assigns nothing: it adds to the buffer `b` holds, checked as it runs.
-            if !(o == Add && names_val(w.meaning(n, e.span.start))) then updated(w, n, e.span)
+            if !changes_val(o, w.meaning(n, e.span.start)) then updated(w, n, e.span)
+        UpdateElemE(c, k, _, _, x) ->
+            walk_two(w, c, k)
+            walk(w, x)
         StepE(n, _, _) -> updated(w, n, e.span)
         MultiAssignE(targets, values) ->
             for x in values.view()
@@ -378,6 +383,10 @@ nullary(m: Meaning) -> Option[u32] = m match
 names_val(m: Meaning) -> bool = m match
     Local(_, _, fixed) -> fixed
     _ -> false
+
+// Whether `x op= e`, `x` meaning `m`, changes the collection a `val` holds rather than assigning:
+// `+=` onto a buffer or a mutable set, `-=` out of a mutable set, checked as it runs.
+changes_val(o: BinOp, m: Meaning) -> bool = (o == Add || o == Sub) && names_val(m)
 
 // Whether a call of `n`, which means `m`, is `swap`: the name, where nothing the program declares
 // takes it.
@@ -567,6 +576,9 @@ hoist_expr(w: *Walk, e: &Expr)
             hoist_expr(w, a)
             hoist_maybe(w, upto)
             hoist_maybe(w, by)
+        RangeCountE(a, n, by) ->
+            hoist_two(w, a, n)
+            hoist_maybe(w, by)
         CompE(_, elem, gens, _) ->
             for g in gens.view()
                 hoist_expr(w, g.iter)
@@ -590,6 +602,9 @@ hoist_expr(w: *Walk, e: &Expr)
         ScanE(s, body) -> hoist_two(w, s, body)
         RegexE(_, _) -> ()
         SetElemE(c, k, _, x, _) ->
+            hoist_two(w, c, k)
+            hoist_expr(w, x)
+        UpdateElemE(c, k, _, _, x) ->
             hoist_two(w, c, k)
             hoist_expr(w, x)
         InterpE(parts) ->

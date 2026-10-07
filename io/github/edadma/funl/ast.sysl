@@ -113,6 +113,9 @@ enum ExprKind
     // a range value, which can be stored, iterated, indexed and matched as a list.
     RangeValE(from: &Expr, upto: Option[&Expr], by: Option[&Expr], inclusive: bool)
 
+    // `a..+n`, with an optional `by k`: the range from `a` up to and excluding `a + n`, `a` made once.
+    RangeCountE(from: &Expr, count: &Expr, by: Option[&Expr])
+
     // `[e | p <- c if f, ...]` or `{e | ...}` (`set`): every value of `e`, in order, for every
     // combination the bindings produce, collected into a list or a set. `id` names the block the
     // patterns' names are declared in.
@@ -178,6 +181,10 @@ enum ExprKind
     // backtracking puts the old element back. `key` is the index, the map key, or the field's name as
     // a string. Produces `e`'s value.
     SetElemE(c: &Expr, key: &Expr, bracket: bool, e: &Expr, back: bool)
+
+    // `c(k) op= e`, `c.name op= e`, `c[k] op= e` (`bracket`): the collection and key made once, then
+    // each of `e`'s values combined into the element through `op`, which is stored and produced.
+    UpdateElemE(c: &Expr, key: &Expr, bracket: bool, op: BinOp, e: &Expr)
 
     // `"text $name ${e} text"`: the parts in order, text and holes, each rendered and joined.
     InterpE(parts: Buf[&Expr])

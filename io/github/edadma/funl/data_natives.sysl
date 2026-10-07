@@ -2,13 +2,14 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 
-// The builtins that make the mutable collections and take a snapshot of one: `array`, `buffer`, `map`
-// and `seq`.
+// The builtins that make the mutable collections and take a snapshot of one: `array`, `buffer`, `map`,
+// `set` and `seq`.
 
 install_data(v: *Vm)
     register(v, "array", 1, do_array)
     register(v, "buffer", Variadic, do_buffer)
     register(v, "map", Variadic, do_map)
+    register(v, "set", Variadic, do_set)
     register(v, "seq", Variadic, do_seq)
 
 // `array(n)`: an array of `n` elements, each `undefined` until something is stored. `array(c)`: an
@@ -61,6 +62,24 @@ private do_map(base: usize, argc: usize) -> Result[Value, string]
                     _ -> return Err(s"'map' makes an entry of a pair `(key, value)`, and was given ${described(e)}")
 
     Ok(MutMap(m))
+
+// `set()`: an empty mutable set. `set(c)`: a mutable set of the elements of collection `c`, each
+// once, in the order they first appear.
+private do_set(base: usize, argc: usize) -> Result[Value, string]
+    if argc > 1 then return Err(s"'set' takes no argument or one collection, and was given $argc")
+
+    val s = new_set()?
+
+    if argc == 0 then return Ok(MutSet(s))
+
+    var items: Buf[Value] = buf()
+
+    elements(arg(base, 0), "'set'", &items)?
+
+    for e in items.view()
+        set_add(s, e)?
+
+    Ok(MutSet(s))
 
 private copy_entries(m: *MapObj, p: *MapObj) -> Result[unit, string]
     for i in 0..<p.keys.len()

@@ -36,6 +36,7 @@ import sysl.buf.{Buf, buf}
 //     x <- e                 e; Dup; StoreBack(x)      -- the old value trailed, for failure to restore
 //     h:t                    h; t; MakeCons
 //     a..b by k              a; b; k; MakeRange
+//     a..+n by k             a; n; k; MakeRange(counted)
 //     [e | p <- c if f]      PushNil; StoreSlot(acc); Mark(done); c; GenStart; GenNext; match p;
 //                            MarkThrough; f; FailIfFalse; Unmark; e; Collect(acc); Fail;
 //                            done: Collected(acc)
@@ -212,8 +213,8 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
 
             val v = variable(c, n, x.span.start)?
 
-            if o == Add && names_val(c.meaning(n, x.span.start))
-                e.op(Append(v.depth, v.slot))
+            if changes_val(o, c.meaning(n, x.span.start))
+                e.op(InPlace(v.depth, v.slot, o))
             else
                 e.op(Update(v.depth, v.slot, o))
         StepE(n, delta, prefix) ->
@@ -248,7 +249,16 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 Some(k) -> compile_value(e, c, k)?
                 None -> e.op(PushInt(1))
 
-            e.op(MakeRange(inclusive, upto.is_none()))
+            e.op(MakeRange(inclusive, upto.is_none(), false))
+        RangeCountE(from, n, by) ->
+            compile_value(e, c, from)?
+            compile_value(e, c, n)?
+
+            by match
+                Some(k) -> compile_value(e, c, k)?
+                None -> e.op(PushInt(1))
+
+            e.op(MakeRange(false, false, true))
         CompE(id, elem, gens, set) -> compile_comprehension(e, c, id, elem, gens, set)?
         InE(a, coll, negated) -> binary(e, c, a, coll, Member(negated))?
         DefinedE(a, defined) ->
@@ -269,6 +279,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         SetE(items) -> compile_set(e, c, items)?
         IndexE(coll, k) -> binary(e, c, coll, k, Index)?
         SetElemE(coll, k, bracket, a, back) -> compile_store(e, c, coll, k, bracket, a, back)?
+        UpdateElemE(coll, k, bracket, o, a) -> compile_update(e, c, coll, k, bracket, o, a)?
         InterpE(parts) -> compile_interp(e, c, parts)?
         ScanE(s, body) ->
             compile_value(e, c, s)?

@@ -273,8 +273,9 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             val f = frame_up(v, depth)?
             val held = slot_of(f, slot)?
 
-            // `+=` onto a buffer adds to it in place, the variable still holding the same buffer.
-            if o == Add && adds_in_place(held, b)
+            // `+=` onto a buffer or a mutable set adds to it in place, and `-=` takes out of a mutable
+            // set, the variable still holding the same collection.
+            if changes_in_place(o, held, b)?
                 v.stack.push(held)
                 return Ok(Next)
 
@@ -292,8 +293,8 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         ChangeMark(to) ->
             change_mark(v, to)?
             Ok(Next)
-        MakeRange(inclusive, endless) ->
-            make_range(v, inclusive, endless)?
+        MakeRange(inclusive, endless, counted) ->
+            make_range(v, inclusive, endless, counted)?
             Ok(Next)
         MatchCons -> Ok(fails_if(match_cons(v)?))
         MatchNil -> Ok(fails_if(match_nil(v)?))
@@ -354,10 +355,20 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             element_set(c, key, bracket, x, back)?
             v.stack.push(x)
             Ok(Next)
-        Append(depth, slot) ->
+        UpdateElem(bracket, o) ->
+            val x = pop(v)?
+            val key = pop(v)?
+            val c = pop(v)?
+
+            update_element(c, key, bracket, o, x)? match
+                Some(y) ->
+                    v.stack.push(y)
+                    Ok(Next)
+                None -> Ok(Fails)
+        InPlace(depth, slot, o) ->
             val x = pop(v)?
 
-            v.stack.push(append_to(slot_of(frame_up(v, depth)?, slot)?, x)?)
+            v.stack.push(in_place(o, slot_of(frame_up(v, depth)?, slot)?, x)?)
             Ok(Next)
         SwapElems(first, second) ->
             swap_elements(v, first, second)?

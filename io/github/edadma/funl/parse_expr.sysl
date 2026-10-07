@@ -343,10 +343,15 @@ compound_assign(p: *Parser, target: &Expr) -> Option[&Expr]
     val at = target.span.to(value.span)
 
     target.kind match
-        Ref(n) -> Some(expr(CompoundE(n, o, value), at))
-        _ ->
-            p.report.add(error(target.span, "only a variable can be assigned through an operator")
-                .with_note("`x += e` stores `x + e` in the variable `x`"))
+        Ref(n) -> return Some(expr(CompoundE(n, o, value), at))
+        BadE -> return Some(expr(BadE, at))
+        _ -> ()
+
+    element_update(target, o, value, at) match
+        Some(x) -> Some(x)
+        None ->
+            p.report.add(error(target.span, "only a variable or an element can be assigned through an operator")
+                .with_note("`x += e` stores `x + e` in the variable `x`, and `a(i) += e` in the element `a(i)`"))
             Some(expr(BadE, at))
 
 // `name ?= e`, the target read and `?=` next: `name = name ? e`.
@@ -393,7 +398,8 @@ range(p: *Parser, from: &Expr, inclusive: bool) -> &Expr
     expr(RangeE(from, upto, Some(step), inclusive), from.span.to(step.span))
 
 // `a..b`, `a..<b` or the endless `a..`, each with an optional `by k`, the `..` or `..<` already
-// read. The range has no end when nothing that can begin an expression follows: `for d <- 1..`.
+// read. The range has no end when nothing that can begin an expression follows: `for d <- 1..`,
+// `1.. by 2`.
 private range_value(p: *Parser, from: &Expr, op: Span, inclusive: bool) -> &Expr
     val more = p.peek_tok() match
         Some(k) -> starts_expr(k)
@@ -405,7 +411,11 @@ private range_value(p: *Parser, from: &Expr, op: Span, inclusive: bool) -> &Expr
                 .with_note("`a..` is the range with no end"))
             return expr(BadE, from.span.to(op))
 
-        return expr(RangeValE(from, None, None, true), from.span.to(op))
+        if !p.accept(By) then return expr(RangeValE(from, None, None, true), from.span.to(op))
+
+        val stride = parse_expr(p, RangePower)
+
+        return expr(RangeValE(from, None, Some(stride), true), from.span.to(stride.span))
 
     val upto = parse_expr(p, RangePower)
 
@@ -414,6 +424,16 @@ private range_value(p: *Parser, from: &Expr, op: Span, inclusive: bool) -> &Expr
     val step = parse_expr(p, RangePower)
 
     expr(RangeValE(from, Some(upto), Some(step), inclusive), from.span.to(step.span))
+
+// `a..+n`, with an optional `by k`, the `..+` already read.
+private range_count(p: *Parser, from: &Expr) -> &Expr
+    val count = parse_expr(p, RangePower)
+
+    if !p.accept(By) then return expr(RangeCountE(from, count, None), from.span.to(count.span))
+
+    val step = parse_expr(p, RangePower)
+
+    expr(RangeCountE(from, count, Some(step)), from.span.to(step.span))
 
 // `e.name`, the `.` already read.
 private field(p: *Parser, left: &Expr) -> &Expr
@@ -462,6 +482,7 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
         Until -> return range(p, left, false)
         DotDot -> return range_value(p, left, t.span, true)
         DotDotLess -> return range_value(p, left, t.span, false)
+        DotDotPlus -> return range_count(p, left)
         Dot -> return field(p, left)
         LBracket ->
             val key = parse_expr(p, 0)

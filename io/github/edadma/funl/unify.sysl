@@ -42,6 +42,9 @@ private identical(a: Value, b: Value) -> bool = a match
     MutMap(p) -> b match
         MutMap(q) -> p == q
         _ -> false
+    MutSet(p) -> b match
+        MutSet(q) -> p == q
+        _ -> false
     Array(p) -> b match
         Array(q) -> p == q
         _ -> false
@@ -140,9 +143,10 @@ private step(x: Value, y: Value) -> bool
         Set(_) -> equal_or_not(x, y)
         CSet(_) -> equal_or_not(x, y)
 
-        // A map, an array, a buffer and a constructor are opaque to unification: each unifies only
-        // with itself, which `identical` has already tested.
+        // A map, a mutable set, an array, a buffer and a constructor are opaque to unification: each
+        // unifies only with itself, which `identical` has already tested.
         Map(_) -> false
+        MutSet(_) -> false
         MutMap(_) -> false
         Array(_) -> false
         Buffer(_) -> false
@@ -355,6 +359,7 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, string]
             Map(p) -> y match
                 Map(q) -> same_map(p, q)?
                 _ -> false
+            MutSet(_) -> false
             MutMap(_) -> false
             Array(_) -> false
             Buffer(_) -> false
@@ -449,13 +454,14 @@ private rank(x: Value) -> int = x match
     Undefined -> 6
     Range(_) -> 7
     Set(_) -> 8
-    Map(_) -> 9
-    MutMap(_) -> 10
-    Array(_) -> 11
-    Buffer(_) -> 12
-    Func(_) -> 13
-    Ctor(_) -> 14
-    CSet(_) -> 15
+    MutSet(_) -> 9
+    Map(_) -> 10
+    MutMap(_) -> 11
+    Array(_) -> 12
+    Buffer(_) -> 13
+    Func(_) -> 14
+    Ctor(_) -> 15
+    CSet(_) -> 16
 
 private ordered(a: u64, b: u64) -> int = if a < b then -1 elif a > b then 1 else 0
 
@@ -520,6 +526,7 @@ private range_order(p: *RangeObj, q: *RangeObj) -> int
 // The address of a value that orders by identity.
 private identity(x: Value) -> usize = x match
     Set(p) -> usize(p)
+    MutSet(p) -> usize(p)
     Map(p) -> usize(p)
     MutMap(p) -> usize(p)
     Array(p) -> usize(p)
