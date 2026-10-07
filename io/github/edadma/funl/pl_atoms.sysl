@@ -2,28 +2,50 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 import sysl.text.{Search, char_from_u32, chars_of, from_utf8_unchecked, str_builder}
+import sysl.unicode.{to_lower as lower_char, to_upper as upper_char}
 
 // Prolog's builtins over the text of atoms: `atom_codes/2`, `atom_chars/2`, `char_code/2`,
 // `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `number_codes/2`, `number_chars/2` and
-// `atom_number/2`.
+// `atom_number/2`; and their counterparts over strings, as SWI-Prolog has them: `atom_string/2`,
+// `string_chars/2`, `string_codes/2`, `string_length/2`, `string_concat/3`, `sub_string/5`,
+// `split_string/4`, `upcase_atom/2`, `downcase_atom/2`, `string_upper/2` and `string_lower/2`.
 //
 // **Where an atom is wanted, any atomic value gives its text**, as SWI-Prolog takes it: a number its
 // digits, a string its characters, `[]` the two characters it is written with. ISO asks for an atom;
 // accepting the rest refuses nothing a conforming program writes. A compound is a type error either
-// way. **Positions and lengths count characters**, not bytes.
+// way. **Positions and lengths count characters**, not bytes. A string builtin takes the same text and
+// differs only in what it makes: a string where the atom builtin makes an atom.
 
 install_prolog_atoms(v: *Vm)
-    register_generator(v, "atom_codes/2", 2, (b, n, c) -> atom_and_list(b, "atom_codes/2", false))
-    register_generator(v, "atom_chars/2", 2, (b, n, c) -> atom_and_list(b, "atom_chars/2", true))
+    register_generator(v, "atom_codes/2", 2, (b, n, c) -> atom_and_list(b, "atom_codes/2", false, false))
+    register_generator(v, "atom_chars/2", 2, (b, n, c) -> atom_and_list(b, "atom_chars/2", true, false))
     register_generator(v, "char_code/2", 2, pl_char_code)
-    register_generator(v, "atom_length/2", 2, pl_atom_length)
-    register_generator(v, "atom_concat/3", 3, pl_atom_concat)
-    register_generator(v, "sub_atom/5", 5, pl_sub_atom)
+    register_generator(v, "atom_length/2", 2, (b, n, c) -> text_length(b, "atom_length/2"))
+    register_generator(v, "atom_concat/3", 3, (b, n, c) -> text_concat(b, c, "atom_concat/3", false))
+    register_generator(v, "sub_atom/5", 5, (b, n, c) -> sub_text(b, c, "sub_atom/5", false))
     register_generator(v, "number_codes/2", 2, (b, n, c) -> number_and_list(b, "number_codes/2", false))
     register_generator(v, "number_chars/2", 2, (b, n, c) -> number_and_list(b, "number_chars/2", true))
     register_generator(v, "atom_number/2", 2, pl_atom_number)
+    register_generator(v, "atom_string/2", 2, pl_atom_string)
+    register_generator(v, "string_codes/2", 2, (b, n, c) -> atom_and_list(b, "string_codes/2", false, true))
+    register_generator(v, "string_chars/2", 2, (b, n, c) -> atom_and_list(b, "string_chars/2", true, true))
+    register_generator(v, "string_length/2", 2, (b, n, c) -> text_length(b, "string_length/2"))
+    register_generator(v, "string_concat/3", 3, (b, n, c) -> text_concat(b, c, "string_concat/3", true))
+    register_generator(v, "sub_string/5", 5, (b, n, c) -> sub_text(b, c, "sub_string/5", true))
+    register_generator(v, "split_string/4", 4, pl_split_string)
+    register_generator(v, "upcase_atom/2", 2, (b, n, c) -> case_of(b, "upcase_atom/2", true, false))
+    register_generator(v, "downcase_atom/2", 2, (b, n, c) -> case_of(b, "downcase_atom/2", false, false))
+    register_generator(v, "string_upper/2", 2, (b, n, c) -> case_of(b, "string_upper/2", true, true))
+    register_generator(v, "string_lower/2", 2, (b, n, c) -> case_of(b, "string_lower/2", false, true))
 
-// The text of atomic `x`, `None` when it is unbound; a compound is `type_error(atom, X)`.
+// The type a builtin's text argument is named by in its errors: a string builtin wants a string.
+private wanted(who: string) -> string = if who.starts_with("atom") || who.starts_with("sub_atom") ||
+    who.starts_with("upcase") || who.starts_with("downcase") then "atom" else "string"
+
+private a_wanted(who: string) -> string = if wanted(who) == "atom" then "an atom" else "a string"
+
+// The text of atomic `x`, `None` when it is unbound; a compound is `type_error(atom, X)`, or
+// `type_error(string, X)` for a string builtin.
 private text_of(x: Value, who: string) -> Result[Option[string], Fault]
     val y = deref(x)
 
@@ -35,13 +57,21 @@ private text_of(x: Value, who: string) -> Result[Option[string], Fault]
         _ ->
             if is_num(y) then return Ok(Some(written_number(y)))
 
-            Err(type_error("atom", y, s"$who wants an atom, and was given ${described(y)}"))
+            Err(type_error(wanted(who), y, s"$who wants ${a_wanted(who)}, and was given ${described(y)}"))
 
 // The text of atomic `x`, which must be bound.
 private bound_text(x: Value, who: string) -> Result[string, Fault]
     text_of(x, who)? match
         Some(s) -> Ok(s)
-        None -> Err(instantiation_error(s"instantiation error: $who was given an unbound variable where it wants an atom"))
+        None -> Err(instantiation_error(s"instantiation error: $who was given an unbound variable where it wants ${a_wanted(who)}"))
+
+// Text made into the value a builtin returns: a string, or an atom.
+private made_text(s: string, as_string: bool) -> Result[Value, Fault]
+    if !as_string then return Ok(atom(s))
+
+    new_str(s) match
+        Ok(v) -> Ok(v)
+        Err(e) -> Err(Broken(e))
 
 private one_char_text(c: char) -> string
     var b = str_builder()
@@ -114,14 +144,14 @@ private no_such_code(k: long, who: string) -> Fault =
 private unbound_list(who: string) -> Fault =
     instantiation_error(s"instantiation error: $who wants its atom or a whole list, and was given neither")
 
-// `atom_codes(A, L)` and `atom_chars(A, L)`.
-private atom_and_list(base: usize, who: string, chars: bool) -> Result[Answer, Fault]
+// `atom_codes(A, L)` and `atom_chars(A, L)`; `string_codes(S, L)` and `string_chars(S, L)`.
+private atom_and_list(base: usize, who: string, chars: bool, as_string: bool) -> Result[Answer, Fault]
     text_of(arg(base, 0), who)? match
         Some(s) -> return unified(arg(base, 1), text_list(s, chars)?)
         None -> ()
 
     list_text(arg(base, 1), who, chars)? match
-        Some(s) -> unified(arg(base, 0), atom(s))
+        Some(s) -> unified(arg(base, 0), made_text(s, as_string)?)
         None -> Err(unbound_list(who))
 
 // `char_code(C, N)`.
@@ -157,15 +187,15 @@ private int_or_unbound(x: Value, who: string) -> Result[unit, Fault]
         Var(_) -> Ok(())
         _ -> Err(type_error("integer", y, s"$who wants an integer, and was given ${described(y)}"))
 
-// `atom_length(A, N)`.
-private pl_atom_length(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
-    val s = bound_text(arg(base, 0), "atom_length/2")?
+// `atom_length(A, N)` and `string_length(S, N)`.
+private text_length(base: usize, who: string) -> Result[Answer, Fault]
+    val s = bound_text(arg(base, 0), who)?
     val n = deref(arg(base, 1))
 
     n match
-        Int(k) -> if k < 0 then return Err(domain_error("not_less_than_zero", n, s"atom_length/2's length is 0 or more, and was given $k"))
+        Int(k) -> if k < 0 then return Err(domain_error("not_less_than_zero", n, s"$who's length is 0 or more, and was given $k"))
         Var(_) -> ()
-        _ -> return Err(type_error("integer", n, s"atom_length/2 wants an integer length, and was given ${described(n)}"))
+        _ -> return Err(type_error("integer", n, s"$who wants an integer length, and was given ${described(n)}"))
 
     unified(n, Int(long(char_count(s))))
 
@@ -184,31 +214,71 @@ private char_offsets(s: string) -> Buf[usize]
 private between_chars(s: string, at: *Buf[usize], from: usize, to: usize) -> string =
     from_utf8_unchecked(s.bytes[at.at(from)..<at.at(to)])
 
-// `atom_concat(A, B, C)`: `C` is `A` followed by `B`; with only `C` given, each way of cutting it in
-// two, in turn.
-private pl_atom_concat(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
-    val a = text_of(arg(base, 0), "atom_concat/3")?
-    val b = text_of(arg(base, 1), "atom_concat/3")?
+// `atom_concat(A, B, C)` and `string_concat(A, B, C)`: `C` is `A` followed by `B`; with only `C`
+// given, each way of cutting it in two, in turn.
+private text_concat(base: usize, cursor: long, who: string, as_string: bool) -> Result[Answer, Fault]
+    val a = text_of(arg(base, 0), who)?
+    val b = text_of(arg(base, 1), who)?
 
     a match
         Some(x) -> b match
-            Some(y) -> return unified(arg(base, 2), atom(x + y))
+            Some(y) ->
+                if as_string then return answer(same_text(arg(base, 2), x + y)?) else return unified(arg(base, 2), atom(x + y))
             None -> ()
         None -> ()
 
-    val whole = text_of(arg(base, 2), "atom_concat/3")? match
+    val whole = text_of(arg(base, 2), who)? match
         Some(s) -> s
-        None -> return Err(instantiation_error("instantiation error: atom_concat/3 wants its first two arguments or its third"))
+        None -> return Err(instantiation_error(s"instantiation error: $who wants its first two arguments or its third"))
 
     var at = char_offsets(whole)
     val n = at.len() - 1
-    val k = usize(cursor)
+    var k = usize(cursor)
+
+    // A string builtin reads a given part as text, so `string_concat(X, c, "abc")` cuts at the one
+    // place that leaves `c`.
+    if as_string
+        while k <= n && !cut_fits(whole, &at, k, a, b)
+            k += 1
 
     if k > n then return Ok(Refuses)
 
-    unify_on_answer(arg(base, 0), atom(between_chars(whole, &at, 0, k)))
-    unify_on_answer(arg(base, 1), atom(between_chars(whole, &at, k, n)))
-    Ok(if k == n then Gives(Unit) else GivesMore(Unit, cursor + 1))
+    if !as_string || a.is_none() then unify_on_answer(arg(base, 0), made_text(between_chars(whole, &at, 0, k), as_string)?)
+    if !as_string || b.is_none() then unify_on_answer(arg(base, 1), made_text(between_chars(whole, &at, k, n), as_string)?)
+
+    var next = k + 1
+
+    if as_string
+        while next <= n && !cut_fits(whole, &at, next, a, b)
+            next += 1
+
+    Ok(if next > n then Gives(Unit) else GivesMore(Unit, long(next)))
+
+// Whether cutting `whole` after `k` characters leaves the given parts' text either side.
+private cut_fits(whole: string, at: *Buf[usize], k: usize, a: Option[string], b: Option[string]) -> bool
+    val n = at.len() - 1
+
+    val front = a match
+        Some(x) -> between_chars(whole, at, 0, k) == x
+        None -> true
+
+    val back = b match
+        Some(y) -> between_chars(whole, at, k, n) == y
+        None -> true
+
+    front && back
+
+// Whether `x` is unbound, then bound to the string `s`, or is atomic with the text `s`; a compound is
+// not text and fails, as in SWI-Prolog.
+private same_text(x: Value, s: string) -> Result[bool, Fault]
+    val y = deref(x)
+
+    y match
+        Var(_) -> Ok(unify(y, made_text(s, true)?))
+        Atom(id) -> Ok(atom_name(id) == s)
+        Nil -> Ok(s == "[]")
+        Str(p) -> Ok(p.s == s)
+        _ -> Ok(is_num(y) && written_number(y) == s)
 
 // The integer `x` is, `None` when unbound; anything else is a type error.
 private optional_int(x: Value, who: string) -> Result[Option[long], Fault]
@@ -229,10 +299,9 @@ private struct SubAtomAsk
     after: Option[long]
     sub: Option[string]
 
-// `sub_atom(Atom, Before, Length, After, Sub)`: each way `Sub` stands in `Atom` with `Before`
-// characters before it and `After` after it, by `Before` and then `Length` ascending.
-private pl_sub_atom(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
-    val who = "sub_atom/5"
+// `sub_atom(Atom, Before, Length, After, Sub)` and `sub_string/5`: each way `Sub` stands in `Atom`
+// with `Before` characters before it and `After` after it, by `Before` and then `Length` ascending.
+private sub_text(base: usize, cursor: long, who: string, as_string: bool) -> Result[Answer, Fault]
     val s = bound_text(arg(base, 0), who)?
 
     val sub = deref(arg(base, 4)) match
@@ -250,12 +319,14 @@ private pl_sub_atom(base: usize, argc: usize, cursor: long) -> Result[Answer, Fa
     unify_on_answer(arg(base, 1), Int(b))
     unify_on_answer(arg(base, 2), Int(l))
     unify_on_answer(arg(base, 3), Int(n - b - l))
-    unify_on_answer(arg(base, 4), atom(between_chars(s, &ask.at, usize(b), usize(b + l))))
+    // A given sub-string has already been matched by its text, whatever atomic value spells it.
+    if !as_string || ask.sub.is_none()
+        unify_on_answer(arg(base, 4), made_text(between_chars(s, &ask.at, usize(b), usize(b + l)), as_string)?)
 
     next_place(&ask, b, l + 1) match
         Some((b2, l2)) -> Ok(GivesMore(Unit, b2 * (n + 1) + l2))
         None -> Ok(Gives(Unit))
-end pl_sub_atom
+end sub_text
 
 // The first place at or after `b`, `l` -- by `b`, then `l` -- that what was asked allows.
 private next_place(ask: *SubAtomAsk, from_b: long, from_l: long) -> Option[(long, long)]
@@ -435,3 +506,109 @@ private pl_atom_number(base: usize, argc: usize, cursor: long) -> Result[Answer,
             n match
                 Var(_) -> Err(instantiation_error("instantiation error: atom_number/2 wants its atom or its number"))
                 _ -> Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))
+
+// The text of `x` when it is atomic, `None` when it is unbound or compound.
+private atomic_text(x: Value) -> Option[string]
+    val y = deref(x)
+
+    y match
+        Var(_) -> None
+        _ -> text_of(y, "atom_string/2") match
+            Ok(t) -> t
+            Err(_) -> None
+
+// `atom_string(A, S)`: the atom and the string with the same text. A given `S` decides `A`, and
+// either side may be any atomic value, compared by its text.
+private pl_atom_string(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val a = deref(arg(base, 0))
+
+    atomic_text(arg(base, 1)) match
+        Some(t) -> return a match
+            Var(_) -> unified(a, atom(t))
+            _ -> answer(same_text(a, t)?)
+        None -> ()
+
+    atomic_text(a) match
+        Some(t) -> answer(same_text(arg(base, 1), t)?)
+        None -> a match
+            Var(_) -> Err(instantiation_error("instantiation error: atom_string/2 wants its atom or its string"))
+            _ -> Err(type_error("atom", a, s"atom_string/2 wants an atom, and was given ${described(a)}"))
+
+// `upcase_atom/2`, `downcase_atom/2`, `string_upper/2` and `string_lower/2`: the text of the first
+// argument with every character in upper or lower case, made an atom or a string.
+private case_of(base: usize, who: string, upper: bool, as_string: bool) -> Result[Answer, Fault]
+    val s = bound_text(arg(base, 0), who)?
+    var out = str_builder()
+
+    for c in chars_of(s.bytes)
+        out.push_char(if upper then upper_char(c) else lower_char(c))
+
+    val t = out.finish()
+
+    if as_string then answer(same_text(arg(base, 1), t)?) else unified(arg(base, 1), atom(t))
+
+// The characters of `s`.
+private chars_in(s: string) -> Buf[char]
+    var out: Buf[char] = buf()
+
+    for c in chars_of(s.bytes)
+        out.push(c)
+
+    out
+
+private holds_char(set: *Buf[char], c: char) -> bool
+    for i in 0..<set.len()
+        if set.at(i) == c then return true
+
+    false
+
+// The characters `cs[from..<to]` as a string value.
+private span_string(cs: *Buf[char], from: usize, to: usize) -> Result[Value, Fault]
+    var out = str_builder()
+
+    for i in from..<to
+        out.push_char(cs.at(i))
+
+    made_text(out.finish(), true)
+
+// `split_string(S, SepChars, Pad, Subs)`, as SWI-Prolog has it: `S` with the `Pad` characters taken
+// off both ends, cut at every one of the `SepChars`, and each piece with the `Pad` characters taken off
+// both of its ends. Where a character is both a separator and padding, a run of them cuts once.
+private pl_split_string(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = "split_string/4"
+    var cs = chars_in(bound_text(arg(base, 0), who)?)
+    var sep = chars_in(bound_text(arg(base, 1), who)?)
+    var pad = chars_in(bound_text(arg(base, 2), who)?)
+    var start: usize = 0
+    var end = cs.len()
+
+    while start < end && holds_char(&pad, cs.at(start))
+        start += 1
+
+    while end > start && holds_char(&pad, cs.at(end - 1))
+        end -= 1
+
+    var items: Buf[Value] = buf()
+
+    loop
+        var el = start
+
+        while el < end && !holds_char(&sep, cs.at(el))
+            el += 1
+
+        var e0 = el
+
+        while e0 > start && holds_char(&pad, cs.at(e0 - 1))
+            e0 -= 1
+
+        items.push(span_string(&cs, start, e0)?)
+
+        if el >= end then break
+
+        start = el + 1
+
+        while start < end && holds_char(&pad, cs.at(start))
+            start += 1
+
+    unified(arg(base, 3), list_of(&items, Nil)?)
+end pl_split_string

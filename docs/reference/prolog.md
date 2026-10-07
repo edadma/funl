@@ -871,7 +871,8 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 | arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3` |
 | database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1` *(library)*, `retractall/1` *(library)*, `abolish/1`, `clause/2`, `dynamic/1`, `current_predicate/1` *(library)* |
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3`, `aggregate_all/3` *(library)* |
-| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2` |
+| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `upcase_atom/2`, `downcase_atom/2` |
+| strings | `atom_string/2`, `string_chars/2`, `string_codes/2`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`, `string_upper/2`, `string_lower/2` |
 | lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
 | lists, built in | `length/2`, `msort/2`, `sort/2`, `keysort/2` |
 | global variables | `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2` |
@@ -883,6 +884,28 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 Four directives are carried out by the loader rather than called: `:- dynamic(…)`, `:- op(…)`,
 `:- initialization(Goal)`, and, where FunL is present, `:- import(File)`. `halt` and `halt(N)` are
 top-level commands.
+
+The string predicates are SWI-Prolog's. Each takes any atomic value as text and makes a string where
+its atom counterpart makes an atom; a given argument is compared by its text, so an atom may stand
+for a string. `split_string/4` cuts at each separator character and strips the padding characters
+from both ends of every piece; `string_concat/3` and `sub_string/5` with their parts unbound give
+every answer in turn.
+
+```prolog
+:- split_string("SWI-Prolog, 7.0", ",", " ", L), writeq(L), nl.
+:- forall(string_concat(A, B, "ab"), (writeq(A + B), nl)).
+:- sub_string("hello world", B, _, 0, world), atom_string(A, "hi"), writeq(B - A), nl.
+:- upcase_atom('héllo', U), string_lower("ABC", S), writeq(U / S), nl.
+```
+
+```output
+["SWI-Prolog","7.0"]
+""+"ab"
+"a"+"b"
+"ab"+""
+6-hi
+'HÉLLO'/"abc"
+```
 
 The flags `set_prolog_flag/2` changes are `unknown` (`error`, `fail`, `warning`), `double_quotes`
 (`string`, `codes`, `chars`, `atom`), `prefer_rationals` (`false`, `true`) and `debug` (`off`, `on`).

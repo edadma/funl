@@ -1,0 +1,133 @@
+module io.github.edadma.funl
+@tests
+
+// The Prolog builtins over strings, with SWI-Prolog's meaning: `atom_string/2`, `string_chars/2`,
+// `string_codes/2`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`,
+// `upcase_atom/2`, `downcase_atom/2`, `string_upper/2` and `string_lower/2`, each with its errors.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Whether `goal` succeeds, fails, or the formal term of the error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+// `goal` run, then `X` written by `writeq`; or the formal term of the error it raises.
+private gives(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> writeq(X) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+// `X` written by `writeq` for every solution of `goal`, one a line.
+private every(goal: string) -> string = ran_prolog(s":- forall(($goal), (writeq(X), nl)).\n")
+
+@test
+ATOM_STRING_GOES_BOTH_WAYS()
+    assert_eq(gives("atom_string(abc, X)"), ok("\"abc\""))
+    assert_eq(gives("atom_string(X, \"abc\")"), ok("abc"))
+    assert_eq(gives("atom_string(42, X)"), ok("\"42\""))
+    assert_eq(gives("atom_string(X, 42)"), ok("'42'"))
+    assert_eq(holds("atom_string(abc, abc)"), ok("yes"))
+    assert_eq(holds("atom_string(abc, \"abd\")"), ok("no"))
+    assert_eq(holds("atom_string(f(x), \"abc\")"), ok("no"))
+
+@test
+ATOM_STRING_WANTS_ONE_SIDE_AND_AN_ATOMIC_ONE()
+    assert_eq(holds("atom_string(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("atom_string(f(x), _)"), ok("type_error(atom,f(x))"))
+
+@test
+STRING_CHARS_AND_STRING_CODES_GO_BOTH_WAYS()
+    assert_eq(gives("string_chars(\"hi\", X)"), ok("[h,i]"))
+    assert_eq(gives("string_chars(X, [h, i])"), ok("\"hi\""))
+    assert_eq(gives("string_codes(hi, X)"), ok("[104,105]"))
+    assert_eq(gives("string_codes(X, [0'h, 0'i])"), ok("\"hi\""))
+    assert_eq(gives("string_chars(X, [])"), ok("\"\""))
+    assert_eq(holds("string_chars(\"ab\", [a | T]), T == [b]"), ok("yes"))
+
+@test
+STRING_CHARS_AND_STRING_CODES_REFUSE_WHAT_IS_NOT_TEXT()
+    assert_eq(holds("string_chars(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("string_codes(_, [0'a | _])"), ok("instantiation_error"))
+    assert_eq(holds("string_chars(f(x), _)"), ok("type_error(string,f(x))"))
+    assert_eq(holds("string_chars(_, [ab])"), ok("type_error(character,ab)"))
+    assert_eq(holds("string_codes(_, [a])"), ok("type_error(integer,a)"))
+
+@test
+STRING_LENGTH_COUNTS_CHARACTERS()
+    assert_eq(gives("string_length(\"héllo\", X)"), ok("5"))
+    assert_eq(gives("string_length(abc, X)"), ok("3"))
+    assert_eq(gives("string_length(\"\", X)"), ok("0"))
+    assert_eq(holds("string_length(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("string_length(f(x), _)"), ok("type_error(string,f(x))"))
+    assert_eq(holds("string_length(\"a\", a)"), ok("type_error(integer,a)"))
+
+@test
+STRING_CONCAT_JOINS_AND_CUTS()
+    assert_eq(gives("string_concat(ab, \"cd\", X)"), ok("\"abcd\""))
+    assert_eq(gives("string_concat(X, \"cd\", \"abcd\")"), ok("\"ab\""))
+    assert_eq(gives("string_concat(X, cd, \"abcd\")"), ok("\"ab\""))
+    assert_eq(gives("string_concat(\"ab\", X, abcd)"), ok("\"cd\""))
+    assert_eq(holds("string_concat(a, b, ab)"), ok("yes"))
+    assert_eq(holds("string_concat(x, _, \"abcd\")"), ok("no"))
+    assert_eq(every("string_concat(A, B, \"abc\"), X = A+B"), ok("\"\"+\"abc\"\n\"a\"+\"bc\"\n\"ab\"+\"c\"\n\"abc\"+\"\""))
+
+@test
+STRING_CONCAT_REFUSES_WHAT_IS_NOT_TEXT()
+    assert_eq(holds("string_concat(_, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("string_concat(a, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("string_concat(f(x), a, _)"), ok("type_error(string,f(x))"))
+
+@test
+SUB_STRING_ENUMERATES_EVERY_PLACE()
+    assert_eq(gives("sub_string(\"abcde\", 1, 3, A, S), X = A-S"), ok("1-\"bcd\""))
+    assert_eq(every("sub_string(\"abcab\", B, 2, A, ab), X = B-A"), ok("0-3\n3-0"))
+    assert_eq(every("sub_string(\"abcab\", B, 2, A, \"ab\"), X = B-A"), ok("0-3\n3-0"))
+    assert_eq(every("sub_string(ab, B, L, _, S), X = B-L-S"),
+        ok("0-0-\"\"\n0-1-\"a\"\n0-2-\"ab\"\n1-0-\"\"\n1-1-\"b\"\n2-0-\"\""))
+    assert_eq(gives("sub_string(\"héllo\", 1, 2, _, X)"), ok("\"él\""))
+    assert_eq(holds("sub_string(\"abc\", _, _, _, x)"), ok("no"))
+
+@test
+SUB_STRING_REFUSES_WHAT_IS_NOT_TEXT()
+    assert_eq(holds("sub_string(_, _, _, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("sub_string(f(a), _, _, _, _)"), ok("type_error(string,f(a))"))
+    assert_eq(holds("sub_string(\"abc\", a, _, _, _)"), ok("type_error(integer,a)"))
+    assert_eq(holds("sub_string(\"abc\", _, _, _, f(x))"), ok("type_error(string,f(x))"))
+
+@test
+SPLIT_STRING_CUTS_AT_SEPARATORS_AND_STRIPS_PADDING()
+    assert_eq(gives("split_string(\"a.b.c.d\", \".\", \"\", X)"), ok("[\"a\",\"b\",\"c\",\"d\"]"))
+    assert_eq(gives("split_string(\"/home//jan///nice/path\", \"/\", \"\", X)"),
+        ok("[\"\",\"home\",\"\",\"jan\",\"\",\"\",\"nice\",\"path\"]"))
+    assert_eq(gives("split_string(\"SWI-Prolog, 7.0\", \",\", \" \", X)"), ok("[\"SWI-Prolog\",\"7.0\"]"))
+    assert_eq(gives("split_string(\"  a word \", \"\", \" \", X)"), ok("[\"a word\"]"))
+    assert_eq(gives("split_string(\"\", \"\", \"\", X)"), ok("[\"\"]"))
+    assert_eq(gives("split_string(\"  \", \" \", \" \", X)"), ok("[\"\"]"))
+    assert_eq(gives("split_string('a,b', ',', '', X)"), ok("[\"a\",\"b\"]"))
+
+@test
+SPLIT_STRING_TREATS_A_RUN_OF_PADDING_SEPARATORS_AS_ONE()
+    assert_eq(gives("split_string(\"/home//jan///nice/path\", \"/\", \"/\", X)"), ok("[\"home\",\"jan\",\"nice\",\"path\"]"))
+    assert_eq(gives("split_string(\"a, \", \",\", \" \", X)"), ok("[\"a\",\"\"]"))
+
+@test
+SPLIT_STRING_REFUSES_WHAT_IS_NOT_TEXT()
+    assert_eq(holds("split_string(_, \"\", \"\", _)"), ok("instantiation_error"))
+    assert_eq(holds("split_string(\"a\", _, \"\", _)"), ok("instantiation_error"))
+    assert_eq(holds("split_string(\"a\", \"\", _, _)"), ok("instantiation_error"))
+    assert_eq(holds("split_string(\"a\", f(x), \"\", _)"), ok("type_error(string,f(x))"))
+
+@test
+CASE_CONVERSION_MAKES_ATOMS_OR_STRINGS()
+    assert_eq(gives("upcase_atom('héllo World', X)"), ok("'HÉLLO WORLD'"))
+    assert_eq(gives("upcase_atom(\"abc\", X)"), ok("'ABC'"))
+    assert_eq(holds("upcase_atom(abc, 'ABC')"), ok("yes"))
+    assert_eq(gives("downcase_atom('ABC', X)"), ok("abc"))
+    assert_eq(gives("string_upper(abc, X)"), ok("\"ABC\""))
+    assert_eq(gives("string_lower(\"ÀBC\", X)"), ok("\"àbc\""))
+    assert_eq(holds("string_lower(\"ABC\", abc)"), ok("yes"))
+
+@test
+CASE_CONVERSION_REFUSES_WHAT_IS_NOT_TEXT()
+    assert_eq(holds("upcase_atom(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("downcase_atom(f(x), _)"), ok("type_error(atom,f(x))"))
+    assert_eq(holds("string_upper(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("string_lower(f(x), _)"), ok("type_error(string,f(x))"))
