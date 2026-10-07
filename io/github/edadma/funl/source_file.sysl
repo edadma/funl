@@ -43,3 +43,55 @@ compile_text(file: string, text: string) -> Compiled
         Some(at) -> Ready(at, said)
         None -> Refused(said)
 end compile_text
+
+// The `funl` driver: compile `file` and run it on a machine of its own, the status to exit with.
+// `run_source` says what happens next.
+run_file(file: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, complain: &Fn(string) -> unit) -> int
+    read_text(file) match
+        Ok(text) -> run_source(file, text, line, say, complain)
+        Err(e) ->
+            complain(s"funl: cannot read $file: $e\n")
+            2
+
+// Run `text` as the contents of `file`, as `funl file` does: what the program writes goes to `say` a
+// line at a time, and diagnostics to `complain`.
+//
+// **A Prolog file is loaded, which runs its directives and `initialization/1` goals; a file with no
+// such goal then starts the top level** (`prolog.md` § "Loading Prolog") on the same machine, reading
+// queries from `line` exactly as the `prolog` executable does.
+//
+// **The status says which of four things happened**: 0 for a program that ran, 1 for one that was
+// refused or faulted, 2 for a file that could not be read, and `N` for a program that ran `halt(N)`.
+run_source(file: string, text: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, complain: &Fn(string) -> unit) -> int
+    var v = new_vm(HeapBytes, CollectFloor, Growth)
+    val was = enter(&v)
+    var status = 0
+
+    compile_text(file, text) match
+        CannotRead(why) ->
+            complain(s"funl: cannot read $file: $why\n")
+            status = 2
+        Refused(said) ->
+            complain(said)
+            status = 1
+        Ready(at, said) ->
+            complain(said)
+
+            val outcome = run(&v, at)
+
+            for l in v.output.view()
+                say(l)
+
+            v.output.truncate(0)
+
+            outcome match
+                Faulted(m) ->
+                    complain(s"funl: $m\n")
+                    status = 1
+                Halted(n) -> status = n
+                _ -> if file.ends_with(".pl") && !v.has_initialization then status = answer_queries(&v, line, say)
+
+    dispose_vm(&v)
+    leave(was)
+    status
+end run_source

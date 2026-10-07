@@ -32,33 +32,41 @@ prolog_vm() -> Vm
     v.funl_front_end = false
     v
 
-// A whole session: consult `files` in order, then answer queries until `halt.` or the end of input.
-// Answers the status to exit with -- `halt(N)`'s `N`, and otherwise 0.
+// A whole session: consult `files` in order, then answer queries until `halt` or the end of input.
+// Answers the status to exit with -- `halt(N)`'s `N`, and otherwise 0. A `halt` in a file's directive
+// ends the session there, before any query is read.
 toplevel(files: []string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit) -> int
     var v = prolog_vm()
     val was = enter(&v)
-    var status = 0
+    var halted: Option[int] = None
 
     for f in files
-        consult_named(&v, f, say)
+        if halted.is_none() then halted = consult_named(&v, f, say)
 
-    loop
-        val text = read_query(line) match
-            Some(t) -> t
-            None -> break
-
-        if text.trim().is_empty() then continue
-
-        query(&v, text, line, say) match
-            Some(code) ->
-                status = code
-                break
-            None -> ()
+    val status = halted match
+        Some(n) -> n
+        None -> answer_queries(&v, line, say)
 
     dispose_vm(&v)
     leave(was)
     status
 end toplevel
+
+// Answer queries on `v`, the machine in charge, until `halt` or the end of input: the status to exit
+// with. The `prolog` executable's session after its files are consulted, and `funl file.pl`'s after
+// the file is loaded.
+answer_queries(v: *Vm, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit) -> int
+    loop
+        val text = read_query(line) match
+            Some(t) -> t
+            None -> return 0
+
+        if text.trim().is_empty() then continue
+
+        query(v, text, line, say) match
+            Some(code) -> return code
+            None -> ()
+end answer_queries
 
 // One query's text: lines read until one ends in `.`, the first under `?- ` and the rest under a
 // continuation prompt. `None` at the end of input.
@@ -80,14 +88,15 @@ private read_query(line: &Fn(string) -> Option[string]) -> Option[string]
         prompt = MorePrompt
 
 // Consult the file named `file`, as `consult/1` from the top level would, saying only what goes wrong.
-private consult_named(v: *Vm, file: string, say: &Fn(string) -> unit)
+// `Some(status)` where a directive of the file halted.
+private consult_named(v: *Vm, file: string, say: &Fn(string) -> unit) -> Option[int]
     val at = point(0)
     var args: Buf[&Term] = buf()
 
     args.push(term(TAtom(intern(file)), at))
     solve(v, ReadClause(term(TComp(intern("consult"), args), at), buf()), buf(), (p) -> None, say, true)
 
-// Answer the query `text`. `Some(status)` where it was `halt` or `halt(N)`, ending the session.
+// Answer the query `text`. `Some(status)` where it ran `halt` or `halt(N)`, ending the session.
 private query(v: *Vm, text: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit) -> Option[int]
     val src = source_of("user", text)
     var report = full_report()
@@ -103,10 +112,6 @@ private query(v: *Vm, text: string, line: &Fn(string) -> Option[string], say: &F
         say(report.render(src).trim())
         return None
 
-    halt_status(c.t) match
-        Some(n) -> return Some(n)
-        None -> ()
-
     // The variables an answer shows: every one the query named, `_`-prefixed ones aside.
     var shown: Buf[usize] = buf()
 
@@ -114,34 +119,21 @@ private query(v: *Vm, text: string, line: &Fn(string) -> Option[string], say: &F
         if !c.names.at(i).starts_with("_") then shown.push(i)
 
     solve(v, c, shown, line, say, false)
-    None
 end query
 
-// `halt` and `halt(N)`, which end the session rather than run.
-private halt_status(t: &Term) -> Option[int]
-    t.kind match
-        TAtom(id) -> if atom_name(id) == "halt" then return Some(0)
-        TComp(f, args) ->
-            if atom_name(f) == "halt" && args.len() == 1
-                args.at(0).kind match
-                    TInt(n) -> return Some(int(n))
-                    _ -> ()
-        _ -> ()
-
-    None
-
 // Run `c` and say its answers, the variables of `shown` bound in each. `quiet` says nothing of a
-// success and asks for no second one: what consulting a file at start-up wants.
-private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, quiet: bool)
+// success and asks for no second one: what consulting a file at start-up wants. `Some(status)` where
+// the goal ran `halt`, what it wrote before that said first.
+private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, quiet: bool) -> Option[int]
     val chunk = compile_toplevel(c, shown.view()) match
         Ok(e) -> finish(e) match
             Ok(at) -> at
             Err(m) ->
                 say(s"error: $m")
-                return
+                return None
         Err(p) ->
             say(s"error: ${p.message}")
-            return
+            return None
 
     var outcome = run(v, chunk)
 
@@ -149,6 +141,7 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
         said(v, say)
 
         outcome match
+            Halted(n) -> return Some(n)
             Failed ->
                 say(if quiet then s"Warning: ${render(term_value_of(c))} failed" else "false.")
                 break
@@ -195,6 +188,7 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
     end loop
 
     settle(v)
+    None
 end solve
 
 // The goal a quiet run was handed, for a warning.

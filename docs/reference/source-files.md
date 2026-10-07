@@ -11,7 +11,9 @@ A FunL program is a file named `.funl`. It is run by naming it:
 funl program.funl
 ```
 
-`funl` also runs a literate program, `.lfunl`, and a Prolog program, `.pl`.
+`funl` also runs a literate program, `.lfunl`, and a Prolog program, `.pl`. A Prolog file is loaded
+and its directives run; one with no `:- initialization(Goal).` directive then starts the Prolog top
+level ([Prolog](prolog.md#the-prolog-executable)).
 
 ## Literate FunL
 

@@ -73,7 +73,9 @@ consult cannot read nowhere.pl
 ```
 
 From the command line, `funl family.pl` loads a Prolog file, runs its directives, and then runs the
-goal of each `:- initialization(Goal).` directive in it.
+goal of each `:- initialization(Goal).` directive in it. A file with such a directive ends there; a
+file without one then reads queries at the same top level the `prolog` executable has, below, with
+FunL present.
 
 ## The `prolog` executable
 
@@ -84,8 +86,8 @@ no FunL syntax, no FunL builtins and no FunL values. A Prolog program runs the s
 `prolog family.pl` loads the file and then reads queries. An answer that leaves another to find
 waits: `;` asks for the next, and anything else stops. An answer with nothing left to find ends in a
 `.`, and a query with no answer says `false.`. An error no `catch/3` handles is printed, and the next
-query is read. `halt.` ends the session with status 0, `halt(N).` with status `N`, and so does the
-end of the input.
+query is read. `halt.` ends the session with status 0 and `halt(N).` with status `N`; the end of the
+input ends it with status 0.
 
 Given these lines on its input:
 
@@ -316,6 +318,37 @@ color(blue).
 [red,blue]
 [green,blue]
 salt and pepper
+```
+
+### Halting
+
+`halt` ends the program with status 0, and `halt(N)` with status `N`, from wherever the goal is: a
+query, a directive, a clause body many calls deep, or a predicate a FunL program called. What the
+program wrote before it is written out first, and nothing after it runs. **`catch/3` does not catch
+a halt.** Here the program ends with status 1:
+
+```prolog
+check(X) :- X > 0, write(fine), nl.
+check(_) :- write(stopping), nl, halt(1).
+
+:- check(5).
+:- catch(check(-2), _, write(caught)).
+:- write(never), nl.
+```
+
+```output
+fine
+stopping
+```
+
+The status must be an integer:
+
+```prolog
+:- catch(halt(two), error(E, _), (write(E), nl)).
+```
+
+```output
+type_error(integer,two)
 ```
 
 ## Dynamic predicates
@@ -629,6 +662,20 @@ The arithmetic functions:
 | powers and roots | `sqrt`, `exp`, `log` |
 | trigonometry | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2` |
 | constants | `pi`, `e`, `epsilon` |
+| random | `random` |
+
+**`random(N)` is an integer drawn from 0 to `N - 1`**, `N` a positive integer. The generator is
+seeded from the operating system, so each run draws differently, and only the range can be shown:
+
+```prolog
+:- X is random(6), integer(X), X >= 0, X < 6, write(in_range), nl.
+:- catch(_ is random(0), error(E, _), (write(E), nl)).
+```
+
+```output
+in_range
+domain_error(positive_integer,0)
+```
 
 ### Rationals
 
@@ -864,7 +911,7 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 
 | group | predicates |
 |---|---|
-| control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `between/3`, `repeat/0` *(library)* |
+| control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0`, `halt/1`, `between/3`, `repeat/0` *(library)* |
 | unification and comparison | `=/2`, `\=/2`, `unify_with_occurs_check/2`, `==/2`, `\==/2`, `@</2`, `@>/2`, `@=</2`, `@>=/2`, `=@=/2`, `\=@=/2`, `compare/3` |
 | type tests | `var/1`, `nonvar/1`, `atom/1`, `number/1`, `integer/1`, `float/1`, `rational/1`, `atomic/1`, `compound/1`, `callable/1`, `is_list/1`, `string/1`, `ground/1` |
 | terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2` |
@@ -881,8 +928,7 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 | loading | `consult/1` |
 
 Four directives are carried out by the loader rather than called: `:- dynamic(…)`, `:- op(…)`,
-`:- initialization(Goal)`, and, where FunL is present, `:- import(File)`. `halt` and `halt(N)` are
-top-level commands.
+`:- initialization(Goal)`, and, where FunL is present, `:- import(File)`.
 
 The flags `set_prolog_flag/2` changes are `unknown` (`error`, `fail`, `warning`), `double_quotes`
 (`string`, `codes`, `chars`, `atom`), `prefer_rationals` (`false`, `true`) and `debug` (`off`, `on`).

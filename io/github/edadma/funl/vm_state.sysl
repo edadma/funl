@@ -3,6 +3,7 @@ module io.github.edadma.funl
 import sh.sysl.gc
 import sysl.buf.{Buf, buf}
 import sysl.container.{Map, map}
+import sysl.rand.{Rng, rng}
 
 // The machine's state, and the one way to reach it.
 //
@@ -144,6 +145,16 @@ struct Vm
     // standalone Prolog's machine (`prolog_vm`), which knows standard Prolog and nothing else: there
     // `import/1` is an ordinary goal, and no predicate of that name exists.
     funl_front_end: bool
+
+    // Whether a Prolog file loaded on this machine named an `initialization/1` goal: `funl file.pl`
+    // runs such a file's goals and ends, and starts the top level for any other.
+    has_initialization: bool
+
+    // -- arithmetic's `random/1` ----------------------------------------------------------------------
+
+    // The generator, seeded from the operating system the first time `random/1` is evaluated.
+    rng: Rng
+    rng_seeded: bool
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -172,7 +183,8 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
         buf(), map(), buf(), buf(), buf(), map(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), pl_flags(),
-        block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true)
+        block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
+        rng(0, 0), false)
 
     install_natives(&v)
     install_ops(&v)

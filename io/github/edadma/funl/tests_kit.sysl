@@ -38,6 +38,7 @@ outcome_text(o: Outcome) -> string = o match
     Succeeded -> "succeeded"
     Failed -> "failed"
     Faulted(m) -> s"fault: $m"
+    Halted(n) -> s"halted: $n"
 
 // Run what `build` makes on a VM with this heap and schedule.
 run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, string]) -> Said
