@@ -265,6 +265,20 @@ GLOBAL_VARIABLES_HOLD_A_VALUE_BY_NAME()
     assert_eq(holds("b_setval(1, 1)"), ok("type_error(atom,1)"))
 
 @test
+B_SETVAL_IS_UNDONE_BY_FAILING_BACK_PAST_A_BOUNDED_GOAL_THAT_MADE_IT()
+    // `\+`, `->` and `once` commit; what was set inside them still goes when failure passes back.
+    assert_eq(ran_prolog(":- b_setval(k, 0), \\+ \\+ b_setval(k, 1), b_getval(k, V), write(V), nl.\n"), ok("0"))
+    assert_eq(ran_prolog(":- b_setval(k, 0), (once(b_setval(k, 1)), fail ; true), b_getval(k, V), write(V), nl.\n"), ok("0"))
+    assert_eq(ran_prolog(":- b_setval(k, 0), ((b_setval(k, 1) -> true), fail ; true), b_getval(k, V), write(V), nl.\n"), ok("0"))
+
+    // A global the undone goal created is gone again.
+    assert_eq(ran_prolog(":- \\+ \\+ b_setval(fresh, 1), catch(b_getval(fresh, _), error(E, _), true), write(E), nl.\n"),
+        ok("existence_error(variable,fresh)"))
+
+    // Nothing failing back past it, it stays.
+    assert_eq(ran_prolog(":- b_setval(k, 0), once(b_setval(k, 1)), (b_setval(k, 2) -> true), b_getval(k, V), write(V), nl.\n"), ok("2"))
+
+@test
 VARIANT_IS_ALIKE_BUT_FOR_A_RENAMING()
     assert_eq(holds("f(A, B, A) =@= f(X, Y, X)"), ok("yes"))
     assert_eq(holds("f(A, B, A) =@= f(X, Y, Y)"), ok("no"))

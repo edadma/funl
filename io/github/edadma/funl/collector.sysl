@@ -215,6 +215,9 @@ roots(h: *gc.Heap)
             ScanOpened -> ()
             ScanClosed(subject, _) -> mark_value(h, subject)
             Capture(_, _) -> ()
+            Global(key, old, _) ->
+                mark_value(h, key)
+                mark_value(h, old)
 
     // The code running now, and through it the static and dynamic chains.
     gc.mark(h, ptr_cast(v.frame))

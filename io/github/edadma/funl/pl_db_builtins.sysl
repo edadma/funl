@@ -385,7 +385,8 @@ private global_name(k: Value, who: string) -> Result[Value, Fault]
         _ -> Err(kind_error(x, "atom", s"$who names a global variable by an atom, and was given ${described(x)}"))
 
 // `nb_setval(K, V)` stores a copy of `V`, which failure does not undo; `b_setval(K, V)` (`back`)
-// stores `V` itself, and failure back past it puts back what was there.
+// stores `V` itself, and failure back past it puts back what was there -- trailed as a `Global`,
+// which a commit keeps as it keeps a binding.
 private set_global(k: Value, x: Value, back: bool, who: string) -> Result[Value, Fault]
     val key = global_name(k, who)?
     val v = current()
@@ -394,7 +395,15 @@ private set_global(k: Value, x: Value, back: bool, who: string) -> Result[Value,
         Undefined -> v.pl_globals = MutMap(new_map()?)
         _ -> ()
 
-    element_set(v.pl_globals, key, false, if back then x else copy_term(x)?, back)?
+    if back && v.control.len() > 0
+        v.pl_globals match
+            MutMap(m) ->
+                map_find(m, key)? match
+                    Some(i) -> v.trail.push(Global(key, m.vals.at(i), true))
+                    None -> v.trail.push(Global(key, Undefined, false))
+            _ -> ()
+
+    element_set(v.pl_globals, key, false, if back then x else copy_term(x)?, false)?
     Ok(Unit)
 
 // `nb_getval(K, V)` and `b_getval(K, V)`: `V` unifies with what `K` holds;

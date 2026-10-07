@@ -31,6 +31,11 @@ enum Undo
     // Regex capture group `group` was set, and had captured `old`.
     Capture(group: usize, old: GroupSpan)
 
+    // `b_setval/2` set Prolog global variable `key`, which held `old` -- or, without `had`, did not
+    // exist. **Undone like a binding, not like an assignment**: no commit makes it permanent while
+    // anything that could fail back past it is still on the control stack.
+    Global(key: Value, old: Value, had: bool)
+
 // Bind an unbound variable.
 //
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
@@ -124,6 +129,7 @@ undo_trail_to(v: *Vm, h: usize)
             Some(ScanOpened) -> v.scans.pop()
             Some(ScanClosed(subject, pos)) -> v.scans.push(ScanSaved(subject, pos))
             Some(Capture(group, old)) -> v.captures.set(group, old)
+            Some(Global(key, old, had)) -> put_element_back(v.pl_globals, key, old, had)
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
@@ -132,7 +138,9 @@ undo_trail_to(v: *Vm, h: usize)
 // survived. A binding is kept when its variable is older than that entry -- resuming it must unbind
 // the variable -- and dropped otherwise. A reversible assignment is dropped when the commit ends a
 // bounded expression (`ends`), which makes it permanent, and kept at a cut, which ends none; so is a
-// change of the scan state. A capture group's old span is kept while any entry is. With no entry
+// change of the scan state. A capture group's old span, and a Prolog global's old value, are kept
+// while any entry is: Prolog's `\+`, `->` and `once` end bounded expressions, and failing back past
+// one of them still undoes a `b_setval` made inside it, as it unbinds a variable. With no entry
 // left, nothing can resume, and the trail is emptied.
 commit_trail(v: *Vm, h: usize, ends: bool)
     val n = v.control.len()
@@ -155,6 +163,7 @@ commit_trail(v: *Vm, h: usize, ends: bool)
             ScanOpened -> !ends
             ScanClosed(_, _) -> !ends
             Capture(_, _) -> true
+            Global(_, _, _) -> true
 
         if keep
             v.trail.set(kept, u)
