@@ -228,6 +228,11 @@ which matters, because the AT&T data is written for POSIX and this engine is not
 > being written. **And a second oracle for the semantics this engine actually has**: the same
 > patterns run through PCRE2 (`sysl-lang/pcre2`), as a test-only dependency, compared span for span,
 > because a single oracle is an opinion and this one is about a different semantics.
+> **The second oracle is live**: `pcre2` is a `dev_dependencies` entry of the root package, and
+> `tests_regex_pcre2.sysl` runs all 428 AT&T lines and all 75 `lookaround.txt` lines through PCRE2,
+> exact on every span and group. `lookbehind.txt` is compared too: PCRE2 refuses 20 of its lines as
+> unbounded (counted, nothing to compare) and answers 9 differently, which
+> `tests/regex/pcre2_lookbehind.txt` lists with the reason; a listed line that comes to agree fails.
 > **Rejected:** keep the old any-match rule, which passes today's data and proves little.
 
 ### Logic and Prolog

@@ -40,6 +40,12 @@ dependencies {
   parsing { git = "github.com/sysl-lang/parsing", version = "0.11.0" }
 }
 
+// **`pcre2` is the second regex oracle, and only the tests see it.** `tests_regex_pcre2.sysl` runs the
+// regex corpora through live PCRE2 and compares span for span; the engine itself links none of it.
+dev_dependencies {
+  pcre2 { git = "github.com/sysl-lang/pcre2", version = "0.1.2" }
+}
+
 // An interpreter grows its operand stack, control stack and trail while it runs, and none of the
 // three has a size known before the program does.
 requires {
