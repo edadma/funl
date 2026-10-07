@@ -97,6 +97,38 @@ AN_IMPORT_OF_A_MISSING_OR_UNREADABLE_FUNL_FILE_IS_AN_ERROR_PROLOG_CATCHES()
 
     assert_eq(ran_prolog(text), s"existence_error(source_sink,$d/nowhere.funl)\nsyntax_error($broken)\nsucceeded")
 
+// A FunL file answering a tuple, and taking one apart with a tuple pattern.
+private const PairsFunl: string = "def pair(a) = (a, a * 2)\ndef swap((a, b)) = (b, a)\n"
+
+@test
+A_FUNL_TUPLE_IS_THE_COMPOUND_TUPLE_TO_PROLOG_IN_A_GOAL_A_HEAD_AND_A_FUNL_PATTERN()
+    val d = scratch()
+    defer scrap(d)
+
+    val pairs = put(d, "pairs.funl", PairsFunl)
+    val text = s":- import(\"$pairs\").\n" +
+        "first_of(tuple(A, _), A).\n" +
+        ":- pair(3, T), T = tuple(A, B), write(A-B), nl.\n" +
+        ":- pair(3, T), first_of(T, F), write(F), nl.\n" +
+        ":- swap(tuple(1, 2), S), write(S), nl.\n"
+
+    assert_eq(ran_prolog(text), "3-6\n3\ntuple(2,1)\nsucceeded")
+
+@test
+A_FUNL_TUPLE_DOES_NOT_UNIFY_WITH_A_TUPLE_OF_ANOTHER_ARITY_OR_ANOTHER_FUNCTOR()
+    val d = scratch()
+    defer scrap(d)
+
+    val pairs = put(d, "pairs.funl", PairsFunl)
+    val text = s":- import(\"$pairs\").\n" +
+        "is_triple(tuple(_, _, _)).\n" +
+        ":- pair(3, T), (T = tuple(_, _, _) -> write(yes) ; write(no)), nl.\n" +
+        ":- pair(3, T), (T = pair(_, _) -> write(yes) ; write(no)), nl.\n" +
+        ":- pair(3, T), (is_triple(T) -> write(yes) ; write(no)), nl.\n" +
+        ":- catch(swap(tuple(1, 2, 3), _), error(E, _), (functor(E, N, _), write(N), nl)).\n"
+
+    assert_eq(ran_prolog(text), "no\nno\nno\nexistence_error\nsucceeded")
+
 @test
 AN_IMPORT_NAMES_ITS_FILE_WITH_A_STRING()
     assert_eq(prolog_complaints(":- import(3).\n"), "error 1:11 import names its file with a string\n")

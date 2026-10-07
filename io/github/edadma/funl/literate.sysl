@@ -1,6 +1,6 @@
 module io.github.edadma.funl
 
-import sh.sysl.parsing.{Diagnostic, Source, literate_indent, tangle_literate}
+import sh.sysl.parsing.{Diagnostic, Report, Source, full_report, literate_indent, tangle_literate, untangle_span}
 import sysl.text.Search
 
 // Literate FunL: a file named `.lfunl` is a Markdown document whose four-column-indented blocks are
@@ -28,3 +28,23 @@ funl_source(doc: Source) -> Result[Source, Diagnostic]
 
 // The columns a position in `file`'s compiled source is short of the file's own.
 column_shift(file: string) -> usize = if is_literate_funl(file) then literate_indent else 0
+
+// A report about `program` -- what `funl_source(doc)` answered -- rendered as the reader sees the file.
+//
+// A literate file's diagnostics are moved onto `doc` before they are drawn, so the line quoted under
+// the `-->` line is the document's own, indent and all, and the caret sits under the column that line
+// names. A plain file's `program` is `doc` and nothing moves.
+render_report(report: Report, doc: Source, program: Source) -> string
+    if !is_literate_funl(doc.name) then return report.render(program)
+
+    var moved = full_report()
+
+    moved.limit = report.limit
+
+    for i in 0..<report.len()
+        val d = report.at(i)
+
+        moved.add(Diagnostic(d.severity, untangle_span(doc, program, d.span), d.message, d.label, d.note))
+
+    moved.render(doc)
+end render_report
