@@ -114,6 +114,14 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         PlusPlus -> prefix_step(p, t.span, 1)
         MinusMinus -> prefix_step(p, t.span, -1)
         Bang ->
+            val operand = p.peek_tok() match
+                Some(k) -> starts_expr(k)
+                None -> false
+
+            if !operand
+                p.report.add(error(t.span, "a FunL relation has no cut: `!` is the generator operator and needs an operand; commit with `if ... then ... else`, or take only the first solution in a bounded position"))
+                return expr(BadE, t.span)
+
             val e = parse_expr(p, BangPower)
 
             expr(BangE(e), t.span.to(e.span))

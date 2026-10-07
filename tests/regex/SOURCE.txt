@@ -4,7 +4,7 @@ licence in LICENSE. They are copied unchanged from the upstream package's data-d
 https://hackage.haskell.org/package/regex-posix-unittest-1.1/regex-posix-unittest-1.1.tar.gz
 (version 1.1, fetched 2026-10-07, tarball SHA-256
 7d9772ee791900692c000b6a11d6480d4b9b2529f9f9796776b73e5a6cd39d4d). The package's test-manifest.txt
-is not kept. The lookaround, lookbehind and pcre2_lookbehind files here are this project's own.
+is not kept.
 
 Each line is: an id, a pattern, a subject, and the expected match -- `(start,end)` for the whole
 match and then for each group, 0-based character offsets, `(?,?)` or `(-1,-1)` for a group that
@@ -13,5 +13,5 @@ empty string. A negative id gives a second answer for the same pattern and subje
 different conforming implementation produces.
 
 The data is written for POSIX leftmost-longest matching. This engine is leftmost-first, as Perl
-and PCRE2 are, so exclusions.txt lists every line where the two semantics give different answers,
+is, so exclusions.txt lists every line where the two semantics give different answers,
 each with the reason; tests_regex_att.sysl reads both.

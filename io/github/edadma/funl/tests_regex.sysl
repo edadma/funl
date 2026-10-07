@@ -120,6 +120,18 @@ A_BACKSLASH_ENDING_A_PATTERN_ESCAPES_NOTHING()
             assert_eq(e.at, 1)
 
 @test
+A_GROUP_OF_AN_UNKNOWN_KIND_IS_REFUSED_AND_THE_NOTE_NAMES_EVERY_KIND_THERE_IS()
+    parse_regex("(?%a)") match
+        Ok(_) -> panic("a group of an unknown kind was read")
+        Err(e) ->
+            assert_eq(e.message, "this kind of group is not supported")
+            assert_eq(e.note, "the groups are `(p)`, `(?<name>p)`, `(?:p)`, `(?=p)`, `(?!p)`, `(?<=p)`, `(?<!p)`, `(?>p)`, the flag groups and `(?#...)`")
+
+    parse_regex("(?<=a)(?<!b)(?#note)c") match
+        Ok(_) -> ()
+        Err(e) -> panic(s"a lookbehind or a comment was refused: ${e.message}")
+
+@test
 A_BACKREFERENCE_TO_A_GROUP_THE_PATTERN_DOES_NOT_HAVE_IS_REFUSED()
     assert_eq(complaints("'a' ? `(a)\\2`\n"), "error 1:11 this refers to group 2, and the pattern has only 1\n")
     assert_eq(complaints("'a' ? `a\\1`\n"), "error 1:9 this refers to group 1, and the pattern has no groups\n")
