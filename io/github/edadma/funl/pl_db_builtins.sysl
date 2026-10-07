@@ -84,7 +84,7 @@ private assert_clause(x: Value, front: bool, who: string) -> Result[Value, Fault
             revive(i)
             i
         Fixed -> return Err(cannot_modify(name, arity, who))
-        Absent -> make_dynamic(name, arity)?
+        Absent -> make_dynamic(name, arity, nowhere())?
 
     add_clause(p, t, front)?
     Ok(Unit)
@@ -230,7 +230,7 @@ private pl_retractall(base: usize, argc: usize) -> Result[Value, Fault]
     procedure(name, arity) match
         Dyn(i) -> revive(i)
         Fixed -> return Err(cannot_modify(name, arity, "retractall/1"))
-        Absent -> make_dynamic(name, arity)?
+        Absent -> make_dynamic(name, arity, nowhere())?
 
     Ok(Unit)
 
@@ -277,7 +277,7 @@ private pl_abolish(base: usize, argc: usize) -> Result[Value, Fault]
 
             d.abolished = true
             v.db.preds.set(p, d)
-            v.preds.put(pred_key(name, arity), PredInfo(d.chunk, false, DynamicPred(p)))
+            v.preds.put(pred_key(name, arity), PredInfo(d.chunk, false, DynamicPred(p), nowhere()))
         Fixed -> return Err(cannot_modify(name, arity, "abolish/1"))
         Absent -> ()
 
@@ -287,10 +287,12 @@ private pl_abolish(base: usize, argc: usize) -> Result[Value, Fault]
 // is dynamic, with no clauses if it had none. A static predicate refuses; one of the library is
 // replaced, as a program's own definition replaces it.
 private pl_dynamic(base: usize, argc: usize) -> Result[Value, Fault]
-    declare_dynamic(arg(base, 0))?
+    declare_dynamic(arg(base, 0), "", "")?
     Ok(Unit)
 
-declare_dynamic(spec: Value) -> Result[unit, Fault]
+// Make each predicate `spec` names dynamic: by the directive at `at` of `file`, or while the program
+// runs when `file` is empty.
+declare_dynamic(spec: Value, file: string, at: string) -> Result[unit, Fault]
     var work: Buf[Value] = buf()
 
     work.push(spec)
@@ -312,14 +314,18 @@ declare_dynamic(spec: Value) -> Result[unit, Fault]
             _ -> ()
 
         val (name, arity) = indicated(x, "dynamic/1")?
+        val key = pred_key(name, arity)
+        val origin = if file == "" then nowhere() else Origin(file, s"the dynamic predicate `$key` declared at $at")
 
         procedure(name, arity) match
-            Dyn(i) -> revive(i)
-            Absent -> make_dynamic(name, arity)?
+            Dyn(i) ->
+                revive(i)
+                claim(key, origin)
+            Absent -> make_dynamic(name, arity, origin)?
             Fixed ->
-                if !is_library(pred_key(name, arity)) then return Err(cannot_modify(name, arity, "dynamic/1"))
+                if !is_library(key) then return Err(cannot_modify(name, arity, "dynamic/1"))
 
-                make_dynamic(name, arity)?
+                make_dynamic(name, arity, origin)?
 
     Ok(())
 end declare_dynamic

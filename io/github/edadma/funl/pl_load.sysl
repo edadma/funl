@@ -23,6 +23,29 @@ struct PredInfo
     defined: bool
     kind: PredKind
 
+    // Where its definition came from, for a refusal to name.
+    origin: Origin
+
+// Where a definition was made.
+//
+// **Prolog and FunL share one predicate for each name and arity** (`prolog.md` § "Calling FunL from
+// Prolog"), so a second definition of a key -- a FunL function or relation, or a file's clauses -- is
+// refused when it is loaded, naming both. The file that made the first may load again: that replaces
+// it, as consulting a file again does.
+struct Origin
+    // The file whose clauses or definition it is; empty for a builtin, the library, or a dynamic
+    // predicate made while the program runs.
+    file: string
+
+    // The definition named for a person: what it is and where it is written.
+    what: string
+
+// No file's: a builtin, the library, a predicate made while the program runs.
+nowhere() -> Origin = Origin("", "")
+
+// Where `offset` is in `src`, as `file:line:column`.
+located(src: Source, offset: usize) -> string = s"${src.name}:${src.locate(offset)}"
+
 // Where a predicate's code came from, which says what may change it.
 enum PredKind
     // Nothing has defined it: its chunk runs `NoProcedure`.
@@ -53,14 +76,14 @@ predicate_chunk(name: string, arity: usize) -> usize
     if key == "catch/3"
         val at = catch_chunk()
 
-        v.preds.put(key, PredInfo(at, true, NativePred))
+        v.preds.put(key, PredInfo(at, true, NativePred, nowhere()))
         return at
 
     native_id(key) match
         Some(id) ->
             val at = finish(native_predicate(key, id, arity)).unwrap()
 
-            v.preds.put(key, PredInfo(at, true, NativePred))
+            v.preds.put(key, PredInfo(at, true, NativePred, nowhere()))
             at
         None ->
             var e = emit(key)
@@ -69,7 +92,7 @@ predicate_chunk(name: string, arity: usize) -> usize
 
             val at = finish(e).unwrap()
 
-            v.preds.put(key, PredInfo(at, false, Unclaimed))
+            v.preds.put(key, PredInfo(at, false, Unclaimed, nowhere()))
             at
 end predicate_chunk
 
@@ -96,28 +119,51 @@ pred_defined(key: string) -> bool = current().preds.get(key) match
     Some(p) -> p.defined
     None -> false
 
-// Make `e` the code of predicate `key`, in the chunk calls to it already name.
-define_predicate(key: string, e: Emit) -> Result[unit, string]
+// Make `e` the code of predicate `key`, in the chunk calls to it already name, the definition
+// `origin` made.
+define_predicate(key: string, e: Emit, origin: Origin) -> Result[unit, string]
     val v = current()
 
     v.preds.get(key) match
         Some(p) ->
             install(e, p.chunk)?
-            v.preds.put(key, PredInfo(p.chunk, true, ProgramPred))
+            v.preds.put(key, PredInfo(p.chunk, true, ProgramPred, origin))
         None ->
             val at = finish(e)?
 
-            v.preds.put(key, PredInfo(at, true, ProgramPred))
+            v.preds.put(key, PredInfo(at, true, ProgramPred, origin))
 
     Ok(())
 
-// Make `e` the code of predicate `key` unless something other than the library has already defined
-// it: how a FunL definition becomes visible to Prolog by name and arity. Answers whether it did.
-offer_predicate(key: string, e: Emit) -> Result[bool, string]
-    if pred_defined(key) && !is_library(key) then return Ok(false)
+// Whether `key` is a builtin's -- `catch/3` among them -- which no program can define.
+is_builtin(key: string) -> bool = key == "catch/3" || native_id(key).is_some()
 
-    define_predicate(key, e)?
-    Ok(true)
+// Why `key` cannot be given the definition `origin`, or `None` when it can: a definition of a
+// program's or a dynamic predicate's is already there, made by another file. The library's gives way,
+// a predicate nothing has defined has nothing to give, and the file that made the definition may
+// make it again.
+clash(key: string, origin: Origin) -> Option[string]
+    val p = current().preds.get(key) match
+        Some(p) -> p
+        None -> return None
+
+    val taken = p.kind match
+        ProgramPred -> true
+        DynamicPred(_) -> true
+        _ -> false
+
+    if !taken || p.origin.file == "" || p.origin.file == origin.file then return None
+
+    Some(s"`$key` cannot be defined twice: ${p.origin.what}, and ${origin.what}. Prolog and FunL share one predicate for each name and arity")
+
+// Record that `origin` made dynamic predicate `key`'s definition where no file has yet: a file's
+// clauses for a predicate made dynamic while the program ran.
+claim(key: string, origin: Origin)
+    val v = current()
+
+    v.preds.get(key) match
+        Some(p) -> if p.origin.file == "" then v.preds.put(key, PredInfo(p.chunk, p.defined, p.kind, origin))
+        None -> ()
 
 // Whether `key` is a predicate of the library written in Prolog, which a program may replace.
 is_library(key: string) -> bool = current().preds.get(key) match
@@ -143,7 +189,7 @@ mark_library()
     for k in keys.view()
         val p = v.preds.get(k).unwrap()
 
-        v.preds.put(k, PredInfo(p.chunk, p.defined, LibraryPred))
+        v.preds.put(k, PredInfo(p.chunk, p.defined, LibraryPred, nowhere()))
 
 // Whether `name` has a Prolog predicate -- of any arity -- defined in the table; what a FunL program
 // calls by name. **The library's predicates are Prolog's own and not among them**: a FunL program
@@ -216,6 +262,11 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
 
         val key = pred_key(name, n)
 
+        // ISO's `permission_error(modify, static_procedure, ...)`, raised as the file loads.
+        if is_builtin(key)
+            report.add(error(head.span, s"`$key` is a builtin predicate, and a program cannot define it"))
+            continue
+
         by_key.get(key) match
             Some(i) ->
                 var g = groups.at(i)
@@ -229,6 +280,21 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
                 by_key.put(key, groups.len())
                 groups.push(Group(name, n, cs))
     end loop
+
+    if report.has_errors() then return None
+
+    var origins: Buf[Origin] = buf()
+
+    for g in groups.view()
+        val key = pred_key(g.name, g.arity)
+        val head = g.clauses.at(0).t
+        val origin = Origin(src.name, s"the Prolog predicate `$key` at ${located(src, head.span.start)}")
+
+        clash(key, origin) match
+            Some(m) -> report.add(error(head.span, m))
+            None -> ()
+
+        origins.push(origin)
 
     if report.has_errors() then return None
 
@@ -251,8 +317,10 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
         val key = pred_key(g.name, g.arity)
 
         dynamic_index(key) match
-            Some(p) -> load_dynamic(report, p, g.clauses)
-            None -> define_predicate(key, codes.at(i)).unwrap()
+            Some(p) ->
+                claim(key, origins.at(i))
+                load_dynamic(report, p, g.clauses)
+            None -> define_predicate(key, codes.at(i), origins.at(i)).unwrap()
 
     if report.has_errors() then return None
 
@@ -341,7 +409,7 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[ReadC
                         report.add(error(t.span, m))
                         return
 
-                declare_dynamic(spec) match
+                declare_dynamic(spec, src.name, located(src, t.span.start)) match
                     Ok(_) -> ()
                     Err(f) -> report.add(error(t.span, fault_text(f)))
 

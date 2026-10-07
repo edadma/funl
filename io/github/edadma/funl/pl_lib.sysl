@@ -7,7 +7,7 @@ import sh.sysl.parsing.{full_report, source_of}
 // reader can look at, compiled and indexed as any program's are.
 //
 // **A program may define a predicate the library defines**, in a Prolog file or as a FunL
-// definition: its own replaces the library's (`offer_predicate`, `PredInfo.kind`). Helpers are named
+// definition: its own replaces the library's (`clash`, `PredInfo.kind`). Helpers are named
 // `'$...'`, which no FunL name can spell and a Prolog program does not reach by accident.
 //
 // What needs the machine is native and not here: `'$findall'/3` is compiled into the clause that

@@ -170,8 +170,8 @@ end try_dynamic
 // -- Changing the database ------------------------------------------------------------------------
 
 // Make `name/arity` a dynamic predicate with no clauses, its chunk the one calls to it already name
-// where there is one: the database index.
-make_dynamic(name: string, arity: usize) -> Result[usize, string]
+// where there is one, its definition made by `origin`: the database index.
+make_dynamic(name: string, arity: usize, origin: Origin) -> Result[usize, string]
     val v = current()
     val key = pred_key(name, arity)
     val p = v.db.preds.len()
@@ -187,7 +187,7 @@ make_dynamic(name: string, arity: usize) -> Result[usize, string]
         None -> finish(e)?
 
     v.db.preds.push(DynPred(name, arity, chunk, NoClause, NoClause, false))
-    v.preds.put(key, PredInfo(chunk, true, DynamicPred(p)))
+    v.preds.put(key, PredInfo(chunk, true, DynamicPred(p), origin))
     Ok(p)
 
 // Dynamic predicate `p` is defined again, if `abolish/1` had removed it.
@@ -199,7 +199,13 @@ revive(p: usize)
 
     d.abolished = false
     v.db.preds.set(p, d)
-    v.preds.put(pred_key(d.name, d.arity), PredInfo(d.chunk, true, DynamicPred(p)))
+    val key = pred_key(d.name, d.arity)
+
+    val origin = v.preds.get(key) match
+        Some(info) -> info.origin
+        None -> nowhere()
+
+    v.preds.put(key, PredInfo(d.chunk, true, DynamicPred(p), origin))
 
 // Add clause `t` -- `Head :- Body`, already a copy of its own -- to dynamic predicate `p`, first
 // (`asserta`) or last.

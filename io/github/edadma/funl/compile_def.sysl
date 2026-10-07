@@ -35,9 +35,10 @@ compile_program(src: Source, report: *Report) -> Option[usize]
 
     // The Prolog files are loaded first, so the resolver knows their predicates by name.
     var loads: Buf[usize] = buf()
+    var seen: Buf[string] = buf()
 
     for i in prog.imports.view()
-        imported(src, i, report) match
+        imported(src, i, &seen, report) match
             Some(chunk) -> loads.push(chunk)
             None -> ()
 
@@ -47,11 +48,13 @@ compile_program(src: Source, report: *Report) -> Option[usize]
 
     if report.has_errors() then return None
 
-    match_up(&res) match
+    match_up(src, &res, report) match
         Ok(_) -> ()
         Err(e) ->
             report.add(error(point(0), s"the compiler failed: $e"))
             return None
+
+    if report.has_errors() then return None
 
     compiled(&res, loads) match
         Ok(chunk) -> Some(chunk)
@@ -62,11 +65,16 @@ end compile_program
 
 // `import "file.pl"`: the Prolog file, read relative to the directory of the program importing it,
 // loaded into the VM; the chunk that runs its directives, or `None` with the reason reported at the
-// import.
-private imported(src: Source, i: Spanned[string], report: *Report) -> Option[usize]
+// import. A file the program has already imported (`seen`) is loaded once, as any import is.
+private imported(src: Source, i: Spanned[string], seen: *Buf[string], report: *Report) -> Option[usize]
     val file = parent(src.name) match
         Some(dir) -> join(dir, i.value)
         None -> i.value
+
+    for f in seen.view()
+        if f == file then return None
+
+    seen.push(file)
 
     val text = read_text(file) match
         Ok(t) -> t
@@ -86,8 +94,13 @@ end imported
 
 // Make the program's top-level definitions predicates Prolog can call by name and arity: a relation
 // `r` of `n` arguments as `r/n`, a function `f` of `n` parameters as `f/(n+1)`, whose last argument
-// is unified with each value the function gives. A key Prolog has already defined is left to Prolog.
-private match_up(res: *Resolved) -> Result[unit, string]
+// is unified with each value the function gives.
+//
+// **A key a Prolog file has already defined is refused**, naming both definitions: Prolog and FunL
+// share one predicate for each name and arity. A key of the library's is taken over, as a Prolog
+// program's own definition takes it over. A builtin's key stays the builtin's: the FunL definition is
+// FunL's own under its name and Prolog does not see it, which no load order can change.
+private match_up(src: Source, res: *Resolved, report: *Report) -> Result[unit, string]
     for i in 0..<res.rels.len()
         val r = res.rels.at(i)
 
@@ -96,6 +109,26 @@ private match_up(res: *Resolved) -> Result[unit, string]
             None -> false
 
         if !top then continue
+
+        val key = if r.function then pred_key(r.name, r.arity + 1) else pred_key(r.name, r.arity)
+
+        if is_builtin(key) then continue
+
+        val head = r.clauses.at(0).head
+        val at = located(src, head.start)
+
+        val what = if r.function
+            s"the FunL function `${r.name}` at $at, which is `$key` to Prolog"
+        else
+            s"the FunL relation `${r.name}` at $at"
+
+        val origin = Origin(src.name, what)
+
+        clash(key, origin) match
+            Some(m) ->
+                report.add(error(head, m))
+                continue
+            None -> ()
 
         var e = emit(r.name)
 
@@ -109,14 +142,14 @@ private match_up(res: *Resolved) -> Result[unit, string]
             e.op(Pop)
             e.op(PushUnit)
             e.op(Return)
-            offer_predicate(pred_key(r.name, r.arity + 1), e)?
         else
             for k in 0..<r.arity
                 e.op(LoadArg(k))
 
             e.op(TailCall(r.chunk, r.arity))
             e.op(Return)
-            offer_predicate(pred_key(r.name, r.arity), e)?
+
+        define_predicate(key, e, origin)?
 
     Ok(())
 end match_up

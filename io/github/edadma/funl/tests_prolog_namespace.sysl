@@ -1,0 +1,97 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// One namespace for Prolog and FunL, keyed by name and arity (`prolog.md` § "Calling FunL from
+// Prolog"): a FunL function of n parameters is the predicate `f/(n+1)` and a relation of n arguments
+// `r/n`, and a second definition of a key is refused when it is loaded, naming both. The library
+// written in Prolog gives way to a program's own definition; a builtin is never redefined.
+
+private const Interop: string = "import \"tests/prolog/interop.pl\"\n"
+
+// Whether `text` holds `part`.
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+@test
+A_FUNL_FUNCTION_ON_THE_KEY_OF_A_PROLOG_PREDICATE_IS_REFUSED_NAMING_BOTH()
+    assert_eq(complaints(Interop + "def grand(x) = x\nwrite(1)\n"),
+        "error 2:5 `grand/2` cannot be defined twice: the Prolog predicate `grand/2` at tests/prolog/interop.pl:6:1, " +
+        "and the FunL function `grand` at test.fl:2:5, which is `grand/2` to Prolog. Prolog and FunL share one predicate for each name and arity\n")
+
+@test
+A_FUNL_RELATION_ON_THE_KEY_OF_A_PROLOG_PREDICATE_IS_REFUSED_NAMING_BOTH()
+    assert_eq(complaints(Interop + "def either(#left)\nwrite(1)\n"),
+        "error 2:5 `either/1` cannot be defined twice: the Prolog predicate `either/1` at tests/prolog/interop.pl:10:1, " +
+        "and the FunL relation `either` at test.fl:2:5. Prolog and FunL share one predicate for each name and arity\n")
+
+@test
+A_FUNL_DEFINITION_ON_ANOTHER_ARITY_OF_THE_SAME_NAME_IS_ITS_OWN_PREDICATE()
+    // `grand` of 2 parameters is `grand/3`, which nothing else defines; `either/1` stays Prolog's.
+    assert_eq(ran_funl(Interop + "def grand(x, y) = x + y\nfree z\nwrite(grand(1, 2))\nevery either(z) do write(z)\n"),
+        "loaded\n3\nleft\nright\nsucceeded")
+
+@test
+A_FUNL_DEFINITION_ON_THE_KEY_OF_A_DYNAMIC_PREDICATE_IS_REFUSED()
+    assert_eq(complaints("import \"tests/prolog/clash_a.pl\"\ndef counter(#one)\nwrite(1)\n"),
+        "error 2:5 `counter/1` cannot be defined twice: the dynamic predicate `counter/1` declared at tests/prolog/clash_a.pl:6:4, " +
+        "and the FunL relation `counter` at test.fl:2:5. Prolog and FunL share one predicate for each name and arity\n")
+
+@test
+A_SECOND_PROLOG_FILE_DEFINING_THE_SAME_PREDICATE_IS_REFUSED_NAMING_BOTH()
+    val said = rendered("import \"tests/prolog/clash_a.pl\"\nimport \"tests/prolog/clash_b.pl\"\nwrite(1)\n")
+
+    assert_eq(has(said, "`tests/prolog/clash_b.pl` could not be loaded"), true)
+    assert_eq(has(said, "`shared/1` cannot be defined twice: the Prolog predicate `shared/1` at tests/prolog/clash_a.pl:4:1, " +
+        "and the Prolog predicate `shared/1` at tests/prolog/clash_b.pl:3:1"), true)
+
+@test
+A_PROLOG_FILE_GIVING_CLAUSES_TO_ANOTHER_FILES_DYNAMIC_PREDICATE_IS_REFUSED()
+    val said = rendered("import \"tests/prolog/clash_a.pl\"\nimport \"tests/prolog/clash_c.pl\"\nwrite(1)\n")
+
+    assert_eq(has(said, "`counter/1` cannot be defined twice: the dynamic predicate `counter/1` declared at tests/prolog/clash_a.pl:6:4, " +
+        "and the Prolog predicate `counter/1` at tests/prolog/clash_c.pl:4:1"), true)
+
+@test
+A_FILE_CONSULTED_WHILE_THE_PROGRAM_RUNS_IS_REFUSED_A_KEY_THE_PROGRAM_DEFINES()
+    val said = ran_funl("def shared(#mine)\nwrite(#before)\nconsult(\"tests/prolog/clash_a.pl\")\nwrite(#after)\n")
+
+    assert_eq(has(said, "before\n"), true)
+    assert_eq(has(said, "after"), false)
+    assert_eq(has(said, "`shared/1` cannot be defined twice: the FunL relation `shared` at test.fl:1:5, " +
+        "and the Prolog predicate `shared/1` at tests/prolog/clash_a.pl:4:1"), true)
+
+@test
+PROLOG_CONSULTING_A_SECOND_FILE_THAT_DEFINES_THE_SAME_PREDICATE_GETS_AN_ERROR_IT_CAN_CATCH()
+    val text = ":- consult(\"tests/prolog/clash_a.pl\").\n" +
+        ":- catch(consult(\"tests/prolog/clash_b.pl\"), error(E, _), (functor(E, F, _), write(F), nl)).\n" +
+        ":- forall(shared(X), (write(X), nl)).\n"
+
+    assert_eq(ran_prolog(text), "syntax_error\na\nsucceeded")
+
+@test
+IMPORTING_THE_SAME_FILE_TWICE_LOADS_IT_ONCE_AND_IS_NO_COLLISION()
+    assert_eq(ran_funl(Interop + Interop + "free z\nevery either(z) do write(z)\n"), "loaded\nleft\nright\nsucceeded")
+
+@test
+CONSULTING_THE_SAME_FILE_AGAIN_REPLACES_ITS_PREDICATES_AND_IS_NO_COLLISION()
+    val text = ":- consult(\"tests/prolog/hello.pl\").\n:- consult(\"tests/prolog/hello.pl\").\n:- forall(greeting(G), (write(G), nl)).\n"
+
+    assert_eq(ran_prolog(text), "hello\nworld\nhello\nworld\nhello\nworld\nsucceeded")
+
+@test
+A_FUNL_DEFINITION_REPLACES_THE_LIBRARYS_FOR_PROLOG_TOO()
+    val text = "import \"tests/prolog/library_user.pl\"\ndef reverse(l) = #mine\nfree r\nif rev([1, 2], r) then write(r)\nwrite(reverse([1, 2]))\n"
+
+    assert_eq(ran_funl(text), "mine\nmine\nsucceeded")
+
+@test
+A_FUNL_DEFINITION_ON_A_BUILTINS_KEY_IS_FUNLS_OWN_AND_PROLOG_KEEPS_THE_BUILTIN()
+    val text = "import \"tests/prolog/library_user.pl\"\ndef sort(l) = #mine\nfree s\nwrite(sort([2, 1]))\nif srt([2, 1, 2], s) then write(s)\n"
+
+    assert_eq(ran_funl(text), "mine\n[1, 2]\nsucceeded")
+
+@test
+A_PROLOG_FILE_DEFINING_A_BUILTIN_IS_REFUSED()
+    assert_eq(prolog_complaints("atom_length(a, 1).\nok.\n"), "error 1:1 `atom_length/2` is a builtin predicate, and a program cannot define it\n")
+    assert_eq(prolog_complaints("catch(_, _, _) :- true.\n"), "error 1:1 `catch/3` is a builtin predicate, and a program cannot define it\n")
