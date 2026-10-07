@@ -1,0 +1,35 @@
+;; Goal-directed evaluation: every expression succeeds or fails, and some produce more than one value.
+;;
+;; A failure is not an error; it is how FunL says "no", and it propagates outwards until a
+;; statement absorbs it. A generator produces its values one at a time, and the machine asks it for
+;; the next one whenever something after it fails.
+
+write( 1 < 0 )                      ;; prints nothing: the comparison fails, so write is never called
+write( 1 < 5 < 10 )                 ;; 10 -- a comparison that holds produces its right operand
+
+;; Alternation and ranges are generators; `every` drives one through all its values.
+every write( 'red' | 'green' | 'blue' )          ;; red, green, blue
+every write( !'abc' )                            ;; a, b, c -- `!` generates a string's elements
+every write( (k = 1 to 3) to k + 1 )             ;; 1 2, 2 3, 3 4 -- nested generators
+
+;; Backtracking into an expression: the first value of `1 to 10` that passes the test is chosen,
+;; and a plain statement keeps only that first result.
+write( (x = 1 to 10) * x > 40 & x )              ;; 7
+
+;; A function whose body generates is itself a generator, and `yield` produces values explicitly.
+def squares( n ) = (i = 1 to n) * i
+
+every write( squares(4) )                        ;; 1, 4, 9, 16
+
+def collatz( n )
+  yield n
+
+  while n != 1
+    n = if 2 div n then n \ 2 else 3n + 1
+    yield n
+
+every write( collatz(6) )                        ;; 6, 3, 10, 5, 16, 8, 4, 2, 1
+
+;; Generators compose: the first square over 50 that is also odd. `not` binds more loosely than
+;; `&`, so it is parenthesised to apply to the divisibility test alone.
+write( (s = squares(20)) > 50 & (not 2 div s) & s )   ;; 81

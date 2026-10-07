@@ -1,0 +1,66 @@
+;; Data types and pattern matching.
+;;
+;; `data` declares records and sums of records. A function may be defined by several clauses whose
+;; parameters are patterns, tried in order: the first that matches, and whose guard succeeds, is
+;; chosen (committed choice). Matching is one-way: it inspects the argument and binds the
+;; pattern's own names.
+
+data shape = circle(r) | rect(w, h) | square(side)
+
+def
+  area( circle(r) ) = 3 * r * r                 ;; a rough area; the point is the dispatch
+  area( rect(w, h) ) = w * h
+  area( square(s) ) = s * s
+
+for s <- [circle(2), rect(2, 5), square(3)]
+  write( s, area(s) )                           ;; circle(2), 12 / rect(2, 5), 10 / square(3), 9
+
+;; Records have fields, reached by name.
+data point(x, y)
+
+val p = point(3, 4)
+write( p.x + p.y )                              ;; 7
+
+;; A binary search tree as a sum type. Insertion builds a new tree; the old one is unchanged.
+data tree = leaf | node(left, key, right)
+
+def
+  insert( leaf, k ) = node( leaf, k, leaf )
+  insert( t@node(l, x, r), k )
+    | k < x     = node( insert(l, k), x, r )
+    | k > x     = node( l, x, insert(r, k) )
+    | otherwise = t                              ;; already present: the named pattern t is the whole tree
+
+  inorder( leaf ) = []
+  inorder( node(l, x, r) ) = inorder( l ) + [x] + inorder( r )
+
+var t = leaf
+
+for k <- [50, 30, 70, 20, 40, 60, 30]
+  t = insert( t, k )
+
+write( inorder(t) )                             ;; [20, 30, 40, 50, 60, 70]
+
+;; Lists: the empty list, cons patterns, and literals of fixed length.
+def
+  describe( [] ) = 'empty'
+  describe( [x] ) = "just $x"
+  describe( [x, y] ) = "a pair, $x and $y"
+  describe( x:_ ) = "starts with $x"
+
+for l <- [[], [1], [1, 2], [1, 2, 3]]
+  write( describe(l) )                          ;; empty / just 1 / a pair, 1 and 2 / starts with 1
+
+;; A partial function literal is the same clause idea without a name.
+val sign =
+  0 -> 'zero'
+  n | n < 0 -> 'negative'
+  _ -> 'positive'
+
+write( sign(-5), sign(0), sign(8) )             ;; negative, zero, positive
+
+;; Several targets take several values at once.
+var a = 1
+var b = 2
+a, b = b, a
+write( (a, b) )                                 ;; (2, 1)

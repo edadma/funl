@@ -1,0 +1,28 @@
+;; Counting words: string scanning feeding a mutable map.
+;;
+;; `words` is a generator built from a scan, `map()` is a mutable map, and `every` drives the
+;; generator through the whole text. A map element is reached by call syntax, `counts(w)`, and
+;; `in` is a membership test that succeeds or fails, so it is the condition of the `if` directly.
+
+val text = 'the cat sat. the cat ran! a dog sat, and the dog ran; the end.'
+
+def words( s )
+  s ?
+    while tab( upto(letters) )
+      val w = tab( many(letters) )
+      yield w
+
+val counts = map()
+val order = buffer()                    ;; first-seen order, for repeatable output
+
+every w = words( text ) do
+  if w in counts
+    counts(w) += 1
+  else
+    counts(w) = 1
+    order += w
+
+for w <- order
+  write( w, counts(w) )
+
+;; the, 4 / cat, 2 / sat, 2 / ran, 2 / a, 1 / dog, 2 / and, 1 / end, 1
