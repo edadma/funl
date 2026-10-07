@@ -17,14 +17,15 @@ not_a_number :- try(subtract(1, a, _)).
 unbound :- try(add(_, 1, _)).
 pattern_unbound :- try(head(_, _)).
 no_clause :- try(head([], _)).
-index_out_of_range :- try(element([1, 2], 5, _)).
-missing_key :- try(lookup(b, _)).
+index_out_of_range :- try(element(5, _)).
+missing_key :- ( lookup(b, _) -> write(found) ; write(failed) ), nl.
+missing_field :- ( field_z(point(3, 4), _) -> write(found) ; write(failed) ), nl.
 raised :- try(raise(boom, _)).
 not_a_collection :- try(contains(3, 5, _)).
 immutable :- try(store(x, _)).
 wrong_count :- try(call_with_two(x, _)).
 negative_size :- try(make_array(1, _)).
-no_field :- try(field_z(point(3, 4), _)).
+no_field :- try(field_z([1], _)).
 no_scan :- try(tab_outside(1, _)).
 
 % What FunL's arithmetic answers is an ordinary number here: a rational, a big integer, a float.
