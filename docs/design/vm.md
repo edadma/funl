@@ -557,7 +557,8 @@ their two kinds, with three rules on top:
   becomes `Int`, a `Rat` with denominator 1 becomes an integer.
 - **An inexact result is never demoted.** `Real` and `Dec` stay what they are.
 
-Integer `/` produces a `Rat` when the division is not exact; `\` is integer division. Comparison
+Integer `/` produces a `Rat` when the division is not exact; `\` is integer division, which floors (the quotient rounded toward negative infinity, so `-7 \ 2`
+is `-4`). Comparison
 across kinds is exact — `1/3 < 0.3333333333333333` compares the rational with the double's exact
 binary value — and **equality across kinds is numeric** for FunL's `==` (`1 == 1.0` succeeds) while
 **unification is not** (`1 ~ 1.0` fails), for the reason the [logic chapter](logic.md) gives.

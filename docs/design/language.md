@@ -59,7 +59,7 @@ a value is success.
 > (a comparison still fails rather than answering `false`) while making `if done then …` mean what
 > every reader expects. **Rejected:** a condition that only fails on failure,
 > which is Icon's, and costs a `== true` wherever a boolean is tested; or make every operation that
-> could produce `false` fail instead, which removes booleans as values and breaks `write(x is int)`.
+> could produce `false` fail instead, which removes booleans as values and breaks `write(x is integer)`.
 
 ## Generators: an expression may produce more than one value
 
@@ -372,12 +372,17 @@ only when a literal or an operation introduces one.
 ```
 write( 7 / 2 )       ;; 7/2
 write( 7 \ 2 )       ;; 3     -- integer division
+write( -7 \ 2 )      ;; -4    -- it floors
 write( 2 ^ 100 )     ;; 1267650600228229401496703205376
 write( 1 / 3 + 1/6 ) ;; 1/2
 ```
 
-`div` asks "divides": `3 div n` succeeds when 3 divides `n`. `mod`, `%` and `//` are the remainder
-and floor forms; the machine chapter has the [tower and its promotion rules](vm.md#numbers).
+**`\` floors: the quotient is rounded toward negative infinity, never truncated toward zero**, so
+`-7 \ 2` is `-4` and `7 \ -2` is `-4`. `//` is the same floor division. `mod` is the remainder that
+goes with it, with the sign of the divisor (`-7 mod 2` is `1`, so `a == b * (a \ b) + a mod b`), and
+`%` is the remainder of truncating division, with the sign of the dividend (`-7 % 2` is `-1`).
+
+`div` asks "divides": `3 div n` succeeds when 3 divides `n`. The machine chapter has the [tower and its promotion rules](vm.md#numbers).
 
 **An exact result is demoted to the smallest exact kind that holds it** — a rational whose
 denominator is 1 is an integer — **and an inexact result is never demoted**: `2.5 * 2` is the real
