@@ -1,0 +1,311 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+
+// Prolog's builtins that inspect and build terms: the type tests, `functor/3`, `arg/3`, `=../2`,
+// `copy_term/2`, `term_variables/2` and `compare/3`.
+//
+// **A list cell is the compound `'[|]'(H, T)`** to all of them, as in SWI-Prolog 7, where `'.'` is no
+// longer the list functor; and a FunL tuple is the compound `tuple(...)` the term mapping makes it.
+
+install_prolog_terms(v: *Vm)
+    register_generator(v, "var/1", 1, (b, n, c) -> answer(is_unbound(arg(b, 0))))
+    register_generator(v, "nonvar/1", 1, (b, n, c) -> answer(!is_unbound(arg(b, 0))))
+    register_generator(v, "atom/1", 1, (b, n, c) -> answer(is_atom(arg(b, 0))))
+    register_generator(v, "number/1", 1, (b, n, c) -> answer(is_int(arg(b, 0))))
+    register_generator(v, "integer/1", 1, (b, n, c) -> answer(is_int(arg(b, 0))))
+    register_generator(v, "float/1", 1, (b, n, c) -> answer(false))
+    register_generator(v, "string/1", 1, (b, n, c) -> answer(is_str_value(arg(b, 0))))
+    register_generator(v, "atomic/1", 1, (b, n, c) -> answer(is_atomic(arg(b, 0))))
+    register_generator(v, "compound/1", 1, (b, n, c) -> answer(compound_parts(arg(b, 0)).is_some()))
+    register_generator(v, "callable/1", 1, (b, n, c) -> answer(is_atom(arg(b, 0)) || compound_parts(arg(b, 0)).is_some()))
+    register_generator(v, "is_list/1", 1, (b, n, c) -> answer(is_proper_list(arg(b, 0))))
+    register_generator(v, "ground/1", 1, (b, n, c) -> answer(variables_of(arg(b, 0), true).len() == 0))
+    register_generator(v, "functor/3", 3, pl_functor)
+    register_generator(v, "arg/3", 3, pl_arg)
+    register_generator(v, "=../2", 2, pl_univ)
+    register_generator(v, "copy_term/2", 2, pl_copy_term)
+    register_generator(v, "term_variables/2", 2, pl_term_variables)
+    register_generator(v, "compare/3", 3, pl_compare)
+
+// -- What every Prolog builtin answers with --------------------------------------------------------
+
+// Succeed or fail, binding nothing.
+answer(yes: bool) -> Result[Answer, Fault] = Ok(if yes then Gives(Unit) else Refuses)
+
+// Succeed when `a` and `b` unify.
+unified(a: Value, b: Value) -> Result[Answer, Fault] = answer(unify(a, b))
+
+is_unbound(x: Value) -> bool = deref(x) match
+    Var(_) -> true
+    _ -> false
+
+// An atom, `[]` among them, as in SWI-Prolog 7.
+is_atom(x: Value) -> bool = deref(x) match
+    Atom(_) -> true
+    Nil -> true
+    _ -> false
+
+private is_int(x: Value) -> bool = deref(x) match
+    Int(_) -> true
+    _ -> false
+
+private is_str_value(x: Value) -> bool = deref(x) match
+    Str(_) -> true
+    _ -> false
+
+// Neither a variable nor a compound: a number, an atom, a string, and FunL's own constants and opaque
+// values.
+is_atomic(x: Value) -> bool = !is_unbound(x) && compound_parts(x).is_none()
+
+is_proper_list(x: Value) -> bool
+    var at = deref(x)
+
+    loop
+        at match
+            Nil -> return true
+            Cons(p) -> at = deref(p.tail)
+            _ -> return false
+
+// The functor and arguments of a compound term: a compound, a list cell, a tuple.
+compound_parts(x: Value) -> Option[(u32, Buf[Value])]
+    var args: Buf[Value] = buf()
+
+    deref(x) match
+        Compound(c) ->
+            for a in c.args.view()
+                args.push(a)
+
+            Some((c.functor, args))
+        Cons(p) ->
+            args.push(p.head)
+            args.push(p.tail)
+            Some((intern("[|]"), args))
+        Tuple(t) ->
+            for a in t.items.view()
+                args.push(a)
+
+            Some((intern("tuple"), args))
+        _ -> None
+
+// The term `name(args)`: a list cell for `'[|]'` of two, and otherwise a compound.
+build_compound(name: u32, args: Buf[Value]) -> Result[Value, Fault]
+    if args.len() == 2 && atom_name(name) == "[|]" then return Ok(new_cons(args.at(0), args.at(1))?)
+
+    val c = new_compound(name, args.len())?
+
+    for i in 0..<args.len()
+        c.args.set(i, args.at(i))
+
+    Ok(Compound(c))
+
+// The atom or other atomic value an atomic `name` is, or a compound of it.
+private atomic_name(x: Value) -> Option[u32] = deref(x) match
+    Atom(id) -> Some(id)
+    Nil -> Some(intern("[]"))
+    _ -> None
+
+// -- functor/3, arg/3, =../2 --------------------------------------------------------------------
+
+// The most arguments `functor/3` and `=../2` will build a term with.
+private const MaxArity: long = 1048576
+
+private pl_functor(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val t = arg(base, 0)
+
+    compound_parts(t) match
+        Some((f, args)) ->
+            if !unify(arg(base, 1), Atom(f)) then return Ok(Refuses)
+
+            return unified(arg(base, 2), Int(long(args.len())))
+        None -> ()
+
+    if !is_unbound(t)
+        if !unify(arg(base, 1), t) then return Ok(Refuses)
+
+        return unified(arg(base, 2), Int(0))
+
+    val name = deref(arg(base, 1))
+    val arity = deref(arg(base, 2))
+
+    if is_unbound(name) then return Err(instantiation_error("instantiation error: functor/3 wants a name when its term is unbound"))
+
+    val n = arity match
+        Int(n) -> n
+        Var(_) -> return Err(instantiation_error("instantiation error: functor/3 wants an arity when its term is unbound"))
+        _ -> return Err(type_error("integer", arity, s"functor/3 wants an integer arity, and was given ${described(arity)}"))
+
+    if n < 0 then return Err(domain_error("not_less_than_zero", arity, s"functor/3 wants an arity of 0 or more, and was given $n"))
+    if n > MaxArity then return Err(representation_error("max_arity", s"functor/3 builds terms of at most $MaxArity arguments, and was asked for $n"))
+
+    if compound_parts(name).is_some() then return Err(type_error("atomic", name, s"functor/3 wants an atomic name, and was given ${described(name)}"))
+
+    if n == 0 then return unified(t, name)
+
+    val f = atomic_name(name) match
+        Some(f) -> f
+        None -> return Err(type_error("atom", name, s"functor/3 names a compound by an atom, and was given ${described(name)}"))
+
+    var args: Buf[Value] = buf()
+
+    for i in 0..<n
+        args.push(Var(new_var()?))
+
+    unified(t, build_compound(f, args)?)
+end pl_functor
+
+// `arg(N, T, A)`: argument `N` of compound `T`, counting from 1.
+private pl_arg(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val nth = deref(arg(base, 0))
+
+    val n = nth match
+        Int(n) -> n
+        Var(_) -> return Err(instantiation_error("instantiation error: arg/3 was given an unbound variable as its position"))
+        _ -> return Err(type_error("integer", nth, s"arg/3 wants an integer position, and was given ${described(nth)}"))
+
+    val t = arg(base, 1)
+
+    val args = compound_parts(t) match
+        Some((_, args)) -> args
+        None ->
+            if is_unbound(t) then return Err(instantiation_error("instantiation error: arg/3 was given an unbound variable as its term"))
+
+            return Err(type_error("compound", t, s"arg/3 wants a compound term, and was given ${described(t)}"))
+
+    if n < 1 || n > long(args.len()) then return Ok(Refuses)
+
+    unified(arg(base, 2), args.at(usize(n - 1)))
+
+// `T =.. L`: `L` is `[Name|Args]`.
+private pl_univ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val t = arg(base, 0)
+    val l = arg(base, 1)
+
+    compound_parts(t) match
+        Some((f, args)) ->
+            var items: Buf[Value] = buf()
+
+            items.push(Atom(f))
+
+            for a in args.view()
+                items.push(a)
+
+            return unified(l, list_of(&items, Nil)?)
+        None -> ()
+
+    if !is_unbound(t) then return unified(l, new_cons(t, Nil)?)
+
+    val items = list_items(l, "=../2")?
+
+    if items.len() == 0 then return Err(domain_error("non_empty_list", Nil, "=../2 wants a non-empty list, and was given []"))
+
+    val head = deref(items.at(0))
+
+    if is_unbound(head) then return Err(instantiation_error("instantiation error: =../2 was given a list whose name is an unbound variable"))
+
+    if items.len() == 1
+        if compound_parts(head).is_some() then return Err(type_error("atomic", head, s"=../2 wants an atomic name, and was given ${described(head)}"))
+
+        return unified(t, head)
+
+    val f = atomic_name(head) match
+        Some(f) -> f
+        None ->
+            if compound_parts(head).is_some() then return Err(type_error("atomic", head, s"=../2 wants an atomic name, and was given ${described(head)}"))
+
+            return Err(type_error("atom", head, s"=../2 names a compound by an atom, and was given ${described(head)}"))
+
+    if long(items.len() - 1) > MaxArity then return Err(representation_error("max_arity", s"=../2 builds terms of at most $MaxArity arguments"))
+
+    var args: Buf[Value] = buf()
+
+    for i in 1..<items.len()
+        args.push(items.at(i))
+
+    unified(t, build_compound(f, args)?)
+end pl_univ
+
+// The elements of list `x`, which must be a proper list: an unbound tail is an instantiation error,
+// any other end a type error.
+list_items(x: Value, who: string) -> Result[Buf[Value], Fault]
+    var items: Buf[Value] = buf()
+    var at = deref(x)
+
+    loop
+        at match
+            Nil -> return Ok(items)
+            Cons(p) ->
+                items.push(p.head)
+                at = deref(p.tail)
+            Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given a list that ends in an unbound variable"))
+            _ -> return Err(type_error("list", x, s"$who wants a list, and was given ${described(x)}"))
+
+// Whether `x` could still become a list: a list, or one whose tail is unbound.
+is_partial_list(x: Value) -> bool
+    var at = deref(x)
+
+    loop
+        at match
+            Nil -> return true
+            Var(_) -> return true
+            Cons(p) -> at = deref(p.tail)
+            _ -> return false
+
+// -- copy_term/2, term_variables/2, compare/3 ------------------------------------------------------
+
+private pl_copy_term(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault] =
+    unified(arg(base, 1), copy_term(arg(base, 0))?)
+
+private pl_term_variables(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    var vars = variables_of(arg(base, 0), false)
+
+    unified(arg(base, 1), list_of(&vars, Nil)?)
+
+// The unbound variables of `x`, each once, in depth-first left-to-right order; with `first`, only the
+// first one found, which is all `ground/1` needs to know.
+variables_of(x: Value, first: bool) -> Buf[Value]
+    var found: Buf[Value] = buf()
+    var seen: Map[u64, bool] = map()
+    var work: Buf[Value] = buf()
+
+    work.push(x)
+
+    while work.len() > 0
+        val y = deref(work.pop().unwrap())
+
+        y match
+            Var(p) ->
+                if seen.get(p.id).is_none()
+                    seen.put(p.id, true)
+                    found.push(y)
+
+                    if first then return found
+            _ ->
+                compound_parts(y) match
+                    Some((_, args)) ->
+                        var i = args.len()
+
+                        while i > 0
+                            i -= 1
+                            work.push(args.at(i))
+                    None -> ()
+
+    found
+end variables_of
+
+// `compare(Order, A, B)`: `Order` is `<`, `=` or `>` as `A` stands to `B` in the standard order.
+private pl_compare(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val given = deref(arg(base, 0))
+
+    given match
+        Var(_) -> ()
+        Atom(id) ->
+            val o = atom_name(id)
+
+            if o != "<" && o != "=" && o != ">" then return Err(domain_error("order", given, s"compare/3's order is <, = or >, and was given $o"))
+        _ -> return Err(type_error("atom", given, s"compare/3's order is an atom, and was given ${described(given)}"))
+
+    val c = compare_terms(arg(base, 1), arg(base, 2))
+
+    unified(given, atom(if c < 0 then "<" elif c > 0 then ">" else "="))

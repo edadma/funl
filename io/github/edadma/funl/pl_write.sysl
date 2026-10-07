@@ -1,0 +1,389 @@
+module io.github.edadma.funl
+
+import sysl.text.{Search, StrBuilder, chars_of, str_builder}
+
+// How Prolog writes a term: operators as the current table declares them, atoms quoted where a
+// reader would otherwise take them for something else, lists and curly terms in their own notation.
+//
+// **What `writeq` writes, the reader reads back as the same term**, under the same operator table.
+// Three things make that true beyond quoting. An operand is bracketed when its priority is above
+// what its position allows, and an atom that is an operator is bracketed wherever it is an operand.
+// A space goes between two tokens that would otherwise run together into one -- `1- -1`, `a= \+b`,
+// `X is 1` -- and nowhere else. And `-(1)` is written as the compound it is, since `-1` and `- 1` read
+// as the number and `-(1)` only as the term.
+//
+// **Variables are written `_G` and their number**, which reads back as a variable.
+
+struct WriteOpts
+    quoted: bool
+    ignore_ops: bool
+
+    // `'$VAR'(N)` as the variable name it stands for: `A`, ..., `Z`, `A1`, ...
+    numbervars: bool
+
+    // How deep into a term to write before `...`, and how many elements of a list; 0 for no limit.
+    max_depth: long
+
+write_opts(quoted: bool, ignore_ops: bool, numbervars: bool) -> WriteOpts = WriteOpts(quoted, ignore_ops, numbervars, 0)
+
+private struct Writer
+    out: StrBuilder
+    o: WriteOpts
+
+    // The last byte written, which decides whether the next token needs a space before it.
+    last: u8
+
+// However deep a term is, the writer stops here: a term may be cyclic, unification having no occurs
+// check.
+private const Deepest: long = 1000
+
+// `x` as text.
+term_text(x: Value, o: WriteOpts) -> string
+    var w = Writer(str_builder(), o, 0)
+
+    put_term(&w, x, 1200, 0)
+    w.out.finish()
+
+// A writer that will write into the middle of another's output, inheriting its options.
+private sub_writer(w: *Writer) -> Writer = Writer(str_builder(), w.o, 0)
+
+private emit(w: *Writer, s: string)
+    val n = s.bytes.len
+
+    if n == 0 then return
+
+    if glues(w.last, s.bytes[0]) then w.out.push(" ")
+
+    w.out.push(s)
+    w.last = s.bytes[n - 1]
+
+// Whether a token ending in `a` and one beginning with `b` would read as one token, or as a name
+// followed by a quoted atom it does not belong to.
+private glues(a: u8, b: u8) -> bool =
+    (alnum(a) && alnum(b)) || (symbolic(a) && symbolic(b)) || (alnum(a) && b == u8('\'')) || (a == u8('\'') && alnum(b))
+
+private alnum(c: u8) -> bool =
+    (c >= u8('a') && c <= u8('z')) || (c >= u8('A') && c <= u8('Z')) || (c >= u8('0') && c <= u8('9')) || c == u8('_')
+
+private symbolic(c: u8) -> bool =
+    c == u8('+') || c == u8('-') || c == u8('*') || c == u8('/') || c == u8('\\') || c == u8('^') ||
+    c == u8('<') || c == u8('>') || c == u8('=') || c == u8('~') || c == u8(':') || c == u8('.') ||
+    c == u8('?') || c == u8('@') || c == u8('#') || c == u8('&') || c == u8('$')
+
+// Term `x` where a term of priority at most `max` may stand.
+private put_term(w: *Writer, x: Value, max: u16, depth: long)
+    if (w.o.max_depth > 0 && depth >= w.o.max_depth) || depth >= Deepest
+        emit(w, "...")
+        return
+
+    deref(x) match
+        Int(n) -> emit(w, s"$n")
+        Var(p) -> emit(w, s"_G${p.id}")
+        Atom(id) -> put_atom(w, atom_name(id), max < 1200)
+        Nil -> emit(w, "[]")
+        Cons(p) -> put_list(w, p, depth)
+        Str(p) -> emit(w, if w.o.quoted then quoted_text(p.s, "\"") else p.s)
+        Compound(c) -> put_compound(w, c, max, depth)
+        Tuple(t) -> put_canonical(w, "tuple", t.items.view(), depth)
+        Unit -> emit(w, "()")
+        Undefined -> emit(w, "undefined")
+        Bool(b) -> emit(w, if b then "true" else "false")
+        Range(_) -> emit(w, render(x))
+        Func(_) -> emit(w, "<function>")
+        Map(_) -> emit(w, "<map>")
+        MutMap(_) -> emit(w, "<map>")
+        Set(_) -> emit(w, "<set>")
+        MutSet(_) -> emit(w, "<set>")
+        Array(_) -> emit(w, "<array>")
+        Buffer(_) -> emit(w, "<buffer>")
+        Ctor(_) -> emit(w, "<constructor>")
+        CSet(_) -> emit(w, "<cset>")
+end put_term
+
+// An atom. `inner` says it stands inside a term, where `,` and `|` are quoted even by `write`: bare,
+// they would be read as punctuation.
+private put_atom(w: *Writer, name: string, inner: bool)
+    if w.o.quoted || (inner && (name == "," || name == "|"))
+        emit(w, atom_token(name))
+    else
+        emit(w, name)
+
+// An atom as `writeq` writes it: bare when the reader reads it back as that atom, and otherwise
+// quoted.
+atom_token(name: string) -> string = if bare_atom(name) then name else quoted_text(name, "'")
+
+private bare_atom(name: string) -> bool
+    val b = name.bytes
+
+    if b.len == 0 then return false
+    if name == "{}" || name == "!" || name == ";" then return true
+    if name == "[]" || name == "," || name == "|" then return false
+
+    if b[0] >= u8('a') && b[0] <= u8('z')
+        for c in b
+            if !alnum(c) then return false
+
+        return true
+
+    if name == "." || (b.len >= 2 && b[0] == u8('/') && b[1] == u8('*')) then return false
+
+    for c in b
+        if !symbolic(c) then return false
+
+    true
+
+// Text between quotes `q`, with the quote, the backslash and every control character escaped.
+private quoted_text(s: string, q: string) -> string
+    var out = str_builder()
+    val qu = u32(q.bytes[0])
+
+    out.push(q)
+
+    for c in chars_of(s.bytes)
+        val u = u32(c)
+
+        if u == qu || u == 92
+            out.push("\\")
+            out.push_char(c)
+        elif u == 10
+            out.push("\\n")
+        elif u == 9
+            out.push("\\t")
+        elif u < 32 || u == 127
+            out.push(s"\\x${hex(u)}\\")
+        else
+            out.push_char(c)
+
+    out.push(q)
+    out.finish()
+
+private hex(u: u32) -> string
+    val digits = "0123456789abcdef"
+    var n = u
+    var out = ""
+
+    loop
+        out = s"${digits.slice(usize(n % 16), usize(n % 16) + 1)}$out"
+        n = n / 16
+
+        if n == 0 then break
+
+    out
+
+// `[a,b|T]`, at most `max_depth` elements of it.
+private put_list(w: *Writer, first: *ConsObj, depth: long)
+    emit(w, "[")
+    put_term(w, first.head, 999, depth + 1)
+
+    var tail = deref(first.tail)
+    var count: long = 1
+
+    loop
+        tail match
+            Cons(p) ->
+                if (w.o.max_depth > 0 && count >= w.o.max_depth) || count >= Deepest * Deepest
+                    emit(w, "|")
+                    emit(w, "...")
+                    break
+
+                emit(w, ",")
+                put_term(w, p.head, 999, depth + 1)
+                count += 1
+                tail = deref(p.tail)
+            Nil -> break
+            _ ->
+                emit(w, "|")
+                put_term(w, tail, 999, depth + 1)
+                break
+
+    emit(w, "]")
+end put_list
+
+// `name(a1,...,an)`.
+private put_canonical(w: *Writer, name: string, args: []Value, depth: long)
+    put_atom(w, name, true)
+    emit(w, "(")
+
+    for i in 0..<args.len
+        if i > 0 then emit(w, ",")
+
+        put_term(w, args[i], 999, depth + 1)
+
+    emit(w, ")")
+
+// The operator `name` written infix, `,` among them: the table leaves it out because the reader
+// treats it as punctuation. `|` is written canonically, `'|'(a,b)`.
+private infix_for_write(name: string) -> Option[PlOp]
+    if name == "," then return Some(PlOp(1000, Xfy))
+    if name == "|" then return None
+
+    infix_op(name)
+
+private put_compound(w: *Writer, c: *CompoundObj, max: u16, depth: long)
+    val name = atom_name(c.functor)
+    val n = c.args.len()
+
+    if name == "{}" && n == 1
+        emit(w, "{")
+        put_term(w, c.args.at(0), 1200, depth + 1)
+        emit(w, "}")
+        return
+
+    if w.o.numbervars && name == "$VAR" && n == 1
+        deref(c.args.at(0)) match
+            Int(k) ->
+                if k >= 0
+                    emit(w, var_name(k))
+                    return
+            _ -> ()
+
+    if !w.o.ignore_ops
+        if n == 2
+            infix_for_write(name) match
+                Some(o) ->
+                    put_infix(w, name, o, c, max, depth)
+                    return
+                None -> ()
+
+        if n == 1
+            prefix_op(name) match
+                Some(o) ->
+                    put_prefix(w, name, o, c.args.at(0), max, depth)
+                    return
+                None -> ()
+
+            postfix_op(name) match
+                Some(o) ->
+                    open_if(w, o.priority > max)
+                    put_operand(w, c.args.at(0), left_max(o), depth)
+                    put_atom(w, name, false)
+                    close_if(w, o.priority > max)
+                    return
+                None -> ()
+
+    put_canonical(w, name, c.args.view(), depth)
+end put_compound
+
+// `'$VAR'(k)`'s name: a letter, and from the 27th on a number after it.
+private var_name(k: long) -> string
+    val letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(usize(k % 26), usize(k % 26) + 1)
+
+    if k < 26 then letter else s"$letter${k / 26}"
+
+private open_if(w: *Writer, yes: bool)
+    if yes then emit(w, "(")
+
+private close_if(w: *Writer, yes: bool)
+    if yes then emit(w, ")")
+
+private put_infix(w: *Writer, name: string, o: PlOp, c: *CompoundObj, max: u16, depth: long)
+    val bracket = o.priority > max
+    val right_max: u16 = if o.kind == Xfy then o.priority else o.priority - 1
+
+    open_if(w, bracket)
+    put_operand(w, c.args.at(0), left_max(o), depth)
+
+    if name == ","
+        emit(w, ",")
+    else
+        put_atom(w, name, false)
+
+    put_operand(w, c.args.at(1), right_max, depth)
+    close_if(w, bracket)
+
+// A prefix operator applied. `-(1)` and `+(1)` are written as compounds, as is any application whose
+// operand would need brackets: `-(1)` because `- 1` reads as the number, and `-((a,b))` because the
+// brackets after a name are its argument list. An operand that begins with a bracket of its own is
+// set apart by a space.
+private put_prefix(w: *Writer, name: string, o: PlOp, x: Value, max: u16, depth: long)
+    if written_as_compound(name, o, x)
+        put_atom(w, name, true)
+        emit(w, "(")
+        put_term(w, x, 999, depth + 1)
+        emit(w, ")")
+        return
+
+    var sub = sub_writer(w)
+
+    put_operand(&sub, x, operand_max(o), depth)
+
+    val text = sub.out.finish()
+    val bracket = o.priority > max
+
+    open_if(w, bracket)
+    put_atom(w, name, false)
+
+    if text.bytes.len > 0 && text.bytes[0] == u8('(') then w.out.push(" ")
+
+    emit(w, text)
+    close_if(w, bracket)
+
+// Whether prefix operator `name` applied to `x` is written as the compound: a sign before what is
+// written beginning with a digit, or an operand that would need brackets.
+private written_as_compound(name: string, o: PlOp, x: Value) -> bool =
+    ((name == "-" || name == "+") && leads_with_digit(x)) || priority_of(x) > operand_max(o)
+
+// Whether `x`, written as an operand, begins with a digit: a number that is not negative, or an
+// operator term whose leftmost operand does.
+private leads_with_digit(x: Value) -> bool
+    deref(x) match
+        Int(n) -> n >= 0
+        Compound(c) ->
+            if is_op_atom(c.args.at(0)) then return false
+
+            val name = atom_name(c.functor)
+            val n = c.args.len()
+
+            if (n == 2 && infix_for_write(name).is_some()) || (n == 1 && postfix_op(name).is_some() && prefix_op(name).is_none())
+                return leads_with_digit(c.args.at(0))
+
+            false
+        _ -> false
+
+// An operand of an operator: bracketed when its priority is above `max`, or when it is an atom that
+// is itself an operator.
+private put_operand(w: *Writer, x: Value, max: u16, depth: long)
+    if is_op_atom(x)
+        emit(w, "(")
+        put_term(w, x, 999, depth + 1)
+        emit(w, ")")
+        return
+
+    val p = priority_of(x)
+
+    open_if(w, p > max)
+    put_term(w, x, if p > max then 1200 else max, depth + 1)
+    close_if(w, p > max)
+
+private is_op_atom(x: Value) -> bool = deref(x) match
+    Atom(id) -> is_op(atom_name(id)) || atom_name(id) == ","
+    _ -> false
+
+// The priority `x` is written at: its operator's, when it is written as an operator, and 0 otherwise.
+private priority_of(x: Value) -> u16
+    deref(x) match
+        Compound(c) ->
+            val name = atom_name(c.functor)
+            val n = c.args.len()
+
+            if n == 2
+                infix_for_write(name) match
+                    Some(o) -> return o.priority
+                    None -> ()
+
+            if n == 1 && name != "{}"
+                prefix_op(name) match
+                    Some(o) ->
+                        // Written as the compound, as `-(1)` and `-((a,b))` are, it needs no brackets.
+                        if written_as_compound(name, o, c.args.at(0)) then return 0
+
+                        return o.priority
+                    None -> ()
+
+                postfix_op(name) match
+                    Some(o) -> return o.priority
+                    None -> ()
+
+            0
+        _ -> 0
+end priority_of

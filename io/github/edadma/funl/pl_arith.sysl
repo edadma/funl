@@ -1,0 +1,289 @@
+module io.github.edadma.funl
+
+import sysl.math.{checked_add, checked_sub}
+
+// Prolog arithmetic: `is/2`, the comparisons, `succ/2`, `plus/3` and `between/3`.
+//
+// **An expression is a term, evaluated by its functor's Prolog meaning**, over the integers FunL's
+// own arithmetic computes with (`arith.sysl`): where the two languages mean the same operation it is
+// that operation, so an overflow or a division that does not come out whole is refused in the same
+// words. What only Prolog has -- `//` rounding toward zero, the bit operations, `min`, `gcd` -- is
+// here. A float is refused by the reader, so no evaluable answers one.
+
+install_prolog_arith(v: *Vm)
+    register_generator(v, "is/2", 2, pl_is)
+    register_generator(v, "=:=/2", 2, (b, n, c) -> compared(b, "=:=", (o) -> o == 0))
+    register_generator(v, "=\\=/2", 2, (b, n, c) -> compared(b, "=\\=", (o) -> o != 0))
+    register_generator(v, "</2", 2, (b, n, c) -> compared(b, "<", (o) -> o < 0))
+    register_generator(v, ">/2", 2, (b, n, c) -> compared(b, ">", (o) -> o > 0))
+    register_generator(v, "=</2", 2, (b, n, c) -> compared(b, "=<", (o) -> o <= 0))
+    register_generator(v, ">=/2", 2, (b, n, c) -> compared(b, ">=", (o) -> o >= 0))
+    register_generator(v, "succ/2", 2, pl_succ)
+    register_generator(v, "plus/3", 3, pl_plus)
+    register_generator(v, "between/3", 3, pl_between)
+
+// The value of expression `x`.
+//
+// **Recursive over the expression's depth**, as the reader nests no deeper than it reads; a program
+// that builds an expression thousands of levels deep at run time is the one way past that.
+eval(x: Value) -> Result[long, Fault]
+    deref(x) match
+        Int(n) -> Ok(n)
+        Var(_) -> Err(instantiation_error("instantiation error: an arithmetic expression holds an unbound variable"))
+        Atom(id) -> Err(not_evaluable(atom_name(id), 0))
+        Nil -> Err(not_evaluable("[]", 0))
+        Cons(_) -> Err(not_evaluable("[|]", 2))
+        Compound(c) ->
+            val name = atom_name(c.functor)
+
+            c.args.len() match
+                1 -> unary(name, eval(c.args.at(0))?)
+                2 ->
+                    val a = eval(c.args.at(0))?
+                    val b = eval(c.args.at(1))?
+
+                    binary(name, a, b)
+                n -> Err(not_evaluable(name, n))
+        y -> Err(type_error("evaluable", y, s"${described(y)} is not an arithmetic expression"))
+
+// `Name/Arity` names no arithmetic function: `type_error(evaluable, Name/Arity)`.
+private not_evaluable(name: string, arity: usize) -> Fault
+    val culprit = indicator(name, arity) match
+        Ok(x) -> x
+        Err(e) -> return Broken(e)
+
+    type_error("evaluable", culprit, s"$name/$arity is not an arithmetic function")
+
+private unary(name: string, a: long) -> Result[long, Fault]
+    if name == "-" then return int_of(negate(Int(a))?)
+    if name == "+" then return Ok(a)
+
+    if name == "abs"
+        if a >= 0 then return Ok(a)
+
+        return int_of(negate(Int(a))?)
+
+    if name == "sign" then return Ok(if a > 0 then 1 elif a < 0 then -1 else 0)
+    if name == "\\" then return Ok(~a)
+
+    // A float would be rounded; an integer already is one.
+    if name == "integer" || name == "truncate" || name == "round" || name == "ceiling" || name == "floor" then return Ok(a)
+
+    if name == "msb"
+        if a < 1 then return Err(type_error("not_less_than_one", Int(a), s"msb wants a positive integer, and was given $a"))
+
+        var bit: long = 0
+
+        while (a >> (bit + 1)) > 0
+            bit += 1
+
+        return Ok(bit)
+
+    Err(not_evaluable(name, 1))
+end unary
+
+private binary(name: string, a: long, b: long) -> Result[long, Fault]
+    if name == "+" then return via(Add, a, b)
+    if name == "-" then return via(Sub, a, b)
+    if name == "*" then return via(Mul, a, b)
+    if name == "/" then return via(Quo, a, b)
+    if name == "mod" then return via(Modulo, a, b)
+
+    if name == "rem"
+        divisor(name, a, b)?
+        return via(Rem, a, b)
+
+    if name == "div"
+        divisor(name, a, b)?
+        return via(IntQuo, a, b)
+
+    if name == "//"
+        divisor(name, a, b)?
+
+        if a == -9223372036854775807 - 1 && b == -1 then return Err(too_big(s"$a // $b"))
+
+        return Ok(a / b)
+
+    if name == "min" then return Ok(if b < a then b else a)
+    if name == "max" then return Ok(if a < b then b else a)
+    if name == "gcd" then return gcd_of(a, b)
+    if name == "/\\" then return Ok(a & b)
+    if name == "\\/" then return Ok(a | b)
+    if name == "xor" then return Ok(a ^ b)
+    if name == ">>" then return shifted(a, -b, s"$a >> $b")
+    if name == "<<" then return shifted(a, b, s"$a << $b")
+    if name == "^" || name == "**" then return power_of_ints(a, b)
+
+    Err(not_evaluable(name, 2))
+end binary
+
+// `a o b` as FunL computes it, which answers an integer for every operation asked of it here.
+private via(o: BinOp, a: long, b: long) -> Result[long, Fault]
+    arith(o, Int(a), Int(b))? match
+        Some(x) -> int_of(x)
+        None -> Err(Broken(s"'${op_text(o)}' answered no value for $a and $b"))
+
+private int_of(x: Value) -> Result[long, Fault] = x match
+    Int(n) -> Ok(n)
+    _ -> Err(Broken(s"integer arithmetic answered ${described(x)}"))
+
+private divisor(name: string, a: long, b: long) -> Result[unit, Fault]
+    if b == 0 then return Err(evaluation_error("zero_divisor", s"$a $name 0 divides by zero"))
+
+    Ok(())
+
+private too_big(what: string) -> Fault =
+    evaluation_error("int_overflow", s"$what does not fit in 64 bits, and only integers are built")
+
+// `a` shifted left by `by` places, right when `by` is negative -- the way SWI-Prolog reads a
+// negative shift. A left shift that loses a bit overflows; a right shift rounds toward minus
+// infinity, as it does in every Prolog.
+private shifted(a: long, by: long, what: string) -> Result[long, Fault]
+    if by <= 0
+        val n = if by < -63 then 63 else -by
+
+        return Ok(a >> n)
+
+    if a == 0 then return Ok(0)
+    if by > 63 then return Err(too_big(what))
+
+    val r = a << by
+
+    if (r >> by) != a then return Err(too_big(what))
+
+    Ok(r)
+
+// The greatest common divisor, worked in magnitudes, which reach one past the largest `long`: the
+// gcd of the least `long` with itself or with 0 is that magnitude, and does not fit.
+private gcd_of(a: long, b: long) -> Result[long, Fault]
+    var x = magnitude(a)
+    var y = magnitude(b)
+
+    while y != 0
+        val t = x % y
+
+        x = y
+        y = t
+
+    if x > 9223372036854775807 then return Err(too_big(s"gcd($a, $b)"))
+
+    Ok(long(x))
+
+private magnitude(n: long) -> ulong = if n < 0 then ulong(-(n + 1)) + 1 else ulong(n)
+
+// `a ^ b` over integers. A negative exponent has an integer answer only for a base of 1 or -1, and
+// none at all for 0.
+private power_of_ints(a: long, b: long) -> Result[long, Fault]
+    if b < 0
+        if a == 1 then return Ok(1)
+        if a == -1 then return Ok(if b % 2 == 0 then 1 else -1)
+        if a == 0 then return Err(evaluation_error("zero_divisor", s"0 ^ $b divides by zero"))
+
+    via(Pow, a, b)
+
+// `X is E`.
+private pl_is(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val n = eval(arg(base, 1))?
+
+    Ok(if unify(arg(base, 0), Int(n)) then Gives(Unit) else Refuses)
+
+// A comparison of two expressions' values, succeeding when `holds` says the order is right.
+private compared(base: usize, name: string, holds: int -> bool) -> Result[Answer, Fault]
+    val a = eval(arg(base, 0))?
+    val b = eval(arg(base, 1))?
+    val o: int = if a < b then -1 elif a > b then 1 else 0
+
+    Ok(if holds(o) then Gives(Unit) else Refuses)
+
+// An argument that must be an integer, or unbound when `open`: the integer, or `None` for unbound.
+private int_arg(x: Value, who: string, open: bool) -> Result[Option[long], Fault]
+    deref(x) match
+        Int(n) -> Ok(Some(n))
+        Var(_) ->
+            if open then return Ok(None)
+
+            Err(instantiation_error(s"instantiation error: $who was given an unbound variable where it wants an integer"))
+        y -> Err(type_error("integer", y, s"$who wants an integer, and was given ${described(y)}"))
+
+private natural(n: long, who: string) -> Result[unit, Fault]
+    if n < 0 then return Err(type_error("not_less_than_zero", Int(n), s"$who wants a natural number, and was given $n"))
+
+    Ok(())
+
+// `succ(X, Y)`: `Y` is `X + 1`, both natural numbers.
+private pl_succ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = int_arg(arg(base, 0), "succ/2", true)?
+    val y = int_arg(arg(base, 1), "succ/2", true)?
+
+    x match
+        Some(n) ->
+            natural(n, "succ/2")?
+            y match
+                Some(m) -> natural(m, "succ/2")?
+                None -> ()
+
+            val m = checked_add(n, 1) match
+                Some(m) -> m
+                None -> return Err(too_big(s"succ($n)"))
+
+            Ok(if unify(arg(base, 1), Int(m)) then Gives(Unit) else Refuses)
+        None -> y match
+            Some(m) ->
+                natural(m, "succ/2")?
+
+                if m == 0 then return Ok(Refuses)
+
+                Ok(if unify(arg(base, 0), Int(m - 1)) then Gives(Unit) else Refuses)
+            None -> Err(instantiation_error("instantiation error: succ/2 wants one of its arguments bound"))
+
+// `plus(X, Y, Z)`: `Z` is `X + Y`, any two of the three given.
+private pl_plus(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = int_arg(arg(base, 0), "plus/3", true)?
+    val y = int_arg(arg(base, 1), "plus/3", true)?
+    val z = int_arg(arg(base, 2), "plus/3", true)?
+
+    val (slot, r) = x match
+        Some(a) -> y match
+            Some(b) -> (2, checked_add(a, b))
+            None -> z match
+                Some(c) -> (1, checked_sub(c, a))
+                None -> return Err(plus_unbound())
+        None -> y match
+            Some(b) -> z match
+                Some(c) -> (0, checked_sub(c, b))
+                None -> return Err(plus_unbound())
+            None -> return Err(plus_unbound())
+
+    r match
+        Some(n) -> Ok(if unify(arg(base, usize(slot)), Int(n)) then Gives(Unit) else Refuses)
+        None -> Err(too_big("plus/3's answer"))
+
+private plus_unbound() -> Fault = instantiation_error("instantiation error: plus/3 wants two of its arguments bound")
+
+// `between(L, H, X)`: `X` each integer from `L` to `H` in turn, `H` being `inf` or `infinite` for no
+// end; with `X` given, whether it lies between them.
+private pl_between(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val low = int_arg(arg(base, 0), "between/3", false)?.unwrap()
+
+    val high: long = deref(arg(base, 1)) match
+        Atom(id) ->
+            val n = atom_name(id)
+
+            if n != "inf" && n != "infinite" then return Err(type_error("integer", Atom(id), s"between/3 wants an integer or inf as its upper bound, and was given $n"))
+
+            9223372036854775807
+        h -> int_arg(h, "between/3", false)?.unwrap()
+
+    int_arg(arg(base, 2), "between/3", true)? match
+        Some(x) -> return Ok(if low <= x && x <= high then Gives(Unit) else Refuses)
+        None -> ()
+
+    val k = checked_add(low, cursor) match
+        Some(k) -> k
+        None -> return Ok(Refuses)
+
+    if k > high then return Ok(Refuses)
+
+    unify_on_answer(arg(base, 2), Int(k))
+    Ok(if k == high then Gives(Unit) else GivesMore(Unit, cursor + 1))
+end pl_between

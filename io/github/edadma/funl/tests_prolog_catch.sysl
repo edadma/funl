@@ -36,7 +36,7 @@ A_BALL_PASSES_A_CATCHER_IT_DOES_NOT_UNIFY_WITH_TO_THE_NEXT_ONE_OUT()
 
 @test
 A_CATCHER_THAT_UNIFIES_PART_OF_THE_BALL_AND_FAILS_LEAVES_THE_BALL_AS_IT_WAS_THROWN()
-    val text = ":- catch(catch(throw(g(X, b)), g(a, c), true), g(Y, Z), (write(Y-Z), nl)).\n"
+    val text = ":- catch(catch(throw(g(X, b)), g(a, c), true), g(Y, Z), (write_canonical(Y-Z), nl)).\n"
 
     assert_eq(ran_prolog(text).index_of("-(_G").is_some(), true)
 
@@ -90,30 +90,31 @@ THROWING_AN_UNBOUND_VARIABLE_IS_AN_INSTANTIATION_ERROR()
 
 @test
 CALLING_A_PREDICATE_NOTHING_DEFINES_IS_AN_EXISTENCE_ERROR()
-    assert_eq(formal("", "nope(1)"), "existence_error(procedure, /(nope, 1))\nsucceeded")
-    assert_eq(formal("", "call(nope, 1, 2)"), "existence_error(procedure, /(nope, 2))\nsucceeded")
-    assert_eq(formal("", "G = nope, call(G)"), "existence_error(procedure, /(nope, 0))\nsucceeded")
+    assert_eq(formal("", "nope(1)"), "existence_error(procedure,nope/1)\nsucceeded")
+    assert_eq(formal("", "call(nope, 1, 2)"), "existence_error(procedure,nope/2)\nsucceeded")
+    assert_eq(formal("", "G = nope, call(G)"), "existence_error(procedure,nope/0)\nsucceeded")
 
 @test
 CALL_OF_AN_UNBOUND_GOAL_OR_A_NUMBER_IS_AN_INSTANTIATION_OR_A_TYPE_ERROR()
     assert_eq(formal("", "call(_)"), "instantiation_error\nsucceeded")
-    assert_eq(formal("", "call(1)"), "type_error(callable, 1)\nsucceeded")
+    assert_eq(formal("", "call(1)"), "type_error(callable,1)\nsucceeded")
 
     // The catch's own goal is called inside it, so the catch catches what calling it raises.
     assert_eq(ran_prolog(":- catch(_, error(E, _), (write(E), nl)).\n"), "instantiation_error\nsucceeded")
 
 @test
 OP_RUN_AS_A_GOAL_RAISES_THE_ISO_ERRORS()
-    assert_eq(formal("", "op(1201, xfx, foo)"), "domain_error(operator_priority, 1201)\nsucceeded")
-    assert_eq(formal("", "op(700, abc, foo)"), "domain_error(operator_specifier, abc)\nsucceeded")
-    assert_eq(formal("", "op(700, xfx, ',')"), "permission_error(modify, operator, ,)\nsucceeded")
-    assert_eq(formal("", "op(high, xfx, foo)"), "type_error(integer, high)\nsucceeded")
+    assert_eq(formal("", "op(1201, xfx, foo)"), "domain_error(operator_priority,1201)\nsucceeded")
+    assert_eq(formal("", "op(700, abc, foo)"), "domain_error(operator_specifier,abc)\nsucceeded")
+    assert_eq(formal("", "op(700, xfx, ',')"), "permission_error(modify,operator,',')\nsucceeded")
+    assert_eq(formal("", "op(high, xfx, foo)"), "type_error(integer,high)\nsucceeded")
     assert_eq(formal("", "op(_, xfx, foo)"), "instantiation_error\nsucceeded")
 
 @test
 CONSULTING_A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR()
-    assert_eq(formal("", "consult(\"tests/prolog/missing.pl\")"),
-        "existence_error(source_sink, \"tests/prolog/missing.pl\")\nsucceeded")
+    // `writeq`, so the file name is seen to be the string it was given.
+    assert_eq(ran_prolog(":- catch(consult(\"tests/prolog/missing.pl\"), error(F, _), true), writeq(F), nl.\n"),
+        "existence_error(source_sink,\"tests/prolog/missing.pl\")\nsucceeded")
 
 @test
 AN_ERROR_NOTHING_CATCHES_PRINTS_ITS_MESSAGE()

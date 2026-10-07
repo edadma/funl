@@ -1,6 +1,6 @@
 module io.github.edadma.funl
 
-import sysl.buf.Buf
+import sysl.buf.{Buf, buf}
 import sysl.text.from_utf8_unchecked
 
 // The instruction loop.
@@ -581,19 +581,40 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
         _ -> return Err(Broken(s"'${n.name}' was run without a cursor above its arguments"))
 
     val base = top - 1 - argc
+    val answer = go(base, argc, cursor)?
 
-    go(base, argc, cursor)? match
+    // The unifications the builtin asked for with `unify_on_answer`, taken off the stack before a
+    // choice point could save them.
+    var pairs: Buf[Value] = buf()
+
+    for i in top..<v.stack.len()
+        pairs.push(v.stack.at(i))
+
+    v.stack.truncate(top)
+
+    answer match
         Gives(x) ->
             v.stack.truncate(base)
             v.stack.push(x)
-            Ok(Next)
+            Ok(if unified_pairs(pairs) then Next else Fails)
         Refuses -> Ok(Fails)
         GivesMore(x, next) ->
             v.stack.set(top - 1, Int(next))
             push_choice(v, v.ip - 1)
             v.stack.truncate(base)
             v.stack.push(x)
-            Ok(Next)
+            Ok(if unified_pairs(pairs) then Next else Fails)
+
+// Whether every pair a generating builtin asked to unify does.
+private unified_pairs(pairs: Buf[Value]) -> bool
+    var i: usize = 0
+
+    while i + 1 < pairs.len()
+        if !unify(pairs.at(i), pairs.at(i + 1)) then return false
+
+        i += 2
+
+    true
 
 // `ScanBegin`: pop the string to scan; save the scan state it replaces on `scans`; begin at position 1
 // of the string.

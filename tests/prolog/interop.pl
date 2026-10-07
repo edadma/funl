@@ -16,4 +16,7 @@ first(X) :- either(X), !.
 walk([], done).
 walk([_|T], R) :- walk(T, R).
 
+% Writes whatever FunL hands it, for tests_prolog_write.sysl to see how a FunL value is written.
+show_term(X) :- writeq(X), nl.
+
 :- write(loaded), nl.

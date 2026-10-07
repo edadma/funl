@@ -8,9 +8,7 @@ module io.github.edadma.funl
 // the clause (`pl_compile.sysl`).
 
 install_prolog(v: *Vm)
-    register(v, "write/1", 1, pl_write)
-    register(v, "writeln/1", 1, pl_writeln)
-    register(v, "nl/0", 0, pl_nl)
+    install_prolog_output(v)
     register(v, "op/3", 3, pl_op)
     register_generator(v, "==/2", 2, (b, n, c) -> ordered_if(b, (o) -> o == 0))
     register_generator(v, "\\==/2", 2, (b, n, c) -> ordered_if(b, (o) -> o != 0))
@@ -18,28 +16,12 @@ install_prolog(v: *Vm)
     register_generator(v, "@>/2", 2, (b, n, c) -> ordered_if(b, (o) -> o > 0))
     register_generator(v, "@=</2", 2, (b, n, c) -> ordered_if(b, (o) -> o <= 0))
     register_generator(v, "@>=/2", 2, (b, n, c) -> ordered_if(b, (o) -> o >= 0))
+    install_prolog_arith(v)
+    install_prolog_terms(v)
 
     // FunL's `consult(file)`, which the compiler turns into the `Consult` instruction: registered so
     // the name resolves and its arity is checked, and never run as a builtin.
     register(v, "consult", 1, (b, n) -> Err(Broken("consult is run by its own instruction")))
-
-// `write/1`: the term, continuing the line `nl/0` will end.
-private pl_write(base: usize, argc: usize) -> Result[Value, Fault]
-    val v = current()
-
-    v.line = v.line + render(arg(base, 0))
-    Ok(Unit)
-
-private pl_nl(base: usize, argc: usize) -> Result[Value, Fault]
-    val v = current()
-
-    v.output.push(v.line)
-    v.line = ""
-    Ok(Unit)
-
-private pl_writeln(base: usize, argc: usize) -> Result[Value, Fault]
-    pl_write(base, argc)?
-    pl_nl(base, 0)
 
 // `op(P, T, Name)` run as a goal: the table changes for whatever is read after it.
 private pl_op(base: usize, argc: usize) -> Result[Value, Fault]

@@ -3,20 +3,20 @@ module io.github.edadma.funl
 
 // The Prolog reader: operators from the run-time table, priorities and associativity, numbers,
 // quoted atoms and their escapes, comments, and where a malformed clause is refused. A term is shown
-// by `write/1`, which prints every operator term in canonical form, so the tree the reader built is
-// what the test reads.
+// by `write_canonical/1`, which writes every operator term in canonical form and quotes every atom
+// that needs it, so the tree the reader built is what the test reads.
 
-// `t :- X = <term>, write(X), nl.` run for its one line.
+// `:- X = <term>, write_canonical(X), nl.` run for its one line.
 private shown(term_text: string) -> string =
-    ran_prolog(s":- X = ($term_text), write(X), nl.\n")
+    ran_prolog(s":- X = ($term_text), write_canonical(X), nl.\n")
 
 @test
 AN_OP_DIRECTIVE_TAKES_EFFECT_FOR_THE_CLAUSES_AFTER_IT()
     val text = ":- op(700, xfx, ===>).\n" +
         "r(a ===> b).\n" +
-        ":- r(X), write(X), nl.\n"
+        ":- r(X), write_canonical(X), nl.\n"
 
-    assert_eq(ran_prolog(text), "===>(a, b)\nsucceeded")
+    assert_eq(ran_prolog(text), "===>(a,b)\nsucceeded")
 
 @test
 A_NAME_USED_AS_AN_OPERATOR_BEFORE_ITS_OP_DIRECTIVE_IS_REFUSED_AND_AFTER_IT_IS_READ()
@@ -35,7 +35,7 @@ AN_OP_DIRECTIVE_WITH_PRIORITY_ZERO_REMOVES_THE_OPERATOR()
 
 @test
 AN_OPERATOR_LIST_DEFINES_EACH_NAME()
-    assert_eq(ran_prolog(":- op(200, xfy, [&&, <+>]).\n:- X = (a && b <+> c), write(X), nl.\n"), "&&(a, <+>(b, c))\nsucceeded")
+    assert_eq(ran_prolog(":- op(200, xfy, [&&, <+>]).\n:- X = (a && b <+> c), write_canonical(X), nl.\n"), "&&(a,<+>(b,c))\nsucceeded")
 
 @test
 A_BAD_OP_DIRECTIVE_IS_REFUSED_WITH_THE_REASON()
@@ -46,20 +46,20 @@ A_BAD_OP_DIRECTIVE_IS_REFUSED_WITH_THE_REASON()
 
 @test
 A_TERM_IN_CANONICAL_FORM_NEEDS_NO_OPERATOR_TABLE()
-    assert_eq(shown("+(1, 2)"), "+(1, 2)\nsucceeded")
-    assert_eq(shown("'==='(a, b)"), "===(a, b)\nsucceeded")
+    assert_eq(shown("+(1, 2)"), "+(1,2)\nsucceeded")
+    assert_eq(shown("'==='(a, b)"), "===(a,b)\nsucceeded")
 
 @test
 PRIORITIES_DECIDE_WHICH_OPERATOR_IS_THE_ROOT()
-    assert_eq(shown("1 + 2 * 3 - 4"), "-(+(1, *(2, 3)), 4)\nsucceeded")
-    assert_eq(shown("(1 + 2) * 3"), "*(+(1, 2), 3)\nsucceeded")
-    assert_eq(shown("a :- b, c ; d -> e"), ":-(a, ;(,(b, c), ->(d, e)))\nsucceeded")
+    assert_eq(shown("1 + 2 * 3 - 4"), "-(+(1,*(2,3)),4)\nsucceeded")
+    assert_eq(shown("(1 + 2) * 3"), "*(+(1,2),3)\nsucceeded")
+    assert_eq(shown("a :- b, c ; d -> e"), ":-(a,;(','(b,c),->(d,e)))\nsucceeded")
 
 @test
 YFX_GROUPS_TO_THE_LEFT_AND_XFY_TO_THE_RIGHT()
-    assert_eq(shown("1 - 2 - 3"), "-(-(1, 2), 3)\nsucceeded")
-    assert_eq(shown("2 ^ 3 ^ 4"), "^(2, ^(3, 4))\nsucceeded")
-    assert_eq(shown("a , b , c"), ",(a, ,(b, c))\nsucceeded")
+    assert_eq(shown("1 - 2 - 3"), "-(-(1,2),3)\nsucceeded")
+    assert_eq(shown("2 ^ 3 ^ 4"), "^(2,^(3,4))\nsucceeded")
+    assert_eq(shown("a , b , c"), "','(a,','(b,c))\nsucceeded")
 
 @test
 XFX_REFUSES_AN_OPERAND_OF_ITS_OWN_PRIORITY()
@@ -72,35 +72,36 @@ A_MINUS_TOUCHING_DIGITS_IS_A_NEGATIVE_NUMBER_AND_A_SEPARATED_ONE_IS_AN_OPERATOR(
     assert_eq(shown("- 1"), "-(1)\nsucceeded")
     assert_eq(shown("-(1)"), "-(1)\nsucceeded")
     assert_eq(shown("- (1)"), "-(1)\nsucceeded")
-    assert_eq(shown("1 - -1"), "-(1, -1)\nsucceeded")
-    assert_eq(shown("1-1"), "-(1, 1)\nsucceeded")
+    assert_eq(shown("1 - -1"), "-(1,-1)\nsucceeded")
+    assert_eq(shown("1-1"), "-(1,1)\nsucceeded")
     assert_eq(shown("-a"), "-(a)\nsucceeded")
     assert_eq(shown("- - a"), "-(-(a))\nsucceeded")
 
 @test
 A_PREFIX_OPERATOR_WITH_NOTHING_TO_APPLY_TO_IS_AN_ATOM()
-    assert_eq(shown("[-, +]"), "[-, +]\nsucceeded")
+    assert_eq(shown("[-, +]"), "[-,+]\nsucceeded")
     assert_eq(shown("f(-)"), "f(-)\nsucceeded")
-    assert_eq(shown("- = x"), "=(-, x)\nsucceeded")
+    assert_eq(shown("- = x"), "=(-,x)\nsucceeded")
 
 @test
 A_PREFIX_OPERATOR_BINDS_ITS_OPERAND_AT_ITS_OWN_PRIORITY()
-    assert_eq(shown("\\+ a, b"), ",(\\+(a), b)\nsucceeded")
-    assert_eq(shown("- 2 ^ 3"), "-(^(2, 3))\nsucceeded")
-    assert_eq(shown("- 2 * 3"), "*(-(2), 3)\nsucceeded")
+    assert_eq(shown("\\+ a, b"), "','(\\+(a),b)\nsucceeded")
+    assert_eq(shown("- 2 ^ 3"), "-(^(2,3))\nsucceeded")
+    assert_eq(shown("- 2 * 3"), "*(-(2),3)\nsucceeded")
 
 @test
 LISTS_AND_CURLY_TERMS_READ_AS_THEIR_TERMS()
-    assert_eq(shown("[1, 2 | [3]]"), "[1, 2, 3]\nsucceeded")
-    assert_eq(shown("[a, b]"), "[a, b]\nsucceeded")
+    assert_eq(shown("[1, 2 | [3]]"), "[1,2,3]\nsucceeded")
+    assert_eq(shown("[a, b]"), "[a,b]\nsucceeded")
+    assert_eq(shown("[a | b]"), "[a|b]\nsucceeded")
     assert_eq(shown("[]"), "[]\nsucceeded")
-    assert_eq(shown("{a, b}"), "{}(,(a, b))\nsucceeded")
-    assert_eq(shown("'[]'"), "[]\nsucceeded")
+    assert_eq(shown("{a, b}"), "{','(a,b)}\nsucceeded")
+    assert_eq(shown("'[]'"), "'[]'\nsucceeded")
 
 @test
 NUMBERS_IN_EVERY_BASE_AND_CHARACTER_CODES_READ_AS_INTEGERS()
-    assert_eq(shown("[0x1F, 0o17, 0b101, 1_000]"), "[31, 15, 5, 1000]\nsucceeded")
-    assert_eq(shown("[0'a, 0' , 0'\\n, 0''', 0'\\\\]"), "[97, 32, 10, 39, 92]\nsucceeded")
+    assert_eq(shown("[0x1F, 0o17, 0b101, 1_000]"), "[31,15,5,1000]\nsucceeded")
+    assert_eq(shown("[0'a, 0' , 0'\\n, 0''', 0'\\\\]"), "[97,32,10,39,92]\nsucceeded")
 
 @test
 A_FLOAT_IS_REFUSED_WHERE_IT_IS_WRITTEN()
@@ -111,13 +112,13 @@ A_FLOAT_IS_REFUSED_WHERE_IT_IS_WRITTEN()
 
 @test
 QUOTED_ATOMS_DOUBLE_THEIR_QUOTE_AND_DECODE_ISO_ESCAPES()
-    assert_eq(shown("'it''s'"), "it's\nsucceeded")
-    assert_eq(shown("'\\x41\\\\x42\\'"), "AB\nsucceeded")
-    assert_eq(shown("'\\101\\'"), "A\nsucceeded")
-    assert_eq(shown("'tab\\there'"), "tab\there\nsucceeded")
-    assert_eq(shown("'back\\\\slash'"), "back\\slash\nsucceeded")
+    assert_eq(shown("'it''s'"), "'it\\'s'\nsucceeded")
+    assert_eq(shown("'\\x41\\\\x42\\'"), "'AB'\nsucceeded")
+    assert_eq(shown("'\\101\\'"), "'A'\nsucceeded")
+    assert_eq(shown("'tab\\there'"), "'tab\\there'\nsucceeded")
+    assert_eq(shown("'back\\\\slash'"), "'back\\\\slash'\nsucceeded")
     assert_eq(shown("'con\\\ntinued'"), "continued\nsucceeded")
-    assert_eq(shown("'a b'"), "a b\nsucceeded")
+    assert_eq(shown("'a b'"), "'a b'\nsucceeded")
 
 @test
 A_HEX_ESCAPE_WITHOUT_ITS_CLOSING_BACKSLASH_IS_REFUSED()
@@ -128,7 +129,7 @@ A_HEX_ESCAPE_WITHOUT_ITS_CLOSING_BACKSLASH_IS_REFUSED()
 @test
 A_DOUBLE_QUOTED_TEXT_IS_A_STRING()
     assert_eq(ran_prolog(":- X = \"a \"\"quoted\"\" word\", write(X), nl.\n"), "a \"quoted\" word\nsucceeded")
-    assert_eq(ran_prolog(":- X = f(\"s\"), write(X), nl.\n"), "f(\"s\")\nsucceeded")
+    assert_eq(ran_prolog(":- X = f(\"s\"), writeq(X), nl.\n"), "f(\"s\")\nsucceeded")
 
 @test
 LINE_AND_BLOCK_COMMENTS_ARE_LAYOUT()

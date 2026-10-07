@@ -44,8 +44,8 @@ A_DIVISION_THAT_IS_NOT_WHOLE_IS_A_REPRESENTATION_ERROR_UNTIL_THERE_ARE_RATIONALS
 
 @test
 AN_OPERAND_OF_THE_WRONG_KIND_IS_A_TYPE_ERROR_NAMING_IT()
-    assert_eq(formal("not_a_number"), "type_error(number, a)\nsucceeded")
-    assert_eq(formal("not_a_collection"), "type_error(collection, 5)\nsucceeded")
+    assert_eq(formal("not_a_number"), "type_error(number,a)\nsucceeded")
+    assert_eq(formal("not_a_collection"), "type_error(collection,5)\nsucceeded")
 
 @test
 AN_UNBOUND_OPERAND_AND_AN_UNBOUND_PATTERN_ARGUMENT_ARE_INSTANTIATION_ERRORS()
@@ -54,12 +54,12 @@ AN_UNBOUND_OPERAND_AND_AN_UNBOUND_PATTERN_ARGUMENT_ARE_INSTANTIATION_ERRORS()
 
 @test
 NO_CLAUSE_MATCHING_IS_AN_EXISTENCE_ERROR_OF_A_MATCHING_CLAUSE()
-    assert_eq(formal("no_clause"), "existence_error(matching_clause, /(head, 1))\nsucceeded")
+    assert_eq(formal("no_clause"), "existence_error(matching_clause,head/1)\nsucceeded")
 
 @test
 AN_INDEX_OUT_OF_RANGE_AND_A_MISSING_KEY_ARE_EXISTENCE_ERRORS()
-    assert_eq(formal("index_out_of_range"), "existence_error(index, 5)\nsucceeded")
-    assert_eq(formal("missing_key"), "existence_error(key, b)\nsucceeded")
+    assert_eq(formal("index_out_of_range"), "existence_error(index,5)\nsucceeded")
+    assert_eq(formal("missing_key"), "existence_error(key,b)\nsucceeded")
 
 @test
 FUNLS_ERROR_RAISES_A_USER_ERROR_HOLDING_ITS_ARGUMENT()
@@ -67,20 +67,21 @@ FUNLS_ERROR_RAISES_A_USER_ERROR_HOLDING_ITS_ARGUMENT()
 
 @test
 STORING_INTO_AN_IMMUTABLE_MAP_IS_A_PERMISSION_ERROR()
-    assert_eq(formal("immutable"), "permission_error(modify, immutable_map, {\"a\": 1})\nsucceeded")
+    // A map is opaque to Prolog, and written as one (`prolog.md` § "The term mapping").
+    assert_eq(formal("immutable"), "permission_error(modify,immutable_map,<map>)\nsucceeded")
 
 @test
 CALLING_A_FUNCTION_WITH_THE_WRONG_NUMBER_OF_ARGUMENTS_IS_AN_EXISTENCE_ERROR_OF_THAT_PROCEDURE()
-    assert_eq(formal("wrong_count"), "existence_error(procedure, /(lambda, 2))\nsucceeded")
+    assert_eq(formal("wrong_count"), "existence_error(procedure,lambda/2)\nsucceeded")
 
 @test
 A_VALUE_OUTSIDE_WHAT_A_BUILTIN_TAKES_IS_A_DOMAIN_ERROR()
-    assert_eq(formal("negative_size"), "domain_error(not_less_than_zero, -1)\nsucceeded")
+    assert_eq(formal("negative_size"), "domain_error(not_less_than_zero,-1)\nsucceeded")
 
 @test
 A_MISSING_FIELD_AND_A_SCAN_THAT_IS_NOT_RUNNING_ARE_EXISTENCE_ERRORS()
-    assert_eq(formal("no_field"), "existence_error(field, z)\nsucceeded")
-    assert_eq(formal("no_scan"), "existence_error(scan, tab)\nsucceeded")
+    assert_eq(formal("no_field"), "existence_error(field,z)\nsucceeded")
+    assert_eq(formal("no_scan"), "existence_error(scan,tab)\nsucceeded")
 
 @test
 A_PROLOG_ERROR_THROWN_INSIDE_A_FUNL_FUNCTION_IS_CAUGHT_BY_THE_PROLOG_CATCH_AROUND_IT()

@@ -86,3 +86,13 @@ native_id(name: string) -> Option[usize]
 
 // Argument `i` of a builtin whose arguments start at `base`.
 arg(base: usize, i: usize) -> Value = current().stack.at(base + i)
+
+// Ask that `a` and `b` be unified once a generating builtin has answered: after the choice point a
+// `GivesMore` pushes, so failure back into the builtin undoes the bindings of the answer it gave.
+// Unifying inside the builtin instead binds before that choice point exists, and the bindings would
+// outlive the answer. The pair waits on the operand stack, above the builtin's cursor.
+unify_on_answer(a: Value, b: Value)
+    val v = current()
+
+    v.stack.push(a)
+    v.stack.push(b)

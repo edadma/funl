@@ -1,0 +1,154 @@
+module io.github.edadma.funl
+@tests
+
+// Prolog arithmetic: `is/2` over every integer evaluable, the comparisons, `succ/2`, `plus/3` and
+// `between/3`, each with the ISO errors it raises.
+
+// What `X is expr` binds `X` to, or the formal term of the error it raises.
+private value_of(expr: string) -> string =
+    ran_prolog(s":- catch((X is $expr, write(X)), error(F, _), write(F)), nl.\n")
+
+// Whether `goal` succeeds, fails, or the formal term of the error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(F, _), write(F)), nl.\n")
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+@test
+IS_EVALUATES_THE_ADDITIVE_AND_MULTIPLICATIVE_OPERATORS()
+    assert_eq(value_of("1 + 2 * 3"), ok("7"))
+    assert_eq(value_of("10 - 4 - 3"), ok("3"))
+    assert_eq(value_of("-(5)"), ok("-5"))
+    assert_eq(value_of("+(5)"), ok("5"))
+    assert_eq(value_of("- (2 + 3)"), ok("-5"))
+    assert_eq(value_of("12 / 4"), ok("3"))
+
+@test
+INTEGER_DIVISION_TRUNCATES_AND_DIV_FLOORS()
+    assert_eq(value_of("7 // 2"), ok("3"))
+    assert_eq(value_of("-7 // 2"), ok("-3"))
+    assert_eq(value_of("-7 div 2"), ok("-4"))
+    assert_eq(value_of("7 div -2"), ok("-4"))
+
+@test
+MOD_TAKES_THE_DIVISORS_SIGN_AND_REM_THE_DIVIDENDS()
+    assert_eq(value_of("-7 mod 2"), ok("1"))
+    assert_eq(value_of("7 mod -2"), ok("-1"))
+    assert_eq(value_of("-7 rem 2"), ok("-1"))
+    assert_eq(value_of("7 rem -2"), ok("1"))
+
+@test
+THE_ONE_ARGUMENT_FUNCTIONS()
+    assert_eq(value_of("abs(-3)"), ok("3"))
+    assert_eq(value_of("sign(-3)"), ok("-1"))
+    assert_eq(value_of("sign(0)"), ok("0"))
+    assert_eq(value_of("sign(9)"), ok("1"))
+    assert_eq(value_of("\\ 5"), ok("-6"))
+    assert_eq(value_of("msb(1000)"), ok("9"))
+    assert_eq(value_of("truncate(4)"), ok("4"))
+    assert_eq(value_of("integer(4)"), ok("4"))
+
+@test
+MIN_MAX_AND_GCD()
+    assert_eq(value_of("min(3, -2)"), ok("-2"))
+    assert_eq(value_of("max(3, -2)"), ok("3"))
+    assert_eq(value_of("gcd(12, -18)"), ok("6"))
+    assert_eq(value_of("gcd(0, 0)"), ok("0"))
+
+@test
+THE_BIT_OPERATIONS()
+    assert_eq(value_of("5 /\\ 3"), ok("1"))
+    assert_eq(value_of("5 \\/ 3"), ok("7"))
+    assert_eq(value_of("5 xor 3"), ok("6"))
+    assert_eq(value_of("1 << 10"), ok("1024"))
+    assert_eq(value_of("1024 >> 3"), ok("128"))
+    assert_eq(value_of("-16 >> 2"), ok("-4"))
+    assert_eq(value_of("-1 >> 100"), ok("-1"))
+
+@test
+POWERS_OF_INTEGERS()
+    assert_eq(value_of("2 ^ 10"), ok("1024"))
+    assert_eq(value_of("2 ** 10"), ok("1024"))
+    assert_eq(value_of("1 ^ -5"), ok("1"))
+    assert_eq(value_of("-1 ^ -3"), ok("-1"))
+    assert_eq(value_of("0 ^ -1"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_of("2 ^ -1"), ok("representation_error(rational)"))
+
+@test
+IS_UNIFIES_ITS_LEFT_SIDE_WITH_THE_VALUE()
+    assert_eq(holds("3 is 1 + 2"), ok("yes"))
+    assert_eq(holds("4 is 1 + 2"), ok("no"))
+    assert_eq(holds("foo is 1 + 2"), ok("no"))
+
+@test
+AN_UNBOUND_VARIABLE_IN_AN_EXPRESSION_IS_AN_INSTANTIATION_ERROR()
+    assert_eq(value_of("1 + _"), ok("instantiation_error"))
+    assert_eq(holds("_ < 3"), ok("instantiation_error"))
+
+@test
+A_NAME_THAT_IS_NOT_AN_ARITHMETIC_FUNCTION_IS_A_TYPE_ERROR_NAMING_IT()
+    assert_eq(value_of("foo + 1"), ok("type_error(evaluable,foo/0)"))
+    assert_eq(value_of("foo(1, 2, 3)"), ok("type_error(evaluable,foo/3)"))
+    assert_eq(value_of("bar(1)"), ok("type_error(evaluable,bar/1)"))
+    assert_eq(value_of("[]"), ok("type_error(evaluable,[]/0)"))
+    assert_eq(value_of("\"seven\""), ok("type_error(evaluable,seven)"))
+
+@test
+DIVISION_BY_ZERO_IS_AN_EVALUATION_ERROR_FOR_EVERY_DIVISION()
+    for op in ["/", "//", "mod", "rem", "div"]
+        assert_eq(value_of(s"7 $op 0"), ok("evaluation_error(zero_divisor)"))
+
+@test
+A_RESULT_PAST_64_BITS_IS_AN_OVERFLOW_AND_A_FRACTION_IS_NOT_REPRESENTED()
+    assert_eq(value_of("9223372036854775807 + 1"), ok("evaluation_error(int_overflow)"))
+    assert_eq(value_of("-9223372036854775807 - 2"), ok("evaluation_error(int_overflow)"))
+    assert_eq(value_of("abs(-9223372036854775807 - 1)"), ok("evaluation_error(int_overflow)"))
+    assert_eq(value_of("1 << 63"), ok("evaluation_error(int_overflow)"))
+    assert_eq(value_of("2 ^ 64"), ok("evaluation_error(int_overflow)"))
+    assert_eq(value_of("(-9223372036854775807 - 1) // -1"), ok("evaluation_error(int_overflow)"))
+    assert_eq(value_of("7 / 2"), ok("representation_error(rational)"))
+
+@test
+THE_COMPARISONS_EVALUATE_BOTH_SIDES()
+    assert_eq(holds("1 + 2 =:= 3"), ok("yes"))
+    assert_eq(holds("1 + 2 =\\= 3"), ok("no"))
+    assert_eq(holds("1 < 2"), ok("yes"))
+    assert_eq(holds("2 < 2"), ok("no"))
+    assert_eq(holds("2 =< 2"), ok("yes"))
+    assert_eq(holds("3 > 2 * 2"), ok("no"))
+    assert_eq(holds("4 >= 2 * 2"), ok("yes"))
+    assert_eq(holds("a < 1"), ok("type_error(evaluable,a/0)"))
+
+@test
+SUCC_COUNTS_UP_AND_DOWN_OVER_THE_NATURAL_NUMBERS()
+    assert_eq(ran_prolog(":- succ(3, Y), succ(Z, Y), write(Y-Z), nl.\n"), ok("4-3"))
+    assert_eq(holds("succ(_, 0)"), ok("no"))
+    assert_eq(holds("succ(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("succ(a, _)"), ok("type_error(integer,a)"))
+    assert_eq(holds("succ(-1, _)"), ok("type_error(not_less_than_zero,-1)"))
+    assert_eq(holds("succ(9223372036854775807, _)"), ok("evaluation_error(int_overflow)"))
+
+@test
+PLUS_SOLVES_FOR_WHICHEVER_ARGUMENT_IS_UNBOUND()
+    assert_eq(ran_prolog(":- plus(1, 2, X), plus(1, Y, 3), plus(Z, 2, 3), write(X/Y/Z), nl.\n"), ok("3/2/1"))
+    assert_eq(holds("plus(1, 2, 4)"), ok("no"))
+    assert_eq(holds("plus(1, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("plus(a, 1, _)"), ok("type_error(integer,a)"))
+
+@test
+BETWEEN_GENERATES_EACH_INTEGER_AND_UNDOES_EACH_BINDING_ON_BACKTRACKING()
+    assert_eq(ran_prolog(":- forall(between(1, 4, X), (write(X), nl)).\n"), ok("1\n2\n3\n4"))
+    assert_eq(holds("between(3, 1, _)"), ok("no"))
+    assert_eq(ran_prolog(":- between(1, inf, X), X > 3, write(X), nl.\n"), ok("4"))
+    assert_eq(ran_prolog(":- forall((between(1, 2, X), between(X, 2, Y)), (write(X-Y), nl)).\n"), ok("1-1\n1-2\n2-2"))
+
+    // Each solution's binding is gone when the next is asked for, so `X = 2` sees a fresh `X`.
+    assert_eq(ran_prolog(":- between(1, 3, X), X = 2, write(X), nl.\n"), ok("2"))
+    assert_eq(holds("between(1, 3, 2)"), ok("yes"))
+    assert_eq(holds("between(1, 3, 5)"), ok("no"))
+
+@test
+BETWEEN_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("between(_, 3, _)"), ok("instantiation_error"))
+    assert_eq(holds("between(1, foo, _)"), ok("type_error(integer,foo)"))
+    assert_eq(holds("between(1, 3, a)"), ok("type_error(integer,a)"))

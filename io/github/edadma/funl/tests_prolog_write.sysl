@@ -1,0 +1,174 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.text.Search
+
+// Prolog's output: `write/1`, `print/1`, `writeq/1` and `write_canonical/1` over the operator table,
+// `write_term/2` and its options, `nl/0`, `tab/1` and `put_char/1`; and the round trip, every tricky
+// term `writeq` writes read back by the reader as the term it was.
+
+// What `how(<term>)` writes.
+private written(how: string, term_text: string) -> string =
+    ran_prolog(s":- X = ($term_text), $how(X), nl.\n")
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Whether `goal` succeeds, or the formal term of the error it raises.
+private raised(goal: string) -> string =
+    ran_prolog(s":- catch(($goal, F = none), error(F, _), true), nl, write(F), nl.\n")
+
+// Terms `writeq` has to get right, each as read and as written.
+private tricky() -> Buf[(string, string)]
+    var t: Buf[(string, string)] = buf()
+
+    t.push(("1 + 2", "1+2"))
+    t.push(("a :- b", "a:-b"))
+    t.push(("-(1)", "-(1)"))
+    t.push(("- 1", "-(1)"))
+    t.push(("- (1)", "-(1)"))
+    t.push(("-(-1)", "- -1"))
+    t.push(("-(-(1))", "- -(1)"))
+    t.push(("1 - (-1)", "1- -1"))
+    t.push(("a - -1", "a- -1"))
+    t.push(("1 - (-(1))", "1- -(1)"))
+    t.push(("-a", "-a"))
+    t.push(("- - a", "- -a"))
+    t.push(("- (1 + 2)", "-(1+2)"))
+    t.push(("- (1 ^ 2)", "-(1^2)"))
+    t.push(("(- a) ^ 2", "(-a)^2"))
+    t.push(("-(2) ^ 2", "-(2)^2"))
+    t.push(("1 - (2 - 3)", "1-(2-3)"))
+    t.push(("(1 - 2) - 3", "1-2-3"))
+    t.push(("2 ^ 3 ^ 4", "2^3^4"))
+    t.push(("(2 ^ 3) ^ 4", "(2^3)^4"))
+    t.push(("1 * (2 + 3)", "1*(2+3)"))
+    t.push(("(a :- b) :- c", "(a:-b):-c"))
+    t.push(("p :- a, b ; c -> d", "p:-a,b;c->d"))
+    t.push(("f((a :- b))", "f((a:-b))"))
+    t.push(("f((a, b))", "f((a,b))"))
+    t.push(("[(a, b)]", "[(a,b)]"))
+    t.push(("(a, b)", "a,b"))
+    t.push(("{a, b}", "{a,b}"))
+    t.push(("'{}'(x)", "{x}"))
+    t.push(("{}", "{}"))
+    t.push(("[a, b | c]", "[a,b|c]"))
+    t.push(("[a | []]", "[a]"))
+    t.push(("[]", "[]"))
+    t.push(("'[]'", "'[]'"))
+    t.push(("'hello world'", "'hello world'"))
+    t.push(("'\\n'", "'\\n'"))
+    t.push(("'it''s'", "'it\\'s'"))
+    t.push(("'Abc'", "'Abc'"))
+    t.push(("aB_1", "aB_1"))
+    t.push(("''", "''"))
+    t.push(("'/*'", "'/*'"))
+    t.push(("f(;, '|', ',')", "f(;,'|',',')"))
+    t.push(("[-]", "[-]"))
+    t.push(("- = x", "(-)=x"))
+    t.push(("- (-)", "- (-)"))
+    t.push(("f(a - (-))", "f(a-(-))"))
+    t.push(("\\+ a", "\\+a"))
+    t.push(("\\+ (a, b)", "\\+((a,b))"))
+    t.push(("a = (\\+ b)", "a=(\\+b)"))
+    t.push(("a = -1", "a= -1"))
+    t.push(("a = - b", "a= -b"))
+    t.push(("a =.. b", "a=..b"))
+    t.push(("a is 1 mod 2", "a is 1 mod 2"))
+    t.push(("f(- 1)", "f(-(1))"))
+    t.push(("f(-1)", "f(-1)"))
+    t.push(("1 - - a", "1- -a"))
+    t.push(("\"a \\\"string\\\"\"", "\"a \\\"string\\\"\""))
+    t.push(("f(x, \"s\")", "f(x,\"s\")"))
+    t.push(("-(1, 2, 3)", "-(1,2,3)"))
+    t.push(("'\\t'(a)", "'\\t'(a)"))
+    t
+end tricky
+
+@test
+WRITEQ_WRITES_EACH_TRICKY_TERM_AS_IT_HAS_TO_BE_WRITTEN()
+    for (src, text) in tricky().view()
+        assert_eq(written("writeq", src), ok(text))
+
+@test
+WHAT_WRITEQ_WRITES_READS_BACK_AS_THE_SAME_TERM()
+    for (src, text) in tricky().view()
+        val program = s":- X = ($src), Y = ($text), (X == Y -> write(same) ; write(differs)), nl.\n"
+
+        assert_eq(ran_prolog(program), ok("same"))
+
+@test
+WRITE_LEAVES_ATOMS_AND_STRINGS_UNQUOTED()
+    assert_eq(written("write", "'hello world'"), ok("hello world"))
+    assert_eq(written("write", "[a, 'B c', \"s\"]"), ok("[a,B c,s]"))
+    assert_eq(written("write", "f(',', '|')"), ok("f(',','|')"))
+    assert_eq(written("write", "1 + a * 'B'"), ok("1+a*B"))
+
+@test
+PRINT_WRITES_AS_WRITEQ_DOES()
+    assert_eq(written("print", "f('A', [])"), ok("f('A',[])"))
+
+@test
+WRITE_CANONICAL_QUOTES_AND_IGNORES_OPERATORS()
+    assert_eq(written("write_canonical", "1 + 2 * 3"), ok("+(1,*(2,3))"))
+    assert_eq(written("write_canonical", "[a, 'B' | c]"), ok("[a,'B'|c]"))
+    assert_eq(written("write_canonical", "(a :- b, c)"), ok(":-(a,','(b,c))"))
+    assert_eq(written("write_canonical", "- 1"), ok("-(1)"))
+    assert_eq(written("write_canonical", "-1"), ok("-1"))
+    assert_eq(written("write_canonical", "'$VAR'(1)"), ok("'$VAR'(1)"))
+    assert_eq(written("write_canonical", "{a}"), ok("{a}"))
+
+@test
+A_VARIABLE_IS_WRITTEN_AS_ONE_THE_READER_READS_BACK()
+    assert_eq(ran_prolog(":- X = f(A, B, A), write_canonical(X), nl.\n").index_of("f(_G").is_some(), true)
+
+    // The same variable twice is written the same way twice.
+    assert_eq(ran_prolog(":- X = f(A, A), writeq(X), nl.\n").index_of(",_G").is_some(), true)
+
+@test
+NUMBERVARS_NAMES_EACH_VAR_TERM_BY_ITS_NUMBER()
+    assert_eq(written("print", "f('$VAR'(0), '$VAR'(1), '$VAR'(25), '$VAR'(27))"), ok("f(A,B,Z,B1)"))
+    assert_eq(written("write", "'$VAR'(x)"), ok("$VAR(x)"))
+
+@test
+WRITE_TERM_TAKES_ITS_OPTIONS()
+    assert_eq(ran_prolog(":- write_term('A' + b, [quoted(true)]), nl.\n"), ok("'A'+b"))
+    assert_eq(ran_prolog(":- write_term('A' + b, [quoted(true), ignore_ops(true)]), nl.\n"), ok("+('A',b)"))
+    assert_eq(ran_prolog(":- write_term('A' + b, []), nl.\n"), ok("A+b"))
+    assert_eq(ran_prolog(":- write_term([1, 2, 3, 4], [max_depth(2)]), nl.\n"), ok("[1,2|...]"))
+    assert_eq(ran_prolog(":- write_term(f(g(h(i))), [max_depth(2)]), nl.\n"), ok("f(g(...))"))
+    assert_eq(ran_prolog(":- write_term('$VAR'(2), [numbervars(true)]), nl.\n"), ok("C"))
+
+@test
+WRITE_TERM_RAISES_THE_ISO_ERRORS_FOR_ITS_OPTIONS()
+    assert_eq(raised("write_term(a, foo)"), ok("\ntype_error(list,foo)"))
+    assert_eq(raised("write_term(a, _)"), ok("\ninstantiation_error"))
+    assert_eq(raised("write_term(a, [quoted(true) | _])"), ok("\ninstantiation_error"))
+    assert_eq(raised("write_term(a, [_])"), ok("\ninstantiation_error"))
+    assert_eq(raised("write_term(a, [foo])"), ok("\ndomain_error(write_option,foo)"))
+    assert_eq(raised("write_term(a, [quoted(maybe)])"), ok("\ndomain_error(write_option,quoted(maybe))"))
+    assert_eq(raised("write_term(a, [max_depth(-1)])"), ok("\ndomain_error(write_option,max_depth(-1))"))
+
+@test
+NL_TAB_AND_PUT_CHAR_WRITE_WHITE_SPACE_AND_CHARACTERS()
+    assert_eq(ran_prolog(":- write(a), tab(3), write(b), tab(1 + 1), put_char(c), nl, put_char('\\n'), write(d), nl.\n"),
+        ok("a   b  c\n\nd"))
+
+@test
+TAB_AND_PUT_CHAR_RAISE_THE_ISO_ERRORS()
+    assert_eq(raised("tab(_)"), ok("\ninstantiation_error"))
+    assert_eq(raised("tab(foo)"), ok("\ntype_error(evaluable,foo/0)"))
+    assert_eq(raised("put_char(_)"), ok("\ninstantiation_error"))
+    assert_eq(raised("put_char(ab)"), ok("\ntype_error(character,ab)"))
+    assert_eq(raised("put_char(1)"), ok("\ntype_error(character,1)"))
+
+@test
+FUNL_VALUES_WITHOUT_A_TERM_ARE_WRITTEN_OPAQUE()
+    // A tuple is the compound `tuple(...)`; a map and a function are opaque (`prolog.md` § "The term
+    // mapping").
+    val text = "import \"tests/prolog/interop.pl\"\n" +
+        "show_term((1, #a))\n" +
+        "show_term({#a: 1})\n" +
+        "show_term(x -> x)\n"
+
+    assert_eq(ran_funl(text), "loaded\ntuple(1,a)\n<map>\n<function>\nsucceeded")
