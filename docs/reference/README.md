@@ -13,6 +13,7 @@ the language cannot disagree for long.
 | page | what it covers |
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic and rationals, standard order, grammar rules, `format`, the builtin set |
 
 ## How a page is checked
 

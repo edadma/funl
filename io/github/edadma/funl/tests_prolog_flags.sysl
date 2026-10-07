@@ -70,6 +70,19 @@ DOUBLE_QUOTES_DECIDES_WHAT_THE_CLAUSES_AFTER_IT_READ()
     assert_eq(ran_prolog(":- set_prolog_flag(double_quotes, codes).\nw :- X = \"\", writeq(X), nl.\n:- w.\n"), ok("[]"))
 
 @test
+A_FLAG_DIRECTIVE_TAKES_EFFECT_IN_ITS_PLACE_AMONG_THE_DIRECTIVES()
+    val shown = ":- current_prolog_flag(prefer_rationals, P), current_prolog_flag(double_quotes, Q), " +
+        "current_prolog_flag(unknown, U), X is 7 / 2, write(P/Q/U/X), nl.\n"
+    val text = shown + ":- set_prolog_flag(prefer_rationals, true).\n:- set_prolog_flag(double_quotes, codes).\n" +
+        ":- set_prolog_flag(unknown, fail).\n" + shown
+
+    assert_eq(ran_prolog(text), ok("false/string/error/3.5\ntrue/codes/fail/7r2"))
+
+    // A refused value is a directive that raises, in its place, and the load goes on.
+    assert_eq(ran_prolog(":- write(before), nl.\n:- set_prolog_flag(unknown, maybe).\n:- write(after), nl.\n"),
+        ok("before\nWarning: directive raised set_prolog_flag/2: flag unknown cannot be maybe: set_prolog_flag(unknown, maybe)\nafter"))
+
+@test
 A_FLAG_DIRECTIVE_THAT_IS_REFUSED_IS_REPORTED()
     assert_eq(prolog_complaints(":- set_prolog_flag(double_quotes, bytes).\n"),
         "error 1:4 set_prolog_flag/2: flag double_quotes cannot be bytes\n")

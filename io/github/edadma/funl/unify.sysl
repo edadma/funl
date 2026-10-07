@@ -131,6 +131,7 @@ private step(x: Value, y: Value, check: bool) -> bool
             _ -> false
         Compound(p) -> y match
             Compound(q) -> unify_args(p, q)
+            Tuple(q) -> unify_tuple_compound(q, p)
             _ -> false
         Cons(p) -> y match
             Cons(q) ->
@@ -146,6 +147,7 @@ private step(x: Value, y: Value, check: bool) -> bool
             _ -> false
         Tuple(p) -> y match
             Tuple(q) -> unify_items(p, q)
+            Compound(q) -> unify_tuple_compound(p, q)
             _ -> false
         Bool(a) -> y match
             Bool(b) -> a == b
@@ -216,6 +218,19 @@ private unify_items(p: *TupleObj, q: *TupleObj) -> bool
 
     true
 
+// A FunL tuple and a compound: **the tuple is the compound `tuple(...)`** of its items, as the term
+// mapping makes it, so `(3, 6)` unifies with `tuple(A, B)`.
+private unify_tuple_compound(p: *TupleObj, q: *CompoundObj) -> bool
+    if !is_tuple_functor(q.functor, p.items.len()) || q.args.len() != p.items.len() then return false
+
+    for i in 0..<p.items.len()
+        unify_later(p.items.at(i), q.args.at(i))
+
+    true
+
+// Whether a compound of `functor` and `n` arguments is the term a FunL tuple of `n` items maps to.
+private is_tuple_functor(functor: u32, n: usize) -> bool = n > 0 && atom_name(functor) == "tuple"
+
 // -- head unification ----------------------------------------------------------------------------
 
 // The value a head instruction reads.
@@ -272,6 +287,11 @@ get_compound(v: *Vm, functor: u32, n: usize, src: Src) -> Result[bool, string]
 
             push_args(v, c)
             Ok(true)
+        Tuple(t) ->
+            if !is_tuple_functor(functor, n) || t.items.len() != n then return Ok(false)
+
+            push_items(v, t)
+            Ok(true)
         _ -> Ok(false)
 end get_compound
 
@@ -318,6 +338,14 @@ private push_args(v: *Vm, c: *CompoundObj)
     while i > 0
         i -= 1
         v.stack.push(c.args.at(i))
+
+// Push a tuple's items as `push_args` pushes a compound's: the tuple is the compound `tuple(...)`.
+private push_items(v: *Vm, t: *TupleObj)
+    var i = t.items.len()
+
+    while i > 0
+        i -= 1
+        v.stack.push(t.items.at(i))
 
 // -- equality ------------------------------------------------------------------------------------
 
