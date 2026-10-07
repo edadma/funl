@@ -1,0 +1,16 @@
+The INRIA ISO Prolog conformance suite, version 0.9 (3 March 1999): the test data of Pierre
+Deransart, AbdelAli Ed-Dbali and Laurent Cervoni's formal specification of ISO Prolog, with the
+batch driver by J.P.E. Hodgson. See README.
+
+Taken on 2026-10-07 from the copy in quek/paiprolog, commit 012d6bb255d8af7f1c8b1d061dcd8a474fb3b57a:
+  https://github.com/quek/paiprolog/tree/012d6bb255d8af7f1c8b1d061dcd8a474fb3b57a/tests/inriasuite
+The same files are carried in the test trees of several other Prolog systems (GNU Prolog for Java,
+prolog4j, rubylog among them).
+
+Licence: the distribution states none. It was published by INRIA for anyone testing a Prolog
+processor against the standard, and is redistributed here unchanged for that purpose.
+
+Copied: the data files the driver's file/1 list runs, and README, byte for byte. Not copied: the
+driver (inriasuite.pl and its compiled .obp) -- FunL runs the data with its own runner,
+io/github/edadma/funl/tests_prolog_inria.sysl -- and file_manip and halt, which the driver itself
+does not run. reasons.txt is FunL's own.
