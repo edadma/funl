@@ -14,12 +14,11 @@ proven under backtracking, binding and collection at once.
 
 **Every milestone ends the same way**: the full suite green from the project root, the new behaviour
 covered by tests that would have failed before it, and the commit fast-forwarded onto `dev`. Each
-names the open questions that must be answered before it starts, because a milestone built on an
-unanswered question builds the answer in by accident.
+names the decisions it rests on, so that revisiting one says which milestones it reaches.
 
 ## 1. The smallest machine that runs the family tree
 
-**Answers needed first:** the unification operator, the rule marker, the atom literal, `free`, the
+**Rests on:** the unification operator, the rule marker, the atom literal, `free`, the
 operand-stack strategy.
 
 - The repository: `package.hocon`, the module, `main.sysl`, `tests_kit.sysl`, the `Vm` struct and its
@@ -42,7 +41,7 @@ same tests pass against a heap small enough to collect inside every query.
 
 ## 2. FunL's core
 
-**Answers needed first:** `false` in conditions, whether `return` is bounded, juxtaposition.
+**Rests on:** `false` in conditions, whether `return` is bounded, juxtaposition.
 
 - The numeric tower: `Big`, `Rat`, `Real`, `Dec`, promotion and demotion, exact printing.
 - Functions: committed-choice clauses, guards, `where`, lambdas, closures, sections, partial function

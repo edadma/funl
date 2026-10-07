@@ -111,11 +111,11 @@ carried over except the grammar it encodes.
   field and index.
 - **`::`, `#`, `~` and `:-` are tokens.** `::` was used by the old grammar and never lexed.
 
-> **Open question — juxtaposition as multiplication.**
+> **Decided — juxtaposition as multiplication.**
 > The old grammar multiplied any two adjacent operands, so `2n` is `2 * n` — and so is `f (x)`
-> wherever a space separates a name from a bracket. **Recommendation: juxtaposition multiplies only
+> wherever a space separates a name from a bracket. **Decision: juxtaposition multiplies only
 > a number literal immediately followed by a name or `(`**, with no space — `2n`, `3(x + 1)`, which
-> is every use in the old tests. **Alternative:** keep the general rule, and with it the parse in
+> is every use in the old tests. **Rejected:** keep the general rule, and with it the parse in
 > which a stray space changes a call into a multiplication.
 
 **The resolver runs before the compiler** and does everything that needs to know what a name is:
@@ -210,8 +210,8 @@ passed if *any* of them had the expected spans. That accepts an engine that find
 match only on its fourth backtrack, and it cannot tell leftmost-first from leftmost-longest at all —
 which matters, because the AT&T data is written for POSIX and this engine is not POSIX.
 
-> **Open question — how strict is the regex oracle?**
-> **Recommendation: three tiers, all exact.** *Match or no match* must agree with the data on every
+> **Decided — how strict is the regex oracle?**
+> **Decision: three tiers, all exact.** *Match or no match* must agree with the data on every
 > line. *The overall span of the first match* must agree on every line where POSIX leftmost-longest
 > and leftmost-first coincide, which is most of them. *Every capture span* must agree on every line
 > not in `tests/regex/exclusions.txt`, a file listing each line where the two semantics genuinely
@@ -219,7 +219,7 @@ which matters, because the AT&T data is written for POSIX and this engine is not
 > being written. **And a second oracle for the semantics this engine actually has**: the same
 > patterns run through PCRE2 (`sysl-lang/pcre2`), as a test-only dependency, compared span for span,
 > because a single oracle is an opinion and this one is about a different semantics.
-> **Alternative:** keep the old any-match rule, which passes today's data and proves little.
+> **Rejected:** keep the old any-match rule, which passes today's data and proves little.
 
 ### Logic and Prolog
 

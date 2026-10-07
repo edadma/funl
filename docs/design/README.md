@@ -7,8 +7,7 @@ weight: 60
 
 **These pages are the design of FunL written in sysl, before any of it exists.** Nothing here
 describes code that runs today. They are written first so that every decision is argued once, in
-one place, and so that the open ones are put to the user rather than settled by whoever happens to
-be writing the code that day.
+one place, rather than settled by whoever happens to be writing the code that day.
 
 **Their programs are not run.** A design page shows syntax nothing compiles yet, so its blocks
 carry no language tag and no harness reads them. When a piece is built, the page that describes
@@ -42,9 +41,8 @@ Read them in order; each leans on the one before it.
 
 ## Conventions on these pages
 
-- **"Open question"** marks a decision that is the user's. Each one names the recommendation and
-  the alternatives, and the chapter is written as if the recommendation were taken, so that a
-  different answer changes one section rather than the whole page.
+- **"Decided"** marks a choice between real alternatives. Each one names the decision and what was
+  rejected, so that revisiting it changes one section rather than the whole page.
 - **"Fixed in the rewrite"** marks a place where the old implementation did something wrong or
   nothing at all, and says what the rewrite does instead.
 - Instruction names are written `LikeThis` and are the rewrite's, not the old machine's, unless a
@@ -52,11 +50,11 @@ Read them in order; each leans on the one before it.
 - A position in a string is a **character position** in the Icon sense: position 1 is before the
   first character, and position 0 means the end.
 
-## The open questions, collected
+## The decisions, collected
 
 Each is argued where it arises; this is the list.
 
-| question | recommendation | where |
+| question | decision | where |
 |---|---|---|
 | Does `false` fail in a condition? | yes: a condition fails on failure *or* on `false` | [language](language.md#conditions-and-false) |
 | Is `return e` bounded? | yes: `return` takes the first result, a body expression passes every result through | [language](language.md#functions-are-generators-when-their-body-is) |
@@ -68,5 +66,6 @@ Each is argued where it arises; this is the list.
 | How does FunL code declare a logic variable? | `free x`, Curry's word | [logic](logic.md#logic-variables-in-ordinary-code) |
 | Is there a cut in FunL relations? | no `!` (it is the generator operator); `once` and `->` cover it | [logic](logic.md#cut-in-a-relation) |
 | What do tuples, maps and closures look like as Prolog terms? | tuples are `tuple(...)` compounds; the rest are opaque and unify by identity | [prolog](prolog.md#the-term-mapping) |
+| What is the module path? | `io.github.edadma.funl`, the repository `github.com/edadma/funl` reversed | [implementation](implementation.md#the-repository) |
 | Does juxtaposition multiply? | only a number literal touching a name or `(`: `2n`, `3(x + 1)` | [implementation](implementation.md#the-front-end) |
 | How strict is the regex conformance oracle? | exact on match and span, exact on captures outside a named exclusion list | [implementation](implementation.md#regex-the-att-data-and-a-second-oracle) |

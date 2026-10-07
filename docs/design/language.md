@@ -53,12 +53,12 @@ the old implementation `if false then 'a' else 'b'` answers `'a'`, because `fals
 value is success. The instruction that would have failed on `false` exists and its use in the
 compiler is commented out.
 
-> **Open question — does `false` fail in a condition?**
-> **Recommendation: yes.** A condition — the test of `if`, `elif`, `while`, a guard, an operand of
+> **Decided — does `false` fail in a condition?**
+> **Decision: yes.** A condition — the test of `if`, `elif`, `while`, a guard, an operand of
 > `and`, `or` and `not`, a comprehension filter — fails when its expression fails *or* produces
 > `false`. Everywhere else `false` is an ordinary value. This keeps goal-directed evaluation intact
 > (a comparison still fails rather than answering `false`) while making `if done then …` mean what
-> every reader expects. **Alternatives:** keep the old rule (a condition only fails on failure),
+> every reader expects. **Rejected:** keep the old rule (a condition only fails on failure),
 > which is Icon's, and costs a `== true` wherever a boolean is tested; or make every operation that
 > could produce `false` fail instead, which removes booleans as values and breaks `write(x is int)`.
 
@@ -224,12 +224,12 @@ every write( permute([1, 2, 3, 4]) )        ;; all 24 permutations, Heap's order
 `permute` generates because its body `permute_(…)` does: **a body expression passes every value it
 produces through to the caller.** The old implementation emits nothing to bound it.
 
-> **Open question — is `return e` bounded?**
+> **Decided — is `return e` bounded?**
 > The old compiler unmarks the enclosing statements and then evaluates `e` *unbounded*, so
-> `return !xs` generates every element. **Recommendation: `return e` produces only `e`'s first
+> `return !xs` generates every element. **Decision: `return e` produces only `e`'s first
 > value** (Icon's rule, and what a reader of `return` expects), while a body written `= e` or ending
 > in an expression keeps passing every value through, and `yield` is how a block body generates
-> explicitly. **Alternative:** keep `return` unbounded, so `return` means "leave the enclosing
+> explicitly. **Rejected:** keep `return` unbounded, so `return` means "leave the enclosing
 > statements" and nothing more.
 
 ### Partial function literals
@@ -362,10 +362,10 @@ chapter](vm.md#regex-compiled-into-the-same-machine) shows that both become ordi
 
 | old behaviour | in the rewrite |
 |---|---|
-| `if false` takes the `then` branch | open question above; recommended: `false` fails a condition |
+| `if false` takes the `then` branch | `false` fails a condition (decided above) |
 | `in` / `not in` do nothing and unbalance the stack | membership, succeeding with the left operand |
 | a partial function literal compiles to nothing | a committed-choice anonymous function |
 | records and functions have no class | every value has a type |
 | system variables (`$name`) answer raw host values | they answer FunL values |
 | `::` (a typed pattern) is used by the grammar but is not a token | a token |
-| `return e` generates | open question above; recommended: bounded |
+| `return e` generates | bounded: the first value only (decided above) |

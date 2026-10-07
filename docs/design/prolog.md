@@ -90,13 +90,13 @@ compound term is a compound — and a FunL `data` record *is* a compound, so `po
 FunL unifies with `point(X, Y)` in Prolog. A rational from FunL is a number to Prolog arithmetic as
 well, as SWI-Prolog's rationals are. `true` and `false` are atoms on both sides.
 
-> **Open question — the term mapping for FunL-only kinds.**
-> **Recommendation:** a **tuple** `(a, b)` is the compound `tuple(a, b)`, so a FunL function
+> **Decided — the term mapping for FunL-only kinds.**
+> **Decision:** a **tuple** `(a, b)` is the compound `tuple(a, b)`, so a FunL function
 > answering a pair can be destructured by a Prolog head; **arrays, buffers, maps, sets, closures and
 > cursors are opaque** — they unify only with themselves and print as `<map>`, `<function>` and so
 > on — because their contents can change and a term that changes under a binding is not a term;
 > **`()`, `null` and `undefined`** are three distinct constants that unify only with themselves.
-> **Alternatives:** tuples as `','(a, b)` (the conjunction functor, which some systems use and every
+> **Rejected:** tuples as `','(a, b)` (the conjunction functor, which some systems use and every
 > reader trips on); or converting maps to association lists at the boundary, which copies on every
 > call and silently breaks identity.
 

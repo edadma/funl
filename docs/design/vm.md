@@ -131,9 +131,8 @@ while c do b                   top: MarkThrough; c; FailIfFalse; Unmark; Mark(to
 |e                             top: MarkThrough; e; ChangeMark(top)
 ```
 
-`FailIfFalse` is the instruction the [conditions open question](language.md#conditions-and-false)
-turns on: with the recommendation taken it is emitted after every condition, and without it it is
-not emitted at all. `ChangeMark` re-aims the current mark's resumption at the top of `|e`, so that
+`FailIfFalse` is how [`false` fails a condition](language.md#conditions-and-false): it is emitted
+after every condition and nowhere else. `ChangeMark` re-aims the current mark's resumption at the top of `|e`, so that
 when `e` runs out of values in one round the next failure starts it again.
 
 **`every` is the clearest picture of the whole machine**: its body ends in `Fail`, the failure
@@ -183,10 +182,10 @@ callee's choice point, which puts the callee's cells back above them, and the ca
 it had never returned. A call that returns leaving nothing behind — almost every call — pushes
 nothing.
 
-> **Open question — how is the operand stack restored?**
-> **Recommendation: copy the bounded expression's cells into the entry, and push a `Restore` on a
+> **Decided — how is the operand stack restored?**
+> **Decision: copy the bounded expression's cells into the entry, and push a `Restore` on a
 > non-deterministic return**, as above. The cost is a copy of a few cells per choice point and
-> nothing per ordinary call. **Alternative: a persistent operand stack** — cons cells on the
+> nothing per ordinary call. **Rejected: a persistent operand stack** — cons cells on the
 > collected heap, as the old machine had — where a choice point saves one pointer and nothing is
 > ever copied. It is simpler to get right and costs one heap allocation per push, on every
 > expression whether it backtracks or not, which is the common case paying for the rare one.
@@ -247,8 +246,8 @@ are exhausted, failure reaches the `yield`'s choice point and the function carri
 
 **A body expression's value is returned with `Return`, so its generators survive the return.** That
 is the whole mechanism by which a function whose body generates is a generator.
-[`return e`](language.md#functions-are-generators-when-their-body-is) is `ReturnCommit` under the
-recommendation, and `Return` under the alternative.
+[`return e`](language.md#functions-are-generators-when-their-body-is) is `ReturnCommit`, which
+keeps only the first value.
 
 **Committed-choice clause selection** is a mark per clause:
 
@@ -470,13 +469,13 @@ lets a FunL record unify with a Prolog term and print the same way in both.
 
 ### Strings
 
-> **Open question — how are strings stored?**
-> **Recommendation: UTF-8 bytes plus a character count and a forward cursor**, slate's arrangement:
+> **Decided — how are strings stored?**
+> **Decision: UTF-8 bytes plus a character count and a forward cursor**, slate's arrangement:
 > the count is written when the string is made and never goes stale (strings are immutable), a
 > one-byte-per-character string indexes by arithmetic, and a character position is found by walking
 > forward from the last one asked for. Scanning moves forward almost always, so the cursor makes a
 > scan linear. Regex reverse mode steps back over UTF-8, which is unambiguous because a FunL string
-> is validated when it is made. **Alternative: one 32-bit code point per character**, which makes
+> is validated when it is made. **Rejected: one 32-bit code point per character**, which makes
 > every index O(1) and every string four times the size.
 
 `pos` is held as a character position at the language surface and translated to a byte offset

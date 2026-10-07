@@ -58,10 +58,10 @@ different variables can be told apart in output.
 
 **`=` is assignment and `==` is equality, so unification needs a third spelling.**
 
-> **Open question — the unification operator.**
-> **Recommendation: `~`.** It is free in FunL's lexer, it is one character in a position (relation
+> **Decided — the unification operator.**
+> **Decision: `~`.** It is free in FunL's lexer, it is one character in a position (relation
 > bodies) where it is written constantly, and "is like" is a fair reading of what it does.
-> **Alternatives:** `=:=`, Curry's spelling, which a Prolog programmer reads as *arithmetic*
+> **Rejected:** `=:=`, Curry's spelling, which a Prolog programmer reads as *arithmetic*
 > equality; a builtin `unify(a, b)`, which reads badly as the most common goal of all; or making `=`
 > mean unification inside a relation body only, which gives one symbol two meanings depending on
 > which side of `:-` it is written.
@@ -102,12 +102,12 @@ Four rules in it are deliberate, and each is a defect of the 2019 engine that it
 **A Prolog fact talks about named things, and FunL has no literal for a bare name** — `don` written
 in a program is a variable.
 
-> **Open question — how is an atom written?**
-> **Recommendation: `#don`**, an atom literal; `#` is unused by FunL's lexer, and the atom is the
+> **Decided — how is an atom written?**
+> **Decision: `#don`**, an atom literal; `#` is unused by FunL's lexer, and the atom is the
 > same interned value Prolog's `don` is, so a fact written in either syntax is the same fact. In
 > addition, **a nullary `data` constructor is an atom**: after `data colour = red | green`, `red`
 > is the atom `#red`, which is the typed way to write a closed set of names.
-> **Alternatives:** strings (`parent("don", "randy")`), which work today and are a different kind
+> **Rejected:** strings (`parent("don", "randy")`), which work today and are a different kind
 > from Prolog's atoms, so they do not unify with what a Prolog file says; or only `data`
 > constructors, which makes a quick fact base wait on a declaration of every name in it.
 
@@ -126,10 +126,10 @@ def mother(x, y) :- female(x) & parent(x, y)
 def ancestor(x, y) :- parent(x, y) | parent(x, p) & ancestor(p, y)
 ```
 
-> **Open question — how is a rule marked?**
-> **Recommendation: `:-` after the head, and no body for a fact**, as above. It reuses the one
+> **Decided — how is a rule marked?**
+> **Decision: `:-` after the head, and no body for a fact**, as above. It reuses the one
 > symbol every reader of Prolog already knows, needs no keyword, and leaves `def` meaning "define a
-> name" for both kinds. **Alternative: a `rel` keyword** in place of `def` for relations —
+> name" for both kinds. **Rejected: a `rel` keyword** in place of `def` for relations —
 > `rel ancestor(x, y) = parent(x, y) | …` — which marks the kind at the start of the line and lets
 > the body keep `=`, at the cost of a second defining word and of facts needing it too.
 
@@ -247,11 +247,11 @@ again.
 
 #### Logic variables in ordinary code
 
-> **Open question — how does FunL code make a logic variable?**
-> **Recommendation: `free x`** (and `free x, y`), Curry's word for exactly this declaration. It
+> **Decided — how does FunL code make a logic variable?**
+> **Decision: `free x`** (and `free x, y`), Curry's word for exactly this declaration. It
 > declares a name in the enclosing scope whose value is a new unbound variable. Inside relation
 > bodies no declaration is needed, by the [scoping rule](#variables-in-a-relation) above.
-> **Alternatives:** a builtin, `val x = fresh()`, which needs no new word and reads as a function
+> **Rejected:** a builtin, `val x = fresh()`, which needs no new word and reads as a function
 > call that has a side effect; or treating every undeclared name in *any* call to a relation as
 > free, which makes a typo in ordinary code a silent logic variable.
 
@@ -290,12 +290,12 @@ mistake, a variable that appears only under a `not`.
 
 ### Cut in a relation
 
-> **Open question — is there a cut in FunL relations?**
-> **Recommendation: no `!` in FunL syntax.** `!` is already FunL's generator operator, and every use
+> **Decided — is there a cut in FunL relations?**
+> **Decision: no `!` in FunL syntax.** `!` is already FunL's generator operator, and every use
 > of cut that is not a hack is covered by constructs FunL has: `if c then t else e` is `->`, a
 > bounded position is `once`, and first-argument indexing removes the choice points that cut was
 > most often written to kill. Standard Prolog syntax has `!` and runs on the same `CutClause`
-> instruction. **Alternatives:** a keyword (`commit`) meaning Prolog's cut; or `!` as cut when it
+> instruction. **Rejected:** a keyword (`commit`) meaning Prolog's cut; or `!` as cut when it
 > stands alone as a conjunct, which is unambiguous to the parser and confusing to a reader.
 
 ### All solutions
