@@ -61,10 +61,31 @@ enum ExprKind
     IfE(cond: &Expr, yes: &Expr, no: Option[&Expr])
 
     // `every e do b`: drives `e` through all its values, running `b` bounded for each, then fails.
-    EveryE(gen: &Expr, body: Option[&Expr])
+    // `id` is unique in the program and names the loop to `break` and `continue`; `label` is the
+    // name written before it, `outer: every ...`.
+    EveryE(id: usize, label: Option[string], gen: &Expr, body: Option[&Expr])
 
-    // An indented run of statements, each bounded but the last, whose value is the block's.
-    BlockE(stmts: Buf[Stmt])
+    // `while c do b`: `b` bounded while `c` succeeds; the loop fails when `c` does.
+    WhileE(id: usize, label: Option[string], cond: &Expr, body: Option[&Expr])
+
+    // `repeat b`: `b` bounded, for ever, until a `break` or a `return` leaves it.
+    RepeatE(id: usize, label: Option[string], body: &Expr)
+
+    // `for p <- c if f, ... do b`: each binding iterates its collection by pattern, filtered, and the
+    // body runs bounded for every combination; the loop then fails. `id` also names the block the
+    // patterns' names are declared in.
+    ForE(id: usize, label: Option[string], gens: Buf[ForGen], body: Option[&Expr])
+
+    // `break`, `break label`, `break (e)`: leave the loop, which produces `e`, or `()`.
+    BreakE(label: Option[string], value: Option[&Expr])
+
+    // `continue`, `continue label`: on to the loop's next turn.
+    ContinueE(label: Option[string])
+
+    // A run of statements, each bounded but the last, whose value is the block's: an indented block,
+    // or `(s; s; e)`. Its names are its own; `id` is unique in the program and names the block to the
+    // resolver.
+    BlockE(id: usize, stmts: Buf[Stmt])
 
     // A lambda, or a partial function literal -- an indented block of lambdas -- which is several
     // clauses of one anonymous function. `id` is unique in the program; the resolver keys the
@@ -97,9 +118,21 @@ enum ExprKind
     // asked for the next.
     YieldE(e: &Expr)
 
-    // `name = e` where an expression is delimited -- inside parentheses, at the head of `every` --
-    // storing each of `e`'s values in the variable `name` and producing it.
+    // `name = e`, as a statement or where an expression is delimited -- inside parentheses, at the
+    // head of `every` -- storing each of `e`'s values in the variable `name` and producing it. The
+    // variable is the nearest `name` in scope, or a new one of the block when there is none.
     AssignE(name: string, e: &Expr)
+
+    // `name op= e`: each of `e`'s values combined into the variable through `op`, which is stored
+    // and produced. `<:=` and `>:=` are `Lt` and `Gt`, failing where the ordering does not hold.
+    CompoundE(name: string, op: BinOp, e: &Expr)
+
+    // `x++` and `x--` (`prefix` false) produce the old value, `++x` and `--x` the new; either way the
+    // variable moves by `delta`.
+    StepE(name: string, delta: long, prefix: bool)
+
+    // `a, b = e1, e2`: every value made first, then every variable stored; produces `()`.
+    MultiAssignE(targets: Buf[Spanned[string]], values: Buf[&Expr])
 
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
@@ -111,6 +144,12 @@ struct Expr
 
 expr(kind: ExprKind, span: Span) -> &Expr = Expr(kind, span)
 
+// One binding of a `for` head: `pat <- iter if filter`.
+struct ForGen
+    pat: &Expr
+    iter: &Expr
+    filter: Option[&Expr]
+
 enum Stmt
     // `free x, y`: fresh logic variables.
     FreeS(names: Buf[Spanned[string]])
@@ -118,9 +157,13 @@ enum Stmt
     // An expression run bounded.
     ExprS(e: &Expr)
 
-    // `val pattern = e`, or `pattern = e`: the first value of `e`, matched against the pattern,
-    // whose names it declares.
-    ValS(pat: &Expr, e: &Expr)
+    // `val pattern = e`, a `where` binding, or `pattern = e` for a pattern that is not a name: the
+    // first value of `e`, matched against the pattern, whose names it declares -- `fixed`, so that
+    // nothing can assign them, unless the pattern was written without `val`.
+    ValS(pat: &Expr, e: &Expr, fixed: bool)
+
+    // `var name` or `var name = e`: a variable of the block, `undefined` until something is stored.
+    VarS(name: string, at: Span, e: Option[&Expr])
 
     // `def` inside a body or a `where`: functions local to the frame they are written in.
     DefS(clauses: Buf[Clause])

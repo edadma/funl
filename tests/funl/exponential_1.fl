@@ -1,0 +1,11 @@
+def pow( _, 0 ) = 1
+def pow( x, n ) | n > 0 = pow_( x, n - 1, x )
+  where
+    pow_( _, 0, v ) = v
+    pow_( u, n, v )
+      | 2 div n = pow_( u*u, n/2, v )
+      | otherwise = pow_( u, n - 1, u*v )
+def pow( _, _ ) = error( "pow: negative exponent" )
+
+for n <- 0..18
+  write( n, pow(3, n) )

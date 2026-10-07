@@ -96,6 +96,12 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         Branch(to) ->
             v.ip = to
             Ok(Next)
+        SaveMark(slot) ->
+            set_slot(v.frame, slot, Int(long(v.mark)))?
+            Ok(Next)
+        UnmarkTo(slot) ->
+            unmark_to(v, slot_of(v.frame, slot)?)?
+            Ok(Next)
         Pop ->
             pop(v)?
             Ok(Next)
@@ -262,6 +268,16 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
 
             set_slot(frame_up(v, depth)?, slot, x)?
             Ok(Next)
+        Update(depth, slot, o) ->
+            val b = pop(v)?
+            val f = frame_up(v, depth)?
+
+            arith(o, slot_of(f, slot)?, b)? match
+                Some(x) ->
+                    set_slot(f, slot, x)?
+                    v.stack.push(x)
+                    Ok(Next)
+                None -> Ok(Fails)
         GenStart ->
             gen_start(v)?
             Ok(Next)

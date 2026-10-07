@@ -24,37 +24,69 @@ struct Walk
     // Whether this is a function's clause, where `return` means something.
     function: bool
 
-    // What `name` means here: the scope being read first, then the complete ones above it.
-    meaning(self, name: string) -> Meaning
-        self.sc.slot(name) match
-            Some(k) -> return Local(0, k)
+    // The block being read.
+    blk: usize
+
+    // The loops around the code being read, innermost last.
+    loops: Buf[LoopSeen]
+
+    // What `name` means written at offset `pos`: the blocks being read first, then the complete
+    // scopes above.
+    meaning(self, name: string, pos: usize) -> Meaning
+        self.sc.find(self.blk, name, pos) match
+            Some(d) -> return Local(0, d.slot, d.fixed)
             None -> ()
 
         self.sc.fns.get(name) match
             Some(r) -> return Function(r, if self.sid == self.res.top then TopUp else 0)
             None -> ()
 
-        self.res.meaning_above(self.sc.parent, 1, name)
+        val m = self.res.meaning_above(self.sc.parent, self.sc.parent_block, Anywhere, 1, name)
+
+        m match
+            Unknown -> if self.sc.ended(name, pos) then Gone else Unknown
+            _ -> m
 end Walk
+
+// A loop the code being read is inside, which `break` and `continue` can name.
+struct LoopSeen
+    id: usize
+    label: Option[string]
+
+// A walk over scope `sid`, from its root block, inside no loop.
+walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool) -> Walk =
+    Walk(res, report, pending, sc, sid, relation, function, 0, buf())
 
 // A statement's names.
 walk_stmt(w: *Walk, s: Stmt)
     s match
         FreeS(names) ->
             for named in names.view()
-                if !refused_as_variable(w, named.value, named.span) then w.sc.note(named.value, named.span)
+                if !refused_as_variable(w, named.value, named.span)
+                    w.sc.declare(w.blk, named.value, named.span, named.span.end, false)
         ExprS(e) -> walk(w, e)
-        ValS(pat, e) ->
+        ValS(pat, e, fixed) ->
             walk(w, e)
-            declare_pattern(w, pat)
+            declare_pattern(w, pat, e.span.end, fixed)
+        VarS(n, at, e) ->
+            var from = at.end
 
-        // Hoisted before the scope's names were read.
-        DefS(_) -> ()
+            e match
+                Some(x) ->
+                    walk(w, x)
+                    from = x.span.end
+                None -> ()
+
+            if !refused_as_variable(w, n, at) then w.sc.declare(w.blk, n, at, from, false)
+
+        // Hoisted before the scope's names were read; what is learnt here is the block the
+        // functions were written in, whose names their bodies see.
+        DefS(clauses) -> written_in_block(w, clauses)
 
 // At the top level and in a relation, a name a top-level definition or a builtin already has cannot
 // also be a variable; the refusal is reported, and the answer says whether there was one. A
 // function's own names may shadow them.
-private refused_as_variable(w: *Walk, n: string, at: Span) -> bool
+refused_as_variable(w: *Walk, n: string, at: Span) -> bool
     if w.sid != w.res.top && !w.relation then return false
 
     w.res.global(n) match
@@ -68,10 +100,10 @@ private refused_as_variable(w: *Walk, n: string, at: Span) -> bool
     w.report.add(error(at, s"`$n` is already a relation or a builtin, and cannot also be a variable"))
     true
 
-// A pattern's names, declared in the scope being read.
-declare_pattern(w: *Walk, p: &Expr)
+// A pattern's names, declared in the block being read, in scope from offset `from`.
+declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
     p.kind match
-        Ref(n) -> if !refused_as_variable(w, n, p.span) then w.sc.note(n, p.span)
+        Ref(n) -> if !refused_as_variable(w, n, p.span) then w.sc.declare(w.blk, n, p.span, from, fixed)
         Anon -> ()
         AtomE(_) -> ()
         IntE(_) -> ()
@@ -79,16 +111,16 @@ declare_pattern(w: *Walk, p: &Expr)
         BoolE(_) -> ()
         TupleE(items) ->
             for x in items.view()
-                declare_pattern(w, x)
+                declare_pattern(w, x, from, fixed)
         CallE(_, _, args) ->
             for x in args.view()
-                declare_pattern(w, x)
+                declare_pattern(w, x, from, fixed)
         Disj(a, b) ->
-            declare_pattern(w, a)
-            declare_pattern(w, b)
+            declare_pattern(w, a, from, fixed)
+            declare_pattern(w, b, from, fixed)
         AsE(n, x) ->
-            w.sc.note(n, p.span)
-            declare_pattern(w, x)
+            w.sc.declare(w.blk, n, p.span, from, fixed)
+            declare_pattern(w, x, from, fixed)
         BadE -> ()
         _ ->
             w.report.add(error(p.span, "this cannot be matched against anything")
@@ -99,9 +131,10 @@ end declare_pattern
 walk(w: *Walk, e: &Expr)
     e.kind match
         Ref(n) ->
-            w.meaning(n) match
-                Local(depth, _) -> if depth == 0 then w.sc.note(n, e.span)
+            w.meaning(n, e.span.start) match
+                Local(depth, _, _) -> if depth == 0 then w.sc.used(n)
                 Function(_, _) -> ()
+                Gone -> ()
                 Relation(_) -> called_not_used(w, n, e.span)
                 Builtin(_) -> called_not_used(w, n, e.span)
                 Unknown ->
@@ -142,15 +175,22 @@ walk(w: *Walk, e: &Expr)
             n match
                 Some(x) -> walk(w, x)
                 None -> ()
-        EveryE(g, body) ->
+        EveryE(id, label, g, body) ->
             walk(w, g)
+            loop_body(w, id, label, body)
+        WhileE(id, label, c, body) ->
+            walk(w, c)
+            loop_body(w, id, label, body)
+        RepeatE(id, label, body) -> loop_body(w, id, label, Some(body))
+        ForE(id, label, gens, body) -> walk_for(w, id, label, gens, body)
+        BreakE(label, v) ->
+            loop_target(w, label, e.span, "break")
 
-            body match
+            v match
                 Some(x) -> walk(w, x)
                 None -> ()
-        BlockE(stmts) ->
-            for s in stmts.view()
-                walk_stmt(w, s)
+        ContinueE(label) -> loop_target(w, label, e.span, "continue")
+        BlockE(id, stmts) -> walk_block(w, id, stmts)
         LambdaE(id, clauses) -> queue_lambda(w, id, clauses, e.span)
         ReturnE(x) ->
             if !w.function
@@ -185,18 +225,19 @@ walk(w: *Walk, e: &Expr)
             walk(w, x)
         AssignE(n, x) ->
             walk(w, x)
-            assigned(w, n, e.span)
+            assigned(w, n, e.span, e.span.end)
+        CompoundE(n, _, x) ->
+            walk(w, x)
+            updated(w, n, e.span)
+        StepE(n, _, _) -> updated(w, n, e.span)
+        MultiAssignE(targets, values) ->
+            for x in values.view()
+                walk(w, x)
+
+            for t in targets.view()
+                assigned(w, t.value, t.span, e.span.end)
         _ -> ()
 end walk
-
-// The target of `name = e`: a variable already in reach, or else a new one in the scope being read.
-private assigned(w: *Walk, n: string, at: Span)
-    w.meaning(n) match
-        Local(depth, _) -> if depth == 0 then w.sc.note(n, at)
-        Unknown -> if !refused_as_variable(w, n, at) then w.sc.note(n, at)
-        _ ->
-            w.report.add(error(at, s"`$n` is a function, a relation or a builtin, and cannot be assigned")
-                .with_note("`name = e` assigns a variable"))
 
 private walk_two(w: *Walk, a: &Expr, b: &Expr)
     walk(w, a)
@@ -208,15 +249,15 @@ private called_not_used(w: *Walk, n: string, at: Span)
 
 // A call names something callable, with as many arguments as it takes.
 private callable(w: *Walk, n: string, at: Span, argc: usize)
-    val arity = w.meaning(n) match
-        Local(depth, _) ->
-            if depth == 0 then w.sc.note(n, at)
+    val arity = w.meaning(n, at.start) match
+        Local(depth, _, _) ->
+            if depth == 0 then w.sc.used(n)
 
             return
         Function(r, _) -> w.res.rels.at(r).arity
         Relation(r) -> w.res.rels.at(r).arity
         Builtin(id) -> current().natives.at(id).arity
-        Unknown ->
+        _ ->
             var d = error(at, s"`$n` is not defined").with_label("called here")
 
             nearest_name(n, global_names(w.res)) match
@@ -253,7 +294,7 @@ private queue_lambda(w: *Walk, id: usize, clauses: Buf[Clause], at: Span)
 
     w.res.lambdas.put(id, w.res.rels.len())
     w.pending.push(w.res.rels.len())
-    w.res.rels.push(Rel("lambda", arity, clauses, reserve_chunk("lambda"), true, w.sid, buf()))
+    w.res.rels.push(Rel("lambda", arity, clauses, reserve_chunk("lambda"), true, w.sid, w.blk, buf()))
 
 // -- hoisting -------------------------------------------------------------------------------------
 
@@ -265,26 +306,39 @@ hoist_stmts(w: *Walk, stmts: Buf[Stmt])
                 for c in clauses.view()
                     hoist_clause(w, c)
             ExprS(e) -> hoist_expr(w, e)
-            ValS(_, e) -> hoist_expr(w, e)
+            ValS(_, e, _) -> hoist_expr(w, e)
+            VarS(_, _, e) ->
+                e match
+                    Some(x) -> hoist_expr(w, x)
+                    None -> ()
             FreeS(_) -> ()
 
 // The `def`s in the blocks of an expression -- but not inside a lambda, which is a scope of its own.
 hoist_expr(w: *Walk, e: &Expr)
     e.kind match
-        BlockE(stmts) -> hoist_stmts(w, stmts)
+        BlockE(_, stmts) -> hoist_stmts(w, stmts)
         IfE(c, y, n) ->
             hoist_expr(w, c)
             hoist_expr(w, y)
-
-            n match
-                Some(x) -> hoist_expr(w, x)
-                None -> ()
-        EveryE(g, body) ->
+            hoist_maybe(w, n)
+        EveryE(_, _, g, body) ->
             hoist_expr(w, g)
+            hoist_maybe(w, body)
+        WhileE(_, _, c, body) ->
+            hoist_expr(w, c)
+            hoist_maybe(w, body)
+        RepeatE(_, _, body) -> hoist_expr(w, body)
+        ForE(_, _, gens, body) ->
+            for g in gens.view()
+                hoist_expr(w, g.iter)
+                hoist_maybe(w, g.filter)
 
-            body match
-                Some(x) -> hoist_expr(w, x)
-                None -> ()
+            hoist_maybe(w, body)
+        BreakE(_, v) -> hoist_maybe(w, v)
+        CompoundE(_, _, x) -> hoist_expr(w, x)
+        MultiAssignE(_, values) ->
+            for x in values.view()
+                hoist_expr(w, x)
         CallE(_, _, args) ->
             for a in args.view()
                 hoist_expr(w, a)
@@ -330,6 +384,11 @@ private hoist_two(w: *Walk, a: &Expr, b: &Expr)
     hoist_expr(w, a)
     hoist_expr(w, b)
 
+private hoist_maybe(w: *Walk, x: Option[&Expr])
+    x match
+        Some(e) -> hoist_expr(w, e)
+        None -> ()
+
 // One clause of a local `def` joins the function of its name in the scope being read.
 private hoist_clause(w: *Walk, c: Clause)
     if !is_function(c.kind)
@@ -354,5 +413,5 @@ private hoist_clause(w: *Walk, c: Clause)
             cs.push(c)
             w.sc.fns.put(c.name, w.res.rels.len())
             w.pending.push(w.res.rels.len())
-            w.res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), true, w.sid, buf()))
+            w.res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), true, w.sid, 0, buf()))
 end hoist_clause

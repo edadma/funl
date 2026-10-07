@@ -180,9 +180,9 @@ private binding(p: *Parser) -> Stmt
 
     val pat = parse_expr(p, 0)
 
-    if !p.expect(Equals, "`=`") then return ValS(pat, expr(BadE, pat.span))
+    if !p.expect(Equals, "`=`") then return ValS(pat, expr(BadE, pat.span), true)
 
-    ValS(pat, body_expr(p))
+    ValS(pat, body_expr(p), true)
 end binding
 
 // What follows a `=`: an expression on the line, or an indented block.

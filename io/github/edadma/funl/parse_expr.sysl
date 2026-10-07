@@ -50,6 +50,11 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             if p.at_tok(LParen) then return call(p, n, t.span)
 
+            if p.at_tok(Colon) && loop_word(p, 1)
+                p.take()
+
+                return labelled(p, t.span, Some(n))
+
             if p.accept(At)
                 val pat = parse_expr(p, JuxtPower)
 
@@ -85,7 +90,24 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             expr(Neg(e), t.span.to(e.span))
         If -> if_expr(p, t.span)
-        Every -> every_expr(p, t.span)
+        Every -> every_expr(p, t.span, None)
+        While -> while_expr(p, t.span, None)
+        Repeat -> repeat_expr(p, t.span, None)
+        For -> for_expr(p, t.span, None)
+        Break ->
+            val label = loop_label(p)
+
+            if !p.at_tok(LParen) then return expr(BreakE(label, None), t.span.to(p.toks.previous()))
+
+            val e = parse_expr(p, ReturnPower)
+
+            expr(BreakE(label, Some(e)), t.span.to(e.span))
+        Continue ->
+            val label = loop_label(p)
+
+            expr(ContinueE(label), t.span.to(p.toks.previous()))
+        PlusPlus -> prefix_step(p, t.span, 1)
+        MinusMinus -> prefix_step(p, t.span, -1)
         Bang ->
             val e = parse_expr(p, BangPower)
 
@@ -119,10 +141,15 @@ private list(p: *Parser, open: Span) -> &Expr
     expr(ListE(items), open.to(p.toks.previous()))
 
 // An expression where one is delimited -- inside parentheses or a call's arguments, at the head of
-// `every` -- which may also be an assignment `name = e`. Nowhere else does `=` assign inside an
-// expression: a statement's `=` declares, and a guard's or a definition's `=` begins a body.
+// `every` and `while` -- which may also be an assignment `name = e` or `name op= e`. Nowhere else
+// does `=` assign inside an expression: a statement reads its own `=`, and a guard's or a
+// definition's `=` begins a body.
 delimited(p: *Parser) -> &Expr
     val e = parse_expr(p, 0)
+
+    compound_assign(p, e) match
+        Some(c) -> return c
+        None -> ()
 
     if !p.at_tok(Equals) then return e
 
@@ -135,8 +162,49 @@ delimited(p: *Parser) -> &Expr
             expr(AssignE(n, value), e.span.to(value.span))
         _ -> e
 
+// `name op= e`, the target read and an assignment operator next; `None` when none is.
+compound_assign(p: *Parser, target: &Expr) -> Option[&Expr]
+    var o = Add
+
+    p.peek_tok() match
+        Some(t) ->
+            t match
+                OpEq(k) -> o = k
+                _ -> return None
+        None -> return None
+
+    p.take()
+
+    val value = parse_expr(p, 0)
+    val at = target.span.to(value.span)
+
+    target.kind match
+        Ref(n) -> Some(expr(CompoundE(n, o, value), at))
+        _ ->
+            p.report.add(error(target.span, "only a variable can be assigned through an operator")
+                .with_note("`x += e` stores `x + e` in the variable `x`"))
+            Some(expr(BadE, at))
+
+// `++x` or `--x`, the operator already read.
+private prefix_step(p: *Parser, at: Span, delta: long) -> &Expr
+    val target = parse_expr(p, ApplyPower)
+
+    stepped(p, target, at.to(target.span), delta, true)
+
+// `x++` or `x--`, the operator just read.
+private postfix_step(p: *Parser, target: &Expr, op: Span, delta: long) -> &Expr = stepped(p, target, target.span.to(op), delta, false)
+
+private stepped(p: *Parser, target: &Expr, at: Span, delta: long, prefix: bool) -> &Expr
+    target.kind match
+        Ref(n) -> expr(StepE(n, delta, prefix), at)
+        BadE -> expr(BadE, at)
+        _ ->
+            p.report.add(error(target.span, "`++` and `--` change a variable, and this is not one")
+                .with_note("`n++` adds one to the variable `n` and produces its old value"))
+            expr(BadE, at)
+
 // `i to j [by k]` or `i until j [by k]`, the `to` or `until` already read.
-private range(p: *Parser, from: &Expr, inclusive: bool) -> &Expr
+range(p: *Parser, from: &Expr, inclusive: bool) -> &Expr
     val upto = parse_expr(p, RangePower)
 
     if !p.accept(By) then return expr(RangeE(from, upto, None, inclusive), from.span.to(upto.span))
@@ -176,6 +244,8 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
             return expr(ApplyE(left, args), left.span.to(p.toks.previous()))
         To -> return range(p, left, true)
         Until -> return range(p, left, false)
+        PlusPlus -> return postfix_step(p, left, t.span, 1)
+        MinusMinus -> return postfix_step(p, left, t.span, -1)
         _ -> ()
 
     // `(e op)`: the operator's right operand is the `)`, which makes this half of a section.
@@ -201,8 +271,8 @@ private infix(op: Tok, a: &Expr, b: &Expr) -> ExprKind
                 Some(o) -> BinE(o, a, b)
                 None -> BadE
 
-// What follows `(`: `()`, a section or an operator as a function, a tuple, or a parenthesized
-// expression -- whose span takes in the parentheses, so a lambda can tell `(0 | 1) -> e`, whose
+// What follows `(`: `()`, a section or an operator as a function, a tuple, a sequence `(s; s; e)`,
+// or a parenthesized expression -- whose span takes in the parentheses, so a lambda can tell `(0 | 1) -> e`, whose
 // pattern is an alternation, from `n | n > 0 -> e`, whose pattern is guarded.
 private paren(p: *Parser, open: Span) -> &Expr
     if p.accept(RParen) then return expr(TupleE(buf()), open.to(p.toks.previous()))
@@ -212,6 +282,8 @@ private paren(p: *Parser, open: Span) -> &Expr
         None ->
             p.fail_here("an expression")
             return expr(BadE, open)
+
+    if p.at_tok(Val) || p.at_tok(VarW) then return sequence(p, open, statement(p))
 
     // `(op)` and `(op e)`. A `-` is a section only as `(-)`: `(- 1)` is minus one.
     if sectionable(look.value) && (!is_minus(look.value) || p.next_is(RParen))
@@ -233,6 +305,8 @@ private paren(p: *Parser, open: Span) -> &Expr
             return section(p, op, e, expr(Ref("$b"), first.span), 1, open)
         _ -> ()
 
+    if p.at_tok(Semi) then return sequence(p, open, ExprS(first))
+
     if p.at_tok(Comma)
         var items: Buf[&Expr] = buf()
 
@@ -248,6 +322,19 @@ private paren(p: *Parser, open: Span) -> &Expr
     p.expect(RParen, "`)`")
     expr(first.kind, open.to(p.toks.previous()))
 end paren
+
+// `(s; s; e)`, its first statement read: a block of its own, whose value is its last statement's.
+private sequence(p: *Parser, open: Span, first: Stmt) -> &Expr
+    var stmts: Buf[Stmt] = buf()
+
+    stmts.push(first)
+
+    while p.accept(Semi)
+        stmts.push(statement(p))
+
+    if !p.expect(RParen, "`;` or `)`") then p.skip_to_close()
+
+    expr(BlockE(p.node_id(), stmts), open.to(p.toks.previous()))
 
 private is_minus(t: Tok) -> bool = t match
     Minus -> true
@@ -358,18 +445,7 @@ private if_expr(p: *Parser, at: Span) -> &Expr
     expr(IfE(cond, yes, Some(no)), at.to(no.span))
 end if_expr
 
-// `every e [do b]`, the `every` already read; an indented block after `e` is its body without the
-// `do`.
-private every_expr(p: *Parser, at: Span) -> &Expr
-    val gen = delimited(p)
-
-    if !p.accept(Do) && !p.at_tok(Indent) then return expr(EveryE(gen, None), at.to(gen.span))
-
-    val body = branch(p)
-
-    expr(EveryE(gen, Some(body)), at.to(body.span))
-
-// What follows `then`, `else`, `do`, `=` or `->`: an expression on the same line, or an indented
+// What follows `then`, `else`, `do`, `=`, `->` or `repeat`: an expression on the same line, or an indented
 // block. **A block whose every line is a lambda is a partial function literal**: one anonymous
 // function whose clauses are the lambdas, in order.
 branch(p: *Parser) -> &Expr
@@ -400,7 +476,7 @@ branch(p: *Parser) -> &Expr
 
     partial_function(stmts, span) match
         Some(f) -> f
-        None -> expr(BlockE(stmts), span)
+        None -> expr(BlockE(p.node_id(), stmts), span)
 end branch
 
 // The lambdas of a block as one function, if every line is one.

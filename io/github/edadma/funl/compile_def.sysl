@@ -44,7 +44,8 @@ private compiled(res: *Resolved) -> Result[usize, string]
         if r.function then compile_function(res, r)? else compile_relation(res, r)?
 
     var e = emit("main")
-    val c = Ctx(res, res.top)
+    var loops: Buf[Looping] = buf()
+    val c = context(res, res.top, &loops)
 
     e.op(Frame(res.scopes.at(res.top).count()))
 
@@ -61,7 +62,8 @@ private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
         var sc = res.scopes.at(r.scopes.at(i))
-        val c = Ctx(res, r.scopes.at(i))
+        var loops: Buf[Looping] = buf()
+        val c = context(res, r.scopes.at(i), &loops)
         val last = i + 1 == r.clauses.len()
         val next = e.label()
 
@@ -122,9 +124,9 @@ end head_arg
 // A body in tail position: every path through it ends in `Return`.
 private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
-        CallE(n, _, args) ->
-            c.res.meaning(c.sc, n) match
-                Relation(_) -> call_named(e, c, n, args, true)?
+        CallE(n, at, args) ->
+            c.meaning(n, at.start) match
+                Relation(_) -> call_named(e, c, n, at.start, args, true)?
                 _ -> returning(e, c, x)?
         Conj(a, b) ->
             compile_value(e, c, a)?

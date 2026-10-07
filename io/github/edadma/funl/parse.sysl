@@ -20,10 +20,18 @@ struct Parser
     // How many lambdas have been read: the next one's id.
     lambdas: usize
 
+    // How many blocks and loops have been read: the next one's id.
+    nodes: usize
+
     // A fresh lambda id.
     lambda_id(*self) -> usize
         self.lambdas += 1
         self.lambdas - 1
+
+    // A fresh id for a block or a loop.
+    node_id(*self) -> usize
+        self.nodes += 1
+        self.nodes - 1
 
     // **Not `private`: the expression callbacks in `parse_expr.sysl` use these.**
 
@@ -186,11 +194,25 @@ tag(t: Tok) -> u8
         LBracket -> 54
         RBracket -> 55
         Bang -> 56
+        VarW -> 57
+        While -> 58
+        Repeat -> 59
+        For -> 60
+        Break -> 61
+        Continue -> 62
+        Semi -> 63
+        Colon -> 64
+        LeftArrow -> 65
+        DotDot -> 66
+        DotDotLess -> 67
+        OpEq(_) -> 68
+        PlusPlus -> 69
+        MinusMinus -> 70
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
 parse(src: Source, report: *Report) -> Program
-    var p = Parser(lex(src, report), report, src, 0, 0)
+    var p = Parser(lex(src, report), report, src, 0, 0, 0)
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
 
@@ -227,7 +249,8 @@ parse(src: Source, report: *Report) -> Program
     Program(clauses, stmts)
 end parse
 
-// One statement: `free names`, `def`, `val pattern = e`, `pattern = e`, or an expression.
+// One statement: `free names`, `def`, `val pattern = e`, `var name [= e]`, an assignment --
+// `name = e`, `name op= e`, `a, b = e1, e2` -- `pattern = e`, or an expression.
 statement(p: *Parser) -> Stmt
     if p.accept(Def)
         var clauses: Buf[Clause] = buf()
@@ -238,16 +261,28 @@ statement(p: *Parser) -> Stmt
     if p.accept(Val)
         val pat = parse_expr(p, 0)
 
-        if !p.expect(Equals, "`=`") then return ValS(pat, expr(BadE, pat.span))
+        if !p.expect(Equals, "`=`") then return ValS(pat, expr(BadE, pat.span), true)
 
-        return ValS(pat, body_expr(p))
+        return ValS(pat, body_expr(p), true)
+
+    if p.accept(VarW) then return var_statement(p)
 
     if !p.accept(Free)
         val e = parse_expr(p, 0)
 
-        if p.accept(Equals) then return ValS(e, body_expr(p))
+        if p.at_tok(Comma) then return ExprS(multiple_assignment(p, e))
 
-        return ExprS(e)
+        compound_assign(p, e) match
+            Some(c) -> return ExprS(c)
+            None -> ()
+
+        if !p.accept(Equals) then return ExprS(e)
+
+        val value = body_expr(p)
+
+        e.kind match
+            Ref(n) -> return ExprS(expr(AssignE(n, value), e.span.to(value.span)))
+            _ -> return ValS(e, value, false)
 
     var names: Buf[Spanned[string]] = buf()
 
@@ -269,4 +304,66 @@ statement(p: *Parser) -> Stmt
 
     FreeS(names)
 end statement
+
+// `var name [= e]`, the `var` already read.
+private var_statement(p: *Parser) -> Stmt
+    val t = p.toks.peek() match
+        Some(t) -> t
+        None ->
+            p.fail_here("a name to declare")
+            return ExprS(expr(BadE, p.toks.here()))
+
+    val n = t.value match
+        Name(n) -> n
+        _ ->
+            p.fail_here("a name to declare")
+            return ExprS(expr(BadE, t.span))
+
+    p.take()
+
+    if !p.accept(Equals) then return VarS(n, t.span, None)
+
+    VarS(n, t.span, Some(body_expr(p)))
+
+// `a, b = e1, e2`, the first target read and a `,` next.
+private multiple_assignment(p: *Parser, first: &Expr) -> &Expr
+    var targets: Buf[Spanned[string]] = buf()
+    var bad = !target_name(p, first, &targets)
+    var count: usize = 1
+
+    while p.accept(Comma)
+        count += 1
+
+        if !target_name(p, parse_expr(p, 0), &targets) then bad = true
+
+    if !p.expect(Equals, "`=`") then return expr(BadE, first.span.to(p.toks.previous()))
+
+    var values: Buf[&Expr] = buf()
+
+    loop
+        values.push(parse_expr(p, 0))
+
+        if !p.accept(Comma) then break
+
+    val at = first.span.to(p.toks.previous())
+
+    if values.len() != count
+        p.report.add(error(at, s"this assigns ${counted(count, "variable")} and gives ${counted(values.len(), "value")}")
+            .with_note("`a, b = b, a` takes one value for each name"))
+        bad = true
+
+    if bad then expr(BadE, at) else expr(MultiAssignE(targets, values), at)
+end multiple_assignment
+
+// One target of a multiple assignment, which is a name; false, with the refusal reported, for
+// anything else.
+private target_name(p: *Parser, e: &Expr, out: *Buf[Spanned[string]]) -> bool
+    e.kind match
+        Ref(n) ->
+            out.push(Spanned(n, e.span))
+            true
+        BadE -> false
+        _ ->
+            p.report.add(error(e.span, "a multiple assignment assigns names, and this is not one"))
+            false
 

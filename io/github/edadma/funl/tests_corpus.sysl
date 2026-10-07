@@ -91,3 +91,47 @@ SELECT()
 @test
 NESTED_EVERY()
     corpus("nested_every")
+
+@test
+NESTED_FOR()
+    corpus("nested_for")
+
+@test
+VARIABLE_SHADOWING()
+    corpus("variable_shadowing")
+
+@test
+WHILE_LOOP_LEXICAL_SCOPE()
+    corpus("while_loop_lexical_scope")
+
+@test
+FOR_LOOP_SCOPE()
+    corpus("for_loop_scope")
+
+@test
+NESTED_COMPOUND_EXPRESSION_DECLARATION()
+    corpus("nested_compound_expression_declaration")
+
+@test
+REPEATED_ALTERNATION_1()
+    corpus("repeated_alternation_1")
+
+@test
+FACTORIAL_2()
+    corpus("factorial_2")
+
+@test
+GCD_1()
+    corpus("gcd_1")
+
+@test
+EXPONENTIAL_1()
+    corpus("exponential_1")
+
+@test
+EXPONENTIAL_2()
+    corpus("exponential_2")
+
+@test
+EXPONENTIAL_3()
+    corpus("exponential_3")

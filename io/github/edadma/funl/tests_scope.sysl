@@ -1,0 +1,87 @@
+module io.github.edadma.funl
+@tests
+
+// Variables, blocks and assignment: `var`, `val`, a block's own names, `=`, the compound forms,
+// `++` and `--`, and multiple assignment.
+
+@test
+A_BLOCKS_DECLARATION_SHADOWS_AN_OUTER_ONE_UNTIL_THE_BLOCK_ENDS()
+    assert_eq(ran_funl("def f()\n  var k = 1\n\n  if true\n    var k = 2\n    write( k )\n\n  k\n\nwrite( f() )\n"), "2\n1\nsucceeded")
+
+@test
+A_NAME_IS_IN_SCOPE_FROM_THE_END_OF_ITS_DECLARATION()
+    assert_eq(ran_funl("val x = 1\n\nif true\n  val x = x + 1\n  write( x )\n\nwrite( x )\n"), "2\n1\nsucceeded")
+
+@test
+A_NAME_READ_AFTER_ITS_BLOCK_HAS_ENDED_IS_UNDEFINED()
+    assert_eq(ran_funl("def f()\n  if true\n    val t = 5\n\n  t\n\nwrite( f() )\n"), "undefined\nsucceeded")
+    assert_eq(ran_funl("if true\n  z = 5\n  write( z )\n\nwrite( z )\n"), "5\nundefined\nsucceeded")
+
+@test
+A_NAME_NO_BLOCK_HAS_DECLARED_YET_IS_STILL_REFUSED()
+    assert_eq(complaints("write( q )\nif true\n  val q = 1\n"), "error 1:8 `q` is not defined\n")
+
+@test
+ASSIGNMENT_STORES_INTO_THE_NEAREST_VARIABLE_IN_SCOPE_EVEN_A_FRAME_OUT()
+    assert_eq(ran_funl("var j = 0\n\nwhile j < 2\n  j = j + 1\n\nwrite( j )\n"), "2\nsucceeded")
+    assert_eq(ran_funl("var count = 0\n\ndef bump() = (count += 1)\ndef set()\n  count = 10\n\nbump()\nbump()\nwrite( count )\nset()\nwrite( count )\n"),
+        "2\n10\nsucceeded")
+
+@test
+ASSIGNMENT_TO_A_NAME_NOTHING_DECLARES_DECLARES_IT_IN_THE_BLOCK()
+    assert_eq(ran_funl("def f()\n  a, b = 0, 1\n  a, b = b, a + b\n  (a, b)\n\nwrite( f() )\n"), "(1, 1)\nsucceeded")
+
+@test
+A_VAR_WITHOUT_A_VALUE_IS_UNDEFINED_ON_EVERY_TURN()
+    assert_eq(ran_funl("var n = 0\n\nwhile n++ < 2\n  var u\n  write( u )\n  u = n\n"), "undefined\nundefined\nsucceeded")
+
+@test
+FUNCTIONS_AND_LAMBDAS_WRITTEN_IN_A_BLOCK_SEE_ITS_NAMES()
+    assert_eq(ran_funl("def f()\n  if true\n    val v = 8\n    def g() = v\n    g()\n\nwrite( f() )\n"), "8\nsucceeded")
+    assert_eq(ran_funl("if true\n  val v = 7\n  val g = () -> v\n  write( g() )\n"), "7\nsucceeded")
+
+@test
+COMPOUND_ASSIGNMENT_STORES_AND_PRODUCES_THE_NEW_VALUE()
+    assert_eq(ran_funl("var x = 10\nx += 5\nx -= 3\nx *= 2\nwrite( x )\nx /= 4\nwrite( x )\nx ^= 2\nx \\= 5\nx %= 4\nwrite( x, (x += 1) )\n"),
+        "24\n6\n3, 4\nsucceeded")
+
+@test
+INCREMENT_AND_DECREMENT_PRODUCE_THE_OLD_VALUE_AFTER_AND_THE_NEW_ONE_BEFORE()
+    assert_eq(ran_funl("var x = 24\nwrite( x++, x, ++x, x--, --x )\n"), "24, 25, 26, 26, 24\nsucceeded")
+
+@test
+AN_UPDATE_THROUGH_A_GENERATOR_UPDATES_ONCE_FOR_EACH_VALUE()
+    assert_eq(ran_funl("var i = 1\nevery i *= 1 to 5\nwrite( i )\n"), "120\nsucceeded")
+
+@test
+ORDERING_ASSIGNMENT_STORES_WHEN_THE_ORDERING_HOLDS_AND_FAILS_OTHERWISE()
+    assert_eq(ran_funl("var m = 3\nevery m <:= ![1, 5, 2, 7]\nwrite( m )\nif not (m <:= 2) then write( #kept )\nevery m >:= ![4, 9, 1]\nwrite( m )\n"),
+        "7\nkept\n1\nsucceeded")
+
+@test
+MULTIPLE_ASSIGNMENT_MAKES_EVERY_VALUE_BEFORE_STORING_ANY()
+    assert_eq(ran_funl("var a = 1\nvar b = 2\na, b = b, a\nwrite( a, b )\n"), "2, 1\nsucceeded")
+
+@test
+A_PARENTHESIZED_SEQUENCE_IS_A_BLOCK_WHOSE_VALUE_IS_ITS_LAST_STATEMENTS()
+    assert_eq(ran_funl("write( (1; 2; 3) )\nwrite( (val q = 4; q * q) )\nwrite( q )\n"), "3\n16\nundefined\nsucceeded")
+
+@test
+A_VAL_AND_A_WHERE_VALUE_CANNOT_BE_ASSIGNED()
+    assert_eq(complaints("val a = 1\na = 2\n"), "error 2:1 `a` is a `val`, and cannot be assigned\n")
+    assert_eq(complaints("val a = 1\na += 2\n"), "error 2:1 `a` is a `val`, and cannot be assigned\n")
+    assert_eq(complaints("def f( x ) = (y = 2)\n  where y = 1\n"), "error 1:14 `y` is a `val`, and cannot be assigned\n")
+
+@test
+AN_UPDATE_OF_A_NAME_NOT_IN_SCOPE_IS_REFUSED()
+    assert_eq(complaints("y += 1\n"), "error 1:1 `y` is not defined\n")
+    assert_eq(complaints("if true\n  var z = 1\nz++\n"), "error 3:1 `z` is not defined here\n")
+    assert_eq(complaints("write = 1\n"), "error 1:1 `write` is a function, a relation or a builtin, and cannot be assigned\n")
+
+@test
+A_MALFORMED_ASSIGNMENT_IS_REFUSED()
+    assert_eq(complaints("a, b = 1\n"), "error 1:1 this assigns 2 variables and gives 1 value\n")
+    assert_eq(complaints("a, 3 = 1, 2\n"), "error 1:4 a multiple assignment assigns names, and this is not one\n")
+    assert_eq(complaints("a, 3 = 1\n"),
+        "error 1:4 a multiple assignment assigns names, and this is not one\nerror 1:1 this assigns 2 variables and gives 1 value\n")
+    assert_eq(complaints("3++\n"), "error 1:1 `++` and `--` change a variable, and this is not one\n")

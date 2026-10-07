@@ -123,7 +123,10 @@ value.** A statement is bounded, and so are these positions:
 | `e1 or e2` | alternation at the logical level, the same machinery as `\|` |
 
 Loops take an optional label (`outer: for …`) and `break label` / `continue label` reach out by
-name; `break` may carry a value, `break (e)`.
+name; `break` may carry a value, `break (e)`. **A loop fails when it runs out** -- its condition
+fails, its generators are spent -- **and a `break` makes it succeed**, with the value or `()`, so
+`val cr = for d <- 1.. do if d*d >= n then break (d)` is the first such `d`. `break` and `continue`
+reach only the loops of the function they are written in.
 
 **`every` failing at the end is Icon's rule and FunL keeps it**: `every` exists for its side effects,
 and a statement that fails is harmless.
@@ -308,6 +311,17 @@ to integers; the rewrite has no such path.
 `=` assigns, `+=` and the other compound forms update, and several targets take several values at
 once, `a, b = b, a`. A name assigned at the top level without `val` or `var` is declared by the
 assignment.
+
+**Every block has names of its own**: an indented block, a sequence `(s; s; e)`, and a `for`'s
+bindings. `val`, `var`, `free` and a pattern declare in the innermost block, in scope from the end
+of the declaration to the end of the block, shadowing the name outside it (`variable shadowing`,
+`for loop scope`). `x = e` stores into the nearest `x` in scope -- this block's, an enclosing
+block's, or an enclosing function's -- and declares `x` in the innermost block only when there is
+none, which is how a loop assigns the counter declared above it (`break`, `continue`). `x op= e`,
+`x++` and `x--` change a variable that must already be in scope, and a name declared by `val` or
+bound by `where` cannot be assigned at all. **A name read after its block has ended reads
+`undefined`** (`while loop lexical scope`, `nested compound expression declaration`); a name that
+no block has declared before the read is refused.
 
 **`x <- e` is reversible assignment**: it assigns, and if the expression it is part of is later
 backtracked into, the old value comes back. It is what lets the n-queens placement above undo

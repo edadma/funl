@@ -1,0 +1,10 @@
+def gcd( a, b )
+  var a_ = a
+  var b_ = b
+
+  while (r = a_ mod b_) != 0
+     a_, b_ = b_, r
+
+  b_
+
+write( gcd(30, 12) )

@@ -45,6 +45,14 @@ enum Op
     Fail
     Branch(to: usize)
 
+    // Record the innermost mark's place on the control stack in slot `slot` of the running frame:
+    // a loop's head, so that `break` and `continue` can reach it however many marks are open inside.
+    SaveMark(slot: usize)
+
+    // End the bounded expression whose mark slot `slot` recorded, discarding every entry above and
+    // including that mark and the cells above its floor, and making the mark around it the innermost.
+    UnmarkTo(slot: usize)
+
     // -- operands -----------------------------------------------------------------------------------
 
     Pop
@@ -173,6 +181,11 @@ enum Op
 
     // Pop into slot `slot` of the frame `depth` static links up.
     StoreUp(depth: usize, slot: usize)
+
+    // Pop `b`; store `x op b` into slot `slot` of the frame `depth` static links up, `x` being what
+    // the slot holds, and push it -- or fail, leaving the slot alone, for an ordering that does not
+    // hold. The value is read after `b` is made, so a generator in `b` updates the slot each time.
+    Update(depth: usize, slot: usize, o: BinOp)
 
     // -- generators (`gen.sysl`) --------------------------------------------------------------------
 

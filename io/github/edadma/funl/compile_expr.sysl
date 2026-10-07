@@ -23,22 +23,41 @@ import sysl.buf.{Buf, buf}
 //
 // A condition, a statement and the body of an `every` are bounded: their `Unmark` discards every
 // choice point made inside them. Everything else is left resumable, so a generator anywhere in an
-// expression is backtracked into by whatever fails after it.
+// expression is backtracked into by whatever fails after it. The loops are in `compile_loop.sysl`.
+//
+//     x op= e                e; Update(x, op)          -- `e` first, so each of its values updates
+//     x++                    LoadSlot(x); PushInt(1); Update(x, +); Pop
 
 // What the compiler reads while it compiles one scope's code.
 struct Ctx
     res: *Resolved
 
-    // The scope being compiled, by id.
+    // The scope being compiled, by id, and the block of it.
     sc: usize
+    blk: usize
+
+    // The loops around the code being compiled, innermost last.
+    loops: *Buf[Looping]
+
+    // What `n` means written at offset `pos` here.
+    meaning(self, n: string, pos: usize) -> Meaning = self.res.meaning(self.sc, self.blk, pos, n)
+
+    // The same, compiling the block the parser numbered `id`.
+    in_block(self, id: usize) -> Result[Ctx, string] = self.res.blocks.get(id) match
+        Some(b) -> Ok(Ctx(self.res, self.sc, b, self.loops))
+        None -> Err(s"block $id was never resolved")
+
+// A context for scope `sid` from its root block, inside no loop, its loop stack `loops`.
+context(res: *Resolved, sid: usize, loops: *Buf[Looping]) -> Ctx = Ctx(res, sid, 0, loops)
 
 // Push `x`'s value.
 compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
         Ref(n) ->
-            c.res.meaning(c.sc, n) match
-                Local(depth, slot) -> e.op(LoadSlot(depth, slot))
+            c.meaning(n, x.span.start) match
+                Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
                 Function(r, up) -> e.op(MakeClosure(c.res.rels.at(r).chunk, up))
+                Gone -> e.op(PushConst(e.constant(Undefined)))
                 _ -> return Err(s"'$n' was resolved and is not a value")
         Anon -> e.op(PushVar)
         AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
@@ -50,7 +69,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 compile_value(e, c, a)?
 
             e.op(if items.len() == 0 then PushUnit else MakeTuple(items.len()))
-        CallE(n, _, args) -> call_named(e, c, n, args, false)?
+        CallE(n, at, args) -> call_named(e, c, n, at.start, args, false)?
         ApplyE(f, args) ->
             compile_value(e, c, f)?
 
@@ -101,19 +120,13 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 None -> e.op(Fail)
 
             e.place(end)
-        EveryE(g, body) ->
-            compile_value(e, c, g)?
-            e.op(Pop)
-
-            body match
-                Some(b) ->
-                    e.op(MarkThrough)
-                    compile_value(e, c, b)?
-                    e.op(Unmark)
-                None -> ()
-
-            e.op(Fail)
-        BlockE(stmts) -> block(e, c, stmts)?
+        EveryE(id, label, g, body) -> compile_every(e, c, id, label, g, body)?
+        WhileE(id, label, cond, body) -> compile_while(e, c, id, label, cond, body)?
+        RepeatE(id, label, body) -> compile_repeat(e, c, id, label, body)?
+        ForE(id, label, gens, body) -> compile_for(e, c, id, label, gens, body)?
+        BreakE(label, v) -> compile_break(e, c, label, v)?
+        ContinueE(label) -> compile_continue(e, c, label)?
+        BlockE(id, stmts) -> block(e, c.in_block(id)?, stmts)?
         LambdaE(id, _) ->
             c.res.lambdas.get(id) match
                 Some(r) -> e.op(MakeClosure(c.res.rels.at(r).chunk, 0))
@@ -157,10 +170,33 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         AssignE(n, a) ->
             compile_value(e, c, a)?
             e.op(Dup)
+            e.op(store_to(c, n, x.span.end)?)
+        CompoundE(n, o, a) ->
+            compile_value(e, c, a)?
 
-            c.res.meaning(c.sc, n) match
-                Local(depth, slot) -> e.op(if depth == 0 then StoreSlot(slot) else StoreUp(depth, slot))
-                _ -> return Err(s"'$n' was resolved and is not a variable")
+            val v = variable(c, n, x.span.start)?
+
+            e.op(Update(v.depth, v.slot, o))
+        StepE(n, delta, prefix) ->
+            val v = variable(c, n, x.span.start)?
+
+            if !prefix then e.op(LoadSlot(v.depth, v.slot))
+
+            e.op(PushInt(delta))
+            e.op(Update(v.depth, v.slot, Add))
+
+            if !prefix then e.op(Pop)
+        MultiAssignE(targets, values) ->
+            for a in values.view()
+                compile_value(e, c, a)?
+
+            var i = targets.len()
+
+            while i > 0
+                i -= 1
+                e.op(store_to(c, targets.at(i).value, x.span.end)?)
+
+            e.op(PushUnit)
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
@@ -202,13 +238,29 @@ private alternation(e: *Emit, c: Ctx, a: &Expr, b: &Expr, conditions: bool) -> R
     e.place(end)
     Ok(())
 
-// `name(args)`: a call of whatever the name means. In tail position (`tail`) a call that can reuse
-// the frame is a tail call, and every path ends in `Return`.
-call_named(e: *Emit, c: Ctx, n: string, args: Buf[&Expr], tail: bool) -> Result[unit, string]
-    val m = c.res.meaning(c.sc, n)
+// A variable's place: the frame `depth` static links up, and its slot there.
+struct SlotRef
+    depth: usize
+    slot: usize
+
+// The variable `n` names at offset `pos`.
+private variable(c: Ctx, n: string, pos: usize) -> Result[SlotRef, string] = c.meaning(n, pos) match
+    Local(depth, slot, _) -> Ok(SlotRef(depth, slot))
+    _ -> Err(s"'$n' was resolved and is not a variable")
+
+// The instruction storing the top of the stack into the variable `n` names at offset `pos`.
+private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
+    val v = variable(c, n, pos)?
+
+    Ok(if v.depth == 0 then StoreSlot(v.slot) else StoreUp(v.depth, v.slot))
+
+// `name(args)`, the name written at offset `pos`: a call of whatever the name means. In tail
+// position (`tail`) a call that can reuse the frame is a tail call, and every path ends in `Return`.
+call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    val m = c.meaning(n, pos)
 
     m match
-        Local(depth, slot) -> e.op(LoadSlot(depth, slot))
+        Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
         _ -> ()
 
     for a in args.view()
@@ -217,7 +269,7 @@ call_named(e: *Emit, c: Ctx, n: string, args: Buf[&Expr], tail: bool) -> Result[
     val argc = args.len()
 
     m match
-        Local(_, _) -> e.op(if tail then TailCallValue(argc) else CallValue(argc))
+        Local(_, _, _) -> e.op(if tail then TailCallValue(argc) else CallValue(argc))
         Function(r, up) ->
             val chunk = c.res.rels.at(r).chunk
 
@@ -227,7 +279,7 @@ call_named(e: *Emit, c: Ctx, n: string, args: Buf[&Expr], tail: bool) -> Result[
 
             e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
         Builtin(id) -> e.op(Native(id, argc))
-        Unknown -> return Err(s"'$n' was resolved and names nothing")
+        _ -> return Err(s"'$n' was resolved and names nothing")
 
     if tail then e.op(Return)
 
@@ -284,7 +336,7 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
             compile_value(e, c, x)?
             e.op(Unmark)
             e.place(next)
-        ValS(pat, x) ->
+        ValS(pat, x, _) ->
             val next = e.label()
 
             e.op(Mark(next))
@@ -292,10 +344,23 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
             match_fresh(e, c, pat)?
             e.op(Unmark)
             e.place(next)
+        VarS(n, _, x) ->
+            val next = e.label()
+
+            e.op(Mark(next))
+
+            x match
+                Some(v) -> compile_value(e, c, v)?
+                None -> e.op(PushConst(e.constant(Undefined)))
+
+            e.op(StoreSlot(slot_of_name(c, n)?))
+            e.op(Unmark)
+            e.place(next)
         DefS(_) -> ()
 
     Ok(())
 
-slot_of_name(c: Ctx, n: string) -> Result[usize, string] = c.res.scopes.at(c.sc).slot(n) match
+// The slot the block being compiled declares `n` in.
+slot_of_name(c: Ctx, n: string) -> Result[usize, string] = c.res.scopes.at(c.sc).declared(c.blk, n) match
     Some(s) -> Ok(s)
     None -> Err(s"'$n' was resolved and has no slot")

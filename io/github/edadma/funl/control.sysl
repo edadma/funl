@@ -108,3 +108,19 @@ unmark(v: *Vm) -> Result[unit, string]
     v.stack.truncate(m.floor)
     v.mark = m.mark
     Ok(())
+
+// End the bounded expression whose mark is at the place `recorded` holds, however many marks are
+// open above it: what `break` and `continue` do to the marks between them and their loop.
+unmark_to(v: *Vm, recorded: Value) -> Result[unit, string]
+    val at = recorded match
+        Int(n) -> usize(n)
+        _ -> return Err("a loop's mark slot holds no mark")
+
+    if at >= v.control.len() then return Err(s"a loop's mark $at is gone from a control stack of ${v.control.len()}")
+
+    val m = v.control.at(at)
+
+    cut_to(v, at)
+    v.stack.truncate(m.floor)
+    v.mark = m.mark
+    Ok(())

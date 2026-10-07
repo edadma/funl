@@ -21,10 +21,15 @@ import sysl.text.Search
 // **A function's body is resolved after the scope it was written in is complete**, so it sees every
 // name that scope declares; the bodies wait in a queue, which the lambdas met along the way join.
 //
+// **Blocks nest inside a frame** (language.md § Assignment): a block of statements, a `(s; e)`
+// sequence and a `for`'s bindings each declare names only their own code sees, from the end of the
+// declaration on. A block's names are slots of the frame, so leaving a block costs nothing at run
+// time; a name read after its block has ended is `Gone` and reads `undefined`.
+//
 // **In a relation, a name that is not otherwise in scope is a logic variable of the clause** --
 // `logic.md`'s rule; a clause variable written once is warned about, unless its name starts with
-// `_`. **Elsewhere a name must be declared** -- by `free`, `val`, a parameter or a pattern -- before
-// it is read.
+// `_`. **Elsewhere a name must be declared** -- by `free`, `val`, `var`, an assignment, a parameter
+// or a pattern -- before it is read.
 
 // The parent of a scope that has none.
 const NoScope: usize = 4294967295
@@ -44,14 +49,41 @@ struct Rel
     // The scope a function was written in; `NoScope` for a relation.
     outer: usize
 
+    // The block of `outer` it was written in.
+    outer_block: usize
+
     // The scope of each clause, once its clauses are resolved.
     scopes: Buf[usize]
 
+// A source offset after every other: where a function nested in a scope looks its names up from,
+// since its body runs after the scope's own code has declared every name it is going to.
+const Anywhere: usize = 4294967295
+
+// A name a block declares.
+struct Decl
+    slot: usize
+
+    // The source offset from which the name is in scope: the end of what declares it.
+    from: usize
+
+    // Declared by `val` or a `where` binding, so nothing may assign it.
+    fixed: bool
+
+// A region of a frame's code with names of its own: the frame's root, every block of statements
+// inside it, and each `for`'s bindings. A block's names are slots of the frame like any other; only
+// what can see them is limited.
+struct Block
+    decls: Map[string, Decl]
+
+    // The block around this one, or `NoScope` for the root.
+    parent: usize
+
 // The names of one frame's worth of code, numbered as slots of the frame.
 struct Scope
-    slots: Map[string, usize]
+    // The root block is the first.
+    blocks: Buf[Block]
 
-    // Each name's first occurrence, in slot order.
+    // Each slot's name, at its declaration, in slot order.
     names: Buf[Spanned[string]]
 
     // How many times each name is written, for the singleton warning.
@@ -61,43 +93,104 @@ struct Scope
     // when the clause is entered.
     head: usize
 
-    // The enclosing scope, or `NoScope`.
+    // The enclosing scope, or `NoScope`, and the block of it this scope's code was written in.
     parent: usize
+    parent_block: usize
 
     // The functions a `def` or a `where` defines here, as indices into `Resolved.rels`.
     fns: Map[string, usize]
 
     count(self) -> usize = self.names.len()
 
-    // The slot of `name`, making one if this is its first occurrence.
-    note(*self, name: string, at: Span) -> usize
+    // A new block inside block `parent`.
+    open(*self, parent: usize) -> usize
+        var decls: Map[string, Decl] = map()
+
+        self.blocks.push(Block(decls, parent))
+        self.blocks.len() - 1
+
+    // One more occurrence of `name`, for the singleton warning.
+    used(*self, name: string)
         val n = self.uses.get(name) match
             Some(k) -> k
             None -> 0
 
         self.uses.put(name, n + 1)
 
-        self.slots.get(name) match
-            Some(s) -> s
-            None ->
-                val s = self.names.len()
+    // `name` declared by block `blk`, in scope from offset `from`: its slot, which is a new one unless
+    // the block already declares the name.
+    declare(*self, blk: usize, name: string, at: Span, from: usize, fixed: bool) -> usize
+        var b = self.blocks.at(blk)
 
-                self.slots.put(name, s)
-                self.names.push(Spanned(name, at))
-                s
-    end note
+        b.decls.get(name) match
+            Some(d) -> return d.slot
+            None -> ()
 
-    slot(self, name: string) -> Option[usize] = self.slots.get(name)
+        val s = self.names.len()
+
+        self.names.push(Spanned(name, at))
+        b.decls.put(name, Decl(s, from, fixed))
+        self.blocks.set(blk, b)
+        s
+    end declare
+
+    // A name of the root block, counted as an occurrence and made on its first: how a relation
+    // clause's variables and a head's are numbered.
+    note(*self, name: string, at: Span) -> usize
+        self.used(name)
+        self.declare(0, name, at, 0, false)
+
+    // The slot the root block gives `name`.
+    slot(self, name: string) -> Option[usize] = self.declared(0, name)
+
+    // The slot block `blk` itself gives `name`: where a declaration's names are stored.
+    declared(self, blk: usize, name: string) -> Option[usize] = self.blocks.at(blk).decls.get(name) match
+        Some(d) -> Some(d.slot)
+        None -> None
+
+    // What `name` is, written at offset `pos` in block `blk`: the innermost declaration of it in that
+    // block or one around it that is in scope by `pos`.
+    find(self, blk: usize, name: string, pos: usize) -> Option[Decl]
+        var b = blk
+
+        while b != NoScope
+            val k = self.blocks.at(b)
+
+            k.decls.get(name) match
+                Some(d) -> if d.from <= pos then return Some(d)
+                None -> ()
+
+            b = k.parent
+
+        None
+    end find
+
+    // Whether `name`, out of scope at `pos`, was declared before it by a block that has ended.
+    ended(self, name: string, pos: usize) -> bool
+        for k in self.blocks.view()
+            k.decls.get(name) match
+                Some(d) -> if d.from <= pos then return true
+                None -> ()
+
+        false
 end Scope
 
-scope() -> Scope = Scope(map(), buf(), map(), 0, NoScope, map())
+scope() -> Scope = child_scope(NoScope, NoScope)
 
-child_scope(parent: usize) -> Scope = Scope(map(), buf(), map(), 0, parent, map())
+child_scope(parent: usize, parent_block: usize) -> Scope
+    var blocks: Buf[Block] = buf()
+    var decls: Map[string, Decl] = map()
+
+    blocks.push(Block(decls, NoScope))
+    Scope(blocks, buf(), map(), 0, parent, parent_block, map())
 
 // What a name means where it is written.
 enum Meaning
-    // A slot of the frame `depth` static links up.
-    Local(depth: usize, slot: usize)
+    // A slot of the frame `depth` static links up; `fixed` when it cannot be assigned.
+    Local(depth: usize, slot: usize, fixed: bool)
+
+    // A name declared by a block that has ended before this occurrence, which reads `undefined`.
+    Gone
 
     // Function `rel`, whose frames' static link is the frame `up` names (`TopUp` for the top
     // level's).
@@ -106,6 +199,12 @@ enum Meaning
     Relation(rel: usize)
     Builtin(id: usize)
     Unknown
+
+// Where a loop that `break` or `continue` leaves records its marks: the slot holding the index of
+// the mark around the whole loop, and the one holding the mark around the turn being run.
+struct LoopSlots
+    whole: usize
+    turn: usize
 
 // What the resolver decided about a whole program.
 struct Resolved
@@ -126,20 +225,34 @@ struct Resolved
     // Each lambda's definition, by the id the parser gave it.
     lambdas: Map[usize, usize]
 
-    // What `name` means in scope `sid`, which is complete.
-    meaning(self, sid: usize, name: string) -> Meaning = self.meaning_above(sid, 0, name)
+    // Each block's and each `for`'s block, by the id the parser gave it, as an index into the
+    // blocks of the scope it is in.
+    blocks: Map[usize, usize]
 
-    // What `name` means starting from scope `sid`, itself `depth` static links up from where the
-    // name is written.
-    meaning_above(self, sid: usize, depth: usize, name: string) -> Meaning
+    // The two slots of each loop a `break` or a `continue` leaves, by the loop's id.
+    loops: Map[usize, LoopSlots]
+
+    // What `name` means written at offset `pos` in block `blk` of scope `sid`, which is complete.
+    meaning(self, sid: usize, blk: usize, pos: usize, name: string) -> Meaning
+        val m = self.meaning_above(sid, blk, pos, 0, name)
+
+        m match
+            Unknown -> if self.scopes.at(sid).ended(name, pos) then Gone else Unknown
+            _ -> m
+
+    // What `name` means starting from block `blk` of scope `sid` at offset `pos`, the scope itself
+    // `depth` static links up from where the name is written.
+    meaning_above(self, sid: usize, blk: usize, pos: usize, depth: usize, name: string) -> Meaning
         var at = sid
+        var b = blk
+        var p = pos
         var d = depth
 
         while at != NoScope
             val s = self.scopes.at(at)
 
-            s.slot(name) match
-                Some(k) -> return Local(d, k)
+            s.find(b, name, p) match
+                Some(k) -> return Local(d, k.slot, k.fixed)
                 None -> ()
 
             s.fns.get(name) match
@@ -147,6 +260,8 @@ struct Resolved
                 None -> ()
 
             at = s.parent
+            b = s.parent_block
+            p = Anywhere
             d += 1
 
         self.global(name)
@@ -165,7 +280,7 @@ end Resolved
 
 // Resolve `prog`, adding every refusal and warning to `report`.
 resolve(prog: Program, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, prog.stmts, map())
+    var res = Resolved(buf(), map(), buf(), 0, prog.stmts, map(), map(), map())
 
     res.top = new_scope_id(&res)
 
@@ -181,7 +296,7 @@ resolve(prog: Program, report: *Report) -> Resolved
             resolve_relation(&res, i, &pending, report)
 
     var top = scope()
-    var w = Walk(&res, report, &pending, &top, res.top, false, false)
+    var w = walker(&res, report, &pending, &top, res.top, false, false)
 
     hoist_stmts(&w, prog.stmts)
 
@@ -213,7 +328,7 @@ private add_top_clause(res: *Resolved, c: Clause, report: *Report)
 
             cs.push(c)
             res.by_name.put(c.name, res.rels.len())
-            res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), f, if f then res.top else NoScope, buf()))
+            res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), f, if f then res.top else NoScope, 0, buf()))
         Some(i) ->
             var r = res.rels.at(i)
             val first = r.clauses.at(0)
@@ -255,7 +370,7 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
 
         sc.head = sc.count()
 
-        var w = Walk(res, report, pending, &sc, sid, true, false)
+        var w = walker(res, report, pending, &sc, sid, true, false)
 
         c.kind match
             Rule(body) -> walk(&w, body)
@@ -303,11 +418,11 @@ private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report
 
     for c in r.clauses.view()
         val sid = new_scope_id(res)
-        var sc = child_scope(r.outer)
-        var w = Walk(res, report, pending, &sc, sid, false, true)
+        var sc = child_scope(r.outer, r.outer_block)
+        var w = walker(res, report, pending, &sc, sid, false, true)
 
         for p in c.params.view()
-            declare_pattern(&w, p)
+            declare_pattern(&w, p, 0, false)
 
         c.kind match
             FunctionC(b) ->
@@ -320,8 +435,13 @@ private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report
 
                     hoist_expr(&w, g.body)
 
+                // A `where` value is in scope in the whole clause, though it is written last.
                 for s in b.wheres.view()
-                    walk_stmt(&w, s)
+                    s match
+                        ValS(pat, x, _) ->
+                            walk(&w, x)
+                            declare_pattern(&w, pat, 0, true)
+                        _ -> walk_stmt(&w, s)
 
                 for g in b.guards.view()
                     g.cond match

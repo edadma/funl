@@ -11,8 +11,9 @@ module io.github.edadma.funl
 // storage -- a string's bytes, a compound's arguments -- lives inside a collected object that is
 // that storage's only owner, and the object's finalizer gives it back.
 enum Value
-    // Never the value of an expression: what an empty slot holds before anything is stored in it,
-    // and what an unbound variable's `value` reads.
+    // What an empty slot holds before anything is stored in it -- the value of a variable never
+    // assigned, and of a name read after its block has ended -- and what an unbound logic
+    // variable's `value` reads.
     Undefined
 
     Unit

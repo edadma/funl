@@ -1,0 +1,107 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// The loops -- `every`, `while`, `repeat`, `for` -- with their labels, and `break` and `continue`'s
+// label.
+//
+// **A loop's body is `do b` on the line, or an indented block** with no `do`. Every loop takes a
+// fresh id from the parser, which is how the resolver and the compiler agree on which loop a `break`
+// leaves and, for `for`, which block its patterns' names are declared in.
+
+// `label: loop`, the label and its `:` already read and the loop's word next.
+labelled(p: *Parser, at: Span, label: Option[string]) -> &Expr
+    val word = p.take().unwrap()
+
+    word.value match
+        Every -> every_expr(p, at, label)
+        While -> while_expr(p, at, label)
+        Repeat -> repeat_expr(p, at, label)
+        _ -> for_expr(p, at, label)
+
+// Whether the token `k` places past the cursor begins a loop, so a name and `:` before it are a label.
+loop_word(p: *Parser, k: usize) -> bool
+    p.toks.peek_at(k) match
+        Some(t) ->
+            t.value match
+                Every -> true
+                While -> true
+                Repeat -> true
+                For -> true
+                _ -> false
+        None -> false
+
+// The label after `break` or `continue`, if one is written.
+loop_label(p: *Parser) -> Option[string]
+    p.toks.peek() match
+        Some(t) ->
+            t.value match
+                Name(n) ->
+                    p.take()
+                    Some(n)
+                _ -> None
+        None -> None
+
+// `every e [do b]`, the `every` already read.
+every_expr(p: *Parser, at: Span, label: Option[string]) -> &Expr
+    val id = p.node_id()
+    val gen = delimited(p)
+
+    if !p.accept(Do) && !p.at_tok(Indent) then return expr(EveryE(id, label, gen, None), at.to(gen.span))
+
+    val body = branch(p)
+
+    expr(EveryE(id, label, gen, Some(body)), at.to(body.span))
+
+// `while c [do b]`, the `while` already read.
+while_expr(p: *Parser, at: Span, label: Option[string]) -> &Expr
+    val id = p.node_id()
+    val cond = delimited(p)
+
+    if !p.accept(Do) && !p.at_tok(Indent) then return expr(WhileE(id, label, cond, None), at.to(cond.span))
+
+    val body = branch(p)
+
+    expr(WhileE(id, label, cond, Some(body)), at.to(body.span))
+
+// `repeat b`, the `repeat` already read.
+repeat_expr(p: *Parser, at: Span, label: Option[string]) -> &Expr
+    val id = p.node_id()
+    val body = branch(p)
+
+    expr(RepeatE(id, label, body), at.to(body.span))
+
+// `for p <- c [if f], ... [do b]`, the `for` already read.
+for_expr(p: *Parser, at: Span, label: Option[string]) -> &Expr
+    val id = p.node_id()
+    var gens: Buf[ForGen] = buf()
+
+    loop
+        val pat = parse_expr(p, 0)
+
+        if !p.expect(LeftArrow, "`<-`") then return expr(BadE, at.to(pat.span))
+
+        val iter = for_iter(p)
+        val filter = if p.accept(If) then Some(parse_expr(p, 0)) else None
+
+        gens.push(ForGen(pat, iter, filter))
+
+        if !p.accept(Comma) then break
+
+    if !p.accept(Do) && !p.at_tok(Indent) then return expr(ForE(id, label, gens, None), at.to(p.toks.previous()))
+
+    val body = branch(p)
+
+    expr(ForE(id, label, gens, Some(body)), at.to(body.span))
+
+// What a `for` binding iterates: a collection, or a range -- `i to j`, or `i..j` and `i..<j`, each
+// with an optional `by k`.
+private for_iter(p: *Parser) -> &Expr
+    val from = parse_expr(p, 0)
+
+    if p.accept(DotDot) then return range(p, from, true)
+
+    if p.accept(DotDotLess) then return range(p, from, false)
+
+    from

@@ -1,0 +1,190 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// Loops, `break` and `continue`, compiled to the machine.
+//
+//     while c do b      [W] top: MarkThrough; c; FailIfFalse; Unmark; Mark(top); [T] b; Unmark; Branch(top); exit:
+//     repeat b          [W] top: Mark(top); [T] b; Unmark; Branch(top); exit:
+//     every g do b      [W] g; Pop; MarkThrough; [T] b; Unmark; Fail; exit:
+//     for p <- c do b   [W] c; <iterate>; <match p>; [filter]; MarkThrough; [T] b; Unmark; Fail; exit:
+//
+//     break (v)         UnmarkTo(whole); v; Branch(exit)
+//     continue          UnmarkTo(turn); Branch(top)      -- `Fail` instead, into the generator, in `every` and `for`
+//
+// `[W]` is `MarkThrough; SaveMark(whole)`, a mark around the whole loop, and `[T]` is
+// `SaveMark(turn)` after the mark around one turn. Both are emitted only for a loop something
+// leaves, and `UnmarkTo` truncates the control stack to the recorded mark however many marks the
+// loop's body has opened since: nothing has to count them.
+//
+// **Every loop fails when it runs out** -- its condition fails, its generators are spent -- and a
+// `break` makes it succeed, with the `break`'s value or `()`.
+
+// A loop being compiled, which a `break` or a `continue` inside it can leave.
+struct Looping
+    id: usize
+    label: Option[string]
+
+    // Where `break` lands, with the loop's value on the stack, and where `continue` goes once the
+    // turn's mark is gone -- unless the loop `resumes`, when `continue` fails into its generators.
+    exit: usize
+    top: usize
+    resumes: bool
+
+// `every g do b`.
+compile_every(e: *Emit, c: Ctx, id: usize, label: Option[string], g: &Expr, body: Option[&Expr]) -> Result[unit, string]
+    val slots = c.res.loops.get(id)
+    val exit = e.label()
+
+    whole_mark(e, slots)
+    compile_value(e, c, g)?
+    e.op(Pop)
+    turn(e, c, Looping(id, label, exit, exit, true), slots, body, MarkThrough)?
+    e.op(Fail)
+    e.place(exit)
+    Ok(())
+
+// `while c do b`.
+compile_while(e: *Emit, c: Ctx, id: usize, label: Option[string], cond: &Expr, body: Option[&Expr]) -> Result[unit, string]
+    val slots = c.res.loops.get(id)
+    val top = e.label()
+    val exit = e.label()
+
+    whole_mark(e, slots)
+    e.place(top)
+    e.op(MarkThrough)
+    compile_value(e, c, cond)?
+    e.op(FailIfFalse)
+    e.op(Unmark)
+    turn(e, c, Looping(id, label, exit, top, false), slots, body, Mark(top))?
+    e.op(Branch(top))
+    e.place(exit)
+    Ok(())
+
+// `repeat b`.
+compile_repeat(e: *Emit, c: Ctx, id: usize, label: Option[string], body: &Expr) -> Result[unit, string]
+    val slots = c.res.loops.get(id)
+    val top = e.label()
+    val exit = e.label()
+
+    whole_mark(e, slots)
+    e.place(top)
+    turn(e, c, Looping(id, label, exit, top, false), slots, Some(body), Mark(top))?
+    e.op(Branch(top))
+    e.place(exit)
+    Ok(())
+
+// `for p <- c if f, ... do b`: each binding's collection iterated, its element matched against the
+// pattern -- an element that does not match is passed over -- and filtered, in the loop's block.
+compile_for(e: *Emit, c: Ctx, id: usize, label: Option[string], gens: Buf[ForGen], body: Option[&Expr]) -> Result[unit, string]
+    val inner = c.in_block(id)?
+    val slots = c.res.loops.get(id)
+    val exit = e.label()
+
+    whole_mark(e, slots)
+
+    for g in gens.view()
+        iterate(e, inner, g.iter)?
+        match_fresh(e, inner, g.pat)?
+
+        g.filter match
+            Some(f) ->
+                e.op(MarkThrough)
+                compile_value(e, inner, f)?
+                e.op(FailIfFalse)
+                e.op(Unmark)
+            None -> ()
+
+    turn(e, inner, Looping(id, label, exit, exit, true), slots, body, MarkThrough)?
+    e.op(Fail)
+    e.place(exit)
+    Ok(())
+
+// `break`, `break label`, `break (v)`: the loop's marks and everything above them gone, then its
+// value, at its exit.
+compile_break(e: *Emit, c: Ctx, label: Option[string], v: Option[&Expr]) -> Result[unit, string]
+    val l = target(c, label)?
+
+    e.op(UnmarkTo(slots_of(c, l.id)?.whole))
+
+    v match
+        Some(x) -> compile_value(e, c, x)?
+        None -> e.op(PushUnit)
+
+    e.op(Branch(l.exit))
+    Ok(())
+
+// `continue`, `continue label`: the turn's marks gone, then the loop's next turn.
+compile_continue(e: *Emit, c: Ctx, label: Option[string]) -> Result[unit, string]
+    val l = target(c, label)?
+
+    e.op(UnmarkTo(slots_of(c, l.id)?.turn))
+    e.op(if l.resumes then Fail else Branch(l.top))
+    Ok(())
+
+// What a `for` binding iterates: a range is its own generator, anything else is a collection whose
+// elements are generated.
+private iterate(e: *Emit, c: Ctx, iter: &Expr) -> Result[unit, string]
+    compile_value(e, c, iter)?
+
+    iter.kind match
+        RangeE(_, _, _, _) -> ()
+        _ ->
+            e.op(GenStart)
+            e.op(GenNext)
+
+    Ok(())
+
+// The mark around a whole loop, for a loop something leaves.
+private whole_mark(e: *Emit, slots: Option[LoopSlots])
+    slots match
+        Some(s) ->
+            e.op(MarkThrough)
+            e.op(SaveMark(s.whole))
+        None -> ()
+
+// One turn of a loop's body: opened with `open` -- the mark whose failure starts the next turn --
+// recorded for `continue` when something leaves the loop, and closed with `Unmark`.
+private turn(e: *Emit, c: Ctx, l: Looping, slots: Option[LoopSlots], body: Option[&Expr], open: Op) -> Result[unit, string]
+    val b = body match
+        Some(x) -> x
+        None -> return Ok(())
+
+    e.op(open)
+
+    slots match
+        Some(s) -> e.op(SaveMark(s.turn))
+        None -> ()
+
+    c.loops.push(l)
+
+    val done = compile_value(e, c, b)
+
+    c.loops.pop()
+    done?
+    e.op(Unmark)
+    Ok(())
+
+// The loop a `break` or a `continue` leaves: the innermost, or the innermost with its label.
+private target(c: Ctx, label: Option[string]) -> Result[Looping, string]
+    var i = c.loops.len()
+
+    while i > 0
+        i -= 1
+
+        val l = c.loops.at(i)
+
+        val hit = label match
+            None -> true
+            Some(name) ->
+                l.label match
+                    Some(k) -> k == name
+                    None -> false
+
+        if hit then return Ok(l)
+
+    Err("a `break` or a `continue` the resolver let through has no loop")
+
+private slots_of(c: Ctx, id: usize) -> Result[LoopSlots, string] = c.res.loops.get(id) match
+    Some(s) -> Ok(s)
+    None -> Err(s"loop $id is left and was given no slots")

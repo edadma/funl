@@ -1,0 +1,143 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Blocks, loops and assignment, as the resolver reads them.
+//
+// **A block's names are its own** (language.md § Assignment): `val`, `var`, `free` and a pattern
+// declare in the innermost block, and an assignment stores into the nearest variable of its name in
+// scope -- in this block, one around it, or a frame further out -- declaring one in the innermost
+// block only when there is none.
+//
+// **A loop that `break` or `continue` leaves records its marks in two slots of the frame**, made
+// the first time something targets it; a loop nothing leaves is compiled without them.
+
+// A block of statements: its names declared in a block of its own, inside the one being read.
+walk_block(w: *Walk, id: usize, stmts: Buf[Stmt])
+    val outer = w.blk
+
+    w.blk = w.sc.open(outer)
+    w.res.blocks.put(id, w.blk)
+
+    for s in stmts.view()
+        walk_stmt(w, s)
+
+    w.blk = outer
+
+// `for`: its bindings declare their patterns' names in the loop's own block, each in scope from the
+// end of the collection it iterates, so a later binding's collection and every filter see them.
+walk_for(w: *Walk, id: usize, label: Option[string], gens: Buf[ForGen], body: Option[&Expr])
+    val outer = w.blk
+
+    w.blk = w.sc.open(outer)
+    w.res.blocks.put(id, w.blk)
+
+    for g in gens.view()
+        walk(w, g.iter)
+        declare_pattern(w, g.pat, g.iter.span.end, false)
+
+        g.filter match
+            Some(f) -> walk(w, f)
+            None -> ()
+
+    loop_body(w, id, label, body)
+    w.blk = outer
+
+// A loop's body, read with the loop as the innermost one `break` and `continue` can leave.
+loop_body(w: *Walk, id: usize, label: Option[string], body: Option[&Expr])
+    val b = body match
+        Some(x) -> x
+        None -> return
+
+    w.loops.push(LoopSeen(id, label))
+    walk(w, b)
+    w.loops.pop()
+
+// The loop a `break` or a `continue` leaves: the innermost, or the innermost with its label. The
+// loop's two slots are made the first time anything targets it.
+loop_target(w: *Walk, label: Option[string], at: Span, word: string)
+    var i = w.loops.len()
+
+    while i > 0
+        i -= 1
+
+        val l = w.loops.at(i)
+
+        if labelled_as(l.label, label)
+            if w.res.loops.get(l.id).is_none()
+                val whole = w.sc.declare(0, "$whole" + s"${l.id}", at, 0, false)
+                val turn = w.sc.declare(0, "$turn" + s"${l.id}", at, 0, false)
+
+                w.res.loops.put(l.id, LoopSlots(whole, turn))
+
+            return
+
+    label match
+        Some(name) ->
+            w.report.add(error(at, s"no loop around this `$word` is labelled `$name`")
+                .with_note(s"a label is written before its loop: `$name: while ...`"))
+        None ->
+            w.report.add(error(at, s"`$word` is written inside a loop")
+                .with_note("it leaves the `while`, `repeat`, `for` or `every` around it, in the same function"))
+end loop_target
+
+// Whether a loop labelled `has` answers to `wanted`: any loop when no label is asked for.
+private labelled_as(has: Option[string], wanted: Option[string]) -> bool
+    wanted match
+        None -> true
+        Some(name) ->
+            has match
+                Some(k) -> k == name
+                None -> false
+
+// The target of `name = e`: the nearest variable of that name in scope, or else a new one of the
+// block being read, in scope from offset `from`.
+assigned(w: *Walk, n: string, at: Span, from: usize)
+    w.meaning(n, at.start) match
+        Local(depth, _, fixed) ->
+            if fixed
+                fixed_refused(w, n, at)
+            elif depth == 0
+                w.sc.used(n)
+        Unknown -> if !refused_as_variable(w, n, at) then w.sc.declare(w.blk, n, at, from, false)
+        Gone -> if !refused_as_variable(w, n, at) then w.sc.declare(w.blk, n, at, from, false)
+        _ ->
+            w.report.add(error(at, s"`$n` is a function, a relation or a builtin, and cannot be assigned")
+                .with_note("`name = e` assigns a variable"))
+end assigned
+
+// The target of `name op= e`, `name++` and the like, which changes a variable that must already be
+// in scope.
+updated(w: *Walk, n: string, at: Span)
+    w.meaning(n, at.start) match
+        Local(depth, _, fixed) ->
+            if fixed
+                fixed_refused(w, n, at)
+            elif depth == 0
+                w.sc.used(n)
+        Unknown ->
+            w.report.add(error(at, s"`$n` is not defined")
+                .with_note("an update changes a variable that is already declared: `var $n = 0`"))
+        Gone ->
+            w.report.add(error(at, s"`$n` is not defined here")
+                .with_note("the block that declared it has ended"))
+        _ ->
+            w.report.add(error(at, s"`$n` is a function, a relation or a builtin, and cannot be assigned")
+                .with_note("an update changes a variable"))
+end updated
+
+private fixed_refused(w: *Walk, n: string, at: Span)
+    w.report.add(error(at, s"`$n` is a `val`, and cannot be assigned")
+        .with_note("a name declared by `val` or bound by `where` keeps its value; a variable is declared with `var`"))
+
+// A `def` in a block: the functions it adds to the frame see that block's names.
+written_in_block(w: *Walk, clauses: Buf[Clause])
+    for c in clauses.view()
+        w.sc.fns.get(c.name) match
+            Some(i) ->
+                var r = w.res.rels.at(i)
+
+                r.outer_block = w.blk
+                w.res.rels.set(i, r)
+            None -> ()

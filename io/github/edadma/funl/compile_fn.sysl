@@ -29,7 +29,8 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
         val sid = r.scopes.at(i)
-        val c = Ctx(res, sid)
+        var loops: Buf[Looping] = buf()
+        val c = context(res, sid, &loops)
         val next = e.label()
         var seen = unseen(res.scopes.at(sid).count())
 
@@ -54,7 +55,7 @@ end compile_function
 private clause_body(e: *Emit, c: Ctx, b: FnBody) -> Result[unit, string]
     for s in b.wheres.view()
         s match
-            ValS(pat, x) ->
+            ValS(pat, x, _) ->
                 e.op(MarkThrough)
                 compile_value(e, c, x)?
                 e.op(UnmarkKeep)
@@ -85,7 +86,7 @@ end clause_body
 // call.
 body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
-        CallE(n, _, args) -> call_named(e, c, n, args, true)?
+        CallE(n, at, args) -> call_named(e, c, n, at.start, args, true)?
         ApplyE(f, args) ->
             compile_value(e, c, f)?
 
@@ -111,18 +112,20 @@ body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             body_tail(e, c, a)?
             e.place(other)
             body_tail(e, c, b)?
-        BlockE(stmts) ->
+        BlockE(id, stmts) ->
+            val inner = c.in_block(id)?
+
             for i in 0..<stmts.len()
                 val s = stmts.at(i)
 
                 if i + 1 < stmts.len()
-                    compile_stmt(e, c, s)?
+                    compile_stmt(e, inner, s)?
                     continue
 
                 s match
-                    ExprS(last) -> body_tail(e, c, last)?
+                    ExprS(last) -> body_tail(e, inner, last)?
                     _ ->
-                        compile_stmt(e, c, s)?
+                        compile_stmt(e, inner, s)?
                         e.op(PushUnit)
                         e.op(Return)
         ReturnE(_) -> compile_value(e, c, x)?

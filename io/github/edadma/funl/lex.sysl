@@ -218,34 +218,68 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         out.push(Turnstile, Span(start, s.at))
 
         if ends_line(s) then lay.opens_block()
+    elif c == u8(':')
+        out.push(Colon, Span(start, s.at))
+    elif c == u8(';')
+        out.push(Semi, Span(start, s.at))
     elif c == u8('-')
         if s.accept(u8('>'))
             out.push(Arrow, Span(start, s.at))
 
             if ends_line(s) then lay.opens_block()
+        elif s.accept(u8('-'))
+            out.push(MinusMinus, Span(start, s.at))
         else
-            out.push(Minus, Span(start, s.at))
+            out.push(operator_or_assign(s, Minus, Sub), Span(start, s.at))
     elif c == u8('<')
-        out.push(if s.accept(u8('=')) then LessEq else Less, Span(start, s.at))
+        if s.accept(u8('='))
+            out.push(LessEq, Span(start, s.at))
+        elif s.accept(u8('-'))
+            out.push(LeftArrow, Span(start, s.at))
+        elif ordering_assign(s)
+            out.push(OpEq(Lt), Span(start, s.at))
+        else
+            out.push(Less, Span(start, s.at))
     elif c == u8('>')
-        out.push(if s.accept(u8('=')) then GreaterEq else Greater, Span(start, s.at))
+        if s.accept(u8('='))
+            out.push(GreaterEq, Span(start, s.at))
+        elif ordering_assign(s)
+            out.push(OpEq(Gt), Span(start, s.at))
+        else
+            out.push(Greater, Span(start, s.at))
+    elif c == u8('.') && s.accept(u8('.'))
+        out.push(if s.accept(u8('<')) then DotDotLess else DotDot, Span(start, s.at))
     elif c == u8('@')
         out.push(At, Span(start, s.at))
     elif c == u8('+')
-        out.push(Plus, Span(start, s.at))
+        if s.accept(u8('+'))
+            out.push(PlusPlus, Span(start, s.at))
+        else
+            out.push(operator_or_assign(s, Plus, Add), Span(start, s.at))
     elif c == u8('*')
-        out.push(Star, Span(start, s.at))
+        out.push(operator_or_assign(s, Star, Mul), Span(start, s.at))
     elif c == u8('/')
-        out.push(Slash, Span(start, s.at))
+        out.push(operator_or_assign(s, Slash, Quo), Span(start, s.at))
     elif c == u8('\\')
-        out.push(Backslash, Span(start, s.at))
+        out.push(operator_or_assign(s, Backslash, IntQuo), Span(start, s.at))
     elif c == u8('%')
-        out.push(Percent, Span(start, s.at))
+        out.push(operator_or_assign(s, Percent, Rem), Span(start, s.at))
     elif c == u8('^')
-        out.push(Caret, Span(start, s.at))
+        out.push(operator_or_assign(s, Caret, Pow), Span(start, s.at))
     else
         s.reset(start)
         return false
 
     true
 end one_token
+
+// An arithmetic operator just read: itself, or with a `=` touching it the assignment through it.
+private operator_or_assign(s: *Scanner, plain: Tok, o: BinOp) -> Tok = if s.accept(u8('=')) then OpEq(o) else plain
+
+// After `<` or `>`: whether `:=` follows, making `<:=` or `>:=`, which is then read.
+private ordering_assign(s: *Scanner) -> bool
+    if !s.starts_with(":=".bytes) then return false
+
+    s.bump()
+    s.bump()
+    true
