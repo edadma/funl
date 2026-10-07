@@ -151,7 +151,9 @@ end fences_of
 private backticks_at_start(line: string) -> usize
     var n: usize = 0
 
-    while n < line.len && line.slice(n, n + 1) == "`"
+    // Sliced from `n` onwards, never one byte at a time: the line may start with a character wider
+    // than a byte, and `n` is only ever past backticks.
+    while line.slice(n, line.len).starts_with("`")
         n += 1
 
     n
@@ -494,6 +496,13 @@ A_LITERATE_BLOCK_THAT_PRINTS_OTHER_THAN_ITS_OUTPUT_BLOCK_IS_A_COMPLAINT()
 A_LITERATE_BLOCK_REFUSED_BY_THE_TANGLE_MATCHES_AN_ERROR_BLOCK()
     val text = "````lfunl\n\twrite( 1 )\n````\n\n```error\na tab in the indentation of a literate file\n```\n"
 
+    assert_eq(complaints_about(text), "")
+
+@test
+A_LINE_STARTING_WITH_A_WIDE_CHARACTER_IS_READ_AS_PROSE()
+    val text = "— a dash first\n\n```funl\nwrite( 'é' )\n```\n\n“quoted”\n\n```output\né\n```\n"
+
+    assert_eq(census_line("page.md", blocks_of_text("page.md", text)), "page.md 1 0 0")
     assert_eq(complaints_about(text), "")
 
 @test
