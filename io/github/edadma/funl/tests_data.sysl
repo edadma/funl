@@ -21,10 +21,23 @@ A_MAP_IS_WRITTEN_WITH_KEYS_AND_REACHED_BY_KEY_CALL_AND_FIELD()
     assert_eq(ran_funl("write( {a: 1, a: 2}, {a: 1:[2]} )\n"), "{\"a\": 2}, {\"a\": [1, 2]}\nsucceeded")
 
 @test
-A_MISSING_KEY_IS_AN_ERROR()
-    faults_with("write( {a: 1}(\"b\") )\n", "{\"a\": 1} has no key \"b\"")
-    faults_with("write( {a: 1}.b )\n", "{\"a\": 1} has no key \"b\"")
-    faults_with("val m = map()\nwrite( m(7) )\n", "MutableMap() has no key 7")
+A_MISSING_KEY_FAILS()
+    assert_eq(ran_funl("write( {a: 1}(\"b\") )\n"), "succeeded")
+    assert_eq(ran_funl("write( {a: 1}.b )\n"), "succeeded")
+    assert_eq(ran_funl("val m = map()\nwrite( m(7) )\n"), "succeeded")
+    assert_eq(ran_funl("val m = {a: 1}\nwrite( m(\"b\") | \"none\" )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("val m = {a: 1}\nwrite( m.b | \"none\", m.a | \"none\" )\n"), "none, 1\nsucceeded")
+    assert_eq(ran_funl("val m = map()\nwrite( m[7] | \"none\" )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("val m = {a: 1}\nif m(\"b\") then write( \"found\" ) else write( \"missing\" )\n"), "missing\nsucceeded")
+    assert_eq(ran_funl("val m = {a: 1}\nif m(\"a\") then write( \"found\" ) else write( \"missing\" )\n"), "found\nsucceeded")
+    assert_eq(ran_funl("val m = {a: 1}\nevery write( m(\"b\") )\nwrite( \"after\" )\n"), "after\nsucceeded")
+    assert_eq(ran_funl("val m = {a: 1}\nevery write( m(\"b\" | \"a\") )\n"), "1\nsucceeded")
+
+@test
+A_KEY_OF_THE_WRONG_KIND_IS_NOT_A_MISSING_KEY()
+    faults_with("val n = 5\nwrite( n(\"b\") )\n", "is not a function")
+    faults_with("write( [1, 2](#a) )\n", "an index is an integer")
+    faults_with("write( 5.b )\n", "has no field 'b'")
 
 @test
 PLUS_AND_MINUS_MAKE_NEW_MAPS()
@@ -84,9 +97,9 @@ AN_ELEMENT_IS_UPDATED_THROUGH_AN_OPERATOR()
     assert_eq(ran_funl("val a = array([0])\nevery a(0) += 1 to 3\nwrite( a )\nval b = [buffer()]\nb(0) += 7\nwrite( b )\nval c = array([5])\nif (c(0) <:= 9) then write( #raised ) else write( #kept )\nif (c(0) >:= 20) then write( #lowered ) else write( #kept )\nwrite( c )\n"),
         "Array(6)\n[Buffer(7)]\nraised\nkept\nArray(9)\nsucceeded")
     faults_with("val l = [1, 2]\nl(0) += 1\n", "[1, 2] cannot be changed: only an array, a buffer and a mutable map have elements that can be assigned")
-    faults_with("val m = map()\nm(#k) += 1\n", "MutableMap() has no key k")
+    assert_eq(ran_funl("val m = map()\nm(#k) += 1\nwrite( m )\n"), "MutableMap()\nsucceeded")
     faults_with("val a = array(1)\na(0) += 1\n", "'+' wants numbers and was given undefined")
-    faults_with("val a = array(1)\na(3) += 1\n", "index 3 is out of range")
+    assert_eq(ran_funl("val a = array(1)\nwrite( (a(3) += 1) | \"none\", a )\n"), "none, Array(undefined)\nsucceeded")
     assert_eq(complaints("f() += 1\n"), "error 1:1 only a variable or an element can be assigned through an operator\n")
     assert_eq(complaints("1 += 1\n"), "error 1:1 only a variable or an element can be assigned through an operator\n")
 
@@ -96,7 +109,8 @@ AN_ELEMENT_IS_UPDATED_THROUGH_AN_OPERATOR()
 AN_ARRAY_HAS_A_FIXED_LENGTH_AND_ELEMENTS_THAT_CHANGE()
     assert_eq(ran_funl("val a = array(3)\na(0) = #x\na[2] = #y\na[-1] = #z\nwrite( a, a.length, a(1), seq(a), array([1, 2]), array(1..3) )\n"),
         "Array(x, y, z), 3, y, (x, y, z), Array(1, 2), Array(1, 2, 3)\nsucceeded")
-    faults_with("val a = array(2)\nwrite( a(2) )\n", "index 2 is out of range for Array(undefined, undefined), which has 2 elements")
+    assert_eq(ran_funl("val a = array(2)\nwrite( a(2) | \"none\", a[3] | \"none\" )\n"), "none, none\nsucceeded")
+    assert_eq(ran_funl("val b = buffer([1])\nwrite( b(1) | \"none\", b[2] | \"none\", b[1] )\n"), "none, none, 1\nsucceeded")
     faults_with("val a = array(2)\na(-1) = 1\n", "index -1 is out of range for Array(undefined, undefined), which has 2 elements")
     faults_with("write( array(-1) )\n", "an array cannot have -1 elements")
 
@@ -120,9 +134,9 @@ SEQ_TAKES_A_SNAPSHOT_THAT_LATER_CHANGES_DO_NOT_REACH()
 BRACKETS_COUNT_FROM_ONE_AND_FROM_MINUS_ONE_AT_THE_END()
     assert_eq(ran_funl("write( \"kitten\"[1], \"kitten\"[-1], [5, 6, 7][3], (5, 6)[-2], (1..)[4], buffer([8, 9])[2] )\n"),
         "k, n, 7, 5, 4, 9\nsucceeded")
-    faults_with("write( \"abc\"[0] )\n", "position 0 is out of range for the string 'abc', which has 3 elements: `[i]` counts from 1, and from -1 at the end")
-    faults_with("write( [1, 2][3] )\n", "position 3 is out of range for [1, 2], which has 2 elements")
-    faults_with("write( [1, 2][-3] )\n", "position -3 is out of range for [1, 2], which has 2 elements")
+    assert_eq(ran_funl("write( \"abc\"[0] | \"none\", [1, 2][3] | \"none\", [1, 2][-3] | \"none\", (1, 2)[3] | \"none\" )\n"),
+        "none, none, none, none\nsucceeded")
+    assert_eq(ran_funl("write( [1, 2][3] )\nwrite( \"after\" )\n"), "after\nsucceeded")
     faults_with("write( 5[1] )\n", "the integer 5 has no length")
 
 // -- records ---------------------------------------------------------------------------------------------
@@ -131,9 +145,8 @@ BRACKETS_COUNT_FROM_ONE_AND_FROM_MINUS_ONE_AT_THE_END()
 A_RECORD_IS_REACHED_BY_FIELD_BY_NAME_AND_BY_INDEX()
     assert_eq(ran_funl("data point(x, y)\nval p = point(3, 4)\nwrite( p, p.x, p(\"y\"), p(0), p[2], p.length )\n"),
         "point(3, 4), 3, 4, 3, 4, 2\nsucceeded")
-    faults_with("data point(x, y)\nwrite( point(3, 4).z )\n", "point(3, 4) has no field 'z'")
-    faults_with("data point(x, y)\nwrite( point(3, 4)(\"z\") )\n", "point(3, 4) has no field 'z'")
-    faults_with("data point(x, y)\nwrite( point(3, 4)(2) )\n", "index 2 is out of range for point(3, 4), which has 2 elements")
+    assert_eq(ran_funl("data point(x, y)\nwrite( point(3, 4).z | \"none\", point(3, 4)(\"z\") | \"none\", point(3, 4)(2) | \"none\", point(3, 4)[3] | \"none\" )\n"),
+        "none, none, none, none\nsucceeded")
     faults_with("data point(x, y)\nval p = point(1, 2)\np.x = 5\n", "point(1, 2) is a record, and its fields cannot be assigned")
 
 @test
@@ -199,7 +212,7 @@ SWAP_EXCHANGES_TWO_ELEMENTS()
     assert_eq(complaints("var x = 1\nvar y = 2\nswap( x, y )\n"),
         "error 3:7 `swap` exchanges elements, and this is not one\nerror 3:10 `swap` exchanges elements, and this is not one\n")
     assert_eq(complaints("val a = array(1)\nswap( a(0) )\n"), "error 2:1 `swap` exchanges two elements, and this call gives 1\n")
-    faults_with("val a = array(1)\nswap( a(0), a(5) )\n", "index 5 is out of range for Array(undefined), which has 1 element")
+    assert_eq(ran_funl("val a = array([1])\nif swap( a(0), a(5) ) then write( \"swapped\" ) else write( \"failed\" )\nwrite( a )\n"), "failed\nArray(1)\nsucceeded")
 
 // -- interpolation -------------------------------------------------------------------------------------
 

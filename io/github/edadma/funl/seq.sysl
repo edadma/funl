@@ -236,8 +236,9 @@ private within(x: Value, items: Buf[Value]) -> Result[bool, Fault]
 
     Ok(false)
 
-// `c(i)`: element `i` of a list, a range, a tuple or a string, counting from 0.
-element_at(c: Value, index: Value) -> Result[Value, Fault]
+// `c(i)`: element `i` of a list, a range, a tuple or a string, counting from 0; `None` where `i` is
+// past either end.
+element_at(c: Value, index: Value) -> Result[Option[Value], Fault]
     val i = deref(index) match
         Int(n) -> n
         Var(_) -> return Err(instantiation_error("instantiation error: an index is an unbound variable"))
@@ -251,10 +252,7 @@ element_at(c: Value, index: Value) -> Result[Value, Fault]
 
     val n = if endless then i + 1 else length_of(x)?
 
-    if i < 0 || i >= n
-        val msg = s"index $i is out of range for ${described(x)}, which has ${counted(usize(n), "element")}"
-
-        return Err(existence_error("index", Int(i), msg))
+    if i < 0 || i >= n then return Ok(None)
 
     x match
         Cons(_) ->
@@ -264,7 +262,7 @@ element_at(c: Value, index: Value) -> Result[Value, Fault]
             loop
                 at match
                     Cons(p) ->
-                        if k == i then return Ok(p.head)
+                        if k == i then return Ok(Some(p.head))
 
                         k += 1
                         at = deref(p.tail)
@@ -275,10 +273,10 @@ element_at(c: Value, index: Value) -> Result[Value, Fault]
                 None -> None
 
             e match
-                Some(n) -> Ok(Int(n))
+                Some(n) -> Ok(Some(Int(n)))
                 None -> Err(evaluation_error("int_overflow", s"element $i of ${render(x)} does not fit in 64 bits"))
-        Tuple(t) -> Ok(t.items.at(usize(i)))
-        Str(p) -> Ok(new_str(chars_between(p, usize(i), usize(i) + 1))?)
+        Tuple(t) -> Ok(Some(t.items.at(usize(i))))
+        Str(p) -> Ok(Some(new_str(chars_between(p, usize(i), usize(i) + 1))?))
         _ -> Err(type_error("indexable", x, s"${described(x)} cannot be indexed"))
 end element_at
 
@@ -319,14 +317,22 @@ length_of(x: Value) -> Result[long, Fault]
 end length_of
 
 // `x.name`: a record's field, a map's key, a buffer's `removeLast`, or any collection's `length`.
-field_of(x: Value, name: u32) -> Result[Value, Fault]
+// `None` -- failure -- where a record or a map holds nothing under the name; any other value has no
+// such field at all, which is an error.
+field_of(x: Value, name: u32) -> Result[Option[Value], Fault]
     data_field(x, name)? match
-        Some(y) -> return Ok(y)
+        Some(y) -> return Ok(Some(y))
         None -> ()
 
     val n = atom_name(name)
 
-    if n == "length" then return Ok(Int(length_of(x)?))
+    if n == "length" then return Ok(Some(Int(length_of(x)?)))
+
+    deref(x) match
+        Compound(_) -> return Ok(None)
+        Map(_) -> return Ok(None)
+        MutMap(_) -> return Ok(None)
+        _ -> ()
 
     Err(existence_error("field", Atom(name), s"${described(x)} has no field '$n'"))
 
