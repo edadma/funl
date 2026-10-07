@@ -1,0 +1,102 @@
+module io.github.edadma.funl
+@tests
+
+// A line ending in an infix operator has not ended its statement: the next line, indented deeper than
+// the line the statement began on, is the rest of it, and opens and closes nothing.
+
+// The design's own n-queens, exactly as `language.md` writes it: the condition runs over two lines
+// with no bracket around it, and the body sits to the left of the continuation.
+@test
+THE_DESIGNS_N_QUEENS_RUNS_ITS_CONDITION_OVER_TWO_LINES()
+    val text = "val n = 6\n" +
+        "val row = array( n )\n" +
+        "val down = array( 2n - 1 )\n" +
+        "val up = array( 2n - 1 )\n" +
+        "val solution = array( n )\n" +
+        "\n" +
+        "def solve( c )\n" +
+        "  every row(r = 0 until n) == down(r + c) == up(n - 1 + r - c) == undefined and\n" +
+        "        row(r) <- down(r + c) <- up(n - 1 + r - c) <- r\n" +
+        "    solution(c) = r\n" +
+        "\n" +
+        "    if c == n - 1\n" +
+        "      write( seq(solution) )\n" +
+        "    else\n" +
+        "      solve( c + 1 )\n" +
+        "\n" +
+        "solve( 0 )\n"
+
+    assert_eq(ran_funl(text),
+        "(1, 3, 5, 0, 2, 4)\n(2, 5, 1, 4, 0, 3)\n(3, 0, 4, 1, 5, 2)\n(4, 2, 0, 5, 3, 1)\nsucceeded")
+
+@test
+AN_ARITHMETIC_OPERATOR_ENDING_A_LINE_CONTINUES_IT()
+    assert_eq(ran_funl("val a = 1 +\n  2 *\n  3\nwrite( a )\n"), "7\nsucceeded")
+    assert_eq(ran_funl("val a = 20 -\n    3 //\n    2\nwrite( a )\n"), "19\nsucceeded")
+    assert_eq(ran_funl("var a = 1\na +=\n  4\nwrite( a )\n"), "5\nsucceeded")
+
+@test
+A_COMPARISON_ENDING_A_LINE_CONTINUES_IT()
+    assert_eq(ran_funl("if 1 <\n     2\n  write( #lt )\nif 3 ==\n     4\n  write( #eq )\n"), "lt\nsucceeded")
+
+@test
+AND_OR_ENDING_A_LINE_CONTINUES_IT()
+    val text = "if 1 < 2 and\n   3 < 4\n  write( #both )\n" +
+        "if 1 > 2 or\n   3 < 4\n  write( #either )\n" +
+        "if 1 > 2 and\n   3 < 4\n  write( #neither )\n"
+
+    assert_eq(ran_funl(text), "both\neither\nsucceeded")
+
+@test
+A_REVERSIBLE_ASSIGNMENT_ENDING_A_LINE_CONTINUES_IT()
+    assert_eq(ran_funl("var x = 0\nx <-\n  5\nwrite( x )\n"), "5\nsucceeded")
+
+@test
+ALTERNATION_ENDING_A_LINE_CONTINUES_IT()
+    assert_eq(ran_funl("every y = 1 |\n      2 |\n      3\n  write( y )\n"), "1\n2\n3\nsucceeded")
+
+// A body may sit to the left of the continuation: the line after it is measured against the
+// statement, not against the continuation.
+@test
+THE_LINE_AFTER_A_CONTINUATION_IS_MEASURED_AGAINST_THE_STATEMENT()
+    val text = "def f( x )\n" +
+        "  if x > 0 and\n" +
+        "          x < 10\n" +
+        "    write( #small )\n" +
+        "  else\n" +
+        "    write( #other )\n" +
+        "  write( #done )\n" +
+        "f( 5 )\nf( 50 )\n"
+
+    assert_eq(ran_funl(text), "small\ndone\nother\ndone\nsucceeded")
+
+@test
+A_CONTINUATION_NOT_INDENTED_PAST_ITS_STATEMENT_IS_REFUSED_ONCE()
+    assert_eq(complaints("val a = 1 +\n2\nwrite( a )\n"),
+        "error 2:1 the line above ends in `+`, so this line has to continue it\n")
+    assert_eq(complaints("def f( x )\n  val a = x and\n  2\n  write( a )\n"),
+        "error 3:3 the line above ends in `and`, so this line has to continue it\n")
+    assert_eq(complaints("def f( x )\n  x <-\nwrite( 2 )\n"),
+        "error 3:1 the line above ends in `<-`, so this line has to continue it\n")
+
+@test
+A_LINE_NOT_ENDING_IN_AN_OPERATOR_STILL_OPENS_A_BLOCK()
+    assert_eq(ran_funl("def f( x )\n  write( x + 1 )\nif 1 < 2\n  write( #yes )\nf( 1 )\n"), "yes\n2\nsucceeded")
+    assert_eq(complaints("write( 1 + 2 )\n  write( 3 )\n"), "error 2:3 this line is indented, and nothing above it opens a block\n")
+
+@test
+A_COMMENT_AFTER_A_TRAILING_OPERATOR_LEAVES_THE_LINE_OPEN()
+    assert_eq(ran_funl("val b = 10\nval c = b - ;; take three\n  3\nwrite( c )\n"), "7\nsucceeded")
+    assert_eq(ran_funl("val c = 1 + /* more */\n  2\nwrite( c )\n"), "3\nsucceeded")
+    assert_eq(ran_funl("val c = 1 +\n  ;; a comment line is no line\n\n  2\nwrite( c )\n"), "3\nsucceeded")
+
+// `..` ending a line is the endless range `a..`, which is complete, so the next line is a statement.
+@test
+AN_ENDLESS_RANGE_ENDING_A_LINE_ENDS_THE_STATEMENT()
+    assert_eq(ran_funl("val h:t = 1..\nwrite( h, t )\n"), "1, 2..\nsucceeded")
+
+// Inside brackets a newline was already whitespace, and an operator ending a line there changes
+// nothing.
+@test
+A_TRAILING_OPERATOR_INSIDE_BRACKETS_IS_AS_BEFORE()
+    assert_eq(ran_funl("write( 1 +\n2 )\n"), "3\nsucceeded")

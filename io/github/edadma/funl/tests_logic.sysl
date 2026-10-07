@@ -176,3 +176,73 @@ COMMENTS_ARE_DOUBLE_SEMICOLONS_AND_NESTING_BLOCKS_AND_SAY_NOTHING()
 @test
 A_WARNING_DOES_NOT_STOP_A_PROGRAM()
     assert_eq(ran_funl("def p(#a)\ndef q(x) :- p(y)\nif q(#z) then write(#ran)\n"), "ran\nsucceeded")
+
+// `logic.md` § "Atoms": a name that means a constructor with no fields is that constructor's atom, in
+// a head as in a body, never a clause variable.
+@test
+A_NULLARY_CONSTRUCTOR_IN_A_HEAD_MATCHES_ONLY_ITS_OWN_ATOM()
+    val text = "data hue = red | green\n" +
+        "def warm( red )\n" +
+        "if warm(red) then write(#yes)\n" +
+        "if warm(#red) then write(#same)\n" +
+        "if warm(green) then write(#wrong)\n" +
+        "if warm(#blue) then write(#wrong)\n"
+
+    assert_eq(complaints(text), "")
+    assert_eq(ran_funl(text), "yes\nsame\nsucceeded")
+
+@test
+AN_UNBOUND_CALL_ENUMERATES_THE_CONSTRUCTORS_A_HEAD_NAMES()
+    val text = "data hue = red | green | blue\n" +
+        "def\n" +
+        "  label(red, 'r')\n" +
+        "  label(green, 'g')\n" +
+        "  label([blue], 'b')\n" +
+        "free h, s, t, u\n" +
+        "every label(h, s) do write(h, s)\n" +
+        "if label(green, t) then write(t)\n" +
+        "if label([blue], u) then write(u)\n"
+
+    assert_eq(complaints(text), "")
+    assert_eq(ran_funl(text), "red, r\ngreen, g\n[blue], b\ng\nb\nsucceeded")
+
+@test
+A_CONSTRUCTOR_DECLARED_AFTER_A_RELATION_IS_STILL_ITS_ATOM()
+    val text = "def warm( red )\n" +
+        "data hue = red | green\n" +
+        "free h\n" +
+        "if warm(h) then write(h)\n" +
+        "if warm(green) then write(#wrong)\n"
+
+    assert_eq(complaints(text), "")
+    assert_eq(ran_funl(text), "red\nsucceeded")
+
+@test
+A_NULLARY_CONSTRUCTOR_IN_A_BODY_GOAL_IS_ITS_ATOM()
+    val text = "data hue = red | green\n" +
+        "def warm( red )\n" +
+        "def hot(y) :- warm(red) & y ~ 1\n" +
+        "def cold(y) :- warm(green) & y ~ 2\n" +
+        "free a, b\n" +
+        "if hot(a) then write(a)\n" +
+        "if cold(b) then write(#wrong) else write(#none)\n"
+
+    assert_eq(complaints(text), "")
+    assert_eq(ran_funl(text), "1\nnone\nsucceeded")
+
+@test
+A_NAME_THAT_IS_NOT_A_CONSTRUCTOR_IS_STILL_A_CLAUSE_VARIABLE()
+    val text = "data hue = red | green\n" +
+        "def any( blue )\n" +
+        "free h\n" +
+        "if any(#anything) then write(#yes)\n" +
+        "if any(h) then write(#unbound)\n"
+
+    assert_eq(complaints(text), "warning 2:10 `blue` appears only once in this clause of `any`\n")
+    assert_eq(ran_funl(text), "yes\nunbound\nsucceeded")
+
+@test
+A_CONSTRUCTOR_GIVEN_THE_WRONG_NUMBER_OF_FIELDS_IN_A_RELATION_BODY_IS_REFUSED()
+    val text = "data point(x, y)\ndef p(z) :- z ~ point(1)\n"
+
+    assert_eq(complaints(text), "error 2:17 the constructor `point` takes 2 fields, and this call gives 1\n")

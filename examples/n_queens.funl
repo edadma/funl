@@ -3,8 +3,8 @@
 ;; There is no explicit search loop and no undo code. For each column `c`, the generator
 ;; `r = 0 until n` offers rows; the chained comparison `==` checks in one expression that the row
 ;; and both diagonals are still free; and `<-` is reversible assignment, so when a later column
-;; finds no row, backtracking into the generator puts the three claims back by itself. (Inside
-;; parentheses a newline is only whitespace, which lets the condition run over two lines.)
+;; finds no row, backtracking into the generator puts the three claims back by itself. (A line
+;; ending in an operator, here `and`, continues onto the next, deeper line.)
 
 val n = 6
 val row = array( n )                ;; row(r) holds the column whose queen sits on row r
@@ -14,8 +14,8 @@ val solution = array( n )           ;; solution(c) is the row of the queen in co
 var count = 0
 
 def solve( c )
-  every (row(r = 0 until n) == down(r + c) == up(n - 1 + r - c) == undefined and
-         row(r) <- down(r + c) <- up(n - 1 + r - c) <- r)
+  every row(r = 0 until n) == down(r + c) == up(n - 1 + r - c) == undefined and
+        row(r) <- down(r + c) <- up(n - 1 + r - c) <- r
     solution(c) = r
 
     if c == n - 1
