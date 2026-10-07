@@ -28,6 +28,20 @@ and from the command line, `funl family.pl` reads a file by its extension and st
 interactive top level, or runs `:- initialization(main).` if the file has one. **A Prolog file's
 directives run at load time** (`:- dynamic`, `:- op`, `:- initialization`), exactly as in any Prolog.
 
+## A Prolog with no FunL in it
+
+**The logic core stands alone, and a standalone Prolog is built on it.** The machine is two layers:
+a **logic core** — terms (atoms, numbers, compounds, variables, lists), the control stack, choice
+points, the trail, frames, calls and returns, unification, clause selection and the `Get`
+instructions — and **FunL on top**, which adds its own value kinds (strings as FunL has them,
+tuples, closures, maps) and its own instructions (generators, scanning, regex) through an extension
+seam the core never names. The core imports nothing from the FunL layer.
+
+**The standalone Prolog is the core, the Prolog reader, the Prolog builtins and an ISO top level**
+(`?- goal.`, `;` for the next answer, `consult/1`), and nothing else. It knows only standard Prolog:
+no FunL syntax, no FunL builtins, no FunL value kinds reachable from it. The same Prolog program
+runs identically in it and through `funl family.pl`; the difference is only what else is loaded.
+
 ## The reader
 
 **The reader is an operator-precedence parser over an operator table that changes at run time**,
