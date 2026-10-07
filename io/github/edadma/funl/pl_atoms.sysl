@@ -1,0 +1,422 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{char_from_u32, chars_of, from_utf8_unchecked, str_builder}
+
+// Prolog's builtins over the text of atoms: `atom_codes/2`, `atom_chars/2`, `char_code/2`,
+// `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `number_codes/2` and `atom_number/2`.
+//
+// **Where an atom is wanted, any atomic value gives its text**, as SWI-Prolog takes it: a number its
+// digits, a string its characters, `[]` the two characters it is written with. ISO asks for an atom;
+// accepting the rest refuses nothing a conforming program writes. A compound is a type error either
+// way. **Positions and lengths count characters**, not bytes.
+
+install_prolog_atoms(v: *Vm)
+    register_generator(v, "atom_codes/2", 2, (b, n, c) -> atom_and_list(b, "atom_codes/2", false))
+    register_generator(v, "atom_chars/2", 2, (b, n, c) -> atom_and_list(b, "atom_chars/2", true))
+    register_generator(v, "char_code/2", 2, pl_char_code)
+    register_generator(v, "atom_length/2", 2, pl_atom_length)
+    register_generator(v, "atom_concat/3", 3, pl_atom_concat)
+    register_generator(v, "sub_atom/5", 5, pl_sub_atom)
+    register_generator(v, "number_codes/2", 2, pl_number_codes)
+    register_generator(v, "atom_number/2", 2, pl_atom_number)
+
+// The text of atomic `x`, `None` when it is unbound; a compound is `type_error(atom, X)`.
+private text_of(x: Value, who: string) -> Result[Option[string], Fault]
+    val y = deref(x)
+
+    y match
+        Atom(id) -> Ok(Some(atom_name(id)))
+        Nil -> Ok(Some("[]"))
+        Int(n) -> Ok(Some(s"$n"))
+        Str(p) -> Ok(Some(p.s))
+        Var(_) -> Ok(None)
+        _ -> Err(type_error("atom", y, s"$who wants an atom, and was given ${described(y)}"))
+
+// The text of atomic `x`, which must be bound.
+private bound_text(x: Value, who: string) -> Result[string, Fault]
+    text_of(x, who)? match
+        Some(s) -> Ok(s)
+        None -> Err(instantiation_error(s"instantiation error: $who was given an unbound variable where it wants an atom"))
+
+private one_char_text(c: char) -> string
+    var b = str_builder()
+
+    b.push_char(c)
+    b.finish()
+
+// The characters of `s` as one-character atoms, or as codes.
+private text_list(s: string, chars: bool) -> Result[Value, Fault]
+    var items: Buf[Value] = buf()
+
+    for c in chars_of(s.bytes)
+        items.push(if chars then atom(one_char_text(c)) else Int(long(u32(c))))
+
+    Ok(list_of(&items, Nil)?)
+
+// The text list `l` spells: one-character atoms, or codes. `None` when it is not yet a whole list or
+// an element is unbound, which only an argument that has to be read makes an error.
+private list_text(l: Value, who: string, chars: bool) -> Result[Option[string], Fault]
+    var out = str_builder()
+    var at = deref(l)
+
+    loop
+        at match
+            Nil -> return Ok(Some(out.finish()))
+            Var(_) -> return Ok(None)
+            Cons(p) ->
+                val e = deref(p.head)
+
+                e match
+                    Var(_) -> return Ok(None)
+                    _ -> ()
+
+                if chars
+                    val ok = e match
+                        Atom(id) -> one_char(atom_name(id))
+                        _ -> false
+
+                    if !ok then return Err(type_error("character", e, s"$who wants a list of characters, and was given ${described(e)} in it"))
+
+                    out.push(atom_text(e))
+                else
+                    val code = e match
+                        Int(k) -> k
+                        _ -> return Err(type_error("integer", e, s"$who wants a list of character codes, and was given ${described(e)} in it"))
+
+                    val c = code_char(code, who)?
+
+                    out.push_char(c)
+
+                at = deref(p.tail)
+            _ -> return Err(type_error("list", l, s"$who wants a list, and was given ${described(l)}"))
+end list_text
+
+private atom_text(x: Value) -> string = x match
+    Atom(id) -> atom_name(id)
+    _ -> ""
+
+// The character with code `k`: `representation_error(character_code)` when there is none.
+private code_char(k: long, who: string) -> Result[char, Fault]
+    if k < 0 || k > 1114111 then return Err(no_such_code(k, who))
+
+    char_from_u32(u32(k)) match
+        Some(c) -> Ok(c)
+        None -> Err(no_such_code(k, who))
+
+private no_such_code(k: long, who: string) -> Fault =
+    representation_error("character_code", s"$who was given $k, which is not a character code")
+
+private unbound_list(who: string) -> Fault =
+    instantiation_error(s"instantiation error: $who wants its atom or a whole list, and was given neither")
+
+// `atom_codes(A, L)` and `atom_chars(A, L)`.
+private atom_and_list(base: usize, who: string, chars: bool) -> Result[Answer, Fault]
+    text_of(arg(base, 0), who)? match
+        Some(s) -> return unified(arg(base, 1), text_list(s, chars)?)
+        None -> ()
+
+    list_text(arg(base, 1), who, chars)? match
+        Some(s) -> unified(arg(base, 0), atom(s))
+        None -> Err(unbound_list(who))
+
+// `char_code(C, N)`.
+private pl_char_code(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val c = deref(arg(base, 0))
+
+    c match
+        Atom(id) ->
+            val name = atom_name(id)
+
+            if !one_char(name) then return Err(type_error("character", c, s"char_code/2 wants a character, and was given $name"))
+
+            val code = Int(long(u32(chars_of(name.bytes).peek().unwrap())))
+
+            int_or_unbound(arg(base, 1), "char_code/2")?
+            return unified(arg(base, 1), code)
+        Var(_) -> ()
+        _ -> return Err(type_error("character", c, s"char_code/2 wants a character, and was given ${described(c)}"))
+
+    val n = deref(arg(base, 1))
+
+    n match
+        Int(k) -> unified(c, atom(one_char_text(code_char(k, "char_code/2")?)))
+        Var(_) -> Err(instantiation_error("instantiation error: char_code/2 wants a character or a code, and was given neither"))
+        _ -> Err(type_error("integer", n, s"char_code/2 wants an integer code, and was given ${described(n)}"))
+
+// An argument that, when bound, must be an integer.
+private int_or_unbound(x: Value, who: string) -> Result[unit, Fault]
+    val y = deref(x)
+
+    y match
+        Int(_) -> Ok(())
+        Var(_) -> Ok(())
+        _ -> Err(type_error("integer", y, s"$who wants an integer, and was given ${described(y)}"))
+
+// `atom_length(A, N)`.
+private pl_atom_length(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val s = bound_text(arg(base, 0), "atom_length/2")?
+    val n = deref(arg(base, 1))
+
+    n match
+        Int(k) -> if k < 0 then return Err(domain_error("not_less_than_zero", n, s"atom_length/2's length is 0 or more, and was given $k"))
+        Var(_) -> ()
+        _ -> return Err(type_error("integer", n, s"atom_length/2 wants an integer length, and was given ${described(n)}"))
+
+    unified(n, Int(long(char_count(s))))
+
+// The byte offset of each character of `s`, and of its end.
+private char_offsets(s: string) -> Buf[usize]
+    var at: Buf[usize] = buf()
+    var i: usize = 0
+
+    for c in chars_of(s.bytes)
+        at.push(i)
+        i += one_char_text(c).bytes.len
+
+    at.push(i)
+    at
+
+private between_chars(s: string, at: *Buf[usize], from: usize, to: usize) -> string =
+    from_utf8_unchecked(s.bytes[at.at(from)..<at.at(to)])
+
+// `atom_concat(A, B, C)`: `C` is `A` followed by `B`; with only `C` given, each way of cutting it in
+// two, in turn.
+private pl_atom_concat(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val a = text_of(arg(base, 0), "atom_concat/3")?
+    val b = text_of(arg(base, 1), "atom_concat/3")?
+
+    a match
+        Some(x) -> b match
+            Some(y) -> return unified(arg(base, 2), atom(x + y))
+            None -> ()
+        None -> ()
+
+    val whole = text_of(arg(base, 2), "atom_concat/3")? match
+        Some(s) -> s
+        None -> return Err(instantiation_error("instantiation error: atom_concat/3 wants its first two arguments or its third"))
+
+    var at = char_offsets(whole)
+    val n = at.len() - 1
+    val k = usize(cursor)
+
+    if k > n then return Ok(Refuses)
+
+    unify_on_answer(arg(base, 0), atom(between_chars(whole, &at, 0, k)))
+    unify_on_answer(arg(base, 1), atom(between_chars(whole, &at, k, n)))
+    Ok(if k == n then Gives(Unit) else GivesMore(Unit, cursor + 1))
+
+// The integer `x` is, `None` when unbound; anything else is a type error.
+private optional_int(x: Value, who: string) -> Result[Option[long], Fault]
+    val y = deref(x)
+
+    y match
+        Int(k) -> Ok(Some(k))
+        Var(_) -> Ok(None)
+        _ -> Err(type_error("integer", y, s"$who wants an integer, and was given ${described(y)}"))
+
+// What `sub_atom/5` was asked: the atom's text and character offsets, and whichever of before,
+// length, after and the sub-atom were given.
+private struct SubAtomAsk
+    s: string
+    at: Buf[usize]
+    before: Option[long]
+    length: Option[long]
+    after: Option[long]
+    sub: Option[string]
+
+// `sub_atom(Atom, Before, Length, After, Sub)`: each way `Sub` stands in `Atom` with `Before`
+// characters before it and `After` after it, by `Before` and then `Length` ascending.
+private pl_sub_atom(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = "sub_atom/5"
+    val s = bound_text(arg(base, 0), who)?
+
+    val sub = deref(arg(base, 4)) match
+        Var(_) -> None
+        y -> text_of(y, who)?
+
+    var ask = SubAtomAsk(s, char_offsets(s), optional_int(arg(base, 1), who)?, optional_int(arg(base, 2), who)?,
+        optional_int(arg(base, 3), who)?, sub)
+
+    val n = long(ask.at.len() - 1)
+    val (b, l) = next_place(&ask, cursor / (n + 1), cursor % (n + 1)) match
+        Some(p) -> p
+        None -> return Ok(Refuses)
+
+    unify_on_answer(arg(base, 1), Int(b))
+    unify_on_answer(arg(base, 2), Int(l))
+    unify_on_answer(arg(base, 3), Int(n - b - l))
+    unify_on_answer(arg(base, 4), atom(between_chars(s, &ask.at, usize(b), usize(b + l))))
+
+    next_place(&ask, b, l + 1) match
+        Some((b2, l2)) -> Ok(GivesMore(Unit, b2 * (n + 1) + l2))
+        None -> Ok(Gives(Unit))
+end pl_sub_atom
+
+// The first place at or after `b`, `l` -- by `b`, then `l` -- that what was asked allows.
+private next_place(ask: *SubAtomAsk, from_b: long, from_l: long) -> Option[(long, long)]
+    val n = long(ask.at.len() - 1)
+    var b = from_b
+    var l = from_l
+
+    ask.before match
+        Some(want) ->
+            if b > want then return None
+
+            if b < want
+                b = want
+                l = 0
+        None -> ()
+
+    while b <= n
+        var lo: long = 0
+        var hi: long = n - b
+
+        ask.length match
+            Some(k) ->
+                lo = if k > lo then k else lo
+                hi = if k < hi then k else hi
+            None -> ()
+
+        ask.after match
+            Some(k) ->
+                val m = n - b - k
+
+                lo = if m > lo then m else lo
+                hi = if m < hi then m else hi
+            None -> ()
+
+        ask.sub match
+            Some(t) ->
+                val m = long(char_count(t))
+
+                lo = if m > lo then m else lo
+                hi = if m < hi then m else hi
+            None -> ()
+
+        if l < lo then l = lo
+
+        if l <= hi
+            val fits = ask.sub match
+                Some(t) -> between_chars(ask.s, &ask.at, usize(b), usize(b + l)) == t
+                None -> true
+
+            if fits then return Some((b, l))
+
+        ask.before match
+            Some(_) -> return None
+            None -> ()
+
+        b += 1
+        l = 0
+
+    None
+end next_place
+
+// The integer text `s` spells, with layout before it and a `-` touching it allowed: decimal, `0x`,
+// `0o`, `0b`, or `0'c`. `None` when it spells no integer.
+parse_integer(s: string) -> Result[Option[long], Fault]
+    val b = s.bytes
+    var i: usize = 0
+
+    while i < b.len && (b[i] == u8(' ') || b[i] == u8('\t') || b[i] == u8('\n') || b[i] == u8('\r'))
+        i += 1
+
+    var negative = false
+
+    if i < b.len && b[i] == u8('-')
+        negative = true
+        i += 1
+
+    if i >= b.len || b[i] < u8('0') || b[i] > u8('9') then return Ok(None)
+
+    if b[i] == u8('0') && i + 1 < b.len && b[i + 1] == u8('\'')
+        val rest = from_utf8_unchecked(b[i + 2..<b.len])
+
+        if !one_char(rest) then return Ok(None)
+
+        val code = long(u32(chars_of(rest.bytes).peek().unwrap()))
+
+        return Ok(Some(if negative then -code else code))
+
+    var radix: long = 10
+
+    if b[i] == u8('0') && i + 2 < b.len
+        val r = b[i + 1]
+
+        radix = if r == u8('x') then 16 elif r == u8('o') then 8 elif r == u8('b') then 2 else 10
+
+        if radix != 10 then i += 2
+
+    // Accumulated negatively, so the least `long` is reached without passing the largest.
+    var value: long = 0
+    var digits: usize = 0
+
+    while i < b.len
+        val d = digit_value(b[i])
+
+        if d >= radix then return Ok(None)
+
+        if value < (-9223372036854775807 - 1 + d) / radix
+            return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, and only integers are built"))
+
+        value = value * radix - d
+        digits += 1
+        i += 1
+
+    if digits == 0 then return Ok(None)
+
+    if negative then return Ok(Some(value))
+
+    if value == -9223372036854775807 - 1
+        return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, and only integers are built"))
+
+    Ok(Some(-value))
+end parse_integer
+
+// What digit `c` is worth, in any base up to 16; 99 for a character that is no digit.
+private digit_value(c: u8) -> long
+    if c >= u8('0') && c <= u8('9') then return long(c - u8('0'))
+    if c >= u8('a') && c <= u8('f') then return long(c - u8('a')) + 10
+    if c >= u8('A') && c <= u8('F') then return long(c - u8('A')) + 10
+
+    99
+
+// `number_codes(N, L)`: a whole code list is read as a number, which `N` must then be.
+private pl_number_codes(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = "number_codes/2"
+    val n = deref(arg(base, 0))
+
+    n match
+        Int(_) -> ()
+        Var(_) -> ()
+        _ -> return Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))
+
+    list_text(arg(base, 1), who, false)? match
+        Some(text) ->
+            parse_integer(text)? match
+                Some(k) -> return unified(n, Int(k))
+                None -> return Err(syntax_error("illegal_number", s"$who: '$text' is not a number"))
+        None -> ()
+
+    n match
+        Int(k) -> unified(arg(base, 1), text_list(s"$k", false)?)
+        _ -> Err(unbound_list(who))
+
+// `atom_number(A, N)`: `A` read as a number, failing when it is none -- as SWI-Prolog does; ISO has no
+// such predicate.
+private pl_atom_number(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = "atom_number/2"
+
+    text_of(arg(base, 0), who)? match
+        Some(s) ->
+            parse_integer(s)? match
+                Some(k) -> unified(arg(base, 1), Int(k))
+                None -> Ok(Refuses)
+        None ->
+            val n = deref(arg(base, 1))
+
+            n match
+                Int(k) -> unified(arg(base, 0), atom(s"$k"))
+                Var(_) -> Err(instantiation_error("instantiation error: atom_number/2 wants its atom or its number"))
+                _ -> Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))

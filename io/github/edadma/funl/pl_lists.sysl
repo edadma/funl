@@ -1,0 +1,105 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.slices.sort_stable_by
+
+// Prolog's list builtins written in sysl: `length/2` and the sorts, `sort/2`, `msort/2` and
+// `keysort/2`, all three in the standard order of terms (`compare_terms`).
+
+install_prolog_lists(v: *Vm)
+    register_generator(v, "length/2", 2, pl_length)
+    register_generator(v, "sort/2", 2, (b, n, c) -> sorted(b, "sort/2", false, true))
+    register_generator(v, "msort/2", 2, (b, n, c) -> sorted(b, "msort/2", false, false))
+    register_generator(v, "keysort/2", 2, (b, n, c) -> sorted(b, "keysort/2", true, false))
+
+// `length(L, N)`: `N` is the length of list `L`. With `L` ending in an unbound tail, the tail is made
+// as long as `N` says; with `N` unbound too, each length from the shortest in turn.
+private pl_length(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val n = deref(arg(base, 1))
+
+    n match
+        Int(k) -> if k < 0 then return Err(domain_error("not_less_than_zero", n, s"length/2's length is 0 or more, and was given $k"))
+        Var(_) -> ()
+        _ -> return Err(type_error("integer", n, s"length/2 wants an integer length, and was given ${described(n)}"))
+
+    var count: long = 0
+    var at = deref(arg(base, 0))
+
+    loop
+        at match
+            Cons(p) ->
+                count += 1
+                at = deref(p.tail)
+            Nil -> return unified(n, Int(count))
+            Var(_) -> break
+            _ -> return Err(type_error("list", arg(base, 0), s"length/2 wants a list, and was given ${described(arg(base, 0))}"))
+
+    val tail = at
+
+    n match
+        Int(k) ->
+            if k < count then return Ok(Refuses)
+
+            unified(tail, fresh_list(k - count)?)
+        _ ->
+            unify_on_answer(tail, fresh_list(cursor)?)
+            unify_on_answer(n, Int(count + cursor))
+            Ok(GivesMore(Unit, cursor + 1))
+end pl_length
+
+// A list of `k` new variables.
+private fresh_list(k: long) -> Result[Value, Fault]
+    var out = Nil
+
+    for i in 0..<k
+        out = new_cons(Var(new_var()?), out)?
+
+    Ok(out)
+
+// `sort/2` (`unique`, duplicates dropped), `msort/2`, and `keysort/2` (`keyed`, by the key of each
+// `Key-Value` pair). All three are stable.
+private sorted(base: usize, who: string, keyed: bool, unique: bool) -> Result[Answer, Fault]
+    var items = list_items(arg(base, 0), who)?
+    val out = arg(base, 1)
+
+    if !is_partial_list(out) then return Err(type_error("list", out, s"$who answers a list, and was given ${described(out)} for it"))
+
+    if keyed
+        for x in items.view()
+            pair_key(x, who)?
+
+    var scratch: Buf[Value] = buf()
+
+    for i in 0..<items.len()
+        scratch.push(Undefined)
+
+    if keyed
+        sort_stable_by(items.view(), scratch.view(), (a, b) -> compare_terms(key_of(a), key_of(b)) < 0)
+    else
+        sort_stable_by(items.view(), scratch.view(), (a, b) -> compare_terms(a, b) < 0)
+
+    var kept: Buf[Value] = buf()
+
+    for x in items.view()
+        if unique && kept.len() > 0 && compare_terms(kept.at(kept.len() - 1), x) == 0 then continue
+
+        kept.push(x)
+
+    unified(out, list_of(&kept, Nil)?)
+end sorted
+
+// Check that `x` is a `Key-Value` pair.
+private pair_key(x: Value, who: string) -> Result[unit, Fault]
+    val y = deref(x)
+
+    y match
+        Var(_) -> Err(instantiation_error(s"instantiation error: $who was given an unbound variable where it wants a Key-Value pair"))
+        Compound(c) ->
+            if atom_name(c.functor) == "-" && c.args.len() == 2 then return Ok(())
+
+            Err(type_error("pair", y, s"$who wants Key-Value pairs, and was given ${described(y)}"))
+        _ -> Err(type_error("pair", y, s"$who wants Key-Value pairs, and was given ${described(y)}"))
+
+private key_of(x: Value) -> Value = deref(x) match
+    Compound(c) -> c.args.at(0)
+    y -> y

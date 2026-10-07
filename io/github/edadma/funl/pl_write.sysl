@@ -270,8 +270,14 @@ private var_name(k: long) -> string
 
     if k < 26 then letter else s"$letter${k / 26}"
 
+// An operand's opening bracket. After a name -- `a mod (b+c)` -- it is set apart, or the name and the
+// bracket would read as a compound's functor and its argument list.
 private open_if(w: *Writer, yes: bool)
-    if yes then emit(w, "(")
+    if !yes then return
+
+    if alnum(w.last) then w.out.push(" ")
+
+    emit(w, "(")
 
 private close_if(w: *Writer, yes: bool)
     if yes then emit(w, ")")
@@ -344,7 +350,7 @@ private leads_with_digit(x: Value) -> bool
 // is itself an operator.
 private put_operand(w: *Writer, x: Value, max: u16, depth: long)
     if is_op_atom(x)
-        emit(w, "(")
+        open_if(w, true)
         put_term(w, x, 999, depth + 1)
         emit(w, ")")
         return

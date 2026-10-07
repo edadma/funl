@@ -1,0 +1,148 @@
+module io.github.edadma.funl
+@tests
+
+// The Prolog builtins over atoms' text and over lists: `atom_codes/2`, `atom_chars/2`, `char_code/2`,
+// `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `number_codes/2`, `atom_number/2`, `length/2`,
+// `sort/2`, `msort/2` and `keysort/2`, each with its ISO errors.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Whether `goal` succeeds, fails, or the formal term of the error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+// `goal` run, then `X` written by `writeq`; or the formal term of the error it raises.
+private gives(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> writeq(X) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+// `X` written by `writeq` for every solution of `goal`, one a line.
+private every(goal: string) -> string = ran_prolog(s":- forall(($goal), (writeq(X), nl)).\n")
+
+@test
+ATOM_CODES_AND_ATOM_CHARS_GO_BOTH_WAYS()
+    assert_eq(gives("atom_codes(abc, X)"), ok("[97,98,99]"))
+    assert_eq(gives("atom_codes(X, [0'h, 0'i])"), ok("hi"))
+    assert_eq(gives("atom_codes('', X)"), ok("[]"))
+    assert_eq(gives("atom_codes(12, X)"), ok("[49,50]"))
+    assert_eq(gives("atom_chars(abc, X)"), ok("[a,b,c]"))
+    assert_eq(gives("atom_chars(X, [h, i])"), ok("hi"))
+    assert_eq(gives("atom_chars('hé', X)"), ok("[h,'é']"))
+    assert_eq(holds("atom_chars(abc, [a | T]), T == [b, c]"), ok("yes"))
+
+@test
+ATOM_CODES_AND_ATOM_CHARS_RAISE_THE_ISO_ERRORS()
+    assert_eq(holds("atom_codes(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("atom_codes(_, [0'a | _])"), ok("instantiation_error"))
+    assert_eq(holds("atom_codes(_, [_])"), ok("instantiation_error"))
+    assert_eq(holds("atom_codes(_, [foo])"), ok("type_error(integer,foo)"))
+    assert_eq(holds("atom_codes(_, [-1])"), ok("representation_error(character_code)"))
+    assert_eq(holds("atom_codes(_, foo)"), ok("type_error(list,foo)"))
+    assert_eq(holds("atom_codes(f(x), _)"), ok("type_error(atom,f(x))"))
+    assert_eq(holds("atom_chars(_, [ab])"), ok("type_error(character,ab)"))
+    assert_eq(holds("atom_chars(_, [1])"), ok("type_error(character,1)"))
+
+@test
+CHAR_CODE_GOES_BOTH_WAYS_AND_RAISES_THE_ISO_ERRORS()
+    assert_eq(gives("char_code(a, X)"), ok("97"))
+    assert_eq(gives("char_code(X, 0'b)"), ok("b"))
+    assert_eq(holds("char_code(a, 98)"), ok("no"))
+    assert_eq(holds("char_code(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("char_code(ab, _)"), ok("type_error(character,ab)"))
+    assert_eq(holds("char_code(_, x)"), ok("type_error(integer,x)"))
+    assert_eq(holds("char_code(_, -1)"), ok("representation_error(character_code)"))
+
+@test
+ATOM_LENGTH_COUNTS_CHARACTERS()
+    assert_eq(gives("atom_length(hello, X)"), ok("5"))
+    assert_eq(gives("atom_length('héllo', X)"), ok("5"))
+    assert_eq(gives("atom_length('', X)"), ok("0"))
+    assert_eq(gives("atom_length(123, X)"), ok("3"))
+    assert_eq(holds("atom_length(abc, 2)"), ok("no"))
+    assert_eq(holds("atom_length(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("atom_length(f(x), _)"), ok("type_error(atom,f(x))"))
+    assert_eq(holds("atom_length(abc, foo)"), ok("type_error(integer,foo)"))
+    assert_eq(holds("atom_length(abc, -1)"), ok("domain_error(not_less_than_zero,-1)"))
+
+@test
+ATOM_CONCAT_JOINS_AND_CUTS_EVERY_WAY()
+    assert_eq(gives("atom_concat(ab, cd, X)"), ok("abcd"))
+    assert_eq(gives("atom_concat(X, cd, abcd)"), ok("ab"))
+    assert_eq(gives("atom_concat(ab, X, abcd)"), ok("cd"))
+    assert_eq(holds("atom_concat(x, _, abcd)"), ok("no"))
+    assert_eq(every("atom_concat(A, B, abc), X = A+B"), ok("''+abc\na+bc\nab+c\nabc+''"))
+    assert_eq(holds("atom_concat(_, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("atom_concat(f(x), a, _)"), ok("type_error(atom,f(x))"))
+
+@test
+SUB_ATOM_FINDS_EVERY_PLACE_A_SUB_ATOM_STANDS()
+    assert_eq(gives("sub_atom(abcde, 1, 3, A, S), X = A-S"), ok("1-bcd"))
+    assert_eq(every("sub_atom(abcab, B, 2, A, ab), X = B-A"), ok("0-3\n3-0"))
+    assert_eq(every("sub_atom(ab, B, L, _, S), X = B-L-S"), ok("0-0-''\n0-1-a\n0-2-ab\n1-0-''\n1-1-b\n2-0-''"))
+    assert_eq(every("sub_atom(abc, _, _, 0, X)"), ok("abc\nbc\nc\n''"))
+    assert_eq(gives("sub_atom('héllo', 1, 2, _, X)"), ok("'él'"))
+    assert_eq(holds("sub_atom(abc, _, _, _, x)"), ok("no"))
+
+@test
+SUB_ATOM_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("sub_atom(_, _, _, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("sub_atom(f(a), _, _, _, _)"), ok("type_error(atom,f(a))"))
+    assert_eq(holds("sub_atom(abc, a, _, _, _)"), ok("type_error(integer,a)"))
+    assert_eq(holds("sub_atom(abc, _, _, _, f(x))"), ok("type_error(atom,f(x))"))
+
+@test
+NUMBER_CODES_READS_AND_WRITES_A_NUMBER()
+    assert_eq(gives("number_codes(X, [0'4, 0'2])"), ok("42"))
+    assert_eq(gives("number_codes(X, [0' , 0'-, 0'7])"), ok("-7"))
+    assert_eq(gives("number_codes(X, [0'0, 0'x, 0'f, 0'f])"), ok("255"))
+    assert_eq(gives("number_codes(12, X)"), ok("[49,50]"))
+    assert_eq(holds("number_codes(_, [0'a])"), ok("syntax_error(illegal_number)"))
+    assert_eq(holds("number_codes(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("number_codes(a, _)"), ok("type_error(number,a)"))
+
+@test
+ATOM_NUMBER_READS_AN_ATOM_AS_A_NUMBER_OR_FAILS()
+    assert_eq(gives("atom_number('42', X)"), ok("42"))
+    assert_eq(gives("atom_number('0''a', X)"), ok("97"))
+    assert_eq(holds("atom_number(foo, _)"), ok("no"))
+    assert_eq(gives("atom_number(X, 7)"), ok("'7'"))
+    assert_eq(holds("atom_number(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("atom_number(_, a)"), ok("type_error(number,a)"))
+    assert_eq(holds("atom_number('99999999999999999999', _)"), ok("evaluation_error(int_overflow)"))
+
+@test
+LENGTH_MEASURES_A_LIST_AND_MAKES_ONE()
+    assert_eq(gives("length([a, b], X)"), ok("2"))
+    assert_eq(holds("length(L, 2), L = [a, b]"), ok("yes"))
+    assert_eq(holds("length([a | T], 3), T = [b, c]"), ok("yes"))
+    assert_eq(holds("length([a, b], 1)"), ok("no"))
+    assert_eq(holds("length([a | _], 0)"), ok("no"))
+
+    // Both unbound: each length in turn, and each list undone before the next is made.
+    assert_eq(gives("length(L, N), N == 2, length(L, X)"), ok("2"))
+    assert_eq(gives("length([a | T], N), N == 3, length(T, X)"), ok("2"))
+
+@test
+LENGTH_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("length(_, -1)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("length(_, a)"), ok("type_error(integer,a)"))
+    assert_eq(holds("length(foo, _)"), ok("type_error(list,foo)"))
+    assert_eq(holds("length([a | b], _)"), ok("type_error(list,[a|b])"))
+
+@test
+THE_SORTS_ORDER_BY_THE_STANDARD_ORDER_OF_TERMS()
+    assert_eq(gives("sort([c, a, b, a], X)"), ok("[a,b,c]"))
+    assert_eq(gives("msort([c, a, b, a], X)"), ok("[a,a,b,c]"))
+    assert_eq(gives("sort([b, 1, f(x), \"s\", a], X)"), ok("[1,a,b,\"s\",f(x)]"))
+    assert_eq(gives("keysort([b-1, a-2, b-0, a-1], X)"), ok("[a-2,a-1,b-1,b-0]"))
+    assert_eq(gives("sort([], X)"), ok("[]"))
+    assert_eq(holds("sort([b, a], [a, b])"), ok("yes"))
+
+@test
+THE_SORTS_RAISE_THE_ISO_ERRORS()
+    assert_eq(holds("sort(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("sort([a | _], _)"), ok("instantiation_error"))
+    assert_eq(holds("sort(foo, _)"), ok("type_error(list,foo)"))
+    assert_eq(holds("sort([a], foo)"), ok("type_error(list,foo)"))
+    assert_eq(holds("msort([b | c], _)"), ok("type_error(list,[b|c])"))
+    assert_eq(holds("keysort([a], _)"), ok("type_error(pair,a)"))
+    assert_eq(holds("keysort([_], _)"), ok("instantiation_error"))

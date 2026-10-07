@@ -18,6 +18,8 @@ install_prolog(v: *Vm)
     register_generator(v, "@>=/2", 2, (b, n, c) -> ordered_if(b, (o) -> o >= 0))
     install_prolog_arith(v)
     install_prolog_terms(v)
+    install_prolog_atoms(v)
+    install_prolog_lists(v)
 
     // FunL's `consult(file)`, which the compiler turns into the `Consult` instruction: registered so
     // the name resolves and its arity is checked, and never run as a builtin.

@@ -1,0 +1,117 @@
+module io.github.edadma.funl
+@tests
+
+// The Prolog builtins that inspect and build terms: the type tests, `functor/3`, `arg/3`, `=../2`,
+// `copy_term/2`, `term_variables/2` and `compare/3`, each with its ISO errors.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Whether `goal` succeeds, fails, or the formal term of the error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+// `goal` run, then `X` written by `writeq`; or the formal term of the error it raises.
+private gives(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> writeq(X) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+@test
+THE_TYPE_TESTS_SORT_EACH_KIND_OF_TERM()
+    val kinds = "[V, 1, a, [], \"s\", f(x), [a], 'A']"
+    val program = "in_list(X, [X|_]).\nin_list(X, [_|T]) :- in_list(X, T).\n" +
+        s":- forall(in_list(T, $kinds), (" +
+        "(var(T) -> write(v) ; write('-')), (nonvar(T) -> write(n) ; write('-')), " +
+        "(atom(T) -> write(a) ; write('-')), (number(T) -> write(u) ; write('-')), " +
+        "(integer(T) -> write(i) ; write('-')), (atomic(T) -> write(t) ; write('-')), " +
+        "(compound(T) -> write(c) ; write('-')), (callable(T) -> write(k) ; write('-')), " +
+        "(string(T) -> write(s) ; write('-')), (float(T) -> write(f) ; write('-')), nl)).\n"
+
+    assert_eq(ran_prolog(program), ok("v---------\n-n-uit----\n-na--t-k--\n-na--t-k--\n-n---t--s-\n-n----ck--\n-n----ck--\n-na--t-k--"))
+
+@test
+IS_LIST_AND_GROUND()
+    assert_eq(holds("is_list([a, b])"), ok("yes"))
+    assert_eq(holds("is_list([a | _])"), ok("no"))
+    assert_eq(holds("is_list(foo)"), ok("no"))
+    assert_eq(holds("ground(f(a, [b]))"), ok("yes"))
+    assert_eq(holds("ground(f(a, [_]))"), ok("no"))
+
+@test
+FUNCTOR_TAKES_A_TERM_APART_AND_BUILDS_ONE()
+    assert_eq(gives("functor(foo(a, b), N, A), X = N/A"), ok("foo/2"))
+    assert_eq(gives("functor(abc, N, A), X = N/A"), ok("abc/0"))
+    assert_eq(gives("functor(7, N, A), X = N/A"), ok("7/0"))
+    assert_eq(gives("functor([a], N, A), X = N/A"), ok("'[|]'/2"))
+    assert_eq(holds("functor(X, foo, 3), X = foo(A, B, C), var(A), var(C), A \\== B"), ok("yes"))
+    assert_eq(gives("functor(X, foo, 0)"), ok("foo"))
+    assert_eq(gives("functor(X, 5, 0)"), ok("5"))
+    assert_eq(gives("functor(X, '[|]', 2), X = [a | b]"), ok("[a|b]"))
+
+@test
+FUNCTOR_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("functor(_, _, 1)"), ok("instantiation_error"))
+    assert_eq(holds("functor(_, foo, _)"), ok("instantiation_error"))
+    assert_eq(holds("functor(_, foo, a)"), ok("type_error(integer,a)"))
+    assert_eq(holds("functor(_, foo, -1)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("functor(_, foo(a), 1)"), ok("type_error(atomic,foo(a))"))
+    assert_eq(holds("functor(_, 5, 1)"), ok("type_error(atom,5)"))
+
+@test
+ARG_PICKS_AN_ARGUMENT_COUNTING_FROM_ONE()
+    assert_eq(gives("arg(2, f(a, b, c), X)"), ok("b"))
+    assert_eq(gives("arg(1, [h | t], X)"), ok("h"))
+    assert_eq(holds("arg(4, f(a, b, c), _)"), ok("no"))
+    assert_eq(holds("arg(0, f(a), _)"), ok("no"))
+    assert_eq(holds("arg(1, f(a), b)"), ok("no"))
+
+@test
+ARG_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("arg(_, f(a), _)"), ok("instantiation_error"))
+    assert_eq(holds("arg(a, f(a), _)"), ok("type_error(integer,a)"))
+    assert_eq(holds("arg(1, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("arg(1, atom, _)"), ok("type_error(compound,atom)"))
+
+@test
+UNIV_TAKES_A_TERM_APART_AND_BUILDS_ONE()
+    assert_eq(gives("f(a, b) =.. X"), ok("[f,a,b]"))
+    assert_eq(gives("abc =.. X"), ok("[abc]"))
+    assert_eq(gives("3 =.. X"), ok("[3]"))
+    assert_eq(gives("[a, b] =.. X"), ok("['[|]',a,[b]]"))
+    assert_eq(gives("X =.. [g, 1, 2]"), ok("g(1,2)"))
+    assert_eq(gives("X =.. [x]"), ok("x"))
+    assert_eq(gives("X =.. [7]"), ok("7"))
+    assert_eq(gives("X =.. ['[|]', 1, []]"), ok("[1]"))
+    assert_eq(gives("X =.. [+, 1, 2]"), ok("1+2"))
+
+@test
+UNIV_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("_ =.. _"), ok("instantiation_error"))
+    assert_eq(holds("_ =.. [foo | _]"), ok("instantiation_error"))
+    assert_eq(holds("_ =.. [_, a]"), ok("instantiation_error"))
+    assert_eq(holds("_ =.. []"), ok("domain_error(non_empty_list,[])"))
+    assert_eq(holds("_ =.. foo"), ok("type_error(list,foo)"))
+    assert_eq(holds("_ =.. [f(a), b]"), ok("type_error(atomic,f(a))"))
+    assert_eq(holds("_ =.. [f(a)]"), ok("type_error(atomic,f(a))"))
+    assert_eq(holds("_ =.. [1, b]"), ok("type_error(atom,1)"))
+
+@test
+COPY_TERM_RENAMES_EVERY_VARIABLE_AND_KEEPS_THE_SHARING()
+    assert_eq(holds("copy_term(f(A, B, A), f(X, Y, Z)), X == Z, X \\== Y, var(A), X \\== A"), ok("yes"))
+    assert_eq(gives("copy_term(f(a, [b]), X)"), ok("f(a,[b])"))
+
+@test
+TERM_VARIABLES_LISTS_EACH_VARIABLE_ONCE_LEFT_TO_RIGHT()
+    assert_eq(holds("term_variables(f(A, g(B, A), [C]), L), L == [A, B, C]"), ok("yes"))
+    assert_eq(gives("term_variables(f(a, [b]), X)"), ok("[]"))
+
+@test
+COMPARE_ANSWERS_THE_STANDARD_ORDER()
+    assert_eq(gives("compare(X, 1, a)"), ok("<"))
+    assert_eq(gives("compare(X, f(b), f(a))"), ok(">"))
+    assert_eq(gives("compare(X, f(a), f(a))"), ok("="))
+    assert_eq(holds("compare(<, a, b)"), ok("yes"))
+    assert_eq(holds("compare(>, a, b)"), ok("no"))
+
+@test
+COMPARE_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("compare(foo, a, b)"), ok("domain_error(order,foo)"))
+    assert_eq(holds("compare(1, a, b)"), ok("type_error(atom,1)"))
