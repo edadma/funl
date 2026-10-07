@@ -1,0 +1,416 @@
+module io.github.edadma.funl
+@tests
+
+import sh.sysl.parsing.{full_report, source_of}
+import sysl.buf.{Buf, buf}
+import sysl.fs.{entries, is_dir, read_text}
+import sysl.slices.sort_by
+import sysl.text.{Search, replace_all, split, str_builder}
+
+// The programs printed in `docs/reference/` and `docs/library/` are run, and what they print is
+// compared against what the page says they print.
+//
+// **A reference rots silently.** Nothing in an ordinary build reads it, so a page goes on claiming
+// what the language did a year ago until a reader types a program in and gets something else. So a
+// fenced block on a page is not a picture of a program, it IS the program, and what follows it says
+// which kind:
+//
+//   - a `funl` block followed by an `output` block is a whole program, and the output block is what
+//     it prints -- run on both heaps, and compared;
+//   - a `funl` block followed by an `error` block is a program FunL refuses, at compile time or by a
+//     fault, and the error block is what it says -- run, required not to succeed, and what it said
+//     required to contain that text;
+//   - a `funl` block with neither under it is a fragment, quoted for its shape, and is not run.
+//
+// A `prolog` block follows the same three rules and is loaded as a whole Prolog program.
+//
+// **A fragment is as unverified as the prose beside it and looks exactly like a checked block to a
+// reader.** `DocBlockCensus` is what keeps that hole from widening: the counts are written down per
+// page, so a block that quietly loses its `output` shows up as a page whose runnable count fell.
+
+// -- what a block claims about itself ----------------------------------------------------------------
+
+// What a program block on a page claims about itself.
+private enum Claim
+    // A whole program, and what running it prints.
+    Prints(text: string)
+
+    // A program FunL refuses, and what its diagnostic or fault says.
+    Refused(message: string)
+
+    // A fragment, quoted to make a point about shape. Nothing is asserted about it.
+    Quoted
+
+// A fenced block as the markdown holds it: the word after the backticks, the body, and the line the
+// opening fence is on.
+private struct Fence
+    lang: string
+    body: string
+    line: usize
+
+// One program block, with where it came from -- a failure names the page and the line of the block,
+// because a reader of the failure has only the page to go and fix.
+private struct Block
+    page: string
+    lang: string
+    line: usize
+    source: string
+    claim: Claim
+
+    display(self) -> string = s"${self.page}:${self.line}, ${self.lang} block"
+
+// Whether a fence's word makes it a program.
+private is_program(lang: string) -> bool = lang == "funl" || lang == "prolog"
+
+// -- reading the pages -------------------------------------------------------------------------------
+
+// Every markdown page in `docs/reference/` and then `docs/library/`. `docs/design/` is not run: it
+// describes decisions, and its blocks carry no language tag.
+//
+// **The path is relative to the project root**, which is where `sysl test .` runs.
+private doc_pages() -> Buf[string]
+    var out: Buf[string] = buf()
+
+    pages_in("docs/reference", &out)
+    pages_in("docs/library", &out)
+    out
+
+// The markdown pages directly in `dir`, if there is such a directory.
+//
+// **Sorted, because the census is compared as text**, and a directory answers in whatever order it
+// likes.
+private pages_in(dir: string, out: *Buf[string])
+    if !is_dir(dir) then return
+
+    var names = entries(dir).unwrap()
+
+    sort_by(names.view(), (a, b) -> a < b)
+
+    for i in 0..<names.len()
+        if names.at(i).ends_with(".md") then out.push(s"$dir/${names.at(i)}")
+
+// The fenced blocks of a markdown document, in order.
+//
+// **Only a fence at the left margin opens a block.** An indented one is inside a list item or a
+// block quote, where the prose owns it.
+private fences_of(text: string) -> Buf[Fence]
+    var out: Buf[Fence] = buf()
+    val lines = split(text, "\n")
+    var open = false
+    var lang = ""
+    var at: usize = 0
+    var body = str_builder()
+
+    for i in 0..<lines.len
+        val line = lines[i]
+
+        if line.starts_with("```")
+            if open
+                out.push(Fence(lang, body.finish(), at))
+                body = str_builder()
+                open = false
+            else
+                // The word after the backticks and nothing else.
+                val info = line.slice(3, line.len).trim()
+                val cut = info.index_of(" ")
+
+                lang = if cut.is_none() then info else info.slice(0, cut.unwrap())
+                at = i + 1
+                open = true
+        elif open
+            body.push(line)
+            body.push("\n")
+
+    out
+end fences_of
+
+// The program blocks of a page's `text`, each paired with what the page claims about it.
+private blocks_of_text(page: string, text: string) -> Buf[Block]
+    val fences = fences_of(text)
+    var out: Buf[Block] = buf()
+
+    for i in 0..<fences.len()
+        val f = fences.at(i)
+
+        if is_program(f.lang) then out.push(Block(page, f.lang, f.line, f.body, claim_after(fences, i + 1)))
+
+    out
+
+private blocks_of(page: string) -> Buf[Block] = blocks_of_text(page, read_text(page).unwrap())
+
+// What the fences after a program block say about it: the first `output` or `error` block to appear
+// before the next program block.
+//
+// **Not simply the very next fence**, so a page may read *program, how to run it, what it prints*
+// with another block in the middle. The search stops at the next program, so a claim can never be
+// attached to the wrong one.
+private claim_after(fences: Buf[Fence], from: usize) -> Claim
+    for i in from..<fences.len()
+        val f = fences.at(i)
+
+        if is_program(f.lang) then break
+        if f.lang == "output" then return Prints(f.body)
+        if f.lang == "error" then return Refused(f.body)
+
+    Quoted
+
+// -- running one block -------------------------------------------------------------------------------
+
+// Compile a FunL block into the running VM, the page named as its file so a diagnostic points there.
+private compiled_block(page: string, text: string) -> Result[usize, string]
+    val src = source_of(page, text)
+    var r = full_report()
+
+    compile_program(src, &r) match
+        Some(chunk) -> Ok(chunk)
+        None -> Err(r.render(src))
+
+// Load a Prolog block into the running VM as a whole program.
+private loaded_block(page: string, text: string) -> Result[usize, string]
+    val src = source_of(page, text)
+    var r = full_report()
+
+    prolog_program(src, &r) match
+        Some(chunk) -> Ok(chunk)
+        None -> Err(r.render(src))
+
+private built(is_funl: bool, page: string, text: string) -> Result[usize, string] =
+    if is_funl then compiled_block(page, text) else loaded_block(page, text)
+
+// What running a block came to: what it printed, and how it ended -- `succeeded`, `failed`,
+// `fault: <message>`, or `assembly: <diagnostics>` for a program refused before it ran.
+private struct Ran
+    printed: string
+    outcome: string
+
+    ok(self) -> bool = self.outcome == "succeeded"
+
+// A transcript from the kit, cut into what was printed and the outcome on its last line.
+//
+// **A refused program's transcript is all outcome**: it never ran, and the rendered diagnostics run
+// over several lines.
+private cut_transcript(text: string) -> Ran
+    if text.starts_with("assembly: ") then return Ran("", text)
+
+    val lines = split(text, "\n")
+    var b = str_builder()
+
+    for i in 0..<lines.len - 1
+        b.push(lines[i])
+        b.push("\n")
+
+    Ran(b.finish(), unplaced(lines[lines.len - 1]))
+
+// Run block `b` on a roomy heap and on one collected at every step, answering the run or the
+// complaint that the two disagreed.
+private run_block(b: Block) -> Result[Ran, string]
+    val page = b.page
+    val source = b.source
+    val is_funl = b.lang == "funl"
+    val calm = roomy(() -> built(is_funl, page, source))
+    val tight = stressed(() -> built(is_funl, page, source))
+
+    if calm.text != tight.text
+        return Err(s"${b.display()}: it said something different on a heap collected at every step:\n" +
+            s"roomy:\n${doc_indent(calm.text)}\ncollected:\n${doc_indent(tight.text)}")
+
+    Ok(cut_transcript(calm.text))
+
+// Check one block, answering the complaint if it has one, or `""`.
+//
+// **Every block answers rather than asserting, so one run reports every page that has drifted**
+// instead of the first: one language change invalidates every page that leans on it.
+private check_block(b: Block) -> string = b.claim match
+    Prints(expected) -> check_prints(b, expected)
+    Refused(expected) -> check_refused(b, expected)
+    Quoted -> ""
+
+private check_prints(b: Block, expected: string) -> string
+    val r = run_block(b) match
+        Ok(ran) -> ran
+        Err(e) -> return e
+
+    if !r.ok()
+        s"${b.display()}: the page says this runs, and it did not:\n${doc_indent(r.outcome)}"
+    elif tidied(r.printed) != tidied(expected)
+        s"${b.display()}: what it printed is not what the page says.\n" +
+            s"page:\n${doc_indent(expected)}\nprogram:\n${doc_indent(r.printed)}"
+    else
+        ""
+
+private check_refused(b: Block, expected: string) -> string
+    val r = run_block(b) match
+        Ok(ran) -> ran
+        Err(e) -> return e
+
+    if r.ok()
+        s"${b.display()}: the page says FunL refuses this, and it ran"
+    elif !r.outcome.contains(expected.trim())
+        s"${b.display()}: it was refused, but not in the words the page quotes.\n" +
+            s"page:\n${doc_indent(expected)}\nFunL:\n${doc_indent(r.outcome)}"
+    else
+        ""
+
+// Every complaint about page `page`'s blocks, one after another, or `""`.
+private check_page(page: string) -> string
+    val blocks = blocks_of(page)
+    var b = str_builder()
+
+    for i in 0..<blocks.len()
+        val said = check_block(blocks.at(i))
+
+        if said != ""
+            b.push(said)
+            b.push("\n")
+
+    b.finish()
+
+// A page's census line: `path runnable refused fragment`.
+private census_line(page: string, blocks: Buf[Block]) -> string
+    var runnable: usize = 0
+    var refused: usize = 0
+    var fragments: usize = 0
+
+    for i in 0..<blocks.len()
+        blocks.at(i).claim match
+            Prints(_) -> runnable += 1
+            Refused(_) -> refused += 1
+            Quoted -> fragments += 1
+
+    s"$page $runnable $refused $fragments"
+
+// Trailing whitespace is not a claim a page makes. A fence keeps a final newline the writer did not
+// type and cannot see, so comparing raw text would fail every block for a reason no reader could
+// act on.
+private tidied(text: string) -> string
+    val lines = split(text, "\n")
+    var b = str_builder()
+
+    for i in 0..<lines.len
+        if i > 0 then b.push("\n")
+
+        b.push(lines[i].trim_end())
+
+    b.finish().trim()
+
+private doc_indent(text: string) -> string
+    val lines = split(text, "\n")
+    var b = str_builder()
+
+    for i in 0..<lines.len
+        if i > 0 then b.push("\n")
+
+        b.push("    ")
+        b.push(lines[i])
+
+    b.finish()
+
+// -- the documentation -------------------------------------------------------------------------------
+
+@test
+EVERY_PROGRAM_IN_THE_REFERENCE_RUNS_AND_PRINTS_WHAT_THE_PAGE_SAYS()
+    val pages = doc_pages()
+    var complaints = str_builder()
+    var checked: usize = 0
+
+    for i in 0..<pages.len()
+        complaints.push(check_page(pages.at(i)))
+
+        val blocks = blocks_of(pages.at(i))
+
+        for j in 0..<blocks.len()
+            blocks.at(j).claim match
+                Quoted -> ()
+                _ -> checked += 1
+
+    assert_eq(complaints.finish(), "")
+
+    // **Finding nothing to run would leave this green having tested nothing**, which is the failure a
+    // walk can have and a written list cannot.
+    assert(checked >= 10)
+
+@test
+EVERY_PAGE_CARRIES_THE_BLOCKS_IT_IS_EXPECTED_TO()
+    // A page that gains or loses a checked block fails this until the number is changed, which is
+    // the point -- the number is what says somebody looked.
+    val pages = doc_pages()
+    var b = str_builder()
+
+    for i in 0..<pages.len()
+        b.push(census_line(pages.at(i), blocks_of(pages.at(i))))
+        b.push("\n")
+
+    assert_eq(b.finish(), DocBlockCensus)
+
+// What every page holds, as `path runnable refused fragment`.
+private val DocBlockCensus: string = "docs/reference/README.md 0 0 0\n" +
+    "docs/reference/success-and-failure.md 8 2 0\n"
+
+// -- the runner itself -------------------------------------------------------------------------------
+
+// A page of the runner's own, in a scratch directory: its complaints, with the scratch path taken
+// out so the expectation can be written down.
+private complaints_about(text: string) -> string
+    val d = scratch()
+    defer scrap(d)
+
+    val page = put(d, "page.md", text)
+
+    replace_all(check_page(page), page, "page.md")
+
+@test
+A_PAGE_WHOSE_PROGRAMS_DO_WHAT_IT_SAYS_DRAWS_NO_COMPLAINT()
+    val text = "# A page\n\n```funl\nwrite( 1 + 2 )\n```\n\nRun it:\n\n```sh\nfunl page.funl\n```\n\n" +
+        "```output\n3\n```\n\n```funl\nwrite( 1 / 0 )\n```\n\n```error\ndivides by zero\n```\n"
+
+    assert_eq(complaints_about(text), "")
+
+@test
+A_WRONG_OUTPUT_BLOCK_IS_A_COMPLAINT_NAMING_THE_PAGE_AND_THE_LINE()
+    val text = "# A page\n\n```funl\nwrite( 1 + 2 )\n```\n\n```output\n4\n```\n"
+
+    assert_eq(complaints_about(text), "page.md:3, funl block: what it printed is not what the page says.\n" +
+        "page:\n    4\n    \nprogram:\n    3\n    \n")
+
+@test
+A_PROGRAM_THE_PAGE_SAYS_RUNS_AND_THAT_FAULTS_IS_A_COMPLAINT()
+    val text = "```funl\nwrite( 1 / 0 )\n```\n\n```output\n\n```\n"
+
+    assert_eq(complaints_about(text), "page.md:1, funl block: the page says this runs, and it did not:\n" +
+        "    fault: main: 1 / 0 divides by zero\n")
+
+@test
+A_PROGRAM_THE_PAGE_SAYS_IS_REFUSED_AND_THAT_RUNS_IS_A_COMPLAINT()
+    val text = "```funl\nwrite( 1 )\n```\n\n```error\ndivides by zero\n```\n"
+
+    assert_eq(complaints_about(text), "page.md:1, funl block: the page says FunL refuses this, and it ran\n")
+
+@test
+A_REFUSAL_IN_OTHER_WORDS_THAN_THE_PAGE_QUOTES_IS_A_COMPLAINT()
+    val text = "```funl\nwrite( 1 / 0 )\n```\n\n```error\nis not defined\n```\n"
+
+    assert(complaints_about(text).starts_with("page.md:1, funl block: it was refused, but not in the words the page quotes."))
+
+@test
+A_COMPILE_TIME_REFUSAL_MATCHES_AN_ERROR_BLOCK()
+    val text = "```funl\nbreak\n```\n\n```error\n`break` is written inside a loop\n```\n"
+
+    assert_eq(complaints_about(text), "")
+
+@test
+A_PROLOG_BLOCK_IS_LOADED_AND_RUN()
+    val text = "```prolog\n:- write(hello), nl.\n```\n\n```output\nhello\n```\n\n" +
+        "```prolog\n:- write(hello), nl.\n```\n\n```output\ngoodbye\n```\n"
+
+    assert(complaints_about(text).starts_with("page.md:9, prolog block: what it printed is not what the page says."))
+
+@test
+A_CLAIM_BELONGS_TO_THE_PROGRAM_BEFORE_IT_AND_NEVER_TO_AN_EARLIER_ONE()
+    // The first program has no claim before the second begins, so it is a fragment; the `output`
+    // after the second is the second's. An indented fence is the prose's, not a block.
+    val text = "```funl\nwrite( 'never run' )\n```\n\n```funl\nwrite( 2 )\n```\n\n" +
+        "  ```funl\n  write( 3 )\n  ```\n\n```output\n2\n```\n"
+    val blocks = blocks_of_text("page.md", text)
+
+    assert_eq(census_line("page.md", blocks), "page.md 1 0 1")
+    assert_eq(blocks.at(1).line, 5)
