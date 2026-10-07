@@ -383,6 +383,17 @@ if 'aaa12cc' ? tab(many('a')) & write(repn(2, ccls(digits))) & write(rep1(string
 constructors of the same patterns a regex literal produces; the [machine
 chapter](vm.md#regex-compiled-into-the-same-machine) shows that both become ordinary instructions.
 
+## Source files, and literate FunL
+
+A FunL source file is `.funl`. **A file named `.lfunl` is literate FunL**: a Markdown document whose
+lines indented four columns are the program, under exactly sysl's `.lsysl` rules — consecutive
+indented blocks are one block whatever prose sits between them, a fenced block (` ``` ` or `~~~`) is
+an illustration and never runs, an indented block under a list item is prose, and a tab in the
+indentation or a fence never closed is refused. The name decides and nothing else. The prose is
+blanked rather than removed (`sh.sysl.parsing`'s `tangle_literate`), so every diagnostic names the
+line and column of the document the reader has open. `funl program.lfunl` and a Prolog file's
+`:- import("file.lfunl")` both read it.
+
 ## Rough edges, and what the rewrite does about each
 
 | old behaviour | in the rewrite |

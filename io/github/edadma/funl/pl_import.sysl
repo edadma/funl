@@ -5,8 +5,8 @@ import sysl.buf.{Buf, buf}
 import sysl.fs.read_text
 import sysl.path.{join, parent}
 
-// `:- import("file.fl")`: a Prolog file loading a FunL file (`prolog.md` § "Calling FunL from
-// Prolog").
+// `:- import("file.funl")`: a Prolog file loading a FunL file (`prolog.md` § "Calling FunL from
+// Prolog"). A `.lfunl` file is literate FunL, tangled first.
 //
 // **The FunL file is compiled as the Prolog file is read**, so its definitions are predicates before
 // the Prolog file's own clauses are defined: a relation `r` of `n` arguments is `r/n`, a function `f`
@@ -46,7 +46,17 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
             report.add(error(named.span, s"`$file` cannot be read: $e"))
             return now
 
-    val fl = source_of(file, text)
+    val doc = source_of(file, text)
+
+    // A `.lfunl` file is tangled first; a document refused is a file that cannot be compiled.
+    val fl = funl_source(doc) match
+        Ok(s) -> s
+        Err(d) ->
+            val now = refusal(why, report, Unreadable)
+
+            report.add(error(named.span, s"`$file` could not be loaded").with_note(d.render(doc)))
+            return now
+
     var inner = full_report()
     val m = v.funl_tops.len()
 
@@ -60,6 +70,6 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
         Err(r) ->
             val now = refusal(why, report, r)
 
-            report.add(error(named.span, s"`$file` could not be loaded").with_note(inner.render(fl)))
+            report.add(error(named.span, s"`$file` could not be loaded").with_note(inner.render(fl, column_shift(file))))
             now
 end import_directive
