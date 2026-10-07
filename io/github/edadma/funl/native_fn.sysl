@@ -12,18 +12,65 @@ module io.github.edadma.funl
 
 type NativeGo = &Fn(usize, usize) -> Result[Value, string]
 
+// A builtin that may fail and may produce more than one value: called with its arguments and a
+// cursor, 0 the first time and afterwards whatever its last answer said to resume from.
+type GeneratorGo = &Fn(usize, usize, long) -> Result[Answer, string]
+
+// What a generating builtin answers.
+enum Answer
+    // One value, and no other to follow it.
+    Gives(x: Value)
+
+    // No value: the call fails.
+    Refuses
+
+    // A value, and more to be had by calling again with cursor `next`.
+    GivesMore(x: Value, next: long)
+
+// How a builtin is run.
+enum Impl
+    // Called with its arguments; answers one value.
+    Plain(go: NativeGo)
+
+    // Called with its arguments and a cursor; `NativeGen` runs it.
+    Generating(go: GeneratorGo)
+
+    // A name for a value, `letters`: called with no arguments, once, when a program that names it is
+    // compiled.
+    Constant(go: NativeGo)
+
 // The arity of a builtin that takes any number of arguments.
 const Variadic: usize = 4294967295
 
 struct Native
     name: string
     arity: usize
-    go: NativeGo
+    how: Impl
 
 // Add a builtin to `v`'s table and answer its id.
 register(v: *Vm, name: string, arity: usize, go: NativeGo) -> usize
-    v.natives.push(Native(name, arity, go))
+    v.natives.push(Native(name, arity, Plain(go)))
     v.natives.len() - 1
+
+// Add a builtin that may fail or generate.
+register_generator(v: *Vm, name: string, arity: usize, go: GeneratorGo) -> usize
+    v.natives.push(Native(name, arity, Generating(go)))
+    v.natives.len() - 1
+
+// Add a name for the value `go` makes.
+register_constant(v: *Vm, name: string, go: NativeGo) -> usize
+    v.natives.push(Native(name, 0, Constant(go)))
+    v.natives.len() - 1
+
+// Whether builtin `id` names a value rather than something to call.
+is_constant(id: usize) -> bool = current().natives.at(id).how match
+    Constant(_) -> true
+    _ -> false
+
+// Whether builtin `id` is run by `NativeGen`.
+is_generator(id: usize) -> bool = current().natives.at(id).how match
+    Generating(_) -> true
+    _ -> false
 
 // The id of the builtin called `name`, if there is one.
 native_id(name: string) -> Option[usize]

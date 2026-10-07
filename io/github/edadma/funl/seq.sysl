@@ -3,7 +3,6 @@ module io.github.edadma.funl
 import sh.sysl.parsing.counted
 import sysl.buf.{Buf, buf}
 import sysl.math.{checked_add, checked_mul}
-import sysl.text.{from_utf8_unchecked, is_char_boundary}
 
 // Lists, ranges and sets as values: building them, taking them apart, and what the operators on
 // them -- `+`, `in`, indexing, `.length` -- answer.
@@ -256,22 +255,7 @@ element_at(c: Value, index: Value) -> Result[Value, string]
                         None -> Err(s"element $i of ${render(x)} does not fit in 64 bits")
                 None -> Err(s"element $i of ${render(x)} does not fit in 64 bits")
         Tuple(t) -> Ok(t.items.at(usize(i)))
-        Str(p) ->
-            val bytes = p.s.bytes
-            var k: long = 0
-            var start: usize = 0
-
-            for b in 0..<bytes.len
-                if !is_char_boundary(bytes[b]) then continue
-
-                if k == i then start = b
-
-                if k == i + 1
-                    return new_str(from_utf8_unchecked(bytes[start..<b]))
-
-                k += 1
-
-            new_str(from_utf8_unchecked(bytes[start..<bytes.len]))
+        Str(p) -> new_str(chars_between(p, usize(i), usize(i) + 1))
         _ -> Err(s"${described(x)} cannot be indexed")
 end element_at
 
@@ -305,13 +289,7 @@ length_of(x: Value) -> Result[long, string]
         Map(m) -> Ok(long(m.keys.len()))
         MutMap(m) -> Ok(long(m.keys.len()))
         Compound(p) -> Ok(long(p.args.len()))
-        Str(p) ->
-            var n: long = 0
-
-            for b in p.s.bytes
-                if is_char_boundary(b) then n += 1
-
-            Ok(n)
+        Str(p) -> Ok(long(p.chars))
         Var(_) -> Err("instantiation error: a length was asked of an unbound variable")
         y -> Err(s"${described(y)} has no length")
 end length_of

@@ -1,0 +1,36 @@
+val vowel = cset( 'aeiou' )
+val text = 'test string'
+
+every write( text ? upto(vowel) )
+
+text ?
+  if tab(upto(vowel) + 1)
+    write(tab(0))
+
+text ?
+  while write(tab(upto(' ')))
+    tab(many(' '))
+
+  write(tab(0))
+
+text ?
+  while tab(upto(alphanum))
+    write(tab(many(alphanum)))
+
+write( "The theory is fallacious" ? match("The") )
+
+if "The theory is fallacious" ? match(" theory") then write( 'yes' ) else write( 'no' )
+
+write("Our conjecture has support" ? tab(any('aeiouAEIOU')))
+
+if not write("Our conjecture has support" ? tab(any('aeiou'))) then write( 'no' )
+
+text ?
+  while tab(upto(alphanum))
+    tab(many(alphanum)) ?
+      if upto('aeiou') then write(move(1))
+
+var line = '   asdf'
+
+line ?= tab(many(' ')) & tab(0)
+write( line )

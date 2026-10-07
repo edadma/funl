@@ -17,6 +17,10 @@ enum Undo
     // for a map without `had`, held nothing, the key being new.
     Elem(c: Value, key: Value, old: Value, had: bool)
 
+    // The scan state changed -- `tab` or `move` moved the position, or a scan began or ended -- and was
+    // the subject `subject` at position `pos`.
+    Scan(subject: Value, pos: usize)
+
 // Bind an unbound variable.
 //
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
@@ -46,6 +50,18 @@ assign_reversibly(f: *FrameObj, slot: usize, x: Value) -> Result[unit, string]
 
     set_slot(f, slot, x)
 
+// Make the scan state `subject` at position `pos`, recording what it was for failure to put back.
+//
+// **A change of the scan state is a reversible assignment**, as Icon defines `tab` and `move`:
+// failure that passes back over the change undoes it, and a bounded expression that completes makes
+// it permanent. So a loop whose body moved the position keeps the movement when the loop ends by
+// failing, and an `every` whose body moves it does not move it back to resume its generator.
+set_scan(v: *Vm, subject: Value, pos: usize)
+    if v.control.len() > 0 then v.trail.push(Scan(v.subject, v.pos))
+
+    v.subject = subject
+    v.pos = pos
+
 // Undo every trail entry above height `h`, newest first.
 undo_trail_to(v: *Vm, h: usize)
     while v.trail.len() > h
@@ -55,6 +71,9 @@ undo_trail_to(v: *Vm, h: usize)
                 x.value = Undefined
             Some(Assign(f, slot, old)) -> if slot < f.slots.len() then f.slots.set(slot, old)
             Some(Elem(c, key, old, had)) -> put_element_back(c, key, old, had)
+            Some(Scan(subject, pos)) ->
+                v.subject = subject
+                v.pos = pos
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
@@ -62,7 +81,8 @@ undo_trail_to(v: *Vm, h: usize)
 // **Called after the control stack has been cut back**, so "the entry on top" is the one that
 // survived. A binding is kept when its variable is older than that entry -- resuming it must unbind
 // the variable -- and dropped otherwise. A reversible assignment is dropped when the commit ends a
-// bounded expression (`ends`), which makes it permanent, and kept at a cut, which ends none. With no
+// bounded expression (`ends`), which makes it permanent, and kept at a cut, which ends none; so is a
+// change of the scan state. With no
 // entry left, nothing can resume, and the trail is emptied.
 commit_trail(v: *Vm, h: usize, ends: bool)
     val n = v.control.len()
@@ -81,6 +101,7 @@ commit_trail(v: *Vm, h: usize, ends: bool)
             Bind(x) -> x.stamp < top
             Assign(_, _, _) -> !ends
             Elem(_, _, _, _) -> !ends
+            Scan(_, _) -> !ends
 
         if keep
             v.trail.set(kept, u)

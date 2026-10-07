@@ -138,6 +138,7 @@ private step(x: Value, y: Value) -> bool
         // A range holds no variable, and a set is unordered: each unifies with what it equals.
         Range(_) -> equal_or_not(x, y)
         Set(_) -> equal_or_not(x, y)
+        CSet(_) -> equal_or_not(x, y)
 
         // A map, an array, a buffer and a constructor are opaque to unification: each unifies only
         // with itself, which `identical` has already tested.
@@ -306,6 +307,11 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, string]
                 _ -> false
             Set(p) -> y match
                 Set(q) -> same_set(p, q)?
+                _ -> false
+
+            // A cset equals one with the same characters.
+            CSet(p) -> y match
+                CSet(q) -> p.set.same(q.set)
                 _ -> false
 
             // An immutable map equals one with the same entries. What changes in place is equal only

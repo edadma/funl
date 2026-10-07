@@ -182,6 +182,10 @@ enum ExprKind
     // `"text $name ${e} text"`: the parts in order, text and holes, each rendered and joined.
     InterpE(parts: Buf[&Expr])
 
+    // `s ? e`: `e` evaluated with string `s` as the subject of the scanning builtins, from position 1;
+    // its value is `e`'s. `x ?= e` is `x = x ? e`.
+    ScanE(subject: &Expr, body: &Expr)
+
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
 end ExprKind

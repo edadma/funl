@@ -254,3 +254,20 @@ NESTED_BLOCK_DECLARATION()
 @test
 ACKERMANN()
     corpus("ackermann")
+
+@test
+STRING_SCAN_1()
+    corpus("string_scan_1")
+
+@test
+STRING_SCAN_2()
+    corpus("string_scan_2")
+
+@test
+DATA_BACKTRACKING_1()
+    corpus("data_backtracking_1")
+
+// The old output was trimmed, losing the blank line the last `write()` prints.
+@test
+CROSSWORD()
+    corpus("crossword")

@@ -365,6 +365,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         Concat(n) ->
             concat(v, n)?
             Ok(Next)
+        NativeGen(id, argc) -> call_generator(v, id, argc)
+        ScanBegin ->
+            scan_begin(v)?
+            Ok(Next)
+        ScanEnd ->
+            scan_end(v)?
+            Ok(Next)
 end execute
 
 // Push a tuple's items or a term's arguments, the last first, so the first is on top for the
@@ -397,9 +404,82 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, string]
 
     if argc > top then return Err(s"'${n.name}' wants $argc operands and the stack holds $top")
 
+    val go = n.how match
+        Plain(g) -> g
+        Constant(g) -> g
+        Generating(_) -> return Err(s"'${n.name}' may fail or generate, and is run by `NativeGen`")
+
     val base = top - argc
-    val answer = n.go(base, argc)?
+    val answer = go(base, argc)?
 
     v.stack.truncate(base)
     v.stack.push(answer)
+    Ok(())
+
+// Run generating builtin `id` over the `argc` values under the cursor on top of the stack. When it has
+// more to give, the cursor cell takes where to resume from and a choice point re-runs this
+// instruction with it, the arguments still standing: so the builtin resumes as `!c` does, with the
+// scan state failure put back.
+private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, string]
+    if id >= v.natives.len() then return Err(s"builtin $id is not registered")
+
+    val n = v.natives.at(id)
+    val top = v.stack.len()
+
+    if n.arity != Variadic && argc != n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
+
+    if argc + 1 > top then return Err(s"'${n.name}' wants ${argc + 1} operands and the stack holds $top")
+
+    val go = n.how match
+        Generating(g) -> g
+        _ -> return Err(s"'${n.name}' is not run by `NativeGen`")
+
+    val cursor = v.stack.at(top - 1) match
+        Int(k) -> k
+        _ -> return Err(s"'${n.name}' was run without a cursor above its arguments")
+
+    val base = top - 1 - argc
+
+    go(base, argc, cursor)? match
+        Gives(x) ->
+            v.stack.truncate(base)
+            v.stack.push(x)
+            Ok(Next)
+        Refuses -> Ok(Fails)
+        GivesMore(x, next) ->
+            v.stack.set(top - 1, Int(next))
+            push_choice(v, v.ip - 1)
+            v.stack.truncate(base)
+            v.stack.push(x)
+            Ok(Next)
+
+// `ScanBegin`: pop the string to scan; push the scan state it replaces, the subject and then the
+// position; begin at position 1 of the string.
+private scan_begin(v: *Vm) -> Result[unit, string]
+    val s = deref(pop(v)?)
+
+    s match
+        Str(_) -> ()
+        x -> return Err(s"`?` scans a string, and was given ${described(x)}")
+
+    v.stack.push(v.subject)
+    v.stack.push(Int(long(v.pos)))
+    set_scan(v, s, 1)
+    Ok(())
+
+// `ScanEnd`: pop the scanned expression's value, then the position and the subject `ScanBegin` saved
+// under it, which are the scan state again; push the value. Both changes of the scan state are
+// trailed, so failing back into the scanned expression -- a generator in it resumed after the scan
+// has ended -- makes its subject and position the scan's again.
+private scan_end(v: *Vm) -> Result[unit, string]
+    val x = pop(v)?
+
+    val at = pop(v)? match
+        Int(k) -> usize(k)
+        _ -> return Err("`ScanEnd` found no saved position under the scan's value")
+
+    val subject = pop(v)?
+
+    set_scan(v, subject, at)
+    v.stack.push(x)
     Ok(())

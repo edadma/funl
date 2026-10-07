@@ -25,6 +25,7 @@ mark_value(h: *gc.Heap, v: Value)
         MutMap(p) -> gc.mark(h, ptr_cast(p))
         Array(p) -> gc.mark(h, ptr_cast(p))
         Buffer(p) -> gc.mark(h, ptr_cast(p))
+        CSet(p) -> gc.mark(h, ptr_cast(p))
         _ -> ()
 
 private mark_values(h: *gc.Heap, vs: Buf[Value])
@@ -38,6 +39,14 @@ finalize_str(p: *u8)
     val o: *StrObj = ptr_cast(p)
 
     o.s = ""
+
+trace_cset(p: *u8, h: *gc.Heap)
+    return
+
+finalize_cset(p: *u8)
+    val o: *CSetObj = ptr_cast(p)
+
+    o.set = CharSet(0, 0, buf())
 
 trace_tuple(p: *u8, h: *gc.Heap)
     val o: *TupleObj = ptr_cast(p)
@@ -132,6 +141,9 @@ finalize_frame(p: *u8)
 var str_kind: gc.Kind = gc.Kind(&trace_str, &finalize_str, null, null)
 
 // process-wide: a table of hook addresses, as above.
+var cset_kind: gc.Kind = gc.Kind(&trace_cset, &finalize_cset, null, null)
+
+// process-wide: a table of hook addresses, as above.
 var compound_kind: gc.Kind = gc.Kind(&trace_compound, &finalize_compound, null, null)
 
 // process-wide: a table of hook addresses, as above.
@@ -180,6 +192,9 @@ roots(h: *gc.Heap)
     for e in v.control.view()
         gc.mark(h, ptr_cast(e.frame))
 
+    // The string being scanned.
+    mark_value(h, v.subject)
+
     // Failure will unbind these.
     for u in v.trail.view()
         u match
@@ -191,6 +206,7 @@ roots(h: *gc.Heap)
                 mark_value(h, c)
                 mark_value(h, key)
                 mark_value(h, old)
+            Scan(subject, _) -> mark_value(h, subject)
 
     // The code running now, and through it the static and dynamic chains.
     gc.mark(h, ptr_cast(v.frame))

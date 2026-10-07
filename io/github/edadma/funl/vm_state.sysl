@@ -42,6 +42,12 @@ struct Vm
     // Bumped by every entry pushed; dates logic variables against the control stack.
     stamp: u64
 
+    // The scan state: the string `s ? e` is scanning, `Undefined` outside every scan, and the position
+    // in it, a character position counted from 1. Changed only through `set_scan`, which trails the
+    // change as a reversible assignment.
+    subject: Value
+    pos: usize
+
     // Unification's work list, empty between instructions.
     work: Buf[Value]
 
@@ -89,7 +95,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
     if block == null then panic("funl could not take a heap of the size this VM asked for")
 
     var v = Vm(
-        buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, buf(), 0,
+        buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), 0,
         buf(), map(), buf(), buf(), buf(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0)
 

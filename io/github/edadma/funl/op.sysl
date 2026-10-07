@@ -266,6 +266,20 @@ enum Op
 
     // Pop `n` values, the first deepest; push the string of them rendered one after another.
     Concat(n: usize)
+
+    // Call builtin `id`, one that may fail or generate, with the `argc` values under the cursor on top
+    // of the stack -- 0 the first time. When it has more to give, the cursor is updated and a choice
+    // point re-runs this instruction.
+    NativeGen(id: usize, argc: usize)
+
+    // -- string scanning (`scan.sysl`) ------------------------------------------------------------------
+
+    // Pop a string; push the subject and the position it replaces; scan it from position 1.
+    ScanBegin
+
+    // Pop a value, then the position and the subject under it, which become the scan state; push the
+    // value.
+    ScanEnd
 end Op
 
 // What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame.

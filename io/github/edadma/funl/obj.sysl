@@ -13,8 +13,17 @@ import sysl.buf.{Buf, buf}
 // **`gc.alloc` zeroes the payload**, and that is what makes assigning a `Buf` or a `string` into a
 // fresh object safe: the assignment releases the previous occupant, which is a null.
 
+// A string: its UTF-8 bytes, how many characters they hold, and a cursor -- the character index last
+// asked for and the byte it begins at -- that `byte_at` (`strings.sysl`) walks from.
 struct StrObj
     s: string
+    chars: usize
+    at_char: usize
+    at_byte: usize
+
+// A cset: a set of characters, which the scanning builtins test characters against.
+struct CSetObj
+    set: CharSet
 
 struct CompoundObj
     functor: u32
@@ -121,8 +130,17 @@ new_str(s: string) -> Result[Value, string]
     val o: *StrObj = ptr_cast(take(v, sizeof(StrObj), &str_kind)?)
 
     o.s = s
+    o.chars = char_count(s)
     v.allocated += s.bytes.len
     Ok(Str(o))
+
+new_cset(set: CharSet) -> Result[Value, string]
+    val v = current()
+    val o: *CSetObj = ptr_cast(take(v, sizeof(CSetObj), &cset_kind)?)
+
+    o.set = set
+    v.allocated += set.wide.len() * sizeof(u32)
+    Ok(CSet(o))
 
 new_tuple(n: usize) -> Result[*TupleObj, string]
     val v = current()

@@ -332,6 +332,7 @@ compound_assign(p: *Parser, target: &Expr) -> Option[&Expr]
         Some(t) ->
             t match
                 OpEq(k) -> o = k
+                QuestionEq -> return Some(scan_assign(p, target))
                 _ -> return None
         None -> return None
 
@@ -346,6 +347,21 @@ compound_assign(p: *Parser, target: &Expr) -> Option[&Expr]
             p.report.add(error(target.span, "only a variable can be assigned through an operator")
                 .with_note("`x += e` stores `x + e` in the variable `x`"))
             Some(expr(BadE, at))
+
+// `name ?= e`, the target read and `?=` next: `name = name ? e`.
+private scan_assign(p: *Parser, target: &Expr) -> &Expr
+    p.take()
+
+    val body = parse_expr(p, 0)
+    val at = target.span.to(body.span)
+
+    target.kind match
+        Ref(n) -> expr(AssignE(n, expr(ScanE(target, body), at)), at)
+        BadE -> expr(BadE, at)
+        _ ->
+            p.report.add(error(target.span, "only a variable can be scanned and assigned with `?=`")
+                .with_note("`x ?= e` scans the string in `x` with `e` and stores the result in `x`"))
+            expr(BadE, at)
 
 // `++x` or `--x`, the operator already read.
 private prefix_step(p: *Parser, at: Span, delta: long) -> &Expr
@@ -454,6 +470,11 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
             return expr(IndexE(left, key), left.span.to(p.toks.previous()))
         PlusPlus -> return postfix_step(p, left, t.span, 1)
         MinusMinus -> return postfix_step(p, left, t.span, -1)
+        Question ->
+            // A `?` that ends its line scans the indented block under it.
+            val body = if p.at_tok(Indent) then branch(p) else parse_expr(p, power(Question).right)
+
+            return expr(ScanE(left, body), left.span.to(body.span))
         _ -> ()
 
     // `(e op)`: the operator's right operand is the `)`, which makes this half of a section.

@@ -1,0 +1,246 @@
+module io.github.edadma.funl
+
+import sysl.text.str_builder
+
+// The scanning builtins: `tab`, `move`, `pos`, `upto`, `many`, `any`, `match` and `find`, which read
+// and move the scan position; `cset` and the named csets; and `right`.
+//
+// **A position is a place between characters, counted from 1**: 1 is before the first character
+// and one past the length is after the last. Written as an argument, 0 is the end and a negative
+// number counts back from it, so `tab(0)` moves to the end and `tab(-1)` to before the last
+// character. A position outside the subject is not an error: the builtin fails.
+//
+// **A movement is a reversible assignment of the position** (`set_scan`): failure passing back over
+// it puts the position back, and a bounded expression completing makes it permanent. `upto` and
+// `find` produce one position per call and leave a choice point for the next (`NativeGen`), which
+// resumes with the scan state failure has put back.
+
+install_scan(v: *Vm)
+    register_generator(v, "tab", 1, do_tab)
+    register_generator(v, "move", 1, do_move)
+    register_generator(v, "pos", 1, do_pos)
+    register_generator(v, "upto", Variadic, do_upto)
+    register_generator(v, "many", 1, do_many)
+    register_generator(v, "any", 1, do_any)
+    register_generator(v, "match", 1, do_match)
+    register_generator(v, "find", Variadic, do_find)
+    register(v, "cset", 1, do_cset)
+    register(v, "right", 2, do_right)
+    register_constant(v, "letters", make_letters)
+    register_constant(v, "digits", make_digits)
+    register_constant(v, "alphanum", make_alphanum)
+
+// The string being scanned.
+private subject(name: string) -> Result[*StrObj, string]
+    current().subject match
+        Str(p) -> Ok(p)
+        _ -> Err(s"'$name' works on the subject of a scan `s ? e`, and no scan is running")
+
+// Position `i` as an argument writes it -- 0 the end, negative counting back from it -- as a position
+// from 1 in a string of `n` characters; `None` when it is outside the string.
+private position(i: long, n: usize) -> Option[usize]
+    val end = long(n) + 1
+    val k = if i <= 0 then end + i else i
+
+    if k < 1 || k > end then None else Some(usize(k))
+
+private int_arg(base: usize, i: usize, name: string) -> Result[long, string]
+    val x = deref(arg(base, i))
+
+    x match
+        Int(n) -> Ok(n)
+        _ -> Err(s"'$name' wants an integer and was given ${described(x)}")
+
+private str_arg(base: usize, i: usize, name: string) -> Result[*StrObj, string]
+    val x = deref(arg(base, i))
+
+    x match
+        Str(p) -> Ok(p)
+        _ -> Err(s"'$name' wants a string and was given ${described(x)}")
+
+// A cset argument: a cset, or a string standing for the set of its characters.
+private set_arg(base: usize, i: usize, name: string) -> Result[CharSet, string]
+    val x = deref(arg(base, i))
+
+    x match
+        CSet(p) -> Ok(p.set)
+        Str(p) -> Ok(char_set(p.s))
+        _ -> Err(s"'$name' wants a cset or a string and was given ${described(x)}")
+
+// The text between two positions of `p`, whichever comes first.
+private passed(p: *StrObj, a: usize, b: usize) -> Result[Value, string]
+    if a <= b then new_str(chars_between(p, a - 1, b - 1)) else new_str(chars_between(p, b - 1, a - 1))
+
+// Where a search starts and in what: an optional string argument `i` is searched from its position 1,
+// and without one the scan's subject from the scan position. A resumption starts at its cursor.
+private struct Searched
+    p: *StrObj
+    from: usize
+
+private searched(base: usize, argc: usize, cursor: long, name: string) -> Result[Searched, string]
+    if argc != 1 && argc != 2 then return Err(s"'$name' takes 1 or 2 arguments, and was given $argc")
+
+    val p = if argc == 2 then str_arg(base, 1, name)? else subject(name)?
+    val from = if cursor > 0 then usize(cursor) elif argc == 2 then 1 else current().pos
+
+    Ok(Searched(p, from))
+
+// `tab(i)`: move to position `i` and produce the text passed over.
+private do_tab(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val p = subject("tab")?
+    val v = current()
+
+    val to = position(int_arg(base, 0, "tab")?, p.chars) match
+        Some(k) -> k
+        None -> return Ok(Refuses)
+
+    val from = v.pos
+
+    set_scan(v, v.subject, to)
+    Ok(Gives(passed(p, from, to)?))
+
+// `move(n)`: move `n` characters, back when `n` is negative, and produce the text passed over.
+private do_move(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val p = subject("move")?
+    val v = current()
+    val to = long(v.pos) + int_arg(base, 0, "move")?
+
+    if to < 1 || to > long(p.chars) + 1 then return Ok(Refuses)
+
+    val from = v.pos
+
+    set_scan(v, v.subject, usize(to))
+    Ok(Gives(passed(p, from, usize(to))?))
+
+// `pos(i)`: the scan position, if it is `i`.
+private do_pos(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val p = subject("pos")?
+    val v = current()
+
+    position(int_arg(base, 0, "pos")?, p.chars) match
+        Some(k) -> if k == v.pos then Ok(Gives(Int(long(k)))) else Ok(Refuses)
+        None -> Ok(Refuses)
+
+// `upto(c)`: each position, from the scan position on, before a character in cset `c`. `upto(c, s)`
+// searches string `s` from its start instead.
+private do_upto(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val at = searched(base, argc, cursor, "upto")?
+    val set = set_arg(base, 0, "upto")?
+    val p = at.p
+    var k = at.from
+
+    while k <= p.chars
+        if set.has(char_at(p, k - 1))
+            return Ok(if k == p.chars then Gives(Int(long(k))) else GivesMore(Int(long(k)), long(k + 1)))
+
+        k += 1
+
+    Ok(Refuses)
+
+// `find(s)`: each position, from the scan position on, at which `s` begins. `find(s, t)` searches
+// string `t` from its start instead.
+private do_find(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val at = searched(base, argc, cursor, "find")?
+    val needle = str_arg(base, 0, "find")?
+    val p = at.p
+    val hay = p.s.bytes
+    var k = at.from
+
+    while k + needle.chars <= p.chars + 1
+        if bytes_at(hay, byte_at(p, k - 1), needle.s.bytes)
+            val last = k + needle.chars == p.chars + 1
+
+            return Ok(if last then Gives(Int(long(k))) else GivesMore(Int(long(k)), long(k + 1)))
+
+        k += 1
+
+    Ok(Refuses)
+
+// `many(c)`: the position after the longest run, at least one long, of characters in cset `c`.
+private do_many(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val p = subject("many")?
+    val set = set_arg(base, 0, "many")?
+    val from = current().pos
+    var k = from
+
+    while k <= p.chars && set.has(char_at(p, k - 1))
+        k += 1
+
+    Ok(if k == from then Refuses else Gives(Int(long(k))))
+
+// `any(c)`: the position after the next character, if it is in cset `c`.
+private do_any(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val p = subject("any")?
+    val set = set_arg(base, 0, "any")?
+    val k = current().pos
+
+    Ok(if k <= p.chars && set.has(char_at(p, k - 1)) then Gives(Int(long(k + 1))) else Refuses)
+
+// `match(s)`: the position after `s`, if the subject goes on with it from the scan position.
+private do_match(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+    val p = subject("match")?
+    val s = str_arg(base, 0, "match")?
+    val k = current().pos
+
+    Ok(if bytes_at(p.s.bytes, byte_at(p, k - 1), s.s.bytes) then Gives(Int(long(k + s.chars))) else Refuses)
+
+// `cset(s)`: the set of the characters of string `s`.
+private do_cset(base: usize, argc: usize) -> Result[Value, string]
+    val x = deref(arg(base, 0))
+
+    x match
+        CSet(_) -> Ok(x)
+        Str(p) -> new_cset(char_set(p.s))
+        _ -> Err(s"'cset' wants a string and was given ${described(x)}")
+
+// `right(s, n)`: `s` in a field `n` characters wide, padded with spaces on the left, or cut to its
+// last `n` characters when it is longer. A value that is not a string is written as `write` would.
+private do_right(base: usize, argc: usize) -> Result[Value, string]
+    val n = int_arg(base, 1, "right")?
+
+    if n < 0 then return Err(s"'right' makes a field of $n characters")
+
+    val width = usize(n)
+
+    val text = deref(arg(base, 0)) match
+        Str(p) -> p.s
+        x -> render(x)
+
+    val made = new_str(text)?
+
+    val p = made match
+        Str(q) -> q
+        _ -> return Err("a new string is not a string")
+
+    if p.chars >= width then return new_str(chars_between(p, p.chars - width, p.chars))
+
+    var out = str_builder()
+
+    for _ in 0..<(width - p.chars)
+        out.push(" ")
+
+    out.push(text)
+    new_str(out.finish())
+
+private letters_set() -> CharSet
+    var set = char_set("")
+
+    for u in 0..<26
+        set.add(char(u32(65 + u)))
+        set.add(char(u32(97 + u)))
+
+    set
+
+private digits_set() -> CharSet = char_set("0123456789")
+
+private make_letters(base: usize, argc: usize) -> Result[Value, string] = new_cset(letters_set())
+
+private make_digits(base: usize, argc: usize) -> Result[Value, string] = new_cset(digits_set())
+
+private make_alphanum(base: usize, argc: usize) -> Result[Value, string]
+    var set = letters_set()
+
+    for c in "0123456789".chars
+        set.add(c)
+
+    new_cset(set)

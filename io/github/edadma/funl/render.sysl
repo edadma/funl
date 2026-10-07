@@ -57,6 +57,11 @@ private write_value(out: *StrBuilder, v: Value, depth: usize)
         Array(a) -> write_items(out, a.items.view(), depth, "Array(", ")")
         Buffer(a) -> write_items(out, a.items.view(), depth, "Buffer(", ")")
         Ctor(id) -> write_ctor(out, current().ctors.at(usize(id)))
+        CSet(p) ->
+            // As `cset` would make it, its characters in ascending order.
+            out.push("cset(\"")
+            out.push(p.set.text())
+            out.push("\")")
 end write_value
 
 // A map's entries, `key: value`, keys and values written as elements are.

@@ -1,0 +1,12 @@
+def cross( word1, word2 )
+  var i
+  var j
+
+  every i = upto( word2, word1 )
+    every j = upto( word1[i], word2 )
+      every write( right(word2[1 to j - 1], i) )
+      write( word1 )
+      every write( right(word2[j + 1 to word2.length], i) )
+      write()
+
+cross( 'lottery', 'loto' )

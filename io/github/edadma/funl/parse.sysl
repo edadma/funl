@@ -216,6 +216,8 @@ tag(t: Tok) -> u8
         InterpLit -> 76
         DataW -> 77
         UndefinedW -> 78
+        Question -> 79
+        QuestionEq -> 80
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.

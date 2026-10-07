@@ -4,7 +4,7 @@ import sh.sysl.parsing.*
 
 // The tokens, and how strongly each infix one binds.
 //
-// **The ladder, lowest first**: the lambda arrow `->` (right) · `or` · `and` · the operand of `not` ·
+// **The ladder, lowest first**: the lambda arrow `->` (right) · scanning `?` · `or` · `and` · the operand of `not` ·
 // alternation `|` · conjunction `&` · comparison `~`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not in` ·
 // cons `:` (right) · `to until .. ..<` · `+ -` · `* / \ % mod div` · `^` (right) · prefix `-` ·
 // `! \ /` · application, `.` and postfix `++` `--`. Comparison binds tighter than `&` and
@@ -112,6 +112,10 @@ enum Tok
     PlusPlus
     MinusMinus
 
+    // `?`, string scanning `s ? e`, and `?=`, which scans a variable and stores the result in it.
+    Question
+    QuestionEq
+
     // Layout: the end of a line at the same depth, a deeper line, and each block a shallower line
     // closes.
     Newline
@@ -185,6 +189,8 @@ private spelling(t: Tok) -> string
                 _ -> op_text(o) + "="
         PlusPlus -> "++"
         MinusMinus -> "--"
+        Question -> "?"
+        QuestionEq -> "?="
         LParen -> "("
         RParen -> ")"
         LBracket -> "["
@@ -258,6 +264,7 @@ end keyword
 power(t: Tok) -> Power
     t match
         Arrow -> right_assoc(ArrowPower)
+        Question -> left_assoc(ScanPower)
         Or -> left_assoc(10)
         And -> left_assoc(12)
         Bar -> left_assoc(20)
@@ -294,6 +301,10 @@ power(t: Tok) -> Power
 
 // The arrow of a lambda: below everything, so a lambda's body reaches as far right as it can.
 const ArrowPower: u8 = 5
+
+// String scanning `s ? e`: looser than `or`, so the whole of `s ? a | b` is scanned, and tighter than
+// the lambda arrow, so a lambda's body can be a scan.
+const ScanPower: u8 = 8
 
 // The level `not` reads its operand at: everything that binds tighter than `and`.
 const NotPower: u8 = 14

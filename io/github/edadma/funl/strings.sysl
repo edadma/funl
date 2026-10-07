@@ -1,0 +1,156 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{chars_of, from_utf8_unchecked, is_char_boundary, str_builder}
+
+// A string's characters, found by position, and sets of characters.
+//
+// **A string is its UTF-8 bytes, its character count and a forward cursor** (`vm.md`, Strings). The
+// count is taken when the string is made and never goes stale, because a string never changes. A
+// string whose count equals its byte length has one byte per character, and a character index is
+// its byte offset. In any other the character is walked to from the cursor -- the index last asked
+// for and the byte it begins at -- forward, or back: a FunL string is valid UTF-8, so a character's
+// first byte is never mistaken for a later one. A scan asks for positions in order, which makes the
+// walks over a whole scan linear in the string's length.
+
+// How many characters `s` holds.
+char_count(s: string) -> usize
+    var n: usize = 0
+
+    for b in s.bytes
+        if is_char_boundary(b) then n += 1
+
+    n
+
+// The byte at which character `i` of `p` begins, counting characters from 0; `p.chars` answers the
+// byte length. Moves the cursor to `i`.
+byte_at(p: *StrObj, i: usize) -> usize
+    val bytes = p.s.bytes
+
+    if p.chars == bytes.len then return i
+
+    if i >= p.chars then return bytes.len
+
+    var k = p.at_char
+    var b = p.at_byte
+
+    // Walking back from the cursor further than forward from the start is the longer way.
+    if i < k && i < k - i
+        k = 0
+        b = 0
+
+    while k < i
+        b += 1
+
+        while b < bytes.len && !is_char_boundary(bytes[b])
+            b += 1
+
+        k += 1
+
+    while k > i
+        b -= 1
+
+        while !is_char_boundary(bytes[b])
+            b -= 1
+
+        k -= 1
+
+    p.at_char = k
+    p.at_byte = b
+    b
+end byte_at
+
+// Characters `from ..< to` of `p`, counting from 0.
+chars_between(p: *StrObj, from: usize, to: usize) -> string
+    val start = byte_at(p, from)
+    val end = byte_at(p, to)
+
+    from_utf8_unchecked(p.s.bytes[start..<end])
+
+// Character `i` of `p`, counting from 0, which must be below `p.chars`.
+char_at(p: *StrObj, i: usize) -> char
+    val b = byte_at(p, i)
+    val bytes = p.s.bytes
+
+    chars_of(bytes[b..<bytes.len]).peek().unwrap()
+
+// Whether `needle` stands in `hay` from byte `at`.
+bytes_at(hay: []const u8, at: usize, needle: []const u8) -> bool
+    if at + needle.len > hay.len then return false
+
+    for i in 0..<needle.len
+        if hay[at + i] != needle[i] then return false
+
+    true
+
+// A set of characters: a bit for each ASCII character, and the others listed in ascending order.
+struct CharSet
+    lo: u64
+    hi: u64
+    wide: Buf[u32]
+
+    has(self, c: char) -> bool
+        val u = u32(c)
+
+        if u < 64 then return ((self.lo >> u64(u)) & 1) != 0
+
+        if u < 128 then return ((self.hi >> u64(u - 64)) & 1) != 0
+
+        for w in self.wide.view()
+            if w == u then return true
+
+            if w > u then return false
+
+        false
+
+    add(*self, c: char)
+        val u = u32(c)
+
+        if u < 64
+            self.lo = self.lo | (u64(1) << u64(u))
+            return
+
+        if u < 128
+            self.hi = self.hi | (u64(1) << u64(u - 64))
+            return
+
+        var i: usize = 0
+
+        while i < self.wide.len() && self.wide.at(i) < u
+            i += 1
+
+        if i < self.wide.len() && self.wide.at(i) == u then return
+
+        self.wide.insert(i, u)
+
+    // The characters, in ascending order.
+    text(self) -> string
+        var out = str_builder()
+
+        for u in 0..<128
+            val c = char(u32(u))
+
+            if self.has(c) then out.push_char(c)
+
+        for w in self.wide.view()
+            out.push_char(char(w))
+
+        out.finish()
+
+    same(self, other: CharSet) -> bool
+        if self.lo != other.lo || self.hi != other.hi || self.wide.len() != other.wide.len() then return false
+
+        for i in 0..<self.wide.len()
+            if self.wide.at(i) != other.wide.at(i) then return false
+
+        true
+end CharSet
+
+// The characters of `s` as a set.
+char_set(s: string) -> CharSet
+    var set = CharSet(0, 0, buf())
+
+    for c in s.chars
+        set.add(c)
+
+    set

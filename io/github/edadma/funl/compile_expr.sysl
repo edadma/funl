@@ -20,6 +20,8 @@ import sysl.buf.{Buf, buf}
 //     i to j by k            i; j; k; GenRange(true)
 //     |e                     top: MarkThrough; e; ChangeMark(top)
 //     yield e                Choice(after); e; Return; after: PushUnit
+//     s ? e                  s; ScanBegin; e; ScanEnd
+//     f(a, ...)              a; ...; PushInt(0); NativeGen(f)   -- a builtin that fails or generates
 //
 // A condition, a statement and the body of an `every` are bounded: their `Unmark` discards every
 // choice point made inside them. Everything else is left resumable, so a generator anywhere in an
@@ -69,6 +71,13 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                     val d = current().ctors.at(id)
 
                     e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))
+                Builtin(id) ->
+                    // A builtin that names a value is made once, into the chunk's constants.
+                    val made = current().natives.at(id).how match
+                        Constant(go) -> go(0, 0)?
+                        _ -> return Err(s"'$n' is a builtin, and is not a value")
+
+                    e.op(PushConst(e.constant(made)))
                 _ -> return Err(s"'$n' was resolved and is not a value")
         Anon -> e.op(PushVar)
         AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
@@ -245,6 +254,11 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         IndexE(coll, k) -> binary(e, c, coll, k, Index)?
         SetElemE(coll, k, bracket, a, back) -> compile_store(e, c, coll, k, bracket, a, back)?
         InterpE(parts) -> compile_interp(e, c, parts)?
+        ScanE(s, body) ->
+            compile_value(e, c, s)?
+            e.op(ScanBegin)
+            compile_value(e, c, body)?
+            e.op(ScanEnd)
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
@@ -356,7 +370,12 @@ call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool
             val chunk = c.res.rels.at(r).chunk
 
             e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
-        Builtin(id) -> e.op(Native(id, argc))
+        Builtin(id) ->
+            if is_generator(id)
+                e.op(PushInt(0))
+                e.op(NativeGen(id, argc))
+            else
+                e.op(Native(id, argc))
         Constructor(id) -> e.op(MakeRecord(id, argc))
         _ -> return Err(s"'$n' was resolved and names nothing")
 

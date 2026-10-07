@@ -64,6 +64,9 @@ enum Value
 
     // A `data` constructor as a value: called, it makes a record; `id` indexes `Vm.ctors`.
     Ctor(id: u32)
+
+    // A set of characters, `cset('aeiou')`, `letters`: what `upto`, `many` and `any` look for.
+    CSet(p: *CSetObj)
 end Value
 
 // Follow bound variables until reaching something that is not one.

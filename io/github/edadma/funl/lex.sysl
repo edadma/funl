@@ -219,6 +219,13 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         out.push(Bar, Span(start, s.at))
     elif c == u8('~')
         out.push(Tilde, Span(start, s.at))
+    elif c == u8('?')
+        if s.accept(u8('='))
+            out.push(QuestionEq, Span(start, s.at))
+        else
+            out.push(Question, Span(start, s.at))
+
+            if ends_line(s) then lay.opens_block()
     elif c == u8('=')
         if s.accept(u8('='))
             out.push(EqEq, Span(start, s.at))

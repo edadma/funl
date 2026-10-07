@@ -178,7 +178,7 @@ walk(w: *Walk, e: &Expr)
                 Constructor(_) -> ()
                 Gone -> ()
                 Relation(_) -> called_not_used(w, n, e.span)
-                Builtin(_) -> called_not_used(w, n, e.span)
+                Builtin(id) -> if !is_constant(id) then called_not_used(w, n, e.span)
                 Unknown ->
                     if w.relation
                         w.sc.note(n, e.span)
@@ -207,6 +207,7 @@ walk(w: *Walk, e: &Expr)
             for x in items.view()
                 walk(w, x)
         IndexE(c, k) -> walk_two(w, c, k)
+        ScanE(s, body) -> walk_two(w, s, body)
         SetElemE(c, k, _, x, _) ->
             walk_two(w, c, k)
             walk(w, x)
@@ -383,7 +384,13 @@ private callable(w: *Walk, n: string, at: Span, argc: usize)
             return
         Function(r, _) -> w.res.rels.at(r).arity
         Relation(r) -> w.res.rels.at(r).arity
-        Builtin(id) -> current().natives.at(id).arity
+        Builtin(id) ->
+            if is_constant(id)
+                w.report.add(error(at, s"`$n` is a value, and is used without calling it")
+                    .with_label("called here"))
+                return
+
+            current().natives.at(id).arity
         Constructor(id) ->
             val fields = current().ctors.at(id).fields.len()
 
@@ -537,6 +544,7 @@ hoist_expr(w: *Walk, e: &Expr)
             for x in items.view()
                 hoist_expr(w, x)
         IndexE(c, k) -> hoist_two(w, c, k)
+        ScanE(s, body) -> hoist_two(w, s, body)
         SetElemE(c, k, _, x, _) ->
             hoist_two(w, c, k)
             hoist_expr(w, x)
