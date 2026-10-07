@@ -1,0 +1,202 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// First-argument indexing, and the check that names a function given an unbound variable.
+//
+// **Indexing is about determinism as much as speed** (`logic.md` § "Head unification is two-way").
+// A relation whose clauses' first head arguments say something -- an atom, an integer, a term's
+// functor, `[]` or `h:t` -- begins with a `SwitchFirst` over those keys. Each key leads to a chain of
+// exactly the clauses that could take a first argument with that key: its own and those whose first
+// argument is a variable. A chain of one clause is a `Branch`, with no choice point, so a call that
+// can match one clause leaves nothing behind, and a recursion down a list runs in constant control
+// stack space:
+//
+//     SwitchFirst(all, rest, 2); Case([], k1); Case(h:t, k2)
+//     all:  Choice(a2); Branch(c1); a2: Branch(c2)       -- unbound: every clause
+//     rest: Fail                                         -- bound, and no clause's key
+//     k1:   Branch(c1)
+//     k2:   Branch(c2)
+//     c1:   Frame(n); <head>; <body>
+//     c2:   ...
+
+// What a head argument is keyed by, or `None` for one that is in every chain: a variable, `_`, and a
+// string, which is not keyed.
+clause_key(p: &Expr) -> Option[Key] = p.kind match
+    AtomE(n) -> Some(KAtom(intern(n)))
+    IntE(n) -> Some(KInt(n))
+    CallE(n, _, args) -> Some(KFunctor(intern(n), args.len()))
+    ListE(items) -> Some(if items.len() == 0 then KNil else KCons)
+    ConsE(_, _) -> Some(KCons)
+    _ -> None
+
+// Whether a relation of these clauses is worth an index: more than one clause, and a first
+// argument some clause keys.
+indexed(clauses: Buf[Clause]) -> bool
+    if clauses.len() < 2 then return false
+
+    for cl in clauses.view()
+        if cl.params.len() == 0 then return false
+
+        clause_key(cl.params.at(0)) match
+            Some(_) -> return true
+            None -> ()
+
+    false
+
+// Emit the index of `clauses`, the code of clause `i` beginning at label `starts.at(i)`.
+first_arg_index(e: *Emit, clauses: Buf[Clause], starts: Buf[usize])
+    var keys: Buf[Option[Key]] = buf()
+    var distinct: Buf[Key] = buf()
+
+    for cl in clauses.view()
+        val k = clause_key(cl.params.at(0))
+
+        keys.push(k)
+
+        k match
+            Some(x) -> if !holds_key(distinct, x) then distinct.push(x)
+            None -> ()
+
+    val unbound = e.label()
+    val other = e.label()
+    var targets: Buf[usize] = buf()
+
+    for _ in 0..<distinct.len()
+        targets.push(e.label())
+
+    e.op(SwitchFirst(unbound, other, distinct.len()))
+
+    for j in 0..<distinct.len()
+        e.op(Case(distinct.at(j), targets.at(j)))
+
+    var every: Buf[usize] = buf()
+    var open: Buf[usize] = buf()
+
+    for i in 0..<keys.len()
+        every.push(i)
+
+        keys.at(i) match
+            None -> open.push(i)
+            Some(_) -> ()
+
+    e.place(unbound)
+    chain(e, starts, every)
+    e.place(other)
+    chain(e, starts, open)
+
+    for j in 0..<distinct.len()
+        var these: Buf[usize] = buf()
+
+        for i in 0..<keys.len()
+            val takes = keys.at(i) match
+                None -> true
+                Some(k) -> same_key(k, distinct.at(j))
+
+            if takes then these.push(i)
+
+        e.place(targets.at(j))
+        chain(e, starts, these)
+end first_arg_index
+
+// Try the clauses `which`, in order: a `Choice` before each but the last. No clause is `Fail`, and
+// one is a plain `Branch`, leaving no choice point.
+private chain(e: *Emit, starts: Buf[usize], which: Buf[usize])
+    if which.len() == 0
+        e.op(Fail)
+        return
+
+    for i in 0..<which.len()
+        if i + 1 < which.len()
+            val next = e.label()
+
+            e.op(Choice(next))
+            e.op(Branch(starts.at(which.at(i))))
+            e.place(next)
+        else
+            e.op(Branch(starts.at(which.at(i))))
+
+private holds_key(ks: Buf[Key], k: Key) -> bool
+    for x in ks.view()
+        if same_key(x, k) then return true
+
+    false
+
+private same_key(a: Key, b: Key) -> bool = a match
+    KAtom(i) -> b match
+        KAtom(j) -> i == j
+        _ -> false
+    KInt(n) -> b match
+        KInt(m) -> n == m
+        _ -> false
+    KFunctor(f, n) -> b match
+        KFunctor(g, m) -> f == g && n == m
+        _ -> false
+    KNil -> b match
+        KNil -> true
+        _ -> false
+    KCons -> b match
+        KCons -> true
+        _ -> false
+
+// The key of a bound first argument, or `None` for a kind no clause can key.
+private value_key(x: Value) -> Option[Key] = x match
+    Atom(i) -> Some(KAtom(i))
+    Int(n) -> Some(KInt(n))
+    Compound(c) -> Some(KFunctor(c.functor, c.args.len()))
+    Nil -> Some(KNil)
+    Cons(_) -> Some(KCons)
+    Range(r) -> Some(if range_empty(r) then KNil else KCons)
+    _ -> None
+
+// `SwitchFirst`: jump by the running frame's first argument.
+switch_first(v: *Vm, unbound: usize, other: usize, cases: usize) -> Result[unit, string]
+    val args = v.frame.args
+
+    if args.len() == 0 then return Err("`SwitchFirst` in a call with no arguments")
+
+    val x = deref(args.at(0))
+
+    x match
+        Var(_) ->
+            v.ip = unbound
+            return Ok(())
+        _ -> ()
+
+    val key = value_key(x) match
+        Some(k) -> k
+        None ->
+            v.ip = other
+            return Ok(())
+
+    val code = v.chunks.at(v.code).code
+    val start = v.ip
+
+    for i in start..<start + cases
+        code.at(i) match
+            Case(k, to) ->
+                if same_key(k, key)
+                    v.ip = to
+                    return Ok(())
+            _ -> return Err("`SwitchFirst` is not followed by its `Case` instructions")
+
+    v.ip = other
+    Ok(())
+end switch_first
+
+// `Instantiated(param)`: a function's pattern is about to look inside argument `param`, on top.
+//
+// **A function never binds its caller's variables and never fails silently on one**
+// (`logic.md` § "A function called from a relation"), so an unbound variable here is an error that
+// says which function was called too early and with which argument.
+instantiated(v: *Vm, param: usize) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if top == 0 then return Err("the operand stack is empty")
+
+    deref(v.stack.at(top - 1)) match
+        Var(_) ->
+            val name = v.chunks.at(v.code).name
+
+            Err(s"instantiation error: `$name` was given an unbound variable as argument ${param + 1}, which its pattern has to look inside")
+        _ -> Ok(())

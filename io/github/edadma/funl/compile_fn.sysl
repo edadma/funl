@@ -39,7 +39,7 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
 
         for j in 0..<cl.params.len()
             e.op(LoadArg(j))
-            pattern(&e, c, cl.params.at(j), &seen)?
+            pattern(&e, c, cl.params.at(j), &seen, j)?
 
         cl.kind match
             FunctionC(b) -> clause_body(&e, c, b)?
@@ -152,56 +152,78 @@ private unseen(n: usize) -> Buf[bool]
 match_fresh(e: *Emit, c: Ctx, p: &Expr) -> Result[unit, string]
     var seen = unseen(c.res.scopes.at(c.sc).count())
 
-    pattern(e, c, p, &seen)
+    pattern(e, c, p, &seen, NoParam)
 
-// Match the top of the stack against `p`, popping it; fail when it does not match.
-private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool]) -> Result[unit, string]
+// What `pattern` is given for a pattern that is not one of a function's parameters.
+private const NoParam: usize = 4294967295
+
+// Match the top of the stack against `p`, popping it; fail when it does not match. `param` is the
+// function argument the pattern is part of, or `NoParam`: where it is one, every point at which the
+// pattern looks inside a value is preceded by `Instantiated`, so an unbound variable there is an
+// error naming the function and the argument.
+private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> Result[unit, string]
     p.kind match
         Ref(n) ->
             nullary(c.meaning(n, p.span.start)) match
-                Some(functor) -> equal_to(e, Atom(functor))
-                None -> bind_name(e, c, n, seen)?
+                Some(functor) ->
+                    inspect(e, param)
+                    equal_to(e, Atom(functor))
+                None -> bind_name(e, c, n, seen, param)?
         Anon -> e.op(Pop)
-        AtomE(n) -> equal_to(e, atom(n))
-        IntE(n) -> equal_to(e, Int(n))
-        StrE(s) -> equal_to(e, new_str(s)?)
-        BoolE(b) -> equal_to(e, Bool(b))
+        AtomE(n) ->
+            inspect(e, param)
+            equal_to(e, atom(n))
+        IntE(n) ->
+            inspect(e, param)
+            equal_to(e, Int(n))
+        StrE(s) ->
+            inspect(e, param)
+            equal_to(e, new_str(s)?)
+        BoolE(b) ->
+            inspect(e, param)
+            equal_to(e, Bool(b))
         TupleE(items) ->
+            inspect(e, param)
+
             if items.len() == 0
                 equal_to(e, Unit)
             else
                 e.op(MatchTuple(items.len()))
 
                 for x in items.view()
-                    pattern(e, c, x, seen)?
+                    pattern(e, c, x, seen, param)?
         CallE(n, _, args) ->
+            inspect(e, param)
             e.op(MatchCompound(intern(n), args.len()))
 
             for x in args.view()
-                pattern(e, c, x, seen)?
+                pattern(e, c, x, seen, param)?
         ListE(items) ->
             for x in items.view()
+                inspect(e, param)
                 e.op(MatchCons)
-                pattern(e, c, x, seen)?
+                pattern(e, c, x, seen, param)?
 
+            inspect(e, param)
             e.op(MatchNil)
         ConsE(h, t) ->
+            inspect(e, param)
             e.op(MatchCons)
-            pattern(e, c, h, seen)?
-            pattern(e, c, t, seen)?
+            pattern(e, c, h, seen, param)?
+            pattern(e, c, t, seen, param)?
         Disj(a, b) ->
             val other = e.label()
             val end = e.label()
             val before = copied(seen)
 
             e.op(Choice(other))
-            pattern(e, c, a, seen)?
+            pattern(e, c, a, seen, param)?
             e.op(Branch(end))
             e.place(other)
 
             var also = before
 
-            pattern(e, c, b, &also)?
+            pattern(e, c, b, &also, param)?
 
             for i in 0..<also.len()
                 if also.at(i) then seen.set(i, true)
@@ -209,18 +231,24 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool]) -> Result[unit, st
             e.place(end)
         AsE(n, x) ->
             e.op(Dup)
-            bind_name(e, c, n, seen)?
-            pattern(e, c, x, seen)?
+            bind_name(e, c, n, seen, param)?
+            pattern(e, c, x, seen, param)?
         _ -> return Err("a pattern the resolver refused reached the compiler")
 
     Ok(())
 end pattern
 
+// Before a pattern looks inside the value on top: the check that names the function, where the
+// pattern is one of its parameters.
+private inspect(e: *Emit, param: usize)
+    if param != NoParam then e.op(Instantiated(param))
+
 // A name in a pattern: its first occurrence takes the value, a later one must equal it.
-private bind_name(e: *Emit, c: Ctx, n: string, seen: *Buf[bool]) -> Result[unit, string]
+private bind_name(e: *Emit, c: Ctx, n: string, seen: *Buf[bool], param: usize) -> Result[unit, string]
     val s = slot_of_name(c, n)?
 
     if seen.at(s)
+        inspect(e, param)
         e.op(LoadSlot(0, s))
         e.op(TestEq)
         e.op(Pop)

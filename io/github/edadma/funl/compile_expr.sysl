@@ -378,6 +378,25 @@ call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool
 
         return Ok(())
 
+    if is_all_solutions(m, n)
+        all_solutions(e, c, n, args)?
+
+        if tail then e.op(Return)
+
+        return Ok(())
+
+    m match
+        Function(r, up) ->
+            val rel = c.res.rels.at(r)
+
+            if args.len() == rel.arity + 1
+                function_as_relation(e, c, rel.chunk, up, args)?
+
+                if tail then e.op(Return)
+
+                return Ok(())
+        _ -> ()
+
     m match
         Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
         _ -> ()
@@ -410,6 +429,41 @@ call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool
 
     Ok(())
 end call_named
+
+// A function of `n` parameters called with `n + 1` arguments, in a goal: the relation `f/(n+1)`,
+// whose last argument is unified with the function's value. Its value is `()`, as a relation's is;
+// a function that generates leaves its choice points, so each value it gives is one solution.
+private function_as_relation(e: *Emit, c: Ctx, chunk: usize, up: usize, args: Buf[&Expr]) -> Result[unit, string]
+    val n = args.len() - 1
+
+    for i in 0..<n
+        compile_value(e, c, args.at(i))?
+
+    e.op(CallFn(chunk, n, up))
+    compile_value(e, c, args.at(n))?
+    e.op(Unify)
+    e.op(Pop)
+    e.op(PushUnit)
+    Ok(())
+
+// `findall(t, g)`, `bagof(t, g)` or `setof(t, g)`: run `g` to exhaustion, collecting a copy of `t`
+// at each solution into the operand cell below the form's mark (`copy.sysl`). `g` runs inside the
+// mark, so it is evaluated only here, and every choice point it leaves is gone when the mark is
+// failed into.
+private all_solutions(e: *Emit, c: Ctx, n: string, args: Buf[&Expr]) -> Result[unit, string]
+    val done = e.label()
+    val how = if n == "findall" then AllFound elif n == "bagof" then Bag else SortedSet
+
+    e.op(PushNil)
+    e.op(Mark(done))
+    compile_value(e, c, args.at(1))?
+    e.op(Pop)
+    compile_value(e, c, args.at(0))?
+    e.op(CollectCopy)
+    e.op(Fail)
+    e.place(done)
+    e.op(Gathered(how))
+    Ok(())
 
 // `a op b`: both values, then the instruction that compares or combines them.
 private binary(e: *Emit, c: Ctx, a: &Expr, b: &Expr, o: Op) -> Result[unit, string]

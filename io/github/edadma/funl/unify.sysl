@@ -229,6 +229,42 @@ get_compound(v: *Vm, functor: u32, n: usize, src: Src) -> Result[bool, string]
         _ -> Ok(false)
 end get_compound
 
+// `[]` in a head: an unbound argument is bound to the empty list; a bound one must be an empty list
+// or range.
+get_nil(v: *Vm, src: Src) -> Result[bool, string]
+    deref(source(v, src)?) match
+        Var(p) ->
+            bind(p, Nil)
+            Ok(true)
+        Nil -> Ok(true)
+        Range(r) -> Ok(range_empty(r))
+        _ -> Ok(false)
+
+// `h:t` in a head: an unbound argument is bound to a cell of two fresh variables, so the caller
+// learns it is a non-empty list; a bound one must be a non-empty list or range. The tail is pushed,
+// then the head, which is on top for the next `Popped`.
+get_cons(v: *Vm, src: Src) -> Result[bool, string]
+    deref(source(v, src)?) match
+        Var(p) ->
+            val head = Var(new_var()?)
+            val tail = Var(new_var()?)
+
+            bind(p, new_cons(head, tail)?)
+            v.stack.push(tail)
+            v.stack.push(head)
+            Ok(true)
+        Cons(c) ->
+            v.stack.push(c.tail)
+            v.stack.push(c.head)
+            Ok(true)
+        Range(r) ->
+            if range_empty(r) then return Ok(false)
+
+            v.stack.push(range_rest(r)?)
+            v.stack.push(Int(r.from))
+            Ok(true)
+        _ -> Ok(false)
+
 // Push a compound's arguments, the last first, so the first is on top for the next `Popped`.
 private push_args(v: *Vm, c: *CompoundObj)
     var i = c.args.len()
@@ -332,6 +368,165 @@ end equal_values
 private unbound(x: Value) -> bool = x match
     Var(p) -> !p.bound
     _ -> false
+
+// -- the standard order of terms -----------------------------------------------------------------
+
+// Where `a` stands against `b` in the standard order of terms: negative before, zero the same term,
+// positive after.
+//
+// **Variables by age, then numbers by value, then atoms by text, then strings by text, then
+// compounds by arity, then name, then arguments left to right** (`prolog.md` § "Arithmetic and
+// order"). The empty list is the atom `[]`, `true` and `false` are atoms, a list cell is the compound
+// `'.'(h, t)` and a tuple the compound `tuple(...)`, as the term mapping makes them. The kinds only
+// FunL has come after the compounds in a fixed order of kind, and within a kind by value where it
+// has one and by identity where it does not, so a sort of mixed values is total and repeatable.
+//
+// Iterative over a work list of its own, like equality; it binds nothing and allocates nothing, so
+// it cannot fail.
+compare_terms(a: Value, b: Value) -> int
+    var work: Buf[Value] = buf()
+
+    work.push(b)
+    work.push(a)
+
+    while work.len() > 0
+        val x = deref(work.pop().unwrap())
+        val y = deref(work.pop().unwrap())
+
+        if identical(x, y) then continue
+
+        val rx = rank(x)
+        val ry = rank(y)
+
+        if rx != ry then return if rx < ry then -1 else 1
+
+        val d = x match
+            Var(p) -> y match
+                Var(q) -> ordered(p.id, q.id)
+                _ -> 0
+            Int(n) -> y match
+                Int(m) -> if n < m then -1 elif n > m then 1 else 0
+                _ -> 0
+            Str(p) -> y match
+                Str(q) -> texts(p.s, q.s)
+                _ -> 0
+            Unit -> 0
+            Undefined -> 0
+            Range(p) -> y match
+                Range(q) -> range_order(p, q)
+                _ -> 0
+            Ctor(i) -> y match
+                Ctor(j) -> ordered(u64(i), u64(j))
+                _ -> 0
+            _ ->
+                if rx == AtomRank
+                    texts(atom_text(x), atom_text(y))
+                elif rx == CompoundRank
+                    compound_order(&work, x, y)
+                else
+                    ordered(u64(identity(x)), u64(identity(y)))
+
+        if d != 0 then return d
+
+    0
+end compare_terms
+
+private const AtomRank: int = 2
+private const CompoundRank: int = 4
+
+// A kind's place in the standard order.
+private rank(x: Value) -> int = x match
+    Var(_) -> 0
+    Int(_) -> 1
+    Atom(_) -> AtomRank
+    Nil -> AtomRank
+    Bool(_) -> AtomRank
+    Str(_) -> 3
+    Compound(_) -> CompoundRank
+    Cons(_) -> CompoundRank
+    Tuple(_) -> CompoundRank
+    Unit -> 5
+    Undefined -> 6
+    Range(_) -> 7
+    Set(_) -> 8
+    Map(_) -> 9
+    MutMap(_) -> 10
+    Array(_) -> 11
+    Buffer(_) -> 12
+    Func(_) -> 13
+    Ctor(_) -> 14
+    CSet(_) -> 15
+
+private ordered(a: u64, b: u64) -> int = if a < b then -1 elif a > b then 1 else 0
+
+private texts(a: string, b: string) -> int = if a < b then -1 elif a > b then 1 else 0
+
+// The text of a value that orders as an atom.
+private atom_text(x: Value) -> string = x match
+    Atom(i) -> atom_name(i)
+    Nil -> "[]"
+    Bool(b) -> if b then "true" else "false"
+    _ -> ""
+
+// Two values that order as compounds: by arity, then name; when both agree, their arguments are
+// pushed for the loop to compare left to right.
+private compound_order(work: *Buf[Value], x: Value, y: Value) -> int
+    val ax = term_arity(x)
+    val ay = term_arity(y)
+
+    if ax != ay then return if ax < ay then -1 else 1
+
+    val byname = texts(term_name(x), term_name(y))
+
+    if byname != 0 then return byname
+
+    var i = ax
+
+    while i > 0
+        i -= 1
+        work.push(term_arg(y, i))
+        work.push(term_arg(x, i))
+
+    0
+
+private term_arity(x: Value) -> usize = x match
+    Compound(p) -> p.args.len()
+    Tuple(p) -> p.items.len()
+    _ -> 2
+
+private term_name(x: Value) -> string = x match
+    Compound(p) -> atom_name(p.functor)
+    Tuple(_) -> "tuple"
+    _ -> "."
+
+private term_arg(x: Value, i: usize) -> Value = x match
+    Compound(p) -> p.args.at(i)
+    Tuple(p) -> p.items.at(i)
+    Cons(p) -> if i == 0 then p.head else p.tail
+    _ -> Undefined
+
+// Ranges by their first element, then their end, then their step.
+private range_order(p: *RangeObj, q: *RangeObj) -> int
+    if p.from != q.from then return if p.from < q.from then -1 else 1
+
+    if p.endless != q.endless then return if p.endless then 1 else -1
+
+    if p.last != q.last then return if p.last < q.last then -1 else 1
+
+    if p.step != q.step then return if p.step < q.step then -1 else 1
+
+    if p.inclusive == q.inclusive then 0 elif p.inclusive then 1 else -1
+
+// The address of a value that orders by identity.
+private identity(x: Value) -> usize = x match
+    Set(p) -> usize(p)
+    Map(p) -> usize(p)
+    MutMap(p) -> usize(p)
+    Array(p) -> usize(p)
+    Buffer(p) -> usize(p)
+    Func(p) -> usize(p)
+    CSet(p) -> usize(p)
+    _ -> 0
 
 // Push each pair of parts of two terms whose heads already agree (`heads`) and whose arity does.
 private both(work: *Buf[Value], heads: bool, xs: []Value, ys: []Value) -> bool

@@ -26,6 +26,9 @@ struct Said
     collections: usize
     trail: usize
 
+    // The most entries the control stack held at once.
+    control_peak: usize
+
 outcome_text(o: Outcome) -> string = o match
     Succeeded -> "succeeded"
     Failed -> "failed"
@@ -47,7 +50,7 @@ run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, stri
 
     out.push(outcome)
 
-    val said = Said(out.finish(), v.collections, v.trail.len())
+    val said = Said(out.finish(), v.collections, v.trail.len(), v.control_peak)
 
     dispose_vm(&v)
     leave(was)

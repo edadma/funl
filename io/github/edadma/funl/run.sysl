@@ -431,6 +431,19 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
 
             v.stack.push(rx_end(v, start)?)
             Ok(Next)
+        GetNil(src) -> Ok(fails_if(get_nil(v, src)?))
+        GetCons(src) -> Ok(fails_if(get_cons(v, src)?))
+        SwitchFirst(unbound, other, cases) ->
+            switch_first(v, unbound, other, cases)?
+            Ok(Next)
+        Case(_, _) -> Err("a `Case` was run as an instruction rather than searched by its `SwitchFirst`")
+        Instantiated(param) ->
+            instantiated(v, param)?
+            Ok(Next)
+        CollectCopy ->
+            collect_copy(v)?
+            Ok(Next)
+        Gathered(how) -> Ok(fails_if(gathered(v, how)?))
 end execute
 
 // Push a tuple's items or a term's arguments, the last first, so the first is on top for the

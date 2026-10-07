@@ -30,6 +30,10 @@ struct Walk
     // The loops around the code being read, innermost last.
     loops: Buf[LoopSeen]
 
+    // Whether the code being read is a goal -- a relation's body, or the goal of `findall`, `bagof`
+    // or `setof` -- where a function of `n` parameters may be called as the relation `f/(n+1)`.
+    goal: bool
+
     // What `name` means written at offset `pos`: the blocks being read first, then the complete
     // scopes above.
     meaning(self, name: string, pos: usize) -> Meaning
@@ -55,7 +59,31 @@ struct LoopSeen
 
 // A walk over scope `sid`, from its root block, inside no loop.
 walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool) -> Walk =
-    Walk(res, report, pending, sc, sid, relation, function, 0, buf())
+    Walk(res, report, pending, sc, sid, relation, function, 0, buf(), relation)
+
+// Whether a call of `n`, which means `m`, is one of the all-solutions forms: the name, where nothing
+// the program declares takes it.
+is_all_solutions(m: Meaning, n: string) -> bool
+    if n != "findall" && n != "bagof" && n != "setof" then return false
+
+    m match
+        Unknown -> true
+        _ -> false
+
+// `findall(t, g)`, `bagof(t, g)`, `setof(t, g)`: a template and a goal, the goal read as one.
+private all_solutions(w: *Walk, n: string, at: Span, args: Buf[&Expr])
+    if args.len() != 2
+        w.report.add(error(at, s"`$n` takes a template and a goal, and this call gives ${counted(args.len(), "argument")}")
+            .with_note(s"`$n( x, parent(#don, x) )` collects each `x` the goal gives"))
+        return
+
+    walk(w, args.at(0))
+
+    val was = w.goal
+
+    w.goal = true
+    walk(w, args.at(1))
+    w.goal = was
 
 // A statement's names.
 walk_stmt(w: *Walk, s: Stmt)
@@ -190,6 +218,10 @@ walk(w: *Walk, e: &Expr)
                             .with_note("a name is a parameter, a `val`, a function, or declared with `free`"))
         CallE(n, at, args) ->
             val m = w.meaning(n, at.start)
+
+            if is_all_solutions(m, n)
+                all_solutions(w, n, at, args)
+                return
 
             if is_swap(m, n)
                 swapped(w, args, e.span)
@@ -387,7 +419,13 @@ private callable(w: *Walk, n: string, at: Span, argc: usize)
             if depth == 0 then w.sc.used(n)
 
             return
-        Function(r, _) -> w.res.rels.at(r).arity
+        Function(r, _) ->
+            val n_params = w.res.rels.at(r).arity
+
+            // In a goal, a function of `n` parameters is also the relation `f/(n+1)`.
+            if w.goal && argc == n_params + 1 then return
+
+            n_params
         Relation(r) -> w.res.rels.at(r).arity
         Builtin(id) ->
             if is_constant(id)

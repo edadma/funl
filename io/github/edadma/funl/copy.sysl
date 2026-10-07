@@ -1,0 +1,185 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+import sysl.slices.sort_by
+
+// Copying terms, and what the all-solutions forms collect with it.
+//
+// **`findall(t, g)` keeps a copy of `t` at each solution** because the bindings that made `t` are
+// undone as soon as the next solution is asked for (`logic.md` § "All solutions"). The list being
+// built is held in an operand cell -- the one just below the form's own mark -- never in a sysl local
+// or a frame slot, so a collection in the middle of a long `findall` sees it, and no choice point
+// inside the goal saves it: every entry the goal pushes saves only cells above that mark's floor.
+//
+//     findall(t, g)          PushNil; Mark(done); g; Pop; t; CollectCopy; Fail;
+//                            done: Gathered(AllFound)
+
+// Where a copied part is written.
+private enum Place
+    Root
+    ArgOf(c: *CompoundObj, i: usize)
+    ItemOf(t: *TupleObj, i: usize)
+    HeadOf(c: *ConsObj)
+    TailOf(c: *ConsObj)
+
+private struct Pending
+    from: Value
+    to: Place
+
+// A copy of `x` in which every unbound variable is replaced by a fresh one, the same variable by the
+// same fresh one wherever it occurs. Compounds, list cells and tuples are copied; every other kind
+// holds no variable a term can see and is shared.
+//
+// **Iterative, over a work list of its own**, so a long list or a deep term cannot overflow the sysl
+// stack. It allocates, which is safe inside one instruction: the collector runs only between them.
+copy_term(x: Value) -> Result[Value, string]
+    var fresh: Map[u64, Value] = map()
+    var work: Buf[Pending] = buf()
+    var root = Undefined
+
+    work.push(Pending(x, Root))
+
+    while work.len() > 0
+        val p = work.pop().unwrap()
+        val made = deref(p.from) match
+            Var(q) ->
+                fresh.get(q.id) match
+                    Some(y) -> y
+                    None ->
+                        val y = Var(new_var()?)
+
+                        fresh.put(q.id, y)
+                        y
+            Compound(c) ->
+                val d = new_compound(c.functor, c.args.len())?
+
+                d.record = c.record
+
+                for i in 0..<c.args.len()
+                    work.push(Pending(c.args.at(i), ArgOf(d, i)))
+
+                Compound(d)
+            Tuple(t) ->
+                val d = new_tuple(t.items.len())?
+
+                for i in 0..<t.items.len()
+                    work.push(Pending(t.items.at(i), ItemOf(d, i)))
+
+                Tuple(d)
+            Cons(c) ->
+                val cell = new_cons(Undefined, Undefined)?
+
+                cell match
+                    Cons(d) ->
+                        // The tail is pushed first so the head is copied first, and a long list
+                        // keeps the work list at a couple of entries.
+                        work.push(Pending(c.tail, TailOf(d)))
+                        work.push(Pending(c.head, HeadOf(d)))
+                    _ -> ()
+
+                cell
+            other -> other
+
+        p.to match
+            Root -> root = made
+            ArgOf(c, i) -> c.args.set(i, made)
+            ItemOf(t, i) -> t.items.set(i, made)
+            HeadOf(c) -> c.head = made
+            TailOf(c) -> c.tail = made
+
+    Ok(root)
+end copy_term
+
+// `CollectCopy`: pop a value and add a copy of it to the list held in the cell below the innermost
+// mark's floor, newest first.
+collect_copy(v: *Vm) -> Result[unit, string]
+    val x = v.stack.pop() match
+        Some(y) -> y
+        None -> return Err("the operand stack is empty")
+
+    if v.mark == NoMark then return Err("`CollectCopy` ran with no mark open")
+
+    val floor = v.control.at(v.mark).floor
+
+    if floor == 0 then return Err("`CollectCopy` found no cell below its mark to collect into")
+
+    val acc = v.stack.at(floor - 1)
+
+    v.stack.set(floor - 1, new_cons(copy_term(x)?, acc)?)
+    Ok(())
+
+// `Gathered(how)`: the list on top, collected newest first, becomes what `how` makes of it. Answers
+// false where `bagof` or `setof` collected nothing.
+//
+// **The cells are reused in place.** `CollectCopy` made them and only the collecting cell reached
+// them -- no choice point saved it -- so turning the list round, and writing a set's sorted elements
+// back into the first of its cells, costs no allocation.
+gathered(v: *Vm, how: Gathering) -> Result[bool, string]
+    var at = v.stack.pop() match
+        Some(y) -> y
+        None -> return Err("the operand stack is empty")
+    var out = Nil
+
+    loop
+        at match
+            Cons(p) ->
+                val next = p.tail
+
+                p.tail = out
+                out = at
+                at = next
+            _ -> break
+
+    val empty = out match
+        Nil -> true
+        _ -> false
+
+    how match
+        AllFound -> ()
+        Bag -> if empty then return Ok(false)
+        SortedSet ->
+            if empty then return Ok(false)
+
+            out = sorted_unique(out)
+
+    v.stack.push(out)
+    Ok(true)
+end gathered
+
+// The elements of list `xs`, made of cells nothing else reaches, in the standard order of terms with
+// duplicates removed, written back into its first cells.
+private sorted_unique(xs: Value) -> Value
+    var items: Buf[Value] = buf()
+    var at = xs
+
+    loop
+        at match
+            Cons(p) ->
+                items.push(p.head)
+                at = p.tail
+            _ -> break
+
+    sort_by(items.view(), (a, b) -> compare_terms(a, b) < 0)
+
+    var cell = xs
+    var last = xs
+
+    for i in 0..<items.len()
+        val x = items.at(i)
+
+        if i > 0 && compare_terms(items.at(i - 1), x) == 0 then continue
+
+        cell match
+            Cons(p) ->
+                p.head = x
+                last = cell
+                cell = p.tail
+            _ -> ()
+
+    last match
+        Cons(p) -> p.tail = Nil
+        _ -> ()
+
+    xs
+end sorted_unique

@@ -51,6 +51,8 @@ push_entry(v: *Vm, kind: EntryKind, ip: usize, floor: usize)
     v.stamp += 1
     v.control.push(Entry(kind, ip, v.code, v.frame, v.mark, floor, saved_at, v.trail.len(), v.stamp))
 
+    if v.control.len() > v.control_peak then v.control_peak = v.control.len()
+
 // Begin a bounded expression: a mark saves nothing, the cells above its floor being its own.
 push_mark(v: *Vm, kind: EntryKind, on_fail: usize)
     push_entry(v, kind, on_fail, v.stack.len())

@@ -91,6 +91,10 @@ struct Vm
     growth: usize
 
     collections: usize
+
+    // The most entries the control stack has held at once: what shows that a recursion the index
+    // made deterministic runs in constant control space.
+    control_peak: usize
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -119,7 +123,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
         buf(), map(), buf(), buf(), buf(),
-        block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0)
+        block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0)
 
     install_natives(&v)
     v

@@ -1,0 +1,297 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// The two directions of the call between functions and relations, compiled from source and run on
+// both heaps: a function called from a rule body, a function seen as the relation `f/(n+1)`, the
+// all-solutions forms, the standard order `setof` sorts by, and first-argument indexing.
+
+private faulted_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- a function called from a relation ------------------------------------------------------------
+
+@test
+A_FUNCTION_CALLED_FROM_A_RULE_BODY_IS_AN_OPERAND_AND_A_GOAL()
+    val text = "def double(x) = x * 2\n" +
+        "def big(x) = x > 100\n" +
+        "def doubled(x, y) :- y ~ double(x)\n" +
+        "def large(x) :- big(double(x))\n" +
+        "free y\n" +
+        "if doubled(21, y) then write(y)\n" +
+        "if large(60) then write(#large) else write(#small)\n" +
+        "if large(50) then write(#large) else write(#small)\n"
+
+    assert_eq(ran_funl(text), "42\nlarge\nsmall\nsucceeded")
+
+@test
+AN_UNBOUND_VARIABLE_REACHING_A_FUNCTION_PATTERN_FROM_A_RELATION_NAMES_THE_FUNCTION()
+    val text = "def area((w, h)) = w * h\n" +
+        "def area_of(s, a) :- a ~ area(s)\n" +
+        "free s, a\n" +
+        "if area_of(s, a) then write(a)\n"
+
+    faulted_with(text, "instantiation error: `area` was given an unbound variable as argument 1, which its pattern has to look inside")
+
+@test
+AN_UNBOUND_VARIABLE_INSIDE_AN_ARGUMENT_NAMES_THE_FUNCTION_AND_THE_ARGUMENT()
+    faulted_with("def f(a, [0, b]) = b\nfree x\nwrite( f(1, [x, 2]) )\n",
+        "instantiation error: `f` was given an unbound variable as argument 2, which its pattern has to look inside")
+    faulted_with("def f( 0 ) = 1\nfree x\nwrite( f(x) )\n", "instantiation error: `f` was given an unbound variable as argument 1")
+
+@test
+A_FUNCTION_PARAMETER_THAT_ONLY_NAMES_ITS_ARGUMENT_TAKES_AN_UNBOUND_VARIABLE()
+    val text = "def same(x) = x\nfree v\nif same(v) ~ 3 then write(v)\n"
+
+    assert_eq(ran_funl(text), "3\nsucceeded")
+
+// -- a function seen as the relation f/(n+1) ------------------------------------------------------
+
+@test
+A_FUNCTION_OF_N_PARAMETERS_IS_THE_RELATION_OF_N_PLUS_ONE_ITS_LAST_ARGUMENT_THE_RESULT()
+    val text = "def area((w, h)) = w * h\n" +
+        "def area_of(s, a) :- area(s, a)\n" +
+        "free a\n" +
+        "if area_of((3, 4), a) then write(a)\n" +
+        "if area_of((3, 4), 12) then write(#checks)\n" +
+        "if area_of((3, 4), 13) then write(#wrong) else write(#refused)\n"
+
+    assert_eq(ran_funl(text), "12\nchecks\nrefused\nsucceeded")
+
+@test
+EACH_VALUE_A_GENERATING_FUNCTION_GIVES_IS_ONE_SOLUTION_OF_ITS_RELATION()
+    val text = "def upto(n) = 1 to n\n" +
+        "def small(x) :- upto(3, x)\n" +
+        "def odd_small(x) :- upto(5, x) & x != 2 & x != 4\n" +
+        "free x\n" +
+        "every small(x) do write(x)\n" +
+        "every odd_small(x) do write(x)\n" +
+        "if small(2) then write(#two)\n" +
+        "if small(7) then write(#seven) else write(#not_seven)\n"
+
+    assert_eq(ran_funl(text), "1\n2\n3\n1\n3\n5\ntwo\nnot_seven\nsucceeded")
+
+@test
+THE_RELATION_VIEW_OF_A_FUNCTION_IS_REFUSED_OUTSIDE_A_GOAL()
+    assert_eq(complaints("def f( x ) = x\nfree y\nwrite( f(1, y) )\n"), "error 3:8 `f` takes 1 argument, and this call gives 2\n")
+
+@test
+THE_RELATION_VIEW_GIVEN_AN_UNBOUND_ARGUMENT_THE_FUNCTION_LOOKS_INSIDE_NAMES_THE_FUNCTION()
+    val text = "def area((w, h)) = w * h\n" +
+        "def area_of(s, a) :- area(s, a)\n" +
+        "free s, a\n" +
+        "if area_of(s, a) then write(a)\n"
+
+    faulted_with(text, "instantiation error: `area` was given an unbound variable as argument 1")
+
+// -- findall, bagof, setof ---------------------------------------------------------------------------
+
+private const Parents: string = "def\n" +
+    "  parent(#don, #randy)\n" +
+    "  parent(#don, #anne)\n" +
+    "  parent(#rosie, #randy)\n" +
+    "  parent(#liam, #don)\n" +
+    "  parent(#liam, #mia)\n"
+
+@test
+FINDALL_COLLECTS_EVERY_SOLUTION_OF_A_RELATION_IN_ORDER()
+    val text = Parents +
+        "free c, p\n" +
+        "write( findall(c, parent(#don, c)) )\n" +
+        "write( findall(p, parent(p, #randy)) )\n" +
+        "write( findall((p, c), parent(p, c)).length )\n" +
+        "write( findall(c, parent(#mia, c)) )\n" +
+        "write( c, p )\n"
+
+    val said = ran_funl(text)
+
+    assert(said.starts_with("[randy, anne]\n[don, rosie]\n5\n[]\n"), said)
+
+@test
+FINDALL_COLLECTS_EVERY_VALUE_OF_A_FUNL_GENERATOR()
+    val text = "def upto(n) = 1 to n\n" +
+        "free x\n" +
+        "write( findall(x, upto(4, x)) )\n" +
+        "write( findall(x * 10, upto(3, x)) )\n" +
+        "write( findall(x, upto(10, x) & x > 7) )\n"
+
+    assert_eq(ran_funl(text), "[1, 2, 3, 4]\n[10, 20, 30]\n[8, 9, 10]\nsucceeded")
+
+@test
+FINDALL_IN_A_RULE_BODY_COLLECTS_WITH_THE_CLAUSE_S_OWN_VARIABLES()
+    val text = Parents +
+        "def upto(n) = 1 to n\n" +
+        "def children(p, l) :- l ~ findall(c, parent(p, c))\n" +
+        "def big(l) :- l ~ findall(x, upto(10, x) & x > 7)\n" +
+        "free l, m\n" +
+        "if children(#liam, l) then write(l)\n" +
+        "if big(m) then write(m)\n"
+
+    assert_eq(ran_funl(text), "[don, mia]\n[8, 9, 10]\nsucceeded")
+
+// Each solution's template is copied before the next is asked for, an unbound variable in it as a
+// fresh one shared within the copy -- and the goal's own variables are left as they were.
+@test
+FINDALL_KEEPS_A_COPY_OF_THE_TEMPLATE_WITH_FRESH_VARIABLES()
+    val text = "def q(#a)\n" +
+        "def q(_)\n" +
+        "free v, x, y\n" +
+        "val l = findall((v, v), q(v))\n" +
+        "if l ~ [(#a, #a), (x, y)] & x ~ 7 then write(y)\n" +
+        "if v ~ 5 then write(v)\n"
+
+    assert_eq(ran_funl(text), "7\n5\nsucceeded")
+
+// A long `findall` collects while the collector runs at every step: the list is held in an operand
+// cell the collector sees.
+@test
+A_LONG_FINDALL_OVER_A_GENERATOR_AND_A_RELATION_SURVIVES_COLLECTION()
+    val text = "def upto(n) = 1 to n\n" +
+        "def evens(x) :- upto(60, x) & x % 2 == 0\n" +
+        "free x\n" +
+        "val l = findall(x, evens(x))\n" +
+        "write( l.length, l(0), l(29) )\n" +
+        "write( findall(x + 1, upto(40, x)).length )\n"
+
+    assert_eq(ran_funl(text), "30, 2, 60\n40\nsucceeded")
+
+@test
+BAGOF_IS_FINDALL_THAT_FAILS_WITH_NO_SOLUTIONS()
+    val text = "def upto(n) = 1 to n\n" +
+        "free x\n" +
+        "write( bagof(x, upto(3, x)) )\n" +
+        "write( findall(x, upto(0, x)) )\n" +
+        "if bagof(x, upto(0, x)) then write(#some) else write(#none)\n" +
+        "if setof(x, upto(0, x)) then write(#some) else write(#none)\n"
+
+    assert_eq(ran_funl(text), "[1, 2, 3]\n[]\nnone\nnone\nsucceeded")
+
+@test
+SETOF_SORTS_BY_THE_STANDARD_ORDER_OF_TERMS_AND_DROPS_DUPLICATES()
+    val text = "def\n" +
+        "  r(#b)\n" +
+        "  r(g(1, 2))\n" +
+        "  r(2)\n" +
+        "  r(f(2))\n" +
+        "  r(#a)\n" +
+        "  r(\"s\")\n" +
+        "  r([1])\n" +
+        "  r(f(1))\n" +
+        "  r(1)\n" +
+        "  r(#a)\n" +
+        "  r([])\n" +
+        "free x\n" +
+        "write( setof(x, r(x)) )\n" +
+        "write( findall(x, r(x)).length )\n"
+
+    assert_eq(ran_funl(text), "[1, 2, [], a, b, s, f(1), f(2), [1], g(1, 2)]\n11\nsucceeded")
+
+@test
+SETOF_PUTS_VARIABLES_FIRST_BY_AGE()
+    val text = "def r(3)\n" +
+        "def r(_)\n" +
+        "free x\n" +
+        "val l = setof(x, r(x))\n" +
+        "write( l.length, l(1) )\n"
+
+    assert_eq(ran_funl(text), "2, 3\nsucceeded")
+
+@test
+THE_ALL_SOLUTIONS_FORMS_TAKE_A_TEMPLATE_AND_A_GOAL()
+    assert_eq(complaints("free x\nwrite( findall(x) )\n"), "error 2:8 `findall` takes a template and a goal, and this call gives 1 argument\n")
+
+// -- first-argument indexing ---------------------------------------------------------------------
+
+@test
+AN_INDEXED_RELATION_GIVES_THE_SAME_SOLUTIONS_IN_THE_SAME_ORDER()
+    val text = "def\n" +
+        "  k(#a, 1)\n" +
+        "  k(x, 2)\n" +
+        "  k(#b, 3)\n" +
+        "  k(#a, 4)\n" +
+        "  k(5, 5)\n" +
+        "free f, n\n" +
+        "every k(#a, n) do write(n)\n" +
+        "every k(#c, n) do write(n)\n" +
+        "every k(f, n) do write(n)\n" +
+        "every k(5, n) do write(n)\n" +
+        "every k(\"s\", n) do write(n)\n"
+
+    assert_eq(ran_funl(text), "1\n2\n4\n2\n1\n2\n3\n4\n5\n2\n5\n2\nsucceeded")
+
+@test
+AN_INDEX_KEYS_TERMS_BY_FUNCTOR_AND_LISTS_BY_EMPTY_OR_NOT()
+    val text = "data circle(r)\n" +
+        "data square(s)\n" +
+        "def\n" +
+        "  shape(circle(r), r)\n" +
+        "  shape(square(s), s)\n" +
+        "  kind([], #empty)\n" +
+        "  kind(_:_, #cell)\n" +
+        "free n, k\n" +
+        "every shape(square(3), n) do write(n)\n" +
+        "every shape(circle(4), n) do write(n)\n" +
+        "every kind([1, 2], k) do write(k)\n" +
+        "every kind([], k) do write(k)\n" +
+        "every kind(1..0, k) do write(k)\n" +
+        "every kind(1..3, k) do write(k)\n"
+
+    val said = ran_funl(text)
+
+    assert(said.ends_with("3\n4\ncell\nempty\nempty\ncell\nsucceeded"), said)
+
+@test
+A_LIST_IN_A_HEAD_UNIFIES_BOTH_WAYS()
+    val text = "def\n" +
+        "  first(h:_, h)\n" +
+        "  pair([a, b], (a, b))\n" +
+        "free x, l\n" +
+        "if first([7, 8], x) then write(x)\n" +
+        "if first(l, 3) then write(l)\n" +
+        "if pair([1, 2], x) then write(x)\n" +
+        "if pair([1, 2, 3], x) then write(#three) else write(#not_two)\n"
+
+    val said = ran_funl(text)
+
+    assert(said.starts_with("7\n[3 | "), said)
+    assert(said.ends_with("(1, 2)\nnot_two\nsucceeded"), said)
+
+// What a program walking a list of `n` elements down a relation says, and its control stack's peak.
+private walked(n: long) -> Said
+    val text = "def\n" +
+        "  len([], a, a)\n" +
+        "  len(_:t, a, n) :- b ~ a + 1 & len(t, b, n)\n" +
+        s"val xs = [i | i <- 1..$n]\n" +
+        "free n\n" +
+        "if len(xs, 0, n) then write(n)\n"
+
+    run_on(1073741824, 67108864, 2, () -> compiled_text(text))
+
+// The index leaves no choice point for a call whose list is not empty, so the recursion is
+// deterministic and its control stack stays at the same height however long the list. Run on a roomy
+// heap alone: a heap collected at every step would mark the whole list at every instruction.
+@test
+A_RECURSIVE_RELATION_OVER_A_LONG_LIST_RUNS_IN_CONSTANT_CONTROL_STACK()
+    val short = walked(1000)
+    val long = walked(100000)
+
+    assert_eq(short.text, "1000\nsucceeded")
+    assert_eq(long.text, "100000\nsucceeded")
+    assert_eq(long.control_peak, short.control_peak, "the control stack grew with the list")
+    assert(long.control_peak <= 4, s"the control stack reached ${long.control_peak} entries")
+
+// The same walk on both heaps, short enough for the stress heap.
+@test
+A_RECURSIVE_RELATION_OVER_A_LIST_SAYS_THE_SAME_ON_BOTH_HEAPS()
+    val text = "def\n" +
+        "  len([], a, a)\n" +
+        "  len(_:t, a, n) :- b ~ a + 1 & len(t, b, n)\n" +
+        "free n\n" +
+        "if len([4, 5, 6, 7], 0, n) then write(n)\n" +
+        "if len(1..20, 0, n) then write(n)\n"
+
+    assert_eq(ran_funl(text), "4\n20\nsucceeded")

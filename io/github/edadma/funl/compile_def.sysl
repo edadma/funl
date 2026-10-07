@@ -12,6 +12,9 @@ import sysl.buf.{Buf, buf}
 //     Frame(n); <head>; NewVar for each body variable; <body in tail position>
 //     c2: ...
 //
+// A relation whose first head arguments say something is reached through its first-argument index
+// instead (`index.sysl`), whose chains make the choice points, and its clauses carry none.
+//
 // **The head is unified, not matched** (`logic.md` § "Head unification is two-way"): a variable's
 // first occurrence is `GetVar`, a later one `GetValue`, a constant `GetConst` and a term
 // `GetCompound` with its arguments read off the stack -- each binding an unbound argument of the
@@ -58,17 +61,28 @@ end compiled
 
 private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
     var e = emit(r.name)
+    var starts: Buf[usize] = buf()
+
+    for _ in 0..<r.clauses.len()
+        starts.push(e.label())
+
+    // An indexed relation reaches its clauses through the index's chains, which make the choice
+    // points; otherwise each clause but the last is an alternative of its own.
+    val index = indexed(r.clauses)
+
+    if index then first_arg_index(&e, r.clauses, starts)
 
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
         var sc = res.scopes.at(r.scopes.at(i))
         var loops: Buf[Looping] = buf()
         val c = context(res, r.scopes.at(i), &loops)
-        val last = i + 1 == r.clauses.len()
+        val last = index || i + 1 == r.clauses.len()
         val next = e.label()
 
         if !last then e.op(Choice(next))
 
+        e.place(starts.at(i))
         e.op(Frame(sc.count()))
 
         var seen: Buf[bool] = buf()
@@ -116,6 +130,19 @@ private head_arg(e: *Emit, sc: *Scope, p: &Expr, src: Src, seen: *Buf[bool]) -> 
 
             for a in args.view()
                 head_arg(e, sc, a, Popped, seen)?
+        ListE(items) ->
+            var from = src
+
+            for a in items.view()
+                e.op(GetCons(from))
+                head_arg(e, sc, a, Popped, seen)?
+                from = Popped
+
+            e.op(GetNil(from))
+        ConsE(h, t) ->
+            e.op(GetCons(src))
+            head_arg(e, sc, h, Popped, seen)?
+            head_arg(e, sc, t, Popped, seen)?
         _ -> return Err("a head argument the resolver refused reached the compiler")
 
     Ok(())

@@ -353,7 +353,55 @@ enum Op
     // A regex has matched: pop where it began; group 0 captured from there to the position; push the
     // text it matched.
     RxEnd
+
+    // -- calls between functions and relations (`index.sysl`, `copy.sysl`) -------------------------
+
+    // `[]` in a head: bind an unbound argument to the empty list, or test for an empty list or range.
+    GetNil(src: Src)
+
+    // `h:t` in a head. An unbound argument is bound to a cell of two fresh variables; a non-empty
+    // list or range is split. Either way the tail and then the head are pushed, the head on top.
+    GetCons(src: Src)
+
+    // A relation's first-argument index. The first argument, dereferenced: unbound goes to
+    // `unbound`; otherwise the `cases` `Case` instructions that follow are searched for its key, and
+    // one that is not there goes to `other`.
+    SwitchFirst(unbound: usize, other: usize, cases: usize)
+
+    // One key of the `SwitchFirst` before it, and where a first argument with that key goes.
+    Case(key: Key, to: usize)
+
+    // A function's parameter pattern is about to look inside argument `param`: an unbound variable
+    // on top is an instantiation error naming the function and the argument.
+    Instantiated(param: usize)
+
+    // Pop a value; push a copy of it, fresh variables for its unbound ones, onto the list held in
+    // the operand cell just below the innermost mark's floor.
+    CollectCopy
+
+    // Replace the collected list on top, newest first, with what `how` makes of it.
+    Gathered(how: Gathering)
 end Op
+
+// What a first argument is keyed by in a relation's index. A head argument of any other kind, and
+// a variable, is in every key's list.
+enum Key
+    KAtom(id: u32)
+    KInt(n: long)
+    KFunctor(functor: u32, n: usize)
+    KNil
+    KCons
+
+// What an all-solutions form makes of what it collected.
+enum Gathering
+    // `findall`: the list, in the order the solutions came.
+    AllFound
+
+    // `bagof`: the same, failing when it is empty.
+    Bag
+
+    // `setof`: sorted by the standard order of terms with duplicates removed, failing when empty.
+    SortedSet
 
 // What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame.
 const TopUp: usize = 4294967295

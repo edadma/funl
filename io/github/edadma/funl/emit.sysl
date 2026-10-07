@@ -5,7 +5,8 @@ import sysl.buf.{Buf, buf}
 // The chunk being built: instructions, constants, and labels resolved when it is finished.
 //
 // **A jump operand is a LABEL while the chunk is being built** and an instruction index once it is
-// installed: `Mark`, `Choice`, `Branch`, `ChangeMark`, and the jumps of `RepNext` and `RepStep`, are
+// installed: `Mark`, `Choice`, `Branch`, `ChangeMark`, and the jumps of `RepNext`, `RepStep`,
+// `SwitchFirst` and `Case`, are
 // written with a label from `label()`, `place` says
 // where it points, and `install` rewrites each to the index it was placed at. Any other operand --
 // a slot, a count, a chunk index -- is left as written.
@@ -81,6 +82,8 @@ private resolved(e: Emit, o: Op) -> Result[Op, string]
         ChangeMark(l) -> Ok(ChangeMark(target(e, l)?))
         RepNext(lo, hi, l, lazy) -> Ok(RepNext(lo, hi, target(e, l)?, lazy))
         RepStep(l, lo) -> Ok(RepStep(target(e, l)?, lo))
+        SwitchFirst(u, o, n) -> Ok(SwitchFirst(target(e, u)?, target(e, o)?, n))
+        Case(k, l) -> Ok(Case(k, target(e, l)?))
         _ -> Ok(o)
 
 private target(e: Emit, l: usize) -> Result[usize, string]

@@ -406,7 +406,7 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
     res.rels.set(ri, done)
 end resolve_relation
 
-// A head argument: a variable, `_`, a constant, or a term of those.
+// A head argument: a variable, `_`, a constant, or a term or list of those.
 private walk_head(sc: *Scope, p: &Expr, report: *Report)
     p.kind match
         Ref(n) -> sc.note(n, p.span)
@@ -417,6 +417,12 @@ private walk_head(sc: *Scope, p: &Expr, report: *Report)
         CallE(_, _, args) ->
             for a in args.view()
                 walk_head(sc, a, report)
+        ListE(items) ->
+            for a in items.view()
+                walk_head(sc, a, report)
+        ConsE(h, t) ->
+            walk_head(sc, h, report)
+            walk_head(sc, t, report)
         BadE -> ()
         _ ->
             report.add(error(p.span, "a head argument is a variable, a constant or a term")
