@@ -257,6 +257,19 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         NoMatch ->
             no_match(v)?
             Ok(Next)
+        StoreUp(depth, slot) ->
+            val x = pop(v)?
+
+            set_slot(frame_up(v, depth)?, slot, x)?
+            Ok(Next)
+        GenStart ->
+            gen_start(v)?
+            Ok(Next)
+        GenNext -> Ok(fails_if(gen_next(v)?))
+        GenRange(inclusive) -> Ok(fails_if(gen_range(v, inclusive)?))
+        ChangeMark(to) ->
+            change_mark(v, to)?
+            Ok(Next)
 end execute
 
 // Push a tuple's items or a term's arguments, the last first, so the first is on top for the

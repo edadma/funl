@@ -55,7 +55,7 @@ however even the halves look. The first layout, to be revisited by counting once
 | the tree | `ast.sysl` |
 | resolving | `scope.sysl` (names to slots, relation variables, singleton warnings, mixed-kind refusal) |
 | compiling | `emit.sysl` (the chunk being built, labels, constants), `compile_expr.sysl`, `compile_control.sysl` (marks, loops, `every`, `if`, alternation), `compile_def.sysl` (committed-choice clauses, relation clauses, heads), `compile_regex.sysl` (both directions) |
-| the machine | `vm_state.sysl` (`struct Vm`, `current()`), `op.sysl` (the instruction set), `run.sysl` (the dispatch loop), `control.sysl` (entries, `fail`, marks, cut, `Restore`), `trail.sysl`, `frame.sysl` |
+| the machine | `vm_state.sysl` (`struct Vm`, `current()`), `op.sysl` (the instruction set), `run.sysl` (the dispatch loop), `control.sysl` (entries, `fail`, marks, cut, `Restore`), `trail.sysl`, `frame.sysl`, `gen.sysl` (cursors: `!`, `to`/`until`, and `|e`'s `ChangeMark`) |
 | logic | `unify.sysl` (unification, dereferencing, standard order), `copy.sysl` (`copy_term`, `findall`'s copies) |
 | values | `value.sysl`, `obj.sysl` (heap objects and constructors), `atom.sysl` (the intern table), `collector.sysl` (kinds, roots, the schedule) |
 | numbers | `number.sysl` (mapping `dal`'s number to and from `Value`), `arith.sysl` (FunL's operators over `dal`), `render.sysl` (printing values) |

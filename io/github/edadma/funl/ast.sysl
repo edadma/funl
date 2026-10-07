@@ -81,6 +81,26 @@ enum ExprKind
     // `fail`: fails.
     FailE
 
+    // `[a, b, ...]`: a list of the items' values.
+    ListE(items: Buf[&Expr])
+
+    // `!c`: each element of `c`, one per resumption.
+    BangE(e: &Expr)
+
+    // `|e`: `e`'s values, then `e`'s values again, for as long as each round produces one.
+    RepAltE(e: &Expr)
+
+    // `i to j` (`inclusive`) or `i until j`, with an optional `by k`: the integers from `i` towards `j`.
+    RangeE(from: &Expr, to: &Expr, by: Option[&Expr], inclusive: bool)
+
+    // `yield e`: each of `e`'s values to the function's caller, the function suspended until it is
+    // asked for the next.
+    YieldE(e: &Expr)
+
+    // `name = e` where an expression is delimited -- inside parentheses, at the head of `every` --
+    // storing each of `e`'s values in the variable `name` and producing it.
+    AssignE(name: string, e: &Expr)
+
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
 end ExprKind

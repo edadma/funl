@@ -86,8 +86,64 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             expr(Neg(e), t.span.to(e.span))
         If -> if_expr(p, t.span)
         Every -> every_expr(p, t.span)
+        Bang ->
+            val e = parse_expr(p, BangPower)
+
+            expr(BangE(e), t.span.to(e.span))
+        Bar ->
+            val e = parse_expr(p, RepeatPower)
+
+            expr(RepAltE(e), t.span.to(e.span))
+        YieldW ->
+            val e = parse_expr(p, ReturnPower)
+
+            expr(YieldE(e), t.span.to(e.span))
+        LBracket -> list(p, t.span)
         _ -> expr(BadE, t.span)
 end nud
+
+// `[a, b, ...]`, the `[` already read, through the `]`.
+private list(p: *Parser, open: Span) -> &Expr
+    var items: Buf[&Expr] = buf()
+
+    if !p.accept(RBracket)
+        loop
+            items.push(parse_expr(p, 0))
+
+            if p.accept(Comma) then continue
+
+            if !p.expect(RBracket, "`,` or `]`") then p.skip_line()
+
+            break
+
+    expr(ListE(items), open.to(p.toks.previous()))
+
+// An expression where one is delimited -- inside parentheses or a call's arguments, at the head of
+// `every` -- which may also be an assignment `name = e`. Nowhere else does `=` assign inside an
+// expression: a statement's `=` declares, and a guard's or a definition's `=` begins a body.
+delimited(p: *Parser) -> &Expr
+    val e = parse_expr(p, 0)
+
+    if !p.at_tok(Equals) then return e
+
+    e.kind match
+        Ref(n) ->
+            p.take()
+
+            val value = parse_expr(p, 0)
+
+            expr(AssignE(n, value), e.span.to(value.span))
+        _ -> e
+
+// `i to j [by k]` or `i until j [by k]`, the `to` or `until` already read.
+private range(p: *Parser, from: &Expr, inclusive: bool) -> &Expr
+    val upto = parse_expr(p, RangePower)
+
+    if !p.accept(By) then return expr(RangeE(from, upto, None, inclusive), from.span.to(upto.span))
+
+    val step = parse_expr(p, RangePower)
+
+    expr(RangeE(from, upto, Some(step), inclusive), from.span.to(step.span))
 
 // A number literal, and juxtaposition: a literal immediately followed by a name or `(`, with no
 // space between, multiplies it -- `2n`, `3(x + 1)`.
@@ -118,6 +174,8 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
             val args = arguments(p)
 
             return expr(ApplyE(left, args), left.span.to(p.toks.previous()))
+        To -> return range(p, left, true)
+        Until -> return range(p, left, false)
         _ -> ()
 
     // `(e op)`: the operator's right operand is the `)`, which makes this half of a section.
@@ -167,7 +225,7 @@ private paren(p: *Parser, open: Span) -> &Expr
         p.expect(RParen, "`)`")
         return section(p, look.value, expr(Ref("$a"), look.span), operand, 1, open)
 
-    val first = parse_expr(p, 0)
+    val first = delimited(p)
 
     first.kind match
         SectionL(op, e) ->
@@ -181,7 +239,7 @@ private paren(p: *Parser, open: Span) -> &Expr
         items.push(first)
 
         while p.accept(Comma)
-            items.push(parse_expr(p, 0))
+            items.push(delimited(p))
 
         if !p.expect(RParen, "`,` or `)`") then p.skip_to_close()
 
@@ -261,7 +319,7 @@ arguments(p: *Parser) -> Buf[&Expr]
     if p.accept(RParen) then return args
 
     loop
-        args.push(parse_expr(p, 0))
+        args.push(delimited(p))
 
         if p.accept(Comma) then continue
 
@@ -300,11 +358,12 @@ private if_expr(p: *Parser, at: Span) -> &Expr
     expr(IfE(cond, yes, Some(no)), at.to(no.span))
 end if_expr
 
-// `every e [do b]`, the `every` already read.
+// `every e [do b]`, the `every` already read; an indented block after `e` is its body without the
+// `do`.
 private every_expr(p: *Parser, at: Span) -> &Expr
-    val gen = parse_expr(p, 0)
+    val gen = delimited(p)
 
-    if !p.accept(Do) then return expr(EveryE(gen, None), at.to(gen.span))
+    if !p.accept(Do) && !p.at_tok(Indent) then return expr(EveryE(gen, None), at.to(gen.span))
 
     val body = branch(p)
 

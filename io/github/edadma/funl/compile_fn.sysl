@@ -126,6 +126,7 @@ body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                         e.op(PushUnit)
                         e.op(Return)
         ReturnE(_) -> compile_value(e, c, x)?
+        YieldE(a) -> suspend(e, c, a, true)?
         _ ->
             compile_value(e, c, x)?
             e.op(Return)

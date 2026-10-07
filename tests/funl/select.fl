@@ -1,0 +1,5 @@
+every write( divisors(1001) )
+
+def divisors( n ) = select( 1 to n, (div n) )
+
+def select( a, p ) = if p( a ) then a

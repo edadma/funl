@@ -1,0 +1,1 @@
+every write( (k = 1 to 3) to k + 2 )

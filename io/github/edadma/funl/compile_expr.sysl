@@ -16,6 +16,10 @@ import sysl.buf.{Buf, buf}
 //     if c then t else e     Mark(no); c; FailIfFalse; Unmark; t; Branch(end); no: e; end:
 //     every g do b           g; Pop; MarkThrough; b; Unmark; Fail
 //     a statement            Mark(next); e; Unmark; next:
+//     !c                     c; GenStart; GenNext
+//     i to j by k            i; j; k; GenRange(true)
+//     |e                     top: MarkThrough; e; ChangeMark(top)
+//     yield e                Choice(after); e; Return; after: PushUnit
 //
 // A condition, a statement and the body of an `every` are bounded: their `Unmark` discards every
 // choice point made inside them. Everything else is left resumable, so a generator anywhere in an
@@ -121,12 +125,63 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
 
             e.op(ReturnCommit)
         FailE -> e.op(Fail)
+        ListE(items) ->
+            for a in items.view()
+                compile_value(e, c, a)?
+
+            e.op(PushNil)
+
+            for _ in 0..<items.len()
+                e.op(MakeCons)
+        BangE(a) ->
+            compile_value(e, c, a)?
+            e.op(GenStart)
+            e.op(GenNext)
+        RangeE(from, upto, by, inclusive) ->
+            compile_value(e, c, from)?
+            compile_value(e, c, upto)?
+
+            by match
+                Some(k) -> compile_value(e, c, k)?
+                None -> e.op(PushInt(1))
+
+            e.op(GenRange(inclusive))
+        RepAltE(a) ->
+            val top = e.label()
+
+            e.place(top)
+            e.op(MarkThrough)
+            compile_value(e, c, a)?
+            e.op(ChangeMark(top))
+        YieldE(a) -> suspend(e, c, a, false)?
+        AssignE(n, a) ->
+            compile_value(e, c, a)?
+            e.op(Dup)
+
+            c.res.meaning(c.sc, n) match
+                Local(depth, slot) -> e.op(if depth == 0 then StoreSlot(slot) else StoreUp(depth, slot))
+                _ -> return Err(s"'$n' was resolved and is not a variable")
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
 
     Ok(())
 end compile_value
+
+// `yield a`: `Choice(after); a; Return; after:` -- the choice point is pushed before `a`, so `a`'s
+// own generators are newer and are resumed first, and only when they are spent does the function
+// carry on past the `yield`. What it carries on with is `()`, or -- where the `yield` is the last
+// thing the body does (`last`) -- nothing: the function has no more values to produce, and fails.
+// Not `private`: a function body's tail position compiles `yield` with it too.
+suspend(e: *Emit, c: Ctx, a: &Expr, last: bool) -> Result[unit, string]
+    val after = e.label()
+
+    e.op(Choice(after))
+    compile_value(e, c, a)?
+    e.op(Return)
+    e.place(after)
+    e.op(if last then Fail else PushUnit)
+    Ok(())
 
 // `a | b`, or `a or b` when each side is a condition (`conditions`).
 private alternation(e: *Emit, c: Ctx, a: &Expr, b: &Expr, conditions: bool) -> Result[unit, string]

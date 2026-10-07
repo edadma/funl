@@ -154,8 +154,12 @@ ret(v: *Vm) -> Result[unit, string]
         Some(x) -> x
         None -> return Err("Return with nothing on the operand stack")
 
+    // A `yield` inside an expression returns with that expression's operands still standing above
+    // the frame's base; the `Restore` has saved them, and the caller must not see them.
     if v.control.len() > f.entry
         push_entry(v, Restore, 0, floor_of(v, f.caller_mark))
+
+    if v.stack.len() > f.base then v.stack.truncate(f.base)
 
     v.mark = f.caller_mark
     v.ip = f.return_ip

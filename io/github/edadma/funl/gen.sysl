@@ -1,0 +1,170 @@
+module io.github.edadma.funl
+
+import sysl.math.checked_add
+import sysl.text.{from_utf8_unchecked, is_char_boundary}
+
+// Generators, whose whole state is cells on the operand stack.
+//
+// **A cursor is immutable.** `GenNext` and `GenRange` never change a cursor a choice point has
+// saved: they overwrite the stack's cells with the ADVANCED cursor, push the choice point -- which
+// copies those cells -- and only then replace the cursor with the element. Resuming the choice point
+// therefore puts the advanced cursor back and runs the same instruction on it, and a choice point
+// restored twice would produce the same element twice rather than skipping one.
+//
+// **The last element leaves no choice point.** Where the advanced cursor is already exhausted there
+// is nothing to resume, so the element is produced as an ordinary value; a generator whose every
+// element has been produced has left nothing on the control stack.
+//
+// The cursor of `!c` is two cells: what is left of the collection, and a position in it. A list's
+// position stays 0 and its cell moves down the list; a tuple's position is an index and a string's a
+// byte offset, the collection itself staying put.
+
+// `GenStart`: the collection on top becomes its first cursor.
+gen_start(v: *Vm) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if top == 0 then return Err("the operand stack is empty")
+
+    val c = deref(v.stack.at(top - 1))
+
+    c match
+        Nil -> ()
+        Cons(_) -> ()
+        Tuple(_) -> ()
+        Str(_) -> ()
+        Var(_) -> return Err("instantiation error: `!` was given an unbound variable")
+        _ -> return Err(s"`!` generates the elements of a list, a tuple or a string, and was given ${described(c)}")
+
+    v.stack.set(top - 1, c)
+    v.stack.push(Int(0))
+    Ok(())
+
+// `GenNext`: the next element of the cursor on top, or failure when there is none.
+gen_next(v: *Vm) -> Result[bool, string]
+    val top = v.stack.len()
+
+    if top < 2 then return Err("a cursor is two cells and the operand stack holds fewer")
+
+    val at = v.stack.at(top - 1) match
+        Int(n) -> n
+        _ -> return Err("a cursor's position is not an integer")
+
+    // The element, and the cursor after it -- `rest` at `next` -- with whether that one is spent.
+    var elem = Undefined
+    var rest = Undefined
+    var next: long = 0
+    var spent = false
+
+    deref(v.stack.at(top - 2)) match
+        Nil ->
+            v.stack.truncate(top - 2)
+            return Ok(false)
+        Cons(p) ->
+            elem = p.head
+            rest = deref(p.tail)
+            spent = rest match
+                Nil -> true
+                _ -> false
+        Tuple(t) ->
+            val n = long(t.items.len())
+
+            if at >= n
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = t.items.at(usize(at))
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next == n
+        Str(p) ->
+            val bytes = p.s.bytes
+            val n = bytes.len
+
+            if usize(at) >= n
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            var end = usize(at) + 1
+
+            while end < n && !is_char_boundary(bytes[end])
+                end += 1
+
+            elem = new_str(from_utf8_unchecked(bytes[usize(at)..<end]))?
+            rest = v.stack.at(top - 2)
+            next = long(end)
+            spent = end == n
+        Var(_) -> return Err("instantiation error: `!` reached an unbound tail of a list")
+        x -> return Err(s"`!` reached the end of a list that ends in ${described(x)} rather than `[]`")
+
+    if !spent
+        v.stack.set(top - 2, rest)
+        v.stack.set(top - 1, Int(next))
+        push_choice(v, v.ip - 1)
+
+    v.stack.truncate(top - 2)
+    v.stack.push(elem)
+    Ok(true)
+end gen_next
+
+// `GenRange`: the next integer of `i to j by k` (`inclusive`) or `i until j by k`, the three cells
+// on top, or failure once the range is spent.
+gen_range(v: *Vm, inclusive: bool) -> Result[bool, string]
+    val top = v.stack.len()
+
+    if top < 3 then return Err("a range's cursor is three cells and the operand stack holds fewer")
+
+    val word = if inclusive then "to" else "until"
+    val cur = bound(v.stack.at(top - 3), word)?
+    val last = bound(v.stack.at(top - 2), word)?
+    val step = bound(v.stack.at(top - 1), word)?
+
+    if step == 0 then return Err(s"`$word ... by 0` would produce $cur for ever: a step cannot be zero")
+
+    if past(cur, last, step, inclusive)
+        v.stack.truncate(top - 3)
+        return Ok(false)
+
+    checked_add(cur, step) match
+        Some(next) ->
+            if !past(next, last, step, inclusive)
+                v.stack.set(top - 3, Int(next))
+                v.stack.set(top - 2, Int(last))
+                v.stack.set(top - 1, Int(step))
+                push_choice(v, v.ip - 1)
+        None -> ()
+
+    v.stack.truncate(top - 3)
+    v.stack.push(Int(cur))
+    Ok(true)
+end gen_range
+
+// A range's bound or step, which must be an integer.
+private bound(x: Value, word: string) -> Result[long, string]
+    deref(x) match
+        Int(n) -> Ok(n)
+        Var(_) -> Err(s"instantiation error: `$word` was given an unbound variable")
+        y -> Err(s"`$word` counts with integers and was given ${described(y)}")
+
+// Whether `n` is beyond where a range stepping by `step` towards `last` stops.
+private past(n: long, last: long, step: long, inclusive: bool) -> bool
+    if step > 0 then return if inclusive then n > last else n >= last
+
+    if inclusive then n < last else n <= last
+
+// `ChangeMark(to)`, ending a round of `|e` that produced a value.
+//
+// The round's mark becomes one that restarts `e` at `to` when failure reaches it, and stops being
+// the innermost: what follows `|e` belongs to the enclosing bounded expression. **And a `Restore` is
+// pushed**, for the reason a generating call's return pushes one: the code after `|e` pops cells
+// below the round's mark while `e`'s choice points are still resumable, so backtracking has to put
+// the enclosing expression's cells back before it resumes inside `e`.
+change_mark(v: *Vm, to: usize) -> Result[unit, string]
+    if v.mark == NoMark then return Err("ChangeMark with no mark open")
+
+    val at = v.mark
+    val m = v.control.at(at)
+
+    v.control.set(at, Entry(Mark, to, m.code, m.frame, m.mark, m.floor, m.saved_at, m.trail, m.stamp))
+    v.mark = m.mark
+    push_entry(v, Restore, 0, floor_of(v, v.mark))
+    Ok(())

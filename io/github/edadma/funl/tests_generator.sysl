@@ -1,0 +1,208 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Generators, compiled from source and run on both heaps: `to`, `until` and `by`, `!`, `|e`,
+// `yield`, a function whose body generates, assignment inside an expression -- how each is
+// backtracked into by a later failure, and what each refuses.
+
+// What a program said, which must have faulted with a message containing `want`.
+private generator_fault(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- ranges ---------------------------------------------------------------------------------------
+
+@test
+TO_COUNTS_TO_ITS_BOUND_AND_UNTIL_STOPS_SHORT_OF_IT()
+    assert_eq(ran_funl("every write( 1 to 3 )\nevery write( 1 until 3 )\n"), "1\n2\n3\n1\n2\nsucceeded")
+
+@test
+BY_STEPS_UP_OR_DOWN()
+    val text = "every write( 1 to 10 by 4 )\nevery write( 10 to 1 by -3 )\nevery write( 10 until 1 by -3 )\n"
+
+    assert_eq(ran_funl(text), "1\n5\n9\n10\n7\n4\n1\n10\n7\n4\nsucceeded")
+
+@test
+A_RANGE_THAT_HOLDS_NOTHING_FAILS()
+    val text = "write( 9 until 9 )\nwrite( 5 to 1 )\nwrite( 1 to 5 by -1 )\nwrite( #after )\n"
+
+    assert_eq(ran_funl(text), "after\nsucceeded")
+
+// The step past the largest integer would overflow; the range ends at its bound instead.
+@test
+A_RANGE_ENDING_AT_THE_LARGEST_INTEGER_STOPS_THERE()
+    val text = "every write( 9223372036854775806 to 9223372036854775807 )\n"
+
+    assert_eq(ran_funl(text), "9223372036854775806\n9223372036854775807\nsucceeded")
+
+@test
+A_RANGES_BOUNDS_ARE_EXPRESSIONS_LOOSER_THAN_ARITHMETIC()
+    assert_eq(ran_funl("n = 2\nevery write( n - 1 to n * 2 by n - 1 )\n"), "1\n2\n3\n4\nsucceeded")
+
+@test
+A_STEP_OF_ZERO_IS_REFUSED()
+    generator_fault("write( 1 to 5 by 0 )\n", "a step cannot be zero")
+
+@test
+A_RANGE_COUNTS_ONLY_WITH_INTEGERS()
+    generator_fault("write( 1 to 'a' )\n", "`to` counts with integers and was given the string 'a'")
+    generator_fault("write( 1 until 4 by #x )\n", "`until` counts with integers")
+    generator_fault("free x\nwrite( x to 3 )\n", "instantiation error: `to` was given an unbound variable")
+
+// -- ! --------------------------------------------------------------------------------------------
+
+@test
+BANG_GENERATES_THE_ELEMENTS_OF_A_LIST_A_TUPLE_AND_A_STRING()
+    val text = "every write( ![1, #b, 'c'] )\nevery write( !(4, 5) )\nevery write( !'héllo' )\n"
+
+    assert_eq(ran_funl(text), "1\nb\nc\n4\n5\nh\né\nl\nl\no\nsucceeded")
+
+@test
+BANG_OF_SOMETHING_EMPTY_FAILS()
+    assert_eq(ran_funl("write( ![] )\nwrite( !'' )\nwrite( #after )\n"), "after\nsucceeded")
+
+@test
+BANG_BINDS_TIGHTER_THAN_ARITHMETIC_AND_LOOSER_THAN_A_CALL()
+    val text = "def two() = [10, 20]\nevery write( 1 + !two() )\n"
+
+    assert_eq(ran_funl(text), "11\n21\nsucceeded")
+
+@test
+BANG_REFUSES_WHAT_HAS_NO_ELEMENTS()
+    generator_fault("write( !5 )\n", "`!` generates the elements of a list, a tuple or a string, and was given the integer 5")
+    generator_fault("free x\nwrite( !x )\n", "instantiation error: `!` was given an unbound variable")
+
+// -- backtracking into a generator ------------------------------------------------------------------
+
+// The comparison fails for 1 and 2; each failure resumes the range for its next value.
+@test
+A_LATER_FAILURE_BACKTRACKS_INTO_THE_GENERATOR()
+    val text = "every (x = 1 to 5) > 2 & write( x * 100 )\nwrite( (y = 1 to 9) > 3 & y )\n"
+
+    assert_eq(ran_funl(text), "300\n400\n500\n4\nsucceeded")
+
+// A statement is bounded: its first value, and its generators are gone.
+@test
+A_STATEMENT_TAKES_ONLY_THE_FIRST_VALUE()
+    assert_eq(ran_funl("write( 1 to 3 )\nwrite( ![7, 8] )\n"), "1\n7\nsucceeded")
+
+// `+` pops the operand beneath the generator before the generator is resumed; the choice point
+// has to have saved it.
+@test
+THE_OPERANDS_BENEATH_A_RESUMED_GENERATOR_ARE_PUT_BACK()
+    val text = "every write( 1000 + ![1, 2] )\nevery write( (1 to 3) + (10 to 20 by 10) )\n"
+
+    assert_eq(ran_funl(text), "1001\n1002\n11\n21\n12\n22\n13\n23\nsucceeded")
+
+@test
+EVERY_DRIVES_A_GENERATOR_THROUGH_A_BODY_WITH_OR_WITHOUT_DO()
+    val text = "every i = 1 to 2\n  write( i )\nevery j = ![#a, #b] do write( j )\n"
+
+    assert_eq(ran_funl(text), "1\n2\na\nb\nsucceeded")
+
+// -- |e --------------------------------------------------------------------------------------------
+
+// `repeated alternation 1` of the old suite, with an assignment where it has `a++`.
+@test
+REPEATED_ALTERNATION_RUNS_ROUNDS_UNTIL_ONE_PRODUCES_NOTHING()
+    val text = "a = 0\nevery write( |(if (a = a + 1) < 4 then a) )\n"
+
+    assert_eq(ran_funl(text), "1\n2\n3\nsucceeded")
+
+// Each round passes on every value its expression has, and the `+` beneath it is put back for
+// each.
+@test
+REPEATED_ALTERNATION_PASSES_ON_EVERY_VALUE_OF_A_ROUND()
+    val text = "a = 0\nevery write( 100 + |(if (a = a + 1) < 3 then (a | a * 10)) )\n"
+
+    assert_eq(ran_funl(text), "101\n110\n102\n120\nsucceeded")
+
+@test
+REPEATED_ALTERNATION_OF_WHAT_PRODUCES_NOTHING_FAILS()
+    assert_eq(ran_funl("write( |fail )\nwrite( |(1 to 0) )\nwrite( #after )\n"), "after\nsucceeded")
+
+// A statement takes the first value of an endless `|e` and goes on.
+@test
+REPEATED_ALTERNATION_IN_A_STATEMENT_IS_BOUNDED()
+    assert_eq(ran_funl("write( |7 )\nwrite( #after )\n"), "7\nafter\nsucceeded")
+
+// -- functions that generate -----------------------------------------------------------------------
+
+@test
+A_FUNCTION_WHOSE_BODY_GENERATES_IS_A_GENERATOR()
+    val text = "def evens( n ) = 0 to n by 2\nevery write( evens(5) )\n"
+
+    assert_eq(ran_funl(text), "0\n2\n4\nsucceeded")
+
+@test
+YIELD_HANDS_OVER_A_VALUE_AND_RESUMES_AFTER_IT()
+    val text = "def gen( n )\n  yield n\n  write( #resumed )\n  yield n + 1\nevery write( gen(5) )\n"
+
+    assert_eq(ran_funl(text), "5\nresumed\n6\nsucceeded")
+
+// The `yield` pushes its choice point before its operand, so a generating operand gives every value
+// before the function moves past the `yield`.
+@test
+YIELD_OF_A_GENERATOR_PASSES_ON_ALL_ITS_VALUES_FIRST()
+    val text = "def count( n )\n  if n > 1\n    yield count( n - 1 )\n  yield n\nevery write( count(4) )\n"
+
+    assert_eq(ran_funl(text), "1\n2\n3\n4\nsucceeded")
+
+// Resumed after a `yield` that ends its body, a function has nothing more to produce.
+@test
+A_YIELD_THAT_ENDS_THE_BODY_ENDS_THE_GENERATOR()
+    assert_eq(ran_funl("def g()\n  yield 1\nevery write( g() )\n"), "1\nsucceeded")
+
+// The tuple's first item is the `yield`; returning from inside it must not leave the half-built
+// tuple's operands to the caller, and resuming it must put them back.
+@test
+A_YIELD_INSIDE_AN_EXPRESSION_RESUMES_THAT_EXPRESSION()
+    val text = "def f() = (yield 5, 6)\nevery write( f() )\nevery write( (100, f()) )\n"
+
+    assert_eq(ran_funl(text), "5\n((), 6)\n(100, 5)\n(100, ((), 6))\nsucceeded")
+
+@test
+RETURN_AFTER_A_YIELD_IS_THE_LAST_VALUE()
+    val text = "def g()\n  yield 1\n  return 2\n  yield 3\nevery write( g() )\ndef h() = return ![7, 8]\nevery write( h() )\n"
+
+    assert_eq(ran_funl(text), "1\n2\n7\nsucceeded")
+
+@test
+TWO_GENERATING_CALLS_IN_ONE_EXPRESSION_ARE_RESUMED_INNERMOST_FIRST()
+    val text = "def gen( n )\n  yield n\n  yield n + 1\nevery write( gen(1) + gen(10) )\n"
+
+    assert_eq(ran_funl(text), "11\n12\n12\n13\nsucceeded")
+
+// A later failure in the caller reaches back into the suspended function.
+@test
+A_FAILURE_IN_THE_CALLER_RESUMES_THE_SUSPENDED_FUNCTION()
+    val text = "def gen()\n  yield 1\n  yield 5\n  yield 9\nwrite( gen() > 4 )\nevery gen() > 4 & write( #big )\n"
+
+    assert_eq(ran_funl(text), "4\nbig\nbig\nsucceeded")
+
+@test
+YIELD_OUTSIDE_A_FUNCTION_IS_REFUSED()
+    assert_eq(complaints("yield 5\n"), "error 1:1 `yield` is written inside a function\n")
+
+// -- assignment inside an expression -------------------------------------------------------------
+
+@test
+AN_ASSIGNMENT_STORES_EACH_VALUE_ITS_GENERATOR_PRODUCES()
+    val text = "every write( (k = 1 to 2) * 10, k )\n"
+
+    assert_eq(ran_funl(text), "10, 1\n20, 2\nsucceeded")
+
+@test
+A_FUNCTION_ASSIGNS_A_VARIABLE_OF_THE_TOP_LEVEL()
+    val text = "n = 0\ndef bump() = (n = n + 1)\nbump()\nbump()\nwrite( n )\n"
+
+    assert_eq(ran_funl(text), "2\nsucceeded")
+
+@test
+ASSIGNING_A_FUNCTION_IS_REFUSED()
+    assert_eq(complaints("def f() = 1\nwrite( (f = 2) )\n"),
+        "error 2:8 `f` is a function, a relation or a builtin, and cannot be assigned\n")

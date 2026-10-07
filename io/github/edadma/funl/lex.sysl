@@ -204,8 +204,16 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
             out.push(Equals, Span(start, s.at))
 
             if ends_line(s) then lay.opens_block()
-    elif c == u8('!') && s.accept(u8('='))
-        out.push(BangEq, Span(start, s.at))
+    elif c == u8('!')
+        out.push(if s.accept(u8('=')) then BangEq else Bang, Span(start, s.at))
+    elif c == u8('[')
+        lay.open_bracket()
+        out.push(LBracket, Span(start, s.at))
+    elif c == u8(']')
+        for _ in 0..<lay.close_bracket()
+            out.push(Dedent, point(start))
+
+        out.push(RBracket, Span(start, s.at))
     elif c == u8(':') && s.accept(u8('-'))
         out.push(Turnstile, Span(start, s.at))
 

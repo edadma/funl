@@ -133,7 +133,10 @@ while c do b                   top: MarkThrough; c; FailIfFalse; Unmark; Mark(to
 
 `FailIfFalse` is how [`false` fails a condition](language.md#conditions-and-false): it is emitted
 after every condition and nowhere else. `ChangeMark` re-aims the current mark's resumption at the top of `|e`, so that
-when `e` runs out of values in one round the next failure starts it again.
+when `e` runs out of values in one round the next failure starts it again. It also makes the
+enclosing mark the innermost again — what follows `|e` belongs to the enclosing expression — and
+pushes a `Restore` for the reason a generating call's return does: the code after `|e` pops cells
+below the round's mark while `e`'s choice points are still resumable (`a + |e`).
 
 **`every` is the clearest picture of the whole machine**: its body ends in `Fail`, the failure
 backtracks into the most recent generator in `e`, that generator produces its next value and the
@@ -242,7 +245,11 @@ TailCall(argc)      when control.len == frame.entry (nothing resumable was creat
 **`yield e` is `Choice(after); e; Return`.** The choice point is pushed *before* `e`, so if `e`
 itself generates, its choice points are newer and are resumed first: `yield permute_(n - 1, a)`
 yields every value of the inner call before the outer one continues past its `yield`. When they
-are exhausted, failure reaches the `yield`'s choice point and the function carries on from `after`.
+are exhausted, failure reaches the `yield`'s choice point and the function carries on from `after`
+with `()` as the `yield`'s value — or, where the `yield` ends the body, with `Fail`: the function
+has nothing more to produce. `Return` truncates the operand stack to the frame's base after pushing
+its `Restore`, so a `yield` inside an expression (`(yield 5, 6)`) leaves the caller none of that
+expression's operands.
 
 **A body expression's value is returned with `Return`, so its generators survive the return.** That
 is the whole mechanism by which a function whose body generates is a generator.
@@ -276,7 +283,11 @@ GenNext         read the cursor; if exhausted, pop it and Fail; otherwise comput
 ```
 
 The choice point's saved cells hold the *advanced* cursor, so resuming at `GenNext` produces the next
-element. `i to j by k` is the same with `(current, last, step)` and no collection at all.
+element. `i to j by k` is the same with `(current, last, step)` and no collection at all. The
+cursor of `!c` is two cells, what is left of the collection and a position in it, for every kind of
+collection alike: a list's position stays 0 while its cell moves down the list. A generator whose
+advanced cursor is already exhausted pushes no choice point, so its last element leaves nothing
+behind.
 
 **The old machine kept a mutable Scala iterator in the saved stack** and advanced it on each
 resumption. That works only while every choice point is restored at most once, which is true today

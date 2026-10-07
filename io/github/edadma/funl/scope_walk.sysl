@@ -166,8 +166,37 @@ walk(w: *Walk, e: &Expr)
         SectionL(_, _) ->
             w.report.add(error(e.span, "this operator has no right operand")
                 .with_note("a section that fixes the left operand is written in parentheses: `(2 *)`"))
+        ListE(items) ->
+            for x in items.view()
+                walk(w, x)
+        BangE(x) -> walk(w, x)
+        RepAltE(x) -> walk(w, x)
+        RangeE(a, b, by, _) ->
+            walk_two(w, a, b)
+
+            by match
+                Some(x) -> walk(w, x)
+                None -> ()
+        YieldE(x) ->
+            if !w.function
+                w.report.add(error(e.span, "`yield` is written inside a function")
+                    .with_note("it hands a value to the function's caller, and the top level and a relation have none"))
+
+            walk(w, x)
+        AssignE(n, x) ->
+            walk(w, x)
+            assigned(w, n, e.span)
         _ -> ()
 end walk
+
+// The target of `name = e`: a variable already in reach, or else a new one in the scope being read.
+private assigned(w: *Walk, n: string, at: Span)
+    w.meaning(n) match
+        Local(depth, _) -> if depth == 0 then w.sc.note(n, at)
+        Unknown -> if !refused_as_variable(w, n, at) then w.sc.note(n, at)
+        _ ->
+            w.report.add(error(at, s"`$n` is a function, a relation or a builtin, and cannot be assigned")
+                .with_note("`name = e` assigns a variable"))
 
 private walk_two(w: *Walk, a: &Expr, b: &Expr)
     walk(w, a)
@@ -280,6 +309,19 @@ hoist_expr(w: *Walk, e: &Expr)
         ReturnE(x) ->
             x match
                 Some(v) -> hoist_expr(w, v)
+                None -> ()
+        ListE(items) ->
+            for x in items.view()
+                hoist_expr(w, x)
+        BangE(x) -> hoist_expr(w, x)
+        RepAltE(x) -> hoist_expr(w, x)
+        YieldE(x) -> hoist_expr(w, x)
+        AssignE(_, x) -> hoist_expr(w, x)
+        RangeE(a, b, by, _) ->
+            hoist_two(w, a, b)
+
+            by match
+                Some(x) -> hoist_expr(w, x)
                 None -> ()
         _ -> ()
 end hoist_expr

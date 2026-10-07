@@ -4,7 +4,7 @@ import sysl.buf.{Buf, buf}
 
 // The instruction set, and the chunk it is kept in.
 //
-// A jump target (`Mark`, `Choice`, `Branch`) is an instruction index within the same chunk. A call
+// A jump target (`Mark`, `Choice`, `Branch`, `ChangeMark`) is an instruction index within the same chunk. A call
 // target is a chunk index into `Vm.chunks`.
 //
 // **One instruction set for both languages the machine runs, dispatched by one match.** A Prolog
@@ -170,6 +170,28 @@ enum Op
     // No clause of the running function matched its arguments: an error naming the function and
     // what it was given.
     NoMatch
+
+    // Pop into slot `slot` of the frame `depth` static links up.
+    StoreUp(depth: usize, slot: usize)
+
+    // -- generators (`gen.sysl`) --------------------------------------------------------------------
+
+    // Replace the collection on top with its first cursor, two cells: what is left of it and a
+    // position in it.
+    GenStart
+
+    // Replace the cursor on top with its next element, leaving a choice point that resumes here on
+    // the advanced cursor; fail when it is exhausted.
+    GenNext
+
+    // The cursor of `i to j by k` is the three cells `i`, `j`, `k`: replace them with `i`, leaving a
+    // choice point that resumes here on `i + k`; fail once `i` has passed `j` (`inclusive`) or
+    // reached it.
+    GenRange(inclusive: bool)
+
+    // End a round of `|e` that produced a value: the innermost mark, pushed at `to`, now restarts
+    // `e` there when failure reaches it, and the enclosing mark becomes the innermost again.
+    ChangeMark(to: usize)
 end Op
 
 // What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame.

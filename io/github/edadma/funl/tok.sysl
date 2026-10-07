@@ -5,8 +5,8 @@ import sh.sysl.parsing.*
 // The tokens, and how strongly each infix one binds.
 //
 // **The ladder, lowest first**: the lambda arrow `->` (right) · `or` · `and` · the operand of `not` ·
-// alternation `|` · conjunction `&` · comparison `~`, `==`, `!=`, `<`, `<=`, `>`, `>=` · `+ -` ·
-// `* / \ % mod div` · `^` (right) · prefix `-` · application. Comparison binds tighter than `&` and
+// alternation `|` · conjunction `&` · comparison `~`, `==`, `!=`, `<`, `<=`, `>`, `>=` · `to until` · `+ -` ·
+// `* / \ % mod div` · `^` (right) · prefix `-` · `!` · application. Comparison binds tighter than `&` and
 // `|`, so a rule body reads `a != b & f != m` as the two goals `logic.md` says it is.
 
 enum Tok
@@ -36,9 +36,16 @@ enum Tok
     Otherwise
     Mod
     Div
+    To
+    Until
+    By
+    YieldW
 
     LParen
     RParen
+    LBracket
+    RBracket
+    Bang
     Comma
     Amp
     Bar
@@ -104,8 +111,15 @@ private spelling(t: Tok) -> string
         Otherwise -> "otherwise"
         Mod -> "mod"
         Div -> "div"
+        To -> "to"
+        Until -> "until"
+        By -> "by"
+        YieldW -> "yield"
         LParen -> "("
         RParen -> ")"
+        LBracket -> "["
+        RBracket -> "]"
+        Bang -> "!"
         Comma -> ","
         Amp -> "&"
         Bar -> "|"
@@ -152,6 +166,10 @@ keyword(s: string) -> Option[Tok]
     if s == "otherwise" then return Some(Otherwise)
     if s == "mod" then return Some(Mod)
     if s == "div" then return Some(Div)
+    if s == "to" then return Some(To)
+    if s == "until" then return Some(Until)
+    if s == "by" then return Some(By)
+    if s == "yield" then return Some(YieldW)
 
     None
 end keyword
@@ -172,6 +190,8 @@ power(t: Tok) -> Power
         LessEq -> left_assoc(40)
         Greater -> left_assoc(40)
         GreaterEq -> left_assoc(40)
+        To -> left_assoc(RangePower)
+        Until -> left_assoc(RangePower)
         Plus -> left_assoc(50)
         Minus -> left_assoc(50)
         Star -> left_assoc(60)
@@ -190,8 +210,20 @@ const ArrowPower: u8 = 5
 // The level `not` reads its operand at: everything that binds tighter than `and`.
 const NotPower: u8 = 14
 
-// The level `return` reads its operand at: everything that binds tighter than `&`.
+// The level `return` and `yield` read their operand at: everything that binds tighter than `&`.
 const ReturnPower: u8 = 30
+
+// The level the operand of a prefix `|` is read at: everything that binds tighter than `|`, so
+// `|a | b` is `(|a) | b`.
+const RepeatPower: u8 = 20
+
+// `to` and `until`, and the level their bounds and a `by` step are read at: looser than arithmetic,
+// tighter than a comparison, so `1 to n + 1` counts to `n + 1` and `x == 1 to 3` compares with each.
+const RangePower: u8 = 45
+
+// The level the operand of `!` is read at: application binds tighter, so `!f(x)` generates the
+// elements of `f(x)`.
+const BangPower: u8 = 88
 
 // The level prefix `-` reads its operand at: `^` binds tighter, `*` does not, so `-2^2` is `-(2^2)`.
 const NegPower: u8 = 65
@@ -247,4 +279,8 @@ starts_expr(t: Tok) -> bool
         FalseW -> true
         Otherwise -> true
         Minus -> true
+        Bang -> true
+        Bar -> true
+        YieldW -> true
+        LBracket -> true
         _ -> false

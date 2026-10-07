@@ -1,0 +1,3 @@
+every x = 1|2 do
+  every y = 3|4 do
+    write( x, y )

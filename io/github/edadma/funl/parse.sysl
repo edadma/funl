@@ -179,6 +179,13 @@ tag(t: Tok) -> u8
         LessEq -> 47
         Greater -> 48
         GreaterEq -> 49
+        To -> 50
+        Until -> 51
+        By -> 52
+        YieldW -> 53
+        LBracket -> 54
+        RBracket -> 55
+        Bang -> 56
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.

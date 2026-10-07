@@ -224,6 +224,15 @@ every write( permute([1, 2, 3, 4]) )        ;; all 24 permutations, Heap's order
 `permute` generates because its body `permute_(…)` does: **a body expression passes every value it
 produces through to the caller.** The old implementation emits nothing to bound it.
 
+A `yield` resumed carries on with `()` as its own value — except where it is the last thing the
+body does, when the function has no more to produce and fails, as Icon's procedure does on falling
+off its end. So `def g()` with the two lines `yield 1` and `yield 2` produces exactly `1` and `2`;
+the old implementation produced a third value, `()`.
+
+Inside parentheses, in a call's arguments and at the head of `every`, `name = e` is an assignment
+expression: it stores each value of `e` in `name` and produces it, so `every write( (k = 1 to 3) to
+k + 2 )` binds `k` once per value of the outer range.
+
 > **Decided — is `return e` bounded?**
 > The old compiler unmarks the enclosing statements and then evaluates `e` *unbounded*, so
 > `return !xs` generates every element. **Decision: `return e` produces only `e`'s first

@@ -79,3 +79,15 @@ SIGN()
 @test
 FACTORIAL_1()
     corpus("factorial_1")
+
+@test
+TO()
+    corpus("to")
+
+@test
+SELECT()
+    corpus("select")
+
+@test
+NESTED_EVERY()
+    corpus("nested_every")
