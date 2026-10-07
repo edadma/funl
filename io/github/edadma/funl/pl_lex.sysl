@@ -211,7 +211,9 @@ private number(s: *Scanner, report: *Report) -> PlTok
     n
 end number
 
-private exponent_digits(a: Option[u8], b: Option[u8]) -> bool = a match
+// Whether the two bytes after an `e` make it an exponent: a digit, or a sign and a digit. Both
+// readers' float literals ask it.
+exponent_digits(a: Option[u8], b: Option[u8]) -> bool = a match
     Some(x) ->
         if is_digit(x) then true
         elif x == u8('+') || x == u8('-') then b.map((y) -> is_digit(y)).unwrap_or(false)

@@ -9,6 +9,7 @@ import sysl.text.Search
 
 private const Program: string = "import \"tests/prolog/errors.pl\"\n" +
     "def divide( a, b ) = a / b\n" +
+    "def floor_divide( a, b ) = a // b\n" +
     "def add( a, b ) = a + b\n" +
     "def subtract( a, b ) = a - b\n" +
     "def head( h:_ ) = h\n" +
@@ -33,6 +34,7 @@ private formal(goal: string) -> string = ran_funl(Program + s"$goal()\n")
 @test
 DIVIDING_BY_ZERO_IS_AN_EVALUATION_ERROR()
     assert_eq(formal("divide_by_zero"), "evaluation_error(zero_divisor)\nsucceeded")
+    assert_eq(formal("floor_divide_by_zero"), "evaluation_error(zero_divisor)\nsucceeded")
 
 @test
 AN_OVERFLOW_IS_AN_EVALUATION_ERROR()

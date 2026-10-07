@@ -178,9 +178,18 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         return true
 
     if is_digit(c)
+        val radix = c == u8('0') && s.peek_at(1).map((p) -> is_radix_letter(p)).unwrap_or(false)
+
         read_integer(s) match
             Ok(n) ->
-                if n > 9223372036854775807
+                if !radix && float_follows(s)
+                    read_float_tail(s)
+                    report.add(error(Span(start, s.at), "floats are not supported yet")
+                        .with_note("FunL has no float value until its numeric tower lands; write an integer"))
+
+                    // An integer in its place, so the expression it was part of is not refused as well.
+                    out.push(IntLit(0), Span(start, s.at))
+                elif n > 9223372036854775807
                     report.add(error(Span(start, s.at), "this integer is too large to hold")
                         .with_note("an integer is 64 bits, signed"))
                 else
@@ -336,7 +345,10 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
     elif c == u8('*')
         out.push(operator_or_assign(s, Star, Mul), Span(start, s.at))
     elif c == u8('/')
-        out.push(operator_or_assign(s, Slash, Quo), Span(start, s.at))
+        if s.accept(u8('/'))
+            out.push(operator_or_assign(s, SlashSlash, FloorQuo), Span(start, s.at))
+        else
+            out.push(operator_or_assign(s, Slash, Quo), Span(start, s.at))
     elif c == u8('\\')
         out.push(operator_or_assign(s, Backslash, IntQuo), Span(start, s.at))
     elif c == u8('%')
@@ -349,6 +361,31 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
 
     true
 end one_token
+
+// **A decimal integer followed by a fraction or an exponent is a float**: `1.5`, `1e3`, `2.5e-3`.
+// A `.` counts as a fraction only with a digit after it, so `1..5`, `1..<5` and `3.length` are
+// still an integer and what follows it; an `e` only with a digit, or a sign and a digit, after it,
+// so `2e` is still `2` times `e`.
+private float_follows(s: *Scanner) -> bool
+    if s.peek() == Some(u8('.')) && s.peek_at(1).map((d) -> is_digit(d)).unwrap_or(false) then return true
+
+    (s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))) && exponent_digits(s.peek_at(1), s.peek_at(2))
+
+// The rest of a float whose integer part has been read: its fraction and its exponent, as far as
+// they go.
+private read_float_tail(s: *Scanner)
+    if s.peek() == Some(u8('.')) && s.peek_at(1).map((d) -> is_digit(d)).unwrap_or(false)
+        s.bump()
+        s.accept_while(is_digit)
+
+    if (s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))) && exponent_digits(s.peek_at(1), s.peek_at(2))
+        s.bump()
+        s.accept_any("+-".bytes)
+        s.accept_while(is_digit)
+
+// The second letter of a radix prefix, `0x`, `0o` or `0b`.
+private is_radix_letter(b: u8) -> bool =
+    b == u8('x') || b == u8('X') || b == u8('o') || b == u8('O') || b == u8('b') || b == u8('B')
 
 // An arithmetic operator just read: itself, or with a `=` touching it the assignment through it.
 private operator_or_assign(s: *Scanner, plain: Tok, o: BinOp) -> Tok = if s.accept(u8('=')) then OpEq(o) else plain

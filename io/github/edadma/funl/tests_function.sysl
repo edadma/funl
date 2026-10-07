@@ -278,6 +278,29 @@ ARITHMETIC_ON_INTEGERS_AND_ORDERINGS_THAT_CHAIN()
     assert_eq(ran_funl(text), "7, 9, 512, -4, 3, -4, 1, -1\n3, b, ab1\n12, 3\nsucceeded")
 
 @test
+FLOOR_DIVISION_ROUNDS_TOWARD_NEGATIVE_INFINITY()
+    val text = "write( 10 // 4, -7 // 2, 7 // -2, -7 // -2, 8 // 2, 0 // 5 )\n" +
+        "write( 2 + 9 // 2 * 3, 20 // 2 // 3, 7 // 2 ^ 2 )\n" +
+        "write( (// 2)(9), (9 //)(2) )\n" +
+        "var x = 17\nx //= 5\nwrite( x )\n"
+
+    assert_eq(ran_funl(text), "2, -4, -4, 3, 4, 0\n14, 3, 1\n4, 4\n3\nsucceeded")
+
+@test
+FLOOR_DIVISION_REFUSES_A_ZERO_DIVISOR_AND_WHAT_IS_NOT_A_NUMBER()
+    faulted_with("write( 1 // 0 )\n", "1 // 0 divides by zero")
+    faulted_with("write( #a // 2 )\n", "'//' wants numbers and was given a")
+    faulted_with("val m = -9223372036854775807 - 1\nwrite( m // -1 )\n", "does not fit in 64 bits")
+    faulted_with("var k\nwrite( 1 // k )\n", "'//' wants numbers and was given undefined")
+
+@test
+TWO_SLASHES_APART_ARE_DIVISION_BY_AN_UNDEFINED_TEST_AND_ONE_IS_DIVISION_OR_THE_TEST()
+    assert_eq(ran_funl("val b = 2\nwrite( 10 / b, 10 // b )\n"), "5, 5\nsucceeded")
+    assert_eq(ran_funl("var k\nwrite( /k )\nval b = 2\nwrite( /b )\nwrite( #after )\n"), "undefined\nafter\nsucceeded")
+    assert_eq(ran_funl("val b = 2\nwrite( 10 / /b )\nwrite( #after )\n"), "after\nsucceeded")
+    faulted_with("var k\nwrite( 10 / /k )\n", "'/' wants numbers and was given undefined")
+
+@test
 A_RESULT_THAT_IS_NOT_A_64_BIT_INTEGER_IS_AN_ERROR()
     faulted_with("write( 7 / 2 )\n", "7 / 2 is not a whole number")
     faulted_with("write( 9223372036854775807 + 1 )\n", "does not fit in 64 bits")

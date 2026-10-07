@@ -10,6 +10,7 @@ try(Goal) :- catch((Goal, Formal = none), error(Formal, _), true), write(Formal)
 
 % Call each FunL function with arguments that make it raise.
 divide_by_zero :- try(divide(1, 0, _)).
+floor_divide_by_zero :- try(floor_divide(1, 0, _)).
 overflow :- try(add(9223372036854775807, 1, _)).
 inexact :- try(divide(7, 2, _)).
 not_a_number :- try(subtract(1, a, _)).

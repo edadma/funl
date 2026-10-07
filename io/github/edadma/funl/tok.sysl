@@ -78,6 +78,7 @@ enum Tok
     Minus
     Star
     Slash
+    SlashSlash
     Backslash
     Percent
     Caret
@@ -217,6 +218,7 @@ private spelling(t: Tok) -> string
         Minus -> "-"
         Star -> "*"
         Slash -> "/"
+        SlashSlash -> "//"
         Backslash -> "\\"
         Percent -> "%"
         Caret -> "^"
@@ -295,6 +297,7 @@ power(t: Tok) -> Power
         Minus -> left_assoc(50)
         Star -> left_assoc(60)
         Slash -> left_assoc(60)
+        SlashSlash -> left_assoc(60)
         Backslash -> left_assoc(60)
         Percent -> left_assoc(60)
         Mod -> left_assoc(60)
@@ -366,6 +369,7 @@ binop_of(t: Tok) -> Option[BinOp]
         Minus -> Some(Sub)
         Star -> Some(Mul)
         Slash -> Some(Quo)
+        SlashSlash -> Some(FloorQuo)
         Backslash -> Some(IntQuo)
         Percent -> Some(Rem)
         Mod -> Some(Modulo)

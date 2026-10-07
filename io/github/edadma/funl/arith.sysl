@@ -22,6 +22,10 @@ enum BinOp
     // `\`: integer division, rounding down.
     IntQuo
 
+    // `//`: floor division, the quotient rounded toward negative infinity. On two integers it is
+    // the same quotient as `\`.
+    FloorQuo
+
     // `%`: the remainder, with the sign of the dividend.
     Rem
 
@@ -46,6 +50,7 @@ op_text(o: BinOp) -> string
         Mul -> "*"
         Quo -> "/"
         IntQuo -> "\\"
+        FloorQuo -> "//"
         Rem -> "%"
         Modulo -> "mod"
         Divides -> "div"
@@ -89,6 +94,9 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], Fault]
 
             fits(o, n, m, if n == -9223372036854775807 - 1 && m == -1 then None else Some(n / m))?
         IntQuo ->
+            nonzero(o, n, m)?
+            fits(o, n, m, floor_quo(n, m))?
+        FloorQuo ->
             nonzero(o, n, m)?
             fits(o, n, m, floor_quo(n, m))?
         Rem ->
