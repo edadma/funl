@@ -28,6 +28,32 @@ install_prolog(v: *Vm)
     // FunL's `consult(file)`, which the compiler turns into the `Consult` instruction: registered so
     // the name resolves and its arity is checked, and never run as a builtin.
     register(v, "consult", 1, (b, n) -> Err(Broken("consult is run by its own instruction")))
+    register(v, "$directive_raised/3", 3, pl_directive_raised)
+
+// `'$directive_raised'(Ball, What, Text)`, the recovery a loaded file's directive runs under
+// (`pl_load.sysl`): a line saying directive `Text` raised `Ball` -- an error by its message, any
+// other ball as it is written -- and success, so the load goes on to the next.
+private pl_directive_raised(base: usize, argc: usize) -> Result[Value, Fault]
+    val ball = arg(base, 0)
+
+    val said = error_message(ball) match
+        Some(m) -> m
+        None -> render(ball)
+
+    val what = deref(arg(base, 1)) match
+        Str(s) -> s.s
+        _ -> "directive"
+
+    val text = deref(arg(base, 2)) match
+        Str(s) -> s.s
+        _ -> ""
+
+    val v = current()
+
+    // A line `write/1` has begun is the warning's start, as it is the failed directive's.
+    v.output.push(v.line + s"Warning: $what raised $said: $text")
+    v.line = ""
+    Ok(Unit)
 
 // `op(P, T, Name)` run as a goal: the table changes for whatever is read after it.
 private pl_op(base: usize, argc: usize) -> Result[Value, Fault]

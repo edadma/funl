@@ -132,7 +132,7 @@ ONCE_IGNORE_AND_FORALL_ARE_THE_CONSTRUCTS_THEY_ABBREVIATE()
 
 @test
 CALLING_A_PREDICATE_NOTHING_DEFINES_IS_AN_ERROR_NAMING_IT()
-    assert_eq(unplaced(ran_prolog(":- nope(1).\n")), "fault: nope/1: unknown procedure nope/1")
+    assert_eq(ran_prolog(":- nope(1).\n"), "Warning: directive raised unknown procedure nope/1: nope(1)\nsucceeded")
     assert_eq(unplaced(ran_prolog(":- G = nope(1), call(G).\n")).index_of("unknown procedure nope/1").is_some(), true)
 
 @test
@@ -152,6 +152,30 @@ DIRECTIVES_RUN_IN_ORDER_AND_INITIALIZATION_GOALS_AFTER_THEM()
         ":- write(two), nl.\n"
 
     assert_eq(ran_prolog(text), "one\nWarning: directive failed: fail\ntwo\ninit\nsucceeded")
+
+// A directive that raises an error is a warning, as in any Prolog, and the load goes on: the clauses
+// after it are read and the directives after it run. A ball that is no error term is written as it is,
+// and a line `write/1` had begun is the warning's start.
+@test
+A_DIRECTIVE_THAT_RAISES_AN_ERROR_IS_A_WARNING_AND_THE_LOAD_GOES_ON()
+    val text = ":- initialization(throw(late)).\n" +
+        ":- mode(p(+)).\n" +
+        "p(1).\n" +
+        ":- write(half), throw(ball(1)).\n" +
+        ":- X is foo + 1.\n" +
+        ":- p(X), write(X), nl.\n"
+
+    assert_eq(ran_prolog(text), "Warning: directive raised unknown procedure mode/1: mode(p(+))\n" +
+        "halfWarning: directive raised ball(1): write(half), throw(ball(1))\n" +
+        "Warning: directive raised foo/0 is not an arithmetic function: X is foo + 1\n" +
+        "1\n" +
+        "Warning: initialization goal raised late: throw(late)\nsucceeded")
+
+// A directive's error caught inside it is the directive's own business, and no warning.
+@test
+A_DIRECTIVE_CATCHING_ITS_OWN_ERROR_LEAVES_NO_WARNING()
+    assert_eq(ran_prolog(":- catch(nope, error(E, _), true), write(E), nl.\n"),
+        "existence_error(procedure,nope/0)\nsucceeded")
 
 @test
 A_RECURSIVE_PREDICATE_INDEXED_ON_A_LIST_WALKS_IT()

@@ -33,7 +33,12 @@ fault_text(f: Fault) -> string = f match
 
 // What the run prints for a ball nothing caught: an error's message where the term carries one, and
 // otherwise the term.
-uncaught_text(ball: Value) -> string
+uncaught_text(ball: Value) -> string = error_message(ball) match
+    Some(m) -> m
+    None -> s"uncaught exception: ${render(ball)}"
+
+// The message an error term `error(_, context(_, Message))` carries, when `ball` is one.
+error_message(ball: Value) -> Option[string]
     deref(ball) match
         Compound(e) ->
             if atom_name(e.functor) == "error" && e.args.len() == 2
@@ -41,12 +46,12 @@ uncaught_text(ball: Value) -> string
                     Compound(c) ->
                         if atom_name(c.functor) == "context" && c.args.len() == 2
                             deref(c.args.at(1)) match
-                                Str(m) -> return m.s
+                                Str(m) -> return Some(m.s)
                                 _ -> ()
                     _ -> ()
         _ -> ()
 
-    s"uncaught exception: ${render(ball)}"
+    None
 
 // -- The terms ----------------------------------------------------------------------------------
 

@@ -1,0 +1,260 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.text.{split, str_builder}
+
+// The classic Prolog benchmark programs under `tests/prolog/bench/`, each run for its answer.
+//
+// **The programs are kept as published**; each test consults one into a fresh machine and runs a
+// driver that writes what the program computes -- the reversed list, the zebra's owner, the proof of
+// `muiiu` -- and that is checked against the answer worked out by hand, not against an earlier run.
+// A benchmark whose own entry point only succeeds is driven through the predicate that does the work.
+//
+// **Every entry runs on the roomy heap, and the quick ones on the heap collected at every step too**,
+// where the two transcripts must agree. The time a test reports is the program's wall time.
+//
+// **An entry that cannot be met is listed in `reasons.txt`** (`name<TAB>reason`), as the INRIA suite's
+// unmet entries are: an unmet entry not listed fails, a listed entry that is met is stale, and a
+// listed name that is no entry is a failure too.
+
+private const Dir: string = "tests/prolog/bench/"
+
+// Every entry, by the name `reasons.txt` uses for it.
+private val Entries: []const string = [
+    "nrev", "classic", "classic_lips", "tak", "qsort", "serialise", "mu", "zebra", "deriv", "crypt",
+    "poly", "query", "browse", "queens", "queens11", "primes", "chat_parser"]
+
+private bench_data(name: string) -> string = read_text(Dir + name) match
+    Ok(t) -> t
+    Err(e) -> panic(s"cannot read $Dir$name (run the suite from the project root): $e")
+
+// The names `reasons_text` lists, each with a reason.
+private listed(reasons_text: string) -> Buf[string]
+    var out: Buf[string] = buf()
+
+    for row in split(reasons_text, "\n")
+        if row.bytes.len == 0 || row.bytes[0] == u8('#') then continue
+
+        val cols = split(row, "\t")
+
+        if cols.len < 2 || cols[1].bytes.len == 0 then panic(s"reasons.txt: `$row` is not `name<TAB>reason`")
+
+        out.push(cols[0])
+
+    out
+
+private is_entry(name: string) -> bool
+    for e in Entries
+        if e == name then return true
+
+    false
+
+private is_listed(name: string, reasons_text: string) -> bool
+    for n in listed(reasons_text).view()
+        if n == name then return true
+
+    false
+
+// What is wrong with entry `name` given its transcript `got`, the answer `want` and the reasons: the
+// empty string when nothing is.
+private verdict(name: string, got: string, want: string, reasons_text: string) -> string
+    if !is_entry(name) then return s"$name is not in Entries\n"
+
+    val met = got == want + "succeeded"
+    val excused = is_listed(name, reasons_text)
+
+    if met && excused then return s"stale: $name is listed in reasons.txt and is met\n"
+    if !met && !excused then return s"$name got\n${got}\nwant\n${want}succeeded\n"
+
+    ""
+
+// Program `file` consulted, then `driver` run; the transcript, on the roomy heap and, when `both`, on
+// the tight one as well.
+private bench_run(file: string, driver: string, both: bool) -> string
+    val text = s":- consult('$Dir$file').\n$driver"
+
+    if both then ran_prolog(text) else roomy(() -> prolog_text(text)).text
+
+private bench(name: string, file: string, driver: string, want: string, both: bool)
+    assert_eq(verdict(name, bench_run(file, driver, both), want, bench_data("reasons.txt")), "")
+
+// -- The checks on the reasons ---------------------------------------------------------------------
+
+@test
+EVERY_NAME_IN_REASONS_IS_AN_ENTRY()
+    for n in listed(bench_data("reasons.txt")).view()
+        assert_eq(is_entry(n), true, s"reasons.txt names $n, which is not an entry")
+
+@test
+A_BENCHMARK_ENTRY_NOT_MET_AND_NOT_LISTED_FAILS()
+    assert_eq(verdict("tak", "6\nsucceeded", "7\n", ""), "tak got\n6\nsucceeded\nwant\n7\nsucceeded\n")
+
+@test
+A_LISTED_BENCHMARK_ENTRY_THAT_IS_MET_IS_STALE()
+    assert_eq(verdict("tak", "7\nsucceeded", "7\n", "tak\tno reason\n"), "stale: tak is listed in reasons.txt and is met\n")
+
+@test
+A_LISTED_BENCHMARK_ENTRY_NOT_MET_PASSES()
+    assert_eq(verdict("tak", "6\nsucceeded", "7\n", "tak\tno reason\n"), "")
+
+@test
+A_BENCHMARK_NAME_NOT_AN_ENTRY_FAILS()
+    assert_eq(verdict("nope", "", "", ""), "nope is not in Entries\n")
+
+// -- The programs ----------------------------------------------------------------------------------
+
+// Naive reverse of thirty integers, Warren's: 496 calls for one answer.
+@test
+NREV()
+    bench("nrev", "nreverse.pl", ":- nreverse([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20," +
+        "21,22,23,24,25,26,27,28,29,30], L), write(L), nl.\n:- top, write(top), nl.\n",
+        "[30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1]\ntop\n", true)
+
+// The Quintus "classic" harness around naive reverse: the reversal, and a hundred of them in its
+// failure-driven loop.
+@test
+CLASSIC()
+    bench("classic", "classic.pl", ":- data(L), nrev(L, R), write(R), nl.\n:- dobench(100), write(ok), nl.\n",
+        "[30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1]\nok\n", true)
+
+// The same harness's report: the clock read as `T is time`, and the rate through `float/1`.
+@test
+CLASSIC_LIPS()
+    bench("classic_lips", "classic.pl", ":- get_cpu_time(T0), dobench(10), get_cpu_time(T1), Time is T1 - T0, " +
+        "calculate_lips(10, Time, Lips, Units), number(Lips), atom(Units), write(lips), nl.\n", "lips\n", false)
+
+// Takeuchi's function: tak(18, 12, 6) is 7.
+@test
+TAK()
+    bench("tak", "tak.pl", ":- tak(18, 12, 6, A), write(A), nl.\n:- top, write(top), nl.\n", "7\ntop\n", false)
+
+// Quicksort of fifty integers, duplicates kept.
+@test
+QSORT()
+    bench("qsort", "qsort.pl", ":- qsort([27,74,17,33,94,18,46,83,65,2,32,53,28,85,99,47,28,82,6,11," +
+        "55,29,39,81,90,37,10,0,66,51,7,21,85,27,31,63,75,4,95,99,11,28,61,74,18,92,40,53,59,8], R, []), " +
+        "write(R), nl.\n",
+        "[0,2,4,6,7,8,10,11,11,17,18,18,21,27,27,28,28,28,29,31,32,33,37,39,40,46,47,51,53,53,55,59,61,63," +
+        "65,66,74,74,75,81,82,83,85,85,90,92,94,95,99,99]\n", true)
+
+// Each character of the palindrome numbered by its rank among the distinct ones: space 1, A 2, B 3,
+// E 4, I 5, L 6, R 7, S 8, W 9.
+@test
+SERIALISE()
+    bench("serialise", "serialise.pl", ":- atom_codes('ABLE WAS I ERE I SAW ELBA', C), serialise(C, R), write(R), nl.\n",
+        "[2,3,6,4,1,9,2,8,1,5,1,4,7,4,1,5,1,8,2,9,1,4,6,3,2]\n", true)
+
+// The first proof of `muiiu` in five steps the search order finds: `mi` doubled three times to eight
+// `i`s, the first `iii` made `u`, then the last. The file's `:- mode(...)` directive names a predicate
+// FunL does not have, and is a warning the load goes past.
+@test
+MU()
+    bench("mu", "mu.pl", ":- theorem([m,u,i,i,u], 5, P), !, write(P), nl.\n",
+        "Warning: directive raised unknown procedure mode/1: mode(theorem(+,+,-))\n" +
+        "[[3,m,u,i,i,u],[3,m,u,i,i,i,i,i],[2,m,i,i,i,i,i,i,i,i],[2,m,i,i,i,i],[2,m,i,i],[a,m,i]]\n", true)
+
+// Who owns the zebra: the Japanese, in the green house on the right; the Norwegian drinks water.
+@test
+ZEBRA()
+    bench("zebra", "zebra.pl", ":- zebra(H), write(H), nl.\n",
+        "[house(yellow,norwegian,fox,water,kools),house(blue,ukrainian,horse,tea,chesterfields)," +
+        "house(red,english,snails,milk,winstons),house(ivory,spanish,dog,orange_juice,lucky_strikes)," +
+        "house(green,japanese,zebra,coffee,parliaments)]\n", true)
+
+// `log` taken ten times: 1/x over each inner logarithm in turn.
+private log10_derivative() -> string
+    var out = str_builder()
+    var inner = "x"
+
+    out.push("1/x")
+
+    for k in 1..<10
+        inner = s"log($inner)"
+        out.push(s"/$inner")
+
+    out.finish()
+
+// `x` divided by itself nine times: each step's derivative is `(D*x-U*1)/x^2`, `U` the quotient so far.
+private divide10_derivative() -> string
+    var d = "1"
+    var u = "x"
+
+    for k in 1..<10
+        d = s"($d*x-$u*1)/x^2"
+        u = s"$u/x"
+
+    d
+
+// Warren's symbolic differentiation, its three cases.
+@test
+DERIV()
+    bench("deriv", "derive.pl", ":- d((x+1)*((^(x,2)+2)*(^(x,3)+3)),x,D), write(D), nl.\n" +
+        ":- d(log(log(log(log(log(log(log(log(log(log(x)))))))))),x,D), write(D), nl.\n" +
+        ":- d(((((((((x/x)/x)/x)/x)/x)/x)/x)/x)/x,x,D), write(D), nl.\n",
+        "(1+0)*((x^2+2)*(x^3+3))+(x+1)*((1*2*x^1+0)*(x^3+3)+(x^2+2)*(1*3*x^2+0))\n" +
+        log10_derivative() + "\n" + divide10_derivative() + "\n", true)
+
+// The cryptarithm's one answer, 348 times 28, written the way the program's comment writes it.
+@test
+CRYPT()
+    bench("crypt", "crypt.pl", ":- odd(A), even(B), even(C), even(E),\n" +
+        "   mult([C,B,A], E, [I,H,G,F|X]), lefteven(F), odd(G), even(H), even(I), zero(X), lefteven(D),\n" +
+        "   mult([C,B,A], D, [L,K,J|Y]), lefteven(J), odd(K), even(L), zero(Y),\n" +
+        "   sum([I,H,G,F], [0,L,K,J], [P,O,N,M|Z]), odd(M), odd(N), even(O), even(P), zero(Z),\n" +
+        "   write(' '), write(A), write(B), write(C), nl, write('  '), write(D), write(E), nl,\n" +
+        "   write(F), write(G), write(H), write(I), nl, write(J), write(K), write(L), nl,\n" +
+        "   write(M), write(N), write(O), write(P), nl.\n:- top, write(top), nl.\n",
+        " 348\n  28\n2784\n696\n9744\ntop\n", true)
+
+// (1+x+y+z)^10, checked by its value at two points: 4^10 at (1, 1, 1) and 11^10 at (2, 3, 5).
+@test
+POLY()
+    bench("poly", "poly_10.pl", "value(N, _, N) :- integer(N), !.\n" +
+        "value(poly(V, Ts), Env, R) :- memberchk(V = X, Env), terms_value(Ts, X, Env, 0, R).\n" +
+        "terms_value([], _, _, R, R).\n" +
+        "terms_value([term(E, C)|Ts], X, Env, R0, R) :-\n" +
+        "    value(C, Env, CV), power(X, E, XE), R1 is R0 + CV * XE, terms_value(Ts, X, Env, R1, R).\n" +
+        "power(_, 0, 1) :- !.\n" +
+        "power(X, E, P) :- E1 is E - 1, power(X, E1, P1), P is X * P1.\n" +
+        ":- test_poly(P), poly_exp(10, P, R), value(R, [x = 1, y = 1, z = 1], V1), write(V1), nl,\n" +
+        "   value(R, [x = 2, y = 3, z = 5], V2), write(V2), nl.\n",
+        "1048576\n25937424601\n", false)
+
+// The pairs of countries whose population densities differ by under five per cent.
+@test
+QUERY()
+    bench("query", "query.pl", ":- query(Q), write(Q), nl, fail ; true.\n",
+        "[indonesia,223,pakistan,219]\n[uk,650,w_germany,645]\n[italy,477,philippines,461]\n" +
+        "[france,246,china,244]\n[ethiopia,77,mexico,76]\n", true)
+
+// Gabriel's browse: pattern matching over a hundred property lists, which only succeeds.
+@test
+BROWSE()
+    bench("browse", "browse.pl", ":- top, write(ok), nl.\n", "ok\n", false)
+
+// Eight queens: the first placement, 1 5 8 6 3 7 2 4 read back to front, and all 92.
+@test
+QUEENS()
+    bench("queens", "queens_8.pl", ":- queens(8, Qs), !, write(Qs), nl.\n" +
+        ":- findall(Qs, queens(8, Qs), All), length(All, N), write(N), nl.\n:- top, write(top), nl.\n",
+        "[4,2,7,3,6,8,5,1]\n92\ntop\n", false)
+
+// Eleven queens, the old FunL's benchmark: all 2680.
+@test
+QUEENS11()
+    bench("queens11", "queens11.pl", ":- findall(Qs, queens(11, Qs), All), length(All, N), write(N), nl.\n",
+        "2680\n", false)
+
+// The sieve of Eratosthenes over assert and retract: 1229 primes below 10000, the last 9973.
+@test
+PRIMES()
+    bench("primes", "sieve.pl", ":- top, findall(P, prime(P), Ps), length(Ps, N), write(N), nl, " +
+        "last(Ps, L), write(L), nl.\n", "1229\n9973\n", false)
+
+// Pereira and Warren's Chat-80 parser: every one of its sixteen questions parses.
+@test
+CHAT_PARSER()
+    bench("chat_parser", "chat_parser.pl", ":- findall(X, (my_string(X), determinate_say(X, _)), Xs), " +
+        "length(Xs, N), write(N), nl.\n:- top, write(top), nl.\n", "16\ntop\n", false)

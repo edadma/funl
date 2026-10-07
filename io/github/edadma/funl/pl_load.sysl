@@ -570,9 +570,12 @@ private op_directive(report: *Report, t: &Term, args: Buf[&Term])
 end op_directive
 
 // Emit the running of one directive: a chunk of its own called inside a mark, and a warning naming
-// it where it fails.
+// it where it fails or raises an error. **Either way the load goes on**, as in any Prolog: the goal
+// runs as `catch(G, Ball, '$directive_raised'(Ball, What, Text))`, so an error is a warning beside the
+// failed one rather than the end of the file.
 private run_directive(load: *Emit, src: Source, report: *Report, g: ReadClause, what: string) -> Option[unit]
-    val e = compile_query(s"$what in ${src.name}", g) match
+    val text = from_utf8_unchecked(src.text(g.t.span))
+    val e = compile_query(s"$what in ${src.name}", caught(g, what, text)) match
         Ok(e) -> e
         Err(p) ->
             report.add(error(p.at, p.message))
@@ -586,7 +589,6 @@ private run_directive(load: *Emit, src: Source, report: *Report, g: ReadClause, 
 
     val failed = load.label()
     val next = load.label()
-    val text = from_utf8_unchecked(src.text(g.t.span))
 
     load.op(Mark(failed))
     load.op(Call(chunk, 0))
@@ -606,6 +608,33 @@ private run_directive(load: *Emit, src: Source, report: *Report, g: ReadClause, 
     load.place(next)
     Some(())
 end run_directive
+
+// Directive `g` wrapped in the catch that turns an error it raises into a warning: one more variable,
+// the ball, numbered after the directive's own.
+private caught(g: ReadClause, what: string, text: string) -> ReadClause
+    val at = g.t.span
+    var names: Buf[string] = buf()
+
+    for n in g.names.view()
+        names.push(n)
+
+    val ball = term(TVar(names.len()), at)
+
+    names.push("Ball")
+
+    var warn: Buf[&Term] = buf()
+
+    warn.push(ball)
+    warn.push(term(TStr(what), at))
+    warn.push(term(TStr(text), at))
+
+    var args: Buf[&Term] = buf()
+
+    args.push(g.t)
+    args.push(ball)
+    args.push(term(TComp(intern("$directive_raised"), warn), at))
+    ReadClause(term(TComp(intern("catch"), args), at), names)
+end caught
 
 // A whole Prolog program, `funl file.pl`: load it, which runs its directives and its
 // `initialization/1` goals, and halt.

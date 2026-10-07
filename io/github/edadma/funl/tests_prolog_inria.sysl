@@ -28,13 +28,15 @@ private const Dir: string = "tests/prolog/inria/"
 
 // The files the suite's driver runs, in its order. `file_manip` and `halt` are left out by the
 // driver itself: the first is unwritten, the second ends the run.
-private const Files: string =
-    "fail abolish and arg arith_diff arith_eq arith_gt arith_gt= arith_lt arith_lt= asserta assertz " +
-    "atom atom_chars atom_codes atom_concat atom_length atomic bagof call catch-and-throw char_code " +
-    "clause compound copy_term current_input current_output current_predicate current_prolog_flag " +
-    "cut findall float functor if-then if-then-else integer is nonvar not_provable not_unify number " +
-    "number_chars number_codes once or repeat retract set_prolog_flag setof sub_atom term_diff " +
-    "term_eq term_gt term_gt= term_lt term_lt= true unify"
+private val Files: []const string = [
+    "fail", "abolish", "and", "arg", "arith_diff", "arith_eq", "arith_gt", "arith_gt=", "arith_lt",
+    "arith_lt=", "asserta", "assertz", "atom", "atom_chars", "atom_codes", "atom_concat", "atom_length",
+    "atomic", "bagof", "call", "catch-and-throw", "char_code", "clause", "compound", "copy_term",
+    "current_input", "current_output", "current_predicate", "current_prolog_flag", "cut", "findall",
+    "float", "functor", "if-then", "if-then-else", "integer", "is", "nonvar", "not_provable",
+    "not_unify", "number", "number_chars", "number_codes", "once", "or", "repeat", "retract",
+    "set_prolog_flag", "setof", "sub_atom", "term_diff", "term_eq", "term_gt", "term_gt=", "term_lt",
+    "term_lt=", "true", "unify"]
 
 private struct Excused
     file: string
@@ -264,13 +266,13 @@ private inria_verdicts(name: string) -> string
     assert_eq(tight, calm, s"$name: the suite said something different on a heap collected at every step")
     calm
 
-// Every entry of the data files `files` (named by spaces) met or excused by `reasons_text`, and
-// every excuse used: the failures, one a line.
-private inria_failures(files: string, reasons_text: string) -> string
+// Every entry of the data files `files` met or excused by `reasons_text`, and every excuse used: the
+// failures, one a line.
+private inria_failures(files: []const string, reasons_text: string) -> string
     var excused = reasons(reasons_text)
     var failures = str_builder()
 
-    for name in split(files, " ")
+    for name in files
         for row in split(inria_verdicts(name), "\n")
             if row.bytes.len == 0 then continue
 
@@ -305,21 +307,21 @@ INRIA_SUITE()
 // and a listed line that is no entry are each a failure.
 @test
 AN_UNMET_ENTRY_NOT_LISTED_FAILS()
-    assert_eq(inria_failures("arith_eq", ""), "arith_eq:4 unreadable: floats are not supported yet\n" +
+    assert_eq(inria_failures(["arith_eq"], ""), "arith_eq:4 unreadable: floats are not supported yet\n" +
         "arith_eq:8 unreadable: floats are not supported yet\n")
 
 @test
 A_LISTED_ENTRY_THAT_IS_MET_IS_STALE()
-    assert_eq(inria_failures("true", "true\t4\tno reason\n"), "stale: true:4 is listed in reasons.txt and is met\n")
+    assert_eq(inria_failures(["true"], "true\t4\tno reason\n"), "stale: true:4 is listed in reasons.txt and is met\n")
 
 @test
 A_LISTED_LINE_THAT_IS_NO_ENTRY_IS_STALE()
-    assert_eq(inria_failures("true", "true\t5\tno reason\n"),
+    assert_eq(inria_failures(["true"], "true\t5\tno reason\n"),
         "stale: reasons.txt names true:5, which is not an entry of the suite\n")
 
 @test
 AN_ENTRY_NOT_MET_SAYS_WHAT_IT_GOT()
-    assert_eq(inria_failures("sub_atom", "sub_atom\t25\tatomic text\n"), "sub_atom:15 got " +
+    assert_eq(inria_failures(["sub_atom"],"sub_atom\t25\tatomic text\n"), "sub_atom:15 got " +
         "answers([[0,0,2,''],[0,1,1,a],[0,2,0,ab],[1,0,1,''],[1,1,0,b],[2,0,0,'']]) want " +
         "answers([[1,0,A,''],[1,1,B,a],[1,2,C,ab],[2,0,D,''],[2,1,E,b],[3,0,F,'']])\n")
 

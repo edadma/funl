@@ -1,0 +1,25 @@
+The classic Prolog benchmark programs, kept as published and run by tests_prolog_bench.sysl.
+
+Fetched 2026-10-07 from https://github.com/SWI-Prolog/bench (programs/, commit
+d74163e6d7560df26af1fbda9e4d0bfd54787009), the "van Roy" benchmark set as SWI-Prolog keeps it:
+
+    nreverse.pl  tak.pl  qsort.pl  serialise.pl  mu.pl  zebra.pl  derive.pl  crypt.pl  poly_10.pl
+    query.pl  browse.pl  queens_8.pl  sieve.pl  chat_parser.pl
+
+Licence, file by file, as the files and that repository's README state it:
+
+- nreverse.pl, qsort.pl, serialise.pl, query.pl, derive.pl (David H. D. Warren): "Copyright: Public
+  domain" in the file.
+- sieve.pl (Jan Wielemaker): "Copyright: Public domain" in the file.
+- chat_parser.pl (Fernando C. N. Pereira and David H. D. Warren): MIT-style permission notice in the
+  file, which is kept with it.
+- tak.pl, mu.pl, zebra.pl, crypt.pl, poly_10.pl, browse.pl, queens_8.pl: no licence in the file. The
+  repository's README lists them as programs "written and shared within the Prolog community for a
+  very long time" that "lack explicit clear conditions that allows redistribution". They are test
+  data here, never part of what FunL ships.
+
+Also from the old FunL (github.com/edadma/funl, the 2021 Scala implementation, prolog/benchmarks/):
+
+- classic.pl is classic.prolog, the Quintus "classic" naive-reverse benchmark (supplied by Quintus
+  Computer Systems, April 1984), as the old FunL kept it.
+- queens11.pl is queens.prolog, the old FunL's eleven-queens benchmark.
