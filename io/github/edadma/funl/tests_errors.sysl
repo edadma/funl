@@ -19,14 +19,15 @@ private const ErrorsPl: string = "try(Goal) :- catch((Goal, Formal = none), erro
     "unbound :- try(add(_, 1, _)).\n" +
     "pattern_unbound :- try(head(_, _)).\n" +
     "no_clause :- try(head([], _)).\n" +
-    "index_out_of_range :- try(element([1, 2], 5, _)).\n" +
-    "missing_key :- try(lookup(b, _)).\n" +
+    "index_out_of_range :- try(element(5, _)).\n" +
+    "missing_key :- ( lookup(b, _) -> write(found) ; write(failed) ), nl.\n" +
+    "missing_field :- ( field_z(point(3, 4), _) -> write(found) ; write(failed) ), nl.\n" +
     "raised :- try(raise(boom, _)).\n" +
     "not_a_collection :- try(contains(3, 5, _)).\n" +
     "immutable :- try(store(x, _)).\n" +
     "wrong_count :- try(call_with_two(x, _)).\n" +
     "negative_size :- try(make_array(1, _)).\n" +
-    "no_field :- try(field_z(point(3, 4), _)).\n" +
+    "no_field :- try(field_z([1], _)).\n" +
     "no_scan :- try(tab_outside(1, _)).\n" +
     "exact_quotient :- divide(7, 2, Q), write(Q), nl, X is Q * 2, write(X), nl.\n" +
     "grown_sum :- add(9223372036854775807, 1, S), write(S), nl, integer(S).\n" +
@@ -43,7 +44,9 @@ private const Program: string = "def divide( a, b ) = a / b\n" +
     "def power( a, b ) = a ^ b\n" +
     "def divides( a, b ) = a div b\n" +
     "def head( h:_ ) = h\n" +
-    "def element( c, i ) = c( i )\n" +
+    "def element( i )\n" +
+    "  val a = array( 2 )\n" +
+    "  a( i ) = 0\n" +
     "def lookup( k ) = {a: 1}( k )\n" +
     "def raise( x ) = error( x )\n" +
     "def contains( x, c ) = x in c\n" +
@@ -104,9 +107,10 @@ NO_CLAUSE_MATCHING_IS_AN_EXISTENCE_ERROR_OF_A_MATCHING_CLAUSE()
     assert_eq(formal("no_clause"), "existence_error(matching_clause,head/1)\nsucceeded")
 
 @test
-AN_INDEX_OUT_OF_RANGE_AND_A_MISSING_KEY_ARE_EXISTENCE_ERRORS()
+STORING_PAST_THE_END_IS_AN_EXISTENCE_ERROR_BUT_A_MISSING_KEY_OR_FIELD_JUST_FAILS()
     assert_eq(formal("index_out_of_range"), "existence_error(index,5)\nsucceeded")
-    assert_eq(formal("missing_key"), "existence_error(key,b)\nsucceeded")
+    assert_eq(formal("missing_key"), "failed\nsucceeded")
+    assert_eq(formal("missing_field"), "failed\nsucceeded")
 
 @test
 FUNLS_ERROR_RAISES_A_USER_ERROR_HOLDING_ITS_ARGUMENT()
@@ -126,7 +130,7 @@ A_VALUE_OUTSIDE_WHAT_A_BUILTIN_TAKES_IS_A_DOMAIN_ERROR()
     assert_eq(formal("negative_size"), "domain_error(not_less_than_zero,-1)\nsucceeded")
 
 @test
-A_MISSING_FIELD_AND_A_SCAN_THAT_IS_NOT_RUNNING_ARE_EXISTENCE_ERRORS()
+A_FIELD_OF_A_VALUE_WITHOUT_FIELDS_AND_A_SCAN_THAT_IS_NOT_RUNNING_ARE_EXISTENCE_ERRORS()
     assert_eq(formal("no_field"), "existence_error(field,z)\nsucceeded")
     assert_eq(formal("no_scan"), "existence_error(scan,tab)\nsucceeded")
 

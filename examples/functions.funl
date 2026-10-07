@@ -1,0 +1,59 @@
+;; Functions: clauses with guards, local definitions, lambdas, closures, sections and currying.
+
+;; Fast exponentiation by repeated squaring. The guards choose a clause; `where` holds helpers
+;; that may be mutually recursive, visible to the guards and to the body.
+def pow( _, 0 ) = 1
+def pow( x, n ) | n > 0 = go( x, n - 1, x )
+  where
+    go( _, 0, acc ) = acc
+    go( b, k, acc )
+      | even( k )  = go( b*b, k \ 2, acc )
+      | otherwise  = go( b, k - 1, b*acc )
+    even( 0 ) = true
+    even( k ) = odd( k - 1 )
+    odd( 0 ) = fail
+    odd( k ) = even( k - 1 )
+
+write( pow(3, 13) )                     ;; 1594323
+write( pow(2/3, 5) )                    ;; 32/243 -- the same code on rationals
+
+;; Lambdas close over what they mention, so a function can build functions.
+def adder( n ) = x -> x + n
+
+val add5 = adder( 5 )
+write( add5(10) )                       ;; 15
+
+def compose( f, g ) = x -> f( g(x) )
+
+write( compose(add5, x -> x * x)(3) )   ;; 14
+
+;; An operator in parentheses is a function, and a section fixes one side of it.
+def
+  foldl( _, z, [] ) = z
+  foldl( f, z, x:xs ) = foldl( f, f(z, x), xs )
+
+  map( _, [] ) = []
+  map( f, x:xs ) = f( x ) : map( f, xs )
+
+write( foldl((+), 0, [1, 2, 3, 4]) )    ;; 10
+write( foldl((*), 1, [1, 2, 3, 4]) )    ;; 24
+write( map((2 *), [1, 2, 3]) )          ;; [2, 4, 6]
+write( map((+ 1), [1, 2, 3]) )          ;; [2, 3, 4]
+
+;; Currying turns a function of two arguments into a chain of one-argument functions.
+val curry = f -> a -> b -> f( a, b )
+val uncurry = f -> (a, b) -> f( a )( b )
+
+val plus = curry( (+) )
+write( plus(1)(2) )                     ;; 3
+write( uncurry(plus)(3, 4) )            ;; 7
+
+;; A counter: a closure over a variable it keeps changing.
+def counter()
+  var n = 0
+  () -> (n += 1)
+
+val tick = counter()
+tick()
+tick()
+write( tick() )                         ;; 3

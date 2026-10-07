@@ -1,0 +1,56 @@
+module io.github.edadma.funl
+@tests
+
+// A rational FunL made is a number to Prolog arithmetic (`prolog.md` § "Term mapping"). `is/2` runs
+// under `dal.iso_prolog(prefer_rationals)`: with the flag off, two integers make no rational -- `1 / 2`
+// is `0.5` -- but arithmetic on a rational that came from FunL stays exact, as in SWI-Prolog.
+
+// The transcript of `program`, importing the FunL file holding `funl`, written to `name` in a
+// scratch directory.
+private ran_with_funl(name: string, funl: string, program: string) -> string
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, name, funl)
+
+    ran_prolog(s":- import(\"$file\").\n" + program)
+end ran_with_funl
+
+private const Half: string = "def half() = 1/2\n"
+
+@test
+A_RATIONAL_FROM_FUNL_STAYS_EXACT_THROUGH_IS()
+    val program =
+        ":- half(H), A is H + 1, B is H - 1, C is H * 2, D is H / 2, E is 1 / H, F is -H, write([H,A,B,C,D,E,F]), nl.\n"
+
+    assert_eq(ran_with_funl("rational_arith.funl", Half, program), "[1r2,3r2,-1r2,1,1r4,2,-1r2]\nsucceeded")
+
+@test
+A_RATIONAL_FROM_FUNL_COMPARES_AS_A_NUMBER()
+    val program =
+        ":- half(H), H < 1, 0 < H, H =:= 0.5, H =\\= 1, H >= 1/4, rational(H), \\+ integer(H), write(yes), nl.\n"
+
+    assert_eq(ran_with_funl("rational_compare.funl", Half, program), "yes\nsucceeded")
+
+@test
+TWO_INTEGERS_STILL_MAKE_A_FLOAT_OR_A_RATIONAL_AS_THE_FLAG_SAYS()
+    val program =
+        ":- half(H), X is 1 / 2, Y is H + X, write(X/Y), nl.\n" +
+        ":- set_prolog_flag(prefer_rationals, true), X is 1 / 2, half(H), Y is H + X, write(X/Y), nl.\n"
+
+    assert_eq(ran_with_funl("rational_flag.funl", Half, program), "0.5/1.0\n1r2/1\nsucceeded")
+
+@test
+AN_INTEGER_POWER_THAT_ONLY_A_FRACTION_HOLDS_IS_STILL_REFUSED()
+    // With `prefer_rationals` off, integers make no rational, so `2 ^ -1` is ISO's type error -- while
+    // the same power of FunL's rational is exact.
+    val program =
+        ":- catch(X is 2 ^ -1, error(E, _), true), write(E), nl.\n" +
+        ":- half(H), Y is H ^ -2, write(Y), nl.\n"
+
+    assert_eq(ran_with_funl("rational_power.funl", Half, program), "type_error(float,2)\n4\nsucceeded")
+
+@test
+THE_REFUSAL_OF_A_FRACTION_FROM_INTEGERS_SAYS_WHAT_IT_IS()
+    assert_eq(ran_prolog(":- X is 2 ^ -1.\n"),
+        "Warning: directive raised 2 ^ -1 is a fraction, and without prefer_rationals integers make none: X is 2 ^ -1\nsucceeded")

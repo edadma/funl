@@ -1,0 +1,35 @@
+;; N-queens by goal-directed evaluation.
+;;
+;; There is no explicit search loop and no undo code. For each column `c`, the generator
+;; `r = 0 until n` offers rows; the chained comparison `==` checks in one expression that the row
+;; and both diagonals are still free; and `<-` is reversible assignment, so when a later column
+;; finds no row, backtracking into the generator puts the three claims back by itself. (A line
+;; ending in an operator, here `and`, continues onto the next, deeper line.)
+
+val n = 6
+val row = array( n )                ;; row(r) holds the column whose queen sits on row r
+val down = array( 2n - 1 )          ;; the diagonals r + c
+val up = array( 2n - 1 )            ;; the diagonals n - 1 + r - c
+val solution = array( n )           ;; solution(c) is the row of the queen in column c
+var count = 0
+
+def solve( c )
+  every row(r = 0 until n) == down(r + c) == up(n - 1 + r - c) == undefined and
+        row(r) <- down(r + c) <- up(n - 1 + r - c) <- r
+    solution(c) = r
+
+    if c == n - 1
+      count += 1
+      write( seq(solution) )
+    else
+      solve( c + 1 )
+
+solve( 0 )
+write( "$count solutions" )
+
+;; prints the four solutions for six queens, each the row of the queen in columns 0 to 5, then
+;; "4 solutions":
+;;   (1, 3, 5, 0, 2, 4)
+;;   (2, 5, 1, 4, 0, 3)
+;;   (3, 0, 4, 1, 5, 2)
+;;   (4, 2, 0, 5, 3, 1)

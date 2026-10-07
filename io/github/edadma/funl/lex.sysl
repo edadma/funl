@@ -12,6 +12,14 @@ import sysl.text.from_utf8_unchecked
 // except under a token that opens a block -- `then`, `else`, `do`, `=`, `:-` and `->` -- written at
 // the end of its line.
 //
+// **A line ending in an infix operator has not ended its statement**: the next line continues it,
+// indented deeper than the line the statement began on, and opens and closes nothing -- so the line
+// after the continuation is measured against the statement, and a body may sit to its left:
+//
+//     every row(r) == undefined and
+//           row(r) <- r
+//         solution(c) = r
+//
 // **Comments are `;;` to the end of the line and `/* ... */`, which nests.** A line holding nothing
 // but blanks and a comment is no line at all: it opens and closes nothing.
 //
@@ -44,7 +52,21 @@ lex(src: Source, report: *Report) -> Tokens[Tok]
                 line_start = true
                 continue
 
-            if lay.significant()
+            // A line after one that ended on an infix operator is the rest of that statement, and
+            // opens and closes nothing. One that is not indented past the statement is refused and
+            // still read as its rest, so the operator is not refused a second time for having no
+            // right operand.
+            val open_op = if lay.significant() then leaves_line_open(&out) else None
+
+            open_op match
+                Some(op) ->
+                    if !lay.continues(ind.columns)
+                        report.add(error(point(s.at), s"the line above ends in ${describe(op.value)}, so this line has to continue it")
+                            .with_label("not indented past the statement it continues")
+                            .with_note("a line ending in an operator runs on to the next line, which is indented deeper than the line the statement began on"))
+                None -> ()
+
+            if lay.significant() && open_op.is_none()
                 val here = point(s.at)
 
                 lay.line(ind.columns) match
@@ -138,6 +160,16 @@ private ends_line(s: *Scanner) -> bool
 
     s.reset(m)
     ends
+
+// The token the last line ended on, where it is an infix operator and so leaves its statement
+// unfinished. The operators that open a block when they end a line -- `=`, `->`, `?`, `:-` -- are
+// not among them, and nor are the postfix ones.
+private leaves_line_open(out: *Tokens[Tok]) -> Option[Spanned[Tok]]
+    if out.len() == 0 then return None
+
+    val last = out.items.at(out.len() - 1)
+
+    if continues_line(last.value) then Some(last) else None
 
 // `n` blocks closed by the line starting at `here`, then the end of the statement before it.
 private close(out: *Tokens[Tok], n: usize, here: Span, last_end: usize)

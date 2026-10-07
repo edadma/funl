@@ -7,14 +7,14 @@ weight: 40
 
 **Standard Prolog source runs on the FunL machine, compiled by a second front end to the same
 instructions FunL relations compile to.** A predicate defined in a `.pl` file and a relation defined
-in a `.fl` file are the same kind of thing on the control stack, so each calls the other with no
+in a `.funl` file are the same kind of thing on the control stack, so each calls the other with no
 bridge, no conversion of terms and no second engine. The [logic chapter](logic.md) is the
-mechanism; this chapter is the second syntax, the builtin set it aims for, and the defects of the
-2019 engine it is designed not to repeat.
+mechanism; this chapter is the second syntax, the builtin set it aims for, and the failure modes of
+a Prolog engine that its design rules out.
 
-**The 2019 engine is not ported.** It was a separate machine with its own instruction set, and most
-of its defects (listed at the end) come from that machine's design rather than from slips in its
-code, so the right move is to rebuild Prolog on a machine whose design already rules them out.
+**Prolog is built on this machine, not beside it.** A Prolog on a separate machine with its own
+instruction set has failure modes (listed at the end) that come from that separation rather than
+from slips in its code, so Prolog here is built on a machine whose design already rules them out.
 
 ## Loading Prolog
 
@@ -39,7 +39,7 @@ the same loop, with no layering and no extension seam.
 
 **The standalone Prolog is that machine with the Prolog reader, the Prolog builtins and an ISO top
 level** (`?- goal.`, `;` for the next answer, `consult/1`); its front end never emits a FunL-only
-instruction. **Later it also runs FunL**: `:- import("geometry.fl")` from a Prolog file or the top
+instruction. **Later it also runs FunL**: `:- import("geometry.funl")` from a Prolog file or the top
 level brings in the FunL front end and the file's functions become predicates, as [Calling FunL from
 Prolog](#calling-funl-from-prolog) describes. Because the machine is one machine, that is a matter of
 which front ends are linked in, never of a second VM or a bridge. It knows only standard Prolog:
@@ -150,7 +150,7 @@ well, as SWI-Prolog's rationals are. `true` and `false` are atoms on both sides.
 the result, each generated value one solution:
 
 ```
-:- import("geometry.fl").
+:- import("geometry.funl").
 
 area_of(Shape, A) :- area(Shape, A).          % area/1 in FunL is area/2 here
 evens(L) :- findall(X, (between(1, 10, X), even(X, true)), L).
@@ -229,11 +229,11 @@ the standard groups them:
 ordinary clauses a reader can look at. A predicate that needs the machine — `findall`, `copy_term`,
 `assert`, arithmetic, the I/O — is native.
 
-## The 2019 engine's defects, and what rules each one out
+## Failure modes of a Prolog engine, and what rules each one out
 
-Every row is a regression test with the defect's name, written before the feature it guards.
+Every row is a regression test named for the failure, written before the feature it guards.
 
-| 2019 defect | why it happened | what in this design prevents it |
+| failure mode | its usual cause | what in this design prevents it |
 |---|---|---|
 | a cut leaks into the caller | cut and mark points in global registers | the barrier lives in the frame (`frame.cut`) or a slot; nothing else can write it |
 | a nested `->` corrupts the outer one | the same global register, overwritten by the inner | each `->` saves its barrier in its own slot |

@@ -139,9 +139,9 @@ num_fault(e: NumberError, what: string, culprit: Value) -> Fault = e match
     NumberError.Undefined -> evaluation_error("undefined", s"$what has no value")
     NumberError.NotAnInteger -> type_error("integer", culprit, s"$what wants integers and was given ${described(culprit)}")
 
-    // A fraction where the policy has no rationals: ISO's answer for `2 ^ -1`, an integer power that
-    // only a float could hold.
-    NumberError.NeedsRational -> type_error("float", culprit, s"$what is not an integer, and integer powers are exact")
+    // A fraction made out of integers where the policy makes no rationals: ISO's answer for `2 ^ -1`,
+    // an integer power that only a float could hold. Arithmetic on a rational operand never gets here.
+    NumberError.NeedsRational -> type_error("float", culprit, s"$what is a fraction, and without prefer_rationals integers make none")
     NumberError.ExponentTooLarge -> resource_error("memory", s"$what would need more than 2^26 bits")
     NumberError.Syntax -> syntax_error("illegal_number", s"'$what' is not a number")
 

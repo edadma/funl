@@ -1,0 +1,40 @@
+;; String scanning: `s ? e` evaluates `e` with `s` as the subject and a position at its start.
+;;
+;; `tab`, `move`, `upto`, `many`, `find` and `match` read and move that position, and every movement
+;; is undone by backtracking, so alternatives inside a scan can each try their own way through the
+;; string. Positions count from 1, before the first character; `tab(0)` goes to the end.
+
+;; Splitting on runs of blanks: `upto` finds the next blank, `many` skips past the run.
+'the  quick brown   fox' ?
+  while write( tab(upto(' ')) )                 ;; the, quick, brown
+    tab( many(' ') )
+
+  write( tab(0) )                               ;; fox
+
+;; A generator of words, built from a scan. The word is taken in its own statement before the
+;; `yield`, because resuming the generator backtracks into the expression it yielded.
+def words( s )
+  s ?
+    while tab( upto(letters) )
+      val w = tab( many(letters) )
+      yield w
+
+every write( words('Hello, world -- scanning works!') )   ;; Hello, world, scanning, works
+
+;; Alternation backtracks the position: if there is nothing after a comma, the second alternative
+;; starts again from the beginning of the subject.
+def after_comma( s ) = s ? (tab(upto(',') + 1) & move(1) | tab(upto('.')))
+
+write( after_comma('ab,cd.') )                  ;; c
+write( after_comma('ab.') )                     ;; ab
+
+;; `find` generates every position at which a substring starts.
+every write( 'banana' ? find('an') )            ;; 2, 4
+
+;; Parsing `key=value` pairs; `?=` scans a variable and assigns the result back to it.
+for pair <- ['width=80', 'height=24']
+  pair ? (key = tab(upto('='))) & move(1) & write( "$key is ${tab(0)}" )   ;; width is 80, height is 24
+
+var line = '   indented'
+line ?= (tab(many(' ')) & tab(0))
+write( "[$line]" )                              ;; [indented]

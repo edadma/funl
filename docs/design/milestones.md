@@ -6,7 +6,7 @@ weight: 60
 # Milestones
 
 **The order is chosen so that the riskiest idea is proven first.** The new thing in this design is
-not a functional language on a backtracking machine — the old implementation already was one — it
+not a functional language on a backtracking machine — that is well understood — it
 is unification and a trail on that machine, and the claim that a relation and a generator are the
 same thing on the control stack. So the first milestone builds only as much of FunL as a logic
 program needs, and runs one. Everything after it widens a machine whose core has already been
@@ -33,7 +33,8 @@ operand-stack strategy.
   copying, heap frames, `Call`, `Return`, `TailCall`; the trail with `Bind`, conditional trailing by
   stamp, and commit filtering; unification; `GetVar`, `GetValue`, `GetConst`, `GetCompound`.
 
-**Done when:** `examples/family_tree.fl` prints exactly the output the [logic
+**Done when:** a unit test holding the family tree as a string literal (the `.funl` program in
+`examples/family_tree.funl` shows the same thing) prints exactly the output the [logic
 chapter](logic.md#the-family-tree-natively) gives, duplicates included; `X ~ X` terminates; a
 binding made after a choice point is undone when that choice point resumes, through an `Unmark` in
 between; a relation returning into a caller with operands below its marks resumes correctly; and the
@@ -52,9 +53,9 @@ same tests pass against a heap small enough to collect inside every query.
 - Data: lists, sets, maps, mutable maps, arrays, buffers, ranges, lazy lists, comprehensions,
   records and `data`; `in` and `not in`; `\x` and `/x`; `x <- e` with `Assign` trail entries.
 
-**Done when:** every `FunLTests`, `FunLExamples` and `FunLPredefTests` program except the five
-scanning and regex ones passes as a ported corpus file, and each rough edge the language chapter
-lists as fixed has a test of the fixed behaviour.
+**Done when:** every construct above has unit tests whose programs are string literals with their
+expected output beside them, and each rough edge the language chapter lists as closed has a test of
+the closed behaviour.
 
 ## 3. String scanning
 
@@ -101,15 +102,16 @@ finishes with a control stack whose height does not grow — the indexing has ma
   the builtin set, the library predicates written in Prolog.
 - `consult` and `import` of `.pl` files; the shared name/arity namespace and its collision refusal.
 
-**Done when:** `examples/family_tree.pl` prints the same output as the FunL version; every 2019
-defect has a named regression test and it passes; a Prolog clause and a FunL relation call each
+**Done when:** the family tree as a Prolog string literal in a unit test prints the same output as
+the FunL one (`examples/family_tree.pl` shows it); every failure mode the Prolog chapter lists has a
+named regression test and it passes; a Prolog clause and a FunL relation call each
 other in both directions.
 
 ## 7. Conformance
 
 - The INRIA ISO suite, with every expected outcome met or listed with a reason.
 - The classic benchmark programs, for their answers.
-- The SICP examples as a FunL corpus.
+- FunL's own example programs in `examples/`, written to be read; no test runs them.
 - Grammar rules (`-->`) and `phrase`.
 
 **Done when:** the suite runs the INRIA file as a test and the reasons file is short enough to read.

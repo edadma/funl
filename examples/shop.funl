@@ -1,0 +1,28 @@
+;; FunL and Prolog sharing predicates, the FunL half: shop.pl imports this file.
+;;
+;; The facts and the rule below are relations, which Prolog sees as ordinary predicates of the
+;; same name and arity. A FunL function of n parameters is the Prolog predicate of n + 1 arguments,
+;; the last unified with its result, and a function that generates gives one solution per value.
+;;
+;; Run on its own, this file prints the catalogue from the FunL side.
+
+def
+  price( #apple, 75 )                 ;; prices in cents
+  price( #bread, 250 )
+  price( #cheese, 700 )
+  price( #grapes, 225 )
+
+  fruit( #apple )
+  fruit( #grapes )
+
+  ;; a rule: fruit is sold by the kilo, everything else by the item
+  unit( x, u ) :- if fruit( x ) then u ~ #kilo else u ~ #item
+
+;; Plain functions. `euros` answers an exact rational, which Prolog arithmetic takes as a number.
+def euros( cents ) = cents / 100
+
+def sizes() = #small | #large
+
+free item, cost, u
+every price( item, cost ) & unit( item, u ) do write( item, euros(cost), u )
+;; apple, 3/4, kilo / bread, 5/2, item / cheese, 7, item / grapes, 9/4, kilo
