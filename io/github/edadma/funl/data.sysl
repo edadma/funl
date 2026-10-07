@@ -240,12 +240,20 @@ private position(x: Value, i: long) -> Result[long, Fault]
 
             Err(existence_error("index", Int(i), msg))
 
-// Which of a record's fields is called `name`.
+// Which of a record's fields is called `name`. A term that unification or Prolog made is a record
+// when a constructor has its functor and number of fields, and its fields are that constructor's.
 private field_index(c: *CompoundObj, name: u32) -> Option[usize]
-    if c.record == 0 then return None
+    val v = current()
 
-    val d = current().ctors.at(usize(c.record - 1))
+    if c.record != 0 then return field_named(v.ctors.at(usize(c.record - 1)), name)
 
+    for d in v.ctors.view()
+        if d.functor == c.functor && d.fields.len() == c.args.len() then return field_named(d, name)
+
+    None
+
+// Which of constructor `d`'s fields is called `name`.
+private field_named(d: CtorDef, name: u32) -> Option[usize]
     for i in 0..<d.fields.len()
         if d.fields.at(i) == name then return Some(i)
 

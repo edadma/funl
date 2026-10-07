@@ -205,9 +205,9 @@ enum Op
     // the advanced cursor; fail when it is exhausted.
     GenNext
 
-    // The cursor of `i to j by k` is the three cells `i`, `j`, `k`: replace them with `i`, leaving a
-    // choice point that resumes here on `i + k`; fail once `i` has passed `j` (`inclusive`) or
-    // reached it.
+    // The cursor of `i to j by k` is the four cells `i`, `j`, `k` and a count `n`, starting at 0:
+    // replace them with the value `i + n*k`, leaving a choice point that resumes here on the next
+    // one; fail once the value has passed `j` (`inclusive`) or reached it.
     GenRange(inclusive: bool)
 
     // -- lists, ranges and sets (`seq.sysl`) -----------------------------------------------------------

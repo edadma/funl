@@ -87,10 +87,10 @@ every write( |(n < 3 and (n = n + 1)) )
 
 ## `to` counts with any number
 
-`to` and `until` count with integers, rationals and reals alike. Each value is the one before plus
-the step, by the same arithmetic as `+`, so a rational step counts exactly, and integers and
-rationals mix as they do in `+`. A negative step counts down. A real step makes every value a real,
-the first one included:
+`to` and `until` count with integers, rationals and reals alike. The values are `i`, `i + k`,
+`i + 2*k`, `i + 3*k` and so on, each worked out from the start by the same arithmetic as `+` and
+`*`, so a rational step counts exactly, and integers and rationals mix as they do in `+`. A
+negative step counts down. A real step makes every value a real, the first one included:
 
 ```funl
 every write( 0 to 1 by 1/4 )
@@ -112,10 +112,32 @@ every write( 3/2 until 0 by -1/2 )
 1/2
 ```
 
+Because each value is worked out from the start rather than from the value before, a real step's
+rounding does not build up along the range: every value is rounded once, however far along it is,
+and counting from 0 by `0.1` reaches `1.0`:
+
+```funl
+every write( 0 to 1 by 0.1 )
+```
+
+```output
+0.0
+0.1
+0.2
+0.30000000000000004
+0.4
+0.5
+0.6000000000000001
+0.7000000000000001
+0.8
+0.9
+1.0
+```
+
 The range stops at the first value that is past `j`: greater than `j` for `to` and greater than or
 equal for `until` when counting up, less than or less than or equal when counting down. The
-comparison is the plain one, with no tolerance, so a real step's rounding shows. Adding `0.1` three
-times gives `0.30000000000000004`, which is past `0.3`; the rational step reaches `3/10` exactly:
+comparison is the plain one, with no tolerance, so a value's rounding shows. `0 + 3*0.1` is
+`0.30000000000000004`, which is past `0.3`; the rational step reaches `3/10` exactly:
 
 ```funl
 every write( 0 to 0.3 by 0.1 )
