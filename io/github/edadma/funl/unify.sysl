@@ -149,9 +149,6 @@ private step(x: Value, y: Value, check: bool) -> bool
             Tuple(q) -> unify_items(p, q)
             Compound(q) -> unify_tuple_compound(p, q)
             _ -> false
-        Bool(a) -> y match
-            Bool(b) -> a == b
-            _ -> false
 
         // Function values unify by identity, which `identical` has already tested.
         Func(_) -> false
@@ -406,9 +403,6 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, Fault]
                     true
                 Range(q) -> range_equals_list(q, x)?
                 _ -> false
-            Bool(a) -> y match
-                Bool(b) -> a == b
-                _ -> false
             Func(_) -> false
             Var(_) -> false
 
@@ -524,7 +518,6 @@ private rank(x: Value) -> int = x match
     Real(_) -> 1
     Atom(_) -> AtomRank
     Nil -> AtomRank
-    Bool(_) -> AtomRank
     Str(_) -> 3
     Compound(_) -> CompoundRank
     Cons(_) -> CompoundRank
@@ -550,7 +543,6 @@ private texts(a: string, b: string) -> int = if a < b then -1 elif a > b then 1 
 private atom_text(x: Value) -> string = x match
     Atom(i) -> atom_name(i)
     Nil -> "[]"
-    Bool(b) -> if b then "true" else "false"
     _ -> ""
 
 // Two values that order as compounds: by arity, then name; when both agree, their arguments are

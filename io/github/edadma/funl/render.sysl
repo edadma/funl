@@ -49,7 +49,6 @@ private write_value(out: *StrBuilder, v: Value, depth: usize)
                 out.push(p.s)
                 out.push("\"")
         Tuple(p) -> write_items(out, p.items.view(), depth, "(", ")")
-        Bool(b) -> out.push(if b then "true" else "false")
         Func(p) ->
             out.push("<function ")
             out.push(current().chunks.at(p.chunk).name)

@@ -235,7 +235,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             if top == 0 then return Err(Broken("the operand stack is empty"))
 
             deref(v.stack.at(top - 1)) match
-                Bool(b) -> Ok(fails_if(b))
+                Atom(id) -> Ok(fails_if(id != FalseAtom))
                 _ -> Ok(Next)
         Dup ->
             val top = v.stack.len()

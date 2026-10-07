@@ -33,6 +33,11 @@ enum Value
     Real(x: real)
 
     // An interned name. Two atoms are the same atom exactly when their ids are equal.
+    //
+    // **FunL's `true` and `false` are the atoms `true` and `false`**, not a kind of their own, so a
+    // boolean made in FunL and the atom Prolog reads are one value: they unify, compare, print and
+    // pass every atom builtin alike. The two names have fixed ids (`atom.sysl`), so a condition tests
+    // for `false` with one comparison.
     Atom(id: u32)
 
     Str(p: *StrObj)
@@ -47,8 +52,6 @@ enum Value
 
     // A logic variable, unbound or bound to another value.
     Var(p: *VarObj)
-
-    Bool(b: bool)
 
     // A function value: compiled code and the frame it was made in. Two are equal, and unify,
     // exactly when they are the same object.
