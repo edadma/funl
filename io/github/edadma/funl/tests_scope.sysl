@@ -1,6 +1,8 @@
 module io.github.edadma.funl
 @tests
 
+import sysl.text.Search
+
 // Variables, blocks and assignment: `var`, `val`, a block's own names, `=`, the compound forms,
 // `++` and `--`, and multiple assignment.
 
@@ -90,6 +92,12 @@ AN_UPDATE_OF_A_NAME_NOT_IN_SCOPE_IS_REFUSED()
     assert_eq(complaints("y += 1\n"), "error 1:1 `y` is not defined\n")
     assert_eq(complaints("if true\n  var z = 1\nz++\n"), "error 3:1 `z` is not defined here\n")
     assert_eq(complaints("write = 1\n"), "error 1:1 `write` is a function, a relation or a builtin, and cannot be assigned\n")
+
+@test
+THE_NOTE_ON_AN_UPDATE_OF_AN_UNDECLARED_NAME_SHOWS_ITS_DECLARATION()
+    val shown = rendered("y += 1\n")
+    assert(shown.contains("= note: an update changes a variable that is already declared: `var y = 0`"), shown)
+    assert_eq(rendered("var y = 0\ny += 1\n"), "")
 
 @test
 A_MALFORMED_ASSIGNMENT_IS_REFUSED()
