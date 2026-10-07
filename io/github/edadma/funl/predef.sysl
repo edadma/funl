@@ -18,10 +18,13 @@ private do_error(base: usize, argc: usize) -> Result[Value, Fault]
 private do_abs(base: usize, argc: usize) -> Result[Value, Fault]
     val x = arg(base, 0)
 
-    deref(x) match
-        Int(n) -> if n < 0 then negate(x) else Ok(Int(n))
-        Var(_) -> Err(instantiation_error("instantiation error: 'abs' was given an unbound variable"))
-        y -> Err(type_error("number", y, s"'abs' wants a number and was given ${described(x)}"))
+    val y = deref(x)
+
+    num_of(y) match
+        Some(n) -> num_result(funl_policy().abs(n), s"abs(${render(y)})", y)
+        None -> y match
+            Var(_) -> Err(instantiation_error("instantiation error: 'abs' was given an unbound variable"))
+            _ -> Err(type_error("number", y, s"'abs' wants a number and was given ${described(x)}"))
 
 private do_min(base: usize, argc: usize) -> Result[Value, Fault] = extreme(base, argc, "min", Lt)
 

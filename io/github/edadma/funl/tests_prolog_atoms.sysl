@@ -107,7 +107,21 @@ ATOM_NUMBER_READS_AN_ATOM_AS_A_NUMBER_OR_FAILS()
     assert_eq(gives("atom_number(X, 7)"), ok("'7'"))
     assert_eq(holds("atom_number(_, _)"), ok("instantiation_error"))
     assert_eq(holds("atom_number(_, a)"), ok("type_error(number,a)"))
-    assert_eq(holds("atom_number('99999999999999999999', _)"), ok("evaluation_error(int_overflow)"))
+    assert_eq(gives("atom_number('99999999999999999999', X)"), ok("99999999999999999999"))
+    assert_eq(gives("atom_number('2.5', X)"), ok("2.5"))
+    assert_eq(gives("atom_number('-1.0e10', X)"), ok("-10000000000.0"))
+    assert_eq(gives("atom_number(X, 2.5)"), ok("'2.5'"))
+    assert_eq(holds("atom_number('1/2', _)"), ok("no"))
+    assert_eq(holds("atom_number('2.', _)"), ok("no"))
+    assert_eq(holds("atom_number('0xFFFFFFFFFFFFFFFFFF', _)"), ok("evaluation_error(int_overflow)"))
+
+@test
+NUMBER_CODES_READS_AND_WRITES_A_FLOAT_AND_A_BIG_INTEGER()
+    assert_eq(gives("number_codes(X, [0'2, 0'., 0'5])"), ok("2.5"))
+    assert_eq(gives("number_chars(X, ['1', '.', '0'])"), ok("1.0"))
+    assert_eq(gives("number_chars(1.5, X)"), ok("['1','.','5']"))
+    assert_eq(gives("number_chars(X, ['1','8','4','4','6','7','4','4','0','7','3','7','0','9','5','5','1','6','1','6'])"), ok("18446744073709551616"))
+    assert_eq(holds("number_chars(_, ['1', '.'])"), ok("syntax_error(illegal_number)"))
 
 @test
 LENGTH_MEASURES_A_LIST_AND_MAKES_ONE()

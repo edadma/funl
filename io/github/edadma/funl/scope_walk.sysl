@@ -172,6 +172,7 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
         Anon -> ()
         AtomE(_) -> ()
         IntE(_) -> ()
+        NumE(_) -> ()
         StrE(_) -> ()
         BoolE(_) -> ()
         TupleE(items) ->

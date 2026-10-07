@@ -132,11 +132,15 @@ wrong_count(name: string, argc: usize, msg: string) -> Fault
 
     existence_error("procedure", p, msg)
 
-// Arithmetic with no answer: `evaluation_error(What)` -- `zero_divisor`, `int_overflow`, `undefined`.
+// Arithmetic with no answer: `evaluation_error(What)` -- `zero_divisor`, `int_overflow`,
+// `float_overflow`, `undefined`.
 evaluation_error(what: string, msg: string) -> Fault = raised(term1("evaluation_error", atom(what)), msg)
 
 // An answer the machine has no way to hold: `representation_error(What)`.
 representation_error(what: string, msg: string) -> Fault = raised(term1("representation_error", atom(what)), msg)
+
+// An answer too large for the machine to build: `resource_error(What)`.
+resource_error(what: string, msg: string) -> Fault = raised(term1("resource_error", atom(what)), msg)
 
 // An operation the culprit does not allow: `permission_error(Action, Type, Culprit)`.
 permission_error(action: string, kind: string, culprit: Value, msg: string) -> Fault =

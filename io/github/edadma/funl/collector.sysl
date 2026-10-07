@@ -1,5 +1,6 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal.Number
 import sh.sysl.gc
 import sysl.buf.{Buf, buf}
 
@@ -14,6 +15,8 @@ import sysl.buf.{Buf, buf}
 mark_value(h: *gc.Heap, v: Value)
     v match
         Str(p) -> gc.mark(h, ptr_cast(p))
+        Big(p) -> gc.mark(h, ptr_cast(p))
+        Rat(p) -> gc.mark(h, ptr_cast(p))
         Compound(p) -> gc.mark(h, ptr_cast(p))
         Tuple(p) -> gc.mark(h, ptr_cast(p))
         Cons(p) -> gc.mark(h, ptr_cast(p))
@@ -40,6 +43,15 @@ finalize_str(p: *u8)
     val o: *StrObj = ptr_cast(p)
 
     o.s = ""
+
+trace_num(p: *u8, h: *gc.Heap)
+    return
+
+// An `Int` in the slot holds nothing counted, so assigning one releases the limbs.
+finalize_num(p: *u8)
+    val o: *NumObj = ptr_cast(p)
+
+    o.n = Number.Int(0)
 
 trace_cset(p: *u8, h: *gc.Heap)
     return
@@ -140,6 +152,9 @@ finalize_frame(p: *u8)
 // process-wide: a `gc.Kind` is a table of hook addresses, written once at startup and never changed,
 // so every VM shares one per kind.
 var str_kind: gc.Kind = gc.Kind(&trace_str, &finalize_str, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var num_kind: gc.Kind = gc.Kind(&trace_num, &finalize_num, null, null)
 
 // process-wide: a table of hook addresses, as above.
 var cset_kind: gc.Kind = gc.Kind(&trace_cset, &finalize_cset, null, null)

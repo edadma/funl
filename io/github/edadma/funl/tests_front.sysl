@@ -47,13 +47,18 @@ AN_INDENTED_LINE_UNDER_NOTHING_THAT_OPENS_A_BLOCK_IS_REFUSED()
     assert_eq(complaints("write(#a)\n  write(#b)\n"), "error 2:3 this line is indented, and nothing above it opens a block\n")
 
 @test
-A_FLOAT_LITERAL_IS_ONE_TOKEN_REFUSED_WHERE_IT_STANDS()
-    assert_eq(complaints("write( 0.001 )\n"), "error 1:8 floats are not supported yet\n")
-    assert_eq(complaints("val x = 2.5 * 3\nwrite( x )\n"), "error 1:9 floats are not supported yet\n")
-    assert_eq(complaints("write( 1e3, 1E3 )\nwrite( 12.5e-3 + 1 )\nwrite( 7e+2 )\n"),
-        "error 1:8 floats are not supported yet\nerror 1:13 floats are not supported yet\n" +
-        "error 2:8 floats are not supported yet\nerror 3:8 floats are not supported yet\n")
-    assert(rendered("write( 0.001 )\n").contains("FunL has no float value until its numeric tower lands"))
+A_FLOAT_LITERAL_IS_ONE_TOKEN_READ_AS_A_REAL()
+    assert_eq(complaints("write( 0.001 )\nval x = 2.5 * 3\nwrite( 1e3, 1E3, 12.5e-3 + 1, 7e+2, 2e-1 )\n"), "")
+    assert_eq(ran_funl("write( 0.001 )\nval x = 2.5 * 3\nwrite( x )\n"), "0.001\n7.5\nsucceeded")
+    assert_eq(ran_funl("write( 1e3, 1E3, 12.5e-3 + 1, 7e+2, 2e-1, 1_000.25 )\n"), "1000.0, 1000.0, 1.0125, 700.0, 0.2, 1000.25\nsucceeded")
+
+@test
+AN_INTEGER_LITERAL_PAST_64_BITS_IS_READ_AND_ONE_IN_A_RADIX_IS_REFUSED()
+    assert_eq(ran_funl("write( 9223372036854775808, 123456789012345678901234567890 )\n"),
+        "9223372036854775808, 123456789012345678901234567890\nsucceeded")
+    assert_eq(ran_funl("write( -9223372036854775808 )\n"), "-9223372036854775808\nsucceeded")
+    assert_eq(complaints("write( 0x1_0000_0000_0000_0000 )\n"), "error 1:10 this number is the number is too large to hold\n")
+    assert_eq(complaints("write( 0xFFFF_FFFF_FFFF_FFFF )\n"), "error 1:8 this integer is too large to hold\n")
 
 @test
 A_DOT_OR_AN_E_AFTER_AN_INTEGER_THAT_IS_NO_FLOAT_LEAVES_THE_INTEGER_ALONE()

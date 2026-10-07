@@ -1,36 +1,49 @@
 module io.github.edadma.funl
 
-import sysl.math.{checked_add, checked_sub}
+import sh.sysl.dal
+import sh.sysl.dal.Number
+import sysl.math.bigint.BigInt
+import sysl.math.bigint as big
+import sysl.math.{Float, checked_add, checked_mul, checked_sub}
 
 // Prolog arithmetic: `is/2`, the comparisons, `succ/2`, `plus/3` and `between/3`.
 //
-// **An expression is a term, evaluated by its functor's Prolog meaning**, over the integers FunL's
-// own arithmetic computes with (`arith.sysl`): where the two languages mean the same operation it is
-// that operation, so an overflow or a division that does not come out whole is refused in the same
-// words. What only Prolog has -- `//` rounding toward zero, the bit operations, `min`, `gcd` -- is
-// here. A float is refused by the reader, so no evaluable answers one.
+// **An expression is a term, evaluated by its functor's Prolog meaning over `dal`'s tower** under
+// ISO's policy (`number.sysl`): integers without bound, `/` on two integers an integer where it
+// divides and a float where it does not -- an exact rational under the `prefer_rationals` flag --
+// `//`, `mod`, `rem` and `div` refusing a float, and every result that is not a finite double an
+// evaluation error. What only Prolog has -- the bit operations, `gcd`, `msb`, the float functions and
+// the roundings -- is here, over the same numbers.
 
 install_prolog_arith(v: *Vm)
     register_generator(v, "is/2", 2, pl_is)
-    register_generator(v, "=:=/2", 2, (b, n, c) -> compared(b, "=:=", (o) -> o == 0))
-    register_generator(v, "=\\=/2", 2, (b, n, c) -> compared(b, "=\\=", (o) -> o != 0))
-    register_generator(v, "</2", 2, (b, n, c) -> compared(b, "<", (o) -> o < 0))
-    register_generator(v, ">/2", 2, (b, n, c) -> compared(b, ">", (o) -> o > 0))
-    register_generator(v, "=</2", 2, (b, n, c) -> compared(b, "=<", (o) -> o <= 0))
-    register_generator(v, ">=/2", 2, (b, n, c) -> compared(b, ">=", (o) -> o >= 0))
+    register_generator(v, "=:=/2", 2, (b, n, c) -> compared(b, (o) -> o == 0))
+    register_generator(v, "=\\=/2", 2, (b, n, c) -> compared(b, (o) -> o != 0))
+    register_generator(v, "</2", 2, (b, n, c) -> compared(b, (o) -> o == -1))
+    register_generator(v, ">/2", 2, (b, n, c) -> compared(b, (o) -> o == 1))
+    register_generator(v, "=</2", 2, (b, n, c) -> compared(b, (o) -> o == -1 || o == 0))
+    register_generator(v, ">=/2", 2, (b, n, c) -> compared(b, (o) -> o == 1 || o == 0))
     register_generator(v, "succ/2", 2, pl_succ)
     register_generator(v, "plus/3", 3, pl_plus)
     register_generator(v, "between/3", 3, pl_between)
 
-// The value of expression `x`.
+// The value of expression `x`: always a number.
 //
 // **Recursive over the expression's depth**, as the reader nests no deeper than it reads; a program
 // that builds an expression thousands of levels deep at run time is the one way past that.
-eval(x: Value) -> Result[long, Fault]
-    deref(x) match
-        Int(n) -> Ok(n)
+eval(x: Value) -> Result[Value, Fault]
+    val y = deref(x)
+
+    y match
+        Int(_) -> return Ok(y)
+        Real(_) -> return Ok(y)
+        Big(_) -> return Ok(y)
+        Rat(_) -> return Ok(y)
+        _ -> ()
+
+    y match
         Var(_) -> Err(instantiation_error("instantiation error: an arithmetic expression holds an unbound variable"))
-        Atom(id) -> Err(not_evaluable(atom_name(id), 0))
+        Atom(id) -> constant(atom_name(id))
         Nil -> Err(not_evaluable("[]", 0))
         Cons(_) -> Err(not_evaluable("[|]", 2))
         Compound(c) ->
@@ -44,7 +57,15 @@ eval(x: Value) -> Result[long, Fault]
 
                     binary(name, a, b)
                 n -> Err(not_evaluable(name, n))
-        y -> Err(type_error("evaluable", y, s"${described(y)} is not an arithmetic expression"))
+        _ -> Err(type_error("evaluable", y, s"${described(y)} is not an arithmetic expression"))
+
+// The evaluable atoms: `pi`, `e` and `epsilon`, the gap between 1.0 and the next double above it.
+private constant(name: string) -> Result[Value, Fault]
+    if name == "pi" then return Ok(Real(3.141592653589793))
+    if name == "e" then return Ok(Real(2.718281828459045))
+    if name == "epsilon" then return Ok(Real(2.220446049250313e-16))
+
+    Err(not_evaluable(name, 0))
 
 // `Name/Arity` names no arithmetic function: `type_error(evaluable, Name/Arity)`.
 private not_evaluable(name: string, arity: usize) -> Fault
@@ -54,144 +75,268 @@ private not_evaluable(name: string, arity: usize) -> Fault
 
     type_error("evaluable", culprit, s"$name/$arity is not an arithmetic function")
 
-private unary(name: string, a: long) -> Result[long, Fault]
-    if name == "-" then return int_of(negate(Int(a))?)
+// The number a value `eval` answered is.
+private n_of(a: Value) -> Number = num_of(a).unwrap()
+
+private unary(name: string, a: Value) -> Result[Value, Fault]
+    val p = prolog_policy()
+
+    if name == "-" then return num_answer1(p.neg(n_of(a)), name, a)
     if name == "+" then return Ok(a)
+    if name == "abs" then return num_answer1(p.abs(n_of(a)), name, a)
 
-    if name == "abs"
-        if a >= 0 then return Ok(a)
+    if name == "sign"
+        val s = dal.sign(n_of(a))
 
-        return int_of(negate(Int(a))?)
+        return a match
+            Real(r) ->
+                val sr = if r.is_nan() then r else real(s)
 
-    if name == "sign" then return Ok(if a > 0 then 1 elif a < 0 then -1 else 0)
-    if name == "\\" then return Ok(~a)
+                Ok(Real(sr))
+            _ -> Ok(Int(long(s)))
 
-    // A float would be rounded; an integer already is one.
-    if name == "integer" || name == "truncate" || name == "round" || name == "ceiling" || name == "floor" then return Ok(a)
+    if name == "\\"
+        a match
+            Int(n) -> return Ok(Int(~n))
+            _ -> return of_big(big.not(whole(a, name)?))
 
     if name == "msb"
-        if a < 1 then return Err(type_error("not_less_than_one", Int(a), s"msb wants a positive integer, and was given $a"))
+        if dal.sign(n_of(a)) <= 0 || !is_int(a)
+            if !is_int(a) then return Err(type_error("integer", a, s"msb wants an integer, and was given ${described(a)}"))
 
-        var bit: long = 0
+            return Err(type_error("not_less_than_one", a, s"msb wants a positive integer, and was given ${render(a)}"))
 
-        while (a >> (bit + 1)) > 0
-            bit += 1
+        return Ok(Int(long(big.bit_length(whole(a, name)?)) - 1))
 
-        return Ok(bit)
+    if name == "integer" || name == "round" || name == "truncate" || name == "ceiling" || name == "floor"
+        return rounded(name, a)
+
+    val r = dal.to_real(n_of(a))
+
+    if name == "float" then return real_of(r, name, a)
+    if name == "float_integer_part" then return real_of(r.trunc(), name, a)
+    if name == "float_fractional_part" then return real_of(r - r.trunc(), name, a)
+    if name == "sqrt" then return real_of(r.sqrt(), name, a)
+    if name == "sin" then return real_of(r.sin(), name, a)
+    if name == "cos" then return real_of(r.cos(), name, a)
+    if name == "tan" then return real_of(r.tan(), name, a)
+    if name == "asin" then return real_of(r.asin(), name, a)
+    if name == "acos" then return real_of(r.acos(), name, a)
+    if name == "atan" then return real_of(r.atan(), name, a)
+    if name == "exp" then return real_of(r.exp(), name, a)
+
+    // The logarithm of 0 is not an overflow but has no value, as of a negative number.
+    if name == "log"
+        if r <= 0.0 then return Err(evaluation_error("undefined", s"log(${render(a)}) has no value"))
+
+        return real_of(r.ln(), name, a)
 
     Err(not_evaluable(name, 1))
 end unary
 
-private binary(name: string, a: long, b: long) -> Result[long, Fault]
-    if name == "+" then return via(Add, a, b)
-    if name == "-" then return via(Sub, a, b)
-    if name == "*" then return via(Mul, a, b)
-    if name == "/" then return via(Quo, a, b)
-    if name == "mod" then return via(Modulo, a, b)
+private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
+    // The fast path: two 64-bit integers whose sum, difference or product is one too.
+    (a, b) match
+        (Int(x), Int(y)) ->
+            var quick: Option[long] = None
 
-    if name == "rem"
-        divisor(name, a, b)?
-        return via(Rem, a, b)
+            if name == "+"
+                quick = checked_add(x, y)
+            elif name == "-"
+                quick = checked_sub(x, y)
+            elif name == "*"
+                quick = checked_mul(x, y)
 
-    if name == "div"
-        divisor(name, a, b)?
-        return via(IntQuo, a, b)
+            quick match
+                Some(r) -> return Ok(Int(r))
+                None -> ()
+        _ -> ()
 
-    if name == "//"
-        divisor(name, a, b)?
+    val p = prolog_policy()
 
-        if a == -9223372036854775807 - 1 && b == -1 then return Err(too_big(s"$a // $b"))
+    if name == "+" then return num_answer(p.add(n_of(a), n_of(b)), name, a, b)
+    if name == "-" then return num_answer(p.sub(n_of(a), n_of(b)), name, a, b)
+    if name == "*" then return num_answer(p.mul(n_of(a), n_of(b)), name, a, b)
+    if name == "/" then return num_answer(p.div(n_of(a), n_of(b)), name, a, b)
+    if name == "//" then return num_answer(p.quot(n_of(a), n_of(b)), name, a, b)
+    if name == "mod" then return num_answer(p.modulo(n_of(a), n_of(b)), name, a, b)
+    if name == "rem" then return num_answer(p.rem(n_of(a), n_of(b)), name, a, b)
+    if name == "div" then return num_answer(p.floor_div(n_of(a), n_of(b)), name, a, b)
 
-        return Ok(a / b)
+    // Of two equal numbers of different kinds, the first.
+    if name == "min" then return Ok(if dal.compare(n_of(b), n_of(a)) == Some(-1) then b else a)
+    if name == "max" then return Ok(if dal.compare(n_of(b), n_of(a)) == Some(1) then b else a)
 
-    if name == "min" then return Ok(if b < a then b else a)
-    if name == "max" then return Ok(if a < b then b else a)
-    if name == "gcd" then return gcd_of(a, b)
-    if name == "/\\" then return Ok(a & b)
-    if name == "\\/" then return Ok(a | b)
-    if name == "xor" then return Ok(a ^ b)
-    if name == ">>" then return shifted(a, -b, s"$a >> $b")
-    if name == "<<" then return shifted(a, b, s"$a << $b")
-    if name == "^" || name == "**" then return power_of_ints(a, b)
+    // `^` is the exact power on two integers and a float one where either is a float; `**` is
+    // always a float.
+    if name == "^"
+        if is_float(a) || is_float(b) then return real_of2(dal.to_real(n_of(a)).pow(dal.to_real(n_of(b))), name, a, b)
+
+        // A fractional exponent is the culprit when there is one, and the base otherwise.
+        val blamed = if is_int(b) then a else b
+
+        return p.pow(n_of(a), n_of(b)) match
+            Ok(n) -> num_result(Ok(n), "", blamed)
+            Err(e) -> Err(num_fault(e, s"${render(a)} ^ ${render(b)}", blamed))
+
+    if name == "**" then return real_of2(dal.to_real(n_of(a)).pow(dal.to_real(n_of(b))), name, a, b)
+
+    if name == "atan2" || name == "atan"
+        val y = dal.to_real(n_of(a))
+        val x = dal.to_real(n_of(b))
+
+        if y == 0.0 && x == 0.0 then return Err(evaluation_error("undefined", s"$name(0, 0) has no value"))
+
+        return real_of2(y.atan2(x), name, a, b)
+
+    if name == "copysign" then return real_of2(dal.to_real(n_of(a)).copysign(dal.to_real(n_of(b))), name, a, b)
+
+    if name == "gcd" then return of_big(big.gcd(whole(a, name)?, whole(b, name)?))
+
+    if name == "/\\"
+        (a, b) match
+            (Int(x), Int(y)) -> return Ok(Int(x & y))
+            _ -> return of_big(big.and(whole(a, name)?, whole(b, name)?))
+
+    if name == "\\/"
+        (a, b) match
+            (Int(x), Int(y)) -> return Ok(Int(x | y))
+            _ -> return of_big(big.or(whole(a, name)?, whole(b, name)?))
+
+    if name == "xor"
+        (a, b) match
+            (Int(x), Int(y)) -> return Ok(Int(x ^ y))
+            _ -> return of_big(big.xor(whole(a, name)?, whole(b, name)?))
+
+    if name == ">>" then return shifted(a, b, false)
+    if name == "<<" then return shifted(a, b, true)
 
     Err(not_evaluable(name, 2))
 end binary
 
-// `a o b` as FunL computes it, which answers an integer for every operation asked of it here.
-private via(o: BinOp, a: long, b: long) -> Result[long, Fault]
-    arith(o, Int(a), Int(b))? match
-        Some(x) -> int_of(x)
-        None -> Err(Broken(s"'${op_text(o)}' answered no value for $a and $b"))
+// A double as the answer of `name(a)`: a finite one is a float, an infinite one
+// `evaluation_error(float_overflow)` and a NaN `evaluation_error(undefined)`. The message is
+// written only for a refusal.
+private real_of(r: real, name: string, a: Value) -> Result[Value, Fault] =
+    if r.is_finite() then Ok(Real(r)) else real_refused(r, s"$name(${render(a)})")
 
-private int_of(x: Value) -> Result[long, Fault] = x match
-    Int(n) -> Ok(n)
-    _ -> Err(Broken(s"integer arithmetic answered ${described(x)}"))
+// A double as the answer of `a name b`, likewise.
+private real_of2(r: real, name: string, a: Value, b: Value) -> Result[Value, Fault] =
+    if r.is_finite() then Ok(Real(r)) else real_refused(r, s"${render(a)} $name ${render(b)}")
 
-private divisor(name: string, a: long, b: long) -> Result[unit, Fault]
-    if b == 0 then return Err(evaluation_error("zero_divisor", s"$a $name 0 divides by zero"))
+private real_refused(r: real, what: string) -> Result[Value, Fault] =
+    num_result(prolog_policy().admit(Number.Real(r)), what, Real(r))
 
-    Ok(())
+// A big integer as an answer, demoted to 64 bits where it fits; with big integers on, the policy
+// refuses none.
+private of_big(n: BigInt) -> Result[Value, Fault] = num_result(prolog_policy().of_big(n), "a big integer", Undefined)
 
-private too_big(what: string) -> Fault =
-    evaluation_error("int_overflow", s"$what does not fit in 64 bits, and only integers are built")
+// An integer operand of an integer-only function, as a big integer: `type_error(integer, X)` for
+// anything else.
+private whole(a: Value, name: string) -> Result[BigInt, Fault] = n_of(a) match
+    Number.Int(n) -> Ok(big.from_int(n))
+    Number.Big(n) -> Ok(n)
+    _ -> Err(type_error("integer", a, s"$name wants integers, and was given ${described(a)}"))
 
-// `a` shifted left by `by` places, right when `by` is negative -- the way SWI-Prolog reads a
-// negative shift. A left shift that loses a bit overflows; a right shift rounds toward minus
-// infinity, as it does in every Prolog.
-private shifted(a: long, by: long, what: string) -> Result[long, Fault]
-    if by <= 0
-        val n = if by < -63 then 63 else -by
+// `integer`, `round`, `truncate`, `ceiling` and `floor`: the integer a number rounds to. An integer
+// is its own; a rational is rounded exactly; a float that is infinite or not a number has none.
+private rounded(name: string, a: Value) -> Result[Value, Fault]
+    a match
+        Real(r) ->
+            var f = r.round()
 
-        return Ok(a >> n)
+            if name == "truncate"
+                f = r.trunc()
+            elif name == "ceiling"
+                f = r.ceil()
+            elif name == "floor"
+                f = r.floor()
 
-    if a == 0 then return Ok(0)
-    if by > 63 then return Err(too_big(what))
+            // A finite double whose magnitude is below 2^63 is a 64-bit integer already.
+            if f > -9.2e18 && f < 9.2e18 then return Ok(Int(long(f)))
 
-    val r = a << by
+            big.from_real(f) match
+                Some(n) -> of_big(n)
+                None -> Err(evaluation_error("undefined", s"$name(${render(a)}) has no integer value"))
+        Rat(_) ->
+            val what = s"$name(${render(a)})"
 
-    if (r >> by) != a then return Err(too_big(what))
+            // Over a rational, `funl()` divides without refusing a fraction, and `quot` and
+            // `floor_div` by one are the truncation and the floor, exactly.
+            val p = funl_policy()
+            val n = n_of(a)
+            val one = Number.Int(1)
+            val half = p.div(one, Number.Int(2)).unwrap()
 
-    Ok(r)
+            if name == "truncate" then return num_result(p.quot(n, one), what, a)
+            if name == "floor" then return num_result(p.floor_div(n, one), what, a)
+            if name == "ceiling" then return num_result(p.neg(p.floor_div(p.neg(n).unwrap(), one).unwrap()), what, a)
 
-// The greatest common divisor, worked in magnitudes, which reach one past the largest `long`: the
-// gcd of the least `long` with itself or with 0 is that magnitude, and does not fit.
-private gcd_of(a: long, b: long) -> Result[long, Fault]
-    var x = magnitude(a)
-    var y = magnitude(b)
+            // `round` and `integer`: to the nearest integer, a half away from zero.
+            if dal.sign(n) >= 0 then return num_result(p.floor_div(p.add(n, half).unwrap(), one), what, a)
 
-    while y != 0
-        val t = x % y
+            num_result(p.neg(p.floor_div(p.add(p.neg(n).unwrap(), half).unwrap(), one).unwrap()), what, a)
+        _ -> Ok(a)
 
-        x = y
-        y = t
+// `a` shifted left by `b` places, or right when `left` is off; a negative count shifts the other
+// way, as SWI-Prolog reads one. A right shift rounds toward minus infinity, as in every Prolog, and a
+// left shift that passes 64 bits grows into a big integer.
+private shifted(a: Value, b: Value, left: bool) -> Result[Value, Fault]
+    val name = if left then "<<" else ">>"
 
-    if x > 9223372036854775807 then return Err(too_big(s"gcd($a, $b)"))
+    val count: long = b match
+        Int(k) -> k
+        Big(p) -> if dal.sign(p.n) < 0 then -67108865 else 67108865
+        _ -> return Err(type_error("integer", b, s"a shift counts in integers, and was given ${described(b)}"))
 
-    Ok(long(x))
+    // A count past 2^26 places: a right shift that far leaves only the sign, and a left one would
+    // need more bits than a number may have.
+    if count > 67108864 || count < -67108864
+        val n = whole(a, name)?
 
-private magnitude(n: long) -> ulong = if n < 0 then ulong(-(n + 1)) + 1 else ulong(n)
+        if n.is_zero() then return Ok(Int(0))
 
-// `a ^ b` over integers. A negative exponent has an integer answer only for a base of 1 or -1, and
-// none at all for 0.
-private power_of_ints(a: long, b: long) -> Result[long, Fault]
-    if b < 0
-        if a == 1 then return Ok(1)
-        if a == -1 then return Ok(if b % 2 == 0 then 1 else -1)
-        if a == 0 then return Err(evaluation_error("zero_divisor", s"0 ^ $b divides by zero"))
+        if (count > 0) == left then return Err(resource_error("memory", s"${render(a)} $name ${render(b)} would need more than 2^26 bits"))
 
-    via(Pow, a, b)
+        return Ok(Int(if n.sign() < 0 then -1 else 0))
+
+    val by = if left then count else -count
+
+    a match
+        Int(x) ->
+            if by <= 0
+                val places = if by < -63 then 63 else -by
+
+                return Ok(Int(x >> places))
+
+            if x == 0 then return Ok(Int(0))
+
+            if by <= 62
+                val r = x << by
+
+                if (r >> by) == x then return Ok(Int(r))
+        _ -> ()
+
+    val n = whole(a, name)?
+
+    if by >= 0 then of_big(big.shl(n, usize(by))) else of_big(big.shr(n, usize(-by)))
+end shifted
 
 // `X is E`.
 private pl_is(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val n = eval(arg(base, 1))?
 
-    Ok(if unify(arg(base, 0), Int(n)) then Gives(Unit) else Refuses)
+    Ok(if unify(arg(base, 0), n) then Gives(Unit) else Refuses)
 
-// A comparison of two expressions' values, succeeding when `holds` says the order is right.
-private compared(base: usize, name: string, holds: int -> bool) -> Result[Answer, Fault]
+// A comparison of two expressions' values, succeeding when `holds` says the order is right. The
+// comparison across kinds is exact, and a NaN is in no order, compared as 2.
+private compared(base: usize, holds: int -> bool) -> Result[Answer, Fault]
     val a = eval(arg(base, 0))?
     val b = eval(arg(base, 1))?
-    val o: int = if a < b then -1 elif a > b then 1 else 0
+
+    val o: int = (a, b) match
+        (Int(x), Int(y)) -> if x < y then -1 elif x > y then 1 else 0
+        _ -> dal.compare(n_of(a), n_of(b)).unwrap_or(2)
 
     Ok(if holds(o) then Gives(Unit) else Refuses)
 
@@ -199,6 +344,7 @@ private compared(base: usize, name: string, holds: int -> bool) -> Result[Answer
 private int_arg(x: Value, who: string, open: bool) -> Result[Option[long], Fault]
     deref(x) match
         Int(n) -> Ok(Some(n))
+        Big(_) -> Err(representation_error("max_integer", s"$who counts in 64-bit integers"))
         Var(_) ->
             if open then return Ok(None)
 
@@ -209,6 +355,14 @@ private natural(n: long, who: string) -> Result[unit, Fault]
     if n < 0 then return Err(type_error("not_less_than_zero", Int(n), s"$who wants a natural number, and was given $n"))
 
     Ok(())
+
+// A sum or a difference past 64 bits, as the big integer it is.
+private grown(a: long, b: long, minus: bool) -> Result[Value, Fault]
+    val p = prolog_policy()
+
+    if minus then return num_result(p.sub(Number.Int(a), Number.Int(b)), s"$a - $b", Undefined)
+
+    num_result(p.add(Number.Int(a), Number.Int(b)), s"$a + $b", Undefined)
 
 // `succ(X, Y)`: `Y` is `X + 1`, both natural numbers.
 private pl_succ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
@@ -223,10 +377,10 @@ private pl_succ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
                 None -> ()
 
             val m = checked_add(n, 1) match
-                Some(m) -> m
-                None -> return Err(too_big(s"succ($n)"))
+                Some(m) -> Int(m)
+                None -> grown(n, 1, false)?
 
-            Ok(if unify(arg(base, 1), Int(m)) then Gives(Unit) else Refuses)
+            Ok(if unify(arg(base, 1), m) then Gives(Unit) else Refuses)
         None -> y match
             Some(m) ->
                 natural(m, "succ/2")?
@@ -242,21 +396,26 @@ private pl_plus(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val y = int_arg(arg(base, 1), "plus/3", true)?
     val z = int_arg(arg(base, 2), "plus/3", true)?
 
-    val (slot, r) = x match
+    // Which argument is computed, and from which two: `p + q`, or `p - q` when `minus`.
+    val (slot, p, q, minus) = x match
         Some(a) -> y match
-            Some(b) -> (2, checked_add(a, b))
+            Some(b) -> (2, a, b, false)
             None -> z match
-                Some(c) -> (1, checked_sub(c, a))
+                Some(c) -> (1, c, a, true)
                 None -> return Err(plus_unbound())
         None -> y match
             Some(b) -> z match
-                Some(c) -> (0, checked_sub(c, b))
+                Some(c) -> (0, c, b, true)
                 None -> return Err(plus_unbound())
             None -> return Err(plus_unbound())
 
-    r match
-        Some(n) -> Ok(if unify(arg(base, usize(slot)), Int(n)) then Gives(Unit) else Refuses)
-        None -> Err(too_big("plus/3's answer"))
+    val quick = if minus then checked_sub(p, q) else checked_add(p, q)
+
+    val r = quick match
+        Some(n) -> Int(n)
+        None -> grown(p, q, minus)?
+
+    Ok(if unify(arg(base, usize(slot)), r) then Gives(Unit) else Refuses)
 
 private plus_unbound() -> Fault = instantiation_error("instantiation error: plus/3 wants two of its arguments bound")
 

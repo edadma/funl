@@ -104,11 +104,19 @@ NUMBERS_IN_EVERY_BASE_AND_CHARACTER_CODES_READ_AS_INTEGERS()
     assert_eq(shown("[0'a, 0' , 0'\\n, 0''', 0'\\\\]"), "[97,32,10,39,92]\nsucceeded")
 
 @test
-A_FLOAT_IS_REFUSED_WHERE_IT_IS_WRITTEN()
+A_FLOAT_READS_AS_A_FLOAT_AND_WRITES_AS_ONE()
     // `p(1).` is an integer and a full stop: a `.` followed by layout is no fraction.
-    assert_eq(prolog_complaints("p(1).\nq(X) :- X = 1.5.\n"), "error 2:13 floats are not supported yet\n")
-    assert_eq(prolog_complaints("q(2.0e3).\n"), "error 1:3 floats are not supported yet\n")
-    assert_eq(prolog_complaints("q(1e10).\n"), "error 1:3 floats are not supported yet\n")
+    assert_eq(prolog_complaints("p(1).\nq(X) :- X = 1.5.\n"), "")
+    assert_eq(shown("[1.0, 1.5, 2.0e3, 1.0e10, 1e10, 1.5E-3, -2.5, - 2.5, 0.1]"), "[1.0,1.5,2000.0,10000000000.0,10000000000.0,0.0015,-2.5,-(2.5),0.1]\nsucceeded")
+    assert_eq(shown("[1.0e22, 1.0e-10]"), "[1.0e+22,1.0e-10]\nsucceeded")
+    assert_eq(shown("f(1.0)"), "f(1.0)\nsucceeded")
+    assert_eq(shown("1 - -1.0"), "-(1,-1.0)\nsucceeded")
+
+@test
+AN_INTEGER_PAST_64_BITS_READS_AS_ONE()
+    assert_eq(shown("[9223372036854775808, -9223372036854775809, 123456789012345678901234567890]"),
+        "[9223372036854775808,-9223372036854775809,123456789012345678901234567890]\nsucceeded")
+    assert_eq(prolog_complaints("q(0x1_0000_0000_0000_0000).\n"), "error 1:3 this integer is too large to hold\n")
 
 @test
 QUOTED_ATOMS_DOUBLE_THEIR_QUOTE_AND_DECODE_ISO_ESCAPES()

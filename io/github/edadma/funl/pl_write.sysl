@@ -1,5 +1,7 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal
+import sh.sysl.dal.Number
 import sysl.text.{Search, StrBuilder, chars_of, str_builder}
 
 // How Prolog writes a term: operators as the current table declares them, atoms quoted where a
@@ -78,6 +80,14 @@ private put_term(w: *Writer, x: Value, max: u16, depth: long)
 
     deref(x) match
         Int(n) -> emit(w, s"$n")
+        Big(p) -> emit(w, num_text(p.n))
+
+        // A rational as SWI-Prolog writes one, `7r2`, which reads as a number where `7/2` would read
+        // as a term.
+        Rat(p) -> emit(w, prolog_num_text(p.n))
+
+        // A real always shows it is one -- `1.0`, never `1` -- so it reads back as a real.
+        Real(r) -> emit(w, num_text(Number.Real(r)))
         Var(p) -> emit(w, s"_G${p.id}")
         Atom(id) -> put_atom(w, atom_name(id), max < 1200)
         Nil -> emit(w, "[]")
@@ -334,6 +344,9 @@ private written_as_compound(name: string, o: PlOp, x: Value) -> bool =
 private leads_with_digit(x: Value) -> bool
     deref(x) match
         Int(n) -> n >= 0
+        Big(p) -> dal.sign(p.n) >= 0
+        Rat(p) -> dal.sign(p.n) >= 0
+        Real(r) -> r >= 0.0
         Compound(c) ->
             if is_op_atom(c.args.at(0)) then return false
 

@@ -1,0 +1,152 @@
+module io.github.edadma.funl
+
+import sh.sysl.dal
+import sh.sysl.dal.{Number, NumberError, Policy}
+import sysl.math.Float
+import sysl.math.bigint as big
+
+// The numbers, as `dal`'s tower holds them and as a `Value` does.
+//
+// **The tower is the `sysl-lang/dal` package, not FunL's**: integers that grow past 64 bits, exact
+// fractions and doubles, with the promotion, overflow and demotion between them chosen by a `Policy`.
+// What is here is the mapping between `dal`'s `Number` and the `Value` enum, the two policies the
+// machine runs under, and what each of `dal`'s refusals is as an ISO error term.
+//
+// **Two policies, one tower.** FunL's arithmetic runs under `dal.funl()` -- `7 / 2` is the rational
+// `7/2` -- and Prolog's `is/2` under `dal.iso_prolog(prefer_rationals)`, where `7 / 2` is `3.5` unless
+// the `prefer_rationals` flag is on. A number made by one language is an ordinary number to the other.
+
+// The number a value is, or `None` for a value that is not one.
+num_of(x: Value) -> Option[Number] = x match
+    Int(n) -> Some(Number.Int(n))
+    Big(p) -> Some(p.n)
+    Rat(p) -> Some(p.n)
+    Real(r) -> Some(Number.Real(r))
+    _ -> None
+
+// Whether a value is a number of any kind.
+is_num(x: Value) -> bool = num_of(x).is_some()
+
+// Whether a value is an integer of either size.
+is_int(x: Value) -> bool = x match
+    Int(_) -> true
+    Big(_) -> true
+    _ -> false
+
+// Whether two values are the same number: the same kind and the same value, which is unification's
+// question and Prolog's `==`. `1` and `1.0` are not the same number.
+same_number(x: Value, y: Value) -> bool = (num_of(x), num_of(y)) match
+    (Some(a), Some(b)) -> a == b
+    _ -> false
+
+// Whether two values are equal numbers across kinds: FunL's `==`, where `1 == 1.0`. A NaN equals
+// nothing.
+same_value(x: Value, y: Value) -> bool = (num_of(x), num_of(y)) match
+    (Some(a), Some(b)) -> dal.equal(a, b)
+    _ -> false
+
+// Two numbers in the standard order of terms: by value, and an integer and a real of equal value with
+// the real first. A NaN comes before every other number, so the order stays total.
+number_order(x: Value, y: Value) -> int
+    val a = num_of(x).unwrap()
+    val b = num_of(y).unwrap()
+
+    dal.compare(a, b) match
+        Some(c) ->
+            if c != 0 then return c
+
+            val rx = is_real(x)
+            val ry = is_real(y)
+
+            if rx == ry then 0 elif rx then -1 else 1
+        None ->
+            val nx = is_nan(x)
+            val ny = is_nan(y)
+
+            if nx == ny then 0 elif nx then -1 else 1
+
+private is_real(x: Value) -> bool = x match
+    Real(_) -> true
+    _ -> false
+
+private is_nan(x: Value) -> bool = x match
+    Real(r) -> r.is_nan()
+    _ -> false
+
+// Whether a value is a real: Prolog's `float/1`.
+is_float(x: Value) -> bool = is_real(x)
+
+// Whether a value is exact: an integer or a fraction, SWI-Prolog's `rational/1`.
+is_rational(x: Value) -> bool = x match
+    Rat(_) -> true
+    _ -> is_int(x)
+
+// A number as a value: inline when it fits a word, boxed when it owns storage.
+num_value(n: Number) -> Result[Value, string] = n match
+    Number.Int(k) -> Ok(Int(k))
+    Number.Real(r) -> Ok(Real(r))
+    Number.Big(b) -> new_num(n, b.limbs(), false)
+    Number.Rat(q) -> new_num(n, q.numerator().limbs() + q.denominator().limbs(), true)
+
+// A number as text, as both languages print it: an integer in decimal, a rational as `n/d`, and a
+// real as the shortest decimal that reads back as the same double, with a `.0` where the digits alone
+// would read as an integer.
+num_text(n: Number) -> string = dal.to_string(n)
+
+// A number as Prolog writes it: a rational as SWI-Prolog does, `7r2`, and the rest as FunL does.
+prolog_num_text(n: Number) -> string = n match
+    Number.Rat(q) -> s"${big.to_string(q.numerator())}r${big.to_string(q.denominator())}"
+    _ -> num_text(n)
+
+// A number value as Prolog writes it, for `atom_number/2`, `number_codes/2` and the rest.
+written_number(x: Value) -> string = prolog_num_text(num_of(x).unwrap())
+
+// FunL's tower: exact until a program asks for inexactness.
+funl_policy() -> Policy = dal.funl()
+
+// Prolog's: ISO's, with `/` on two integers exact rather than a float under `prefer_rationals`.
+prolog_policy() -> Policy = dal.iso_prolog(current().flags.prefer_rationals)
+
+// A number literal's text read under FunL's policy: an integer past 64 bits, or a real.
+literal_value(text: string) -> Result[Value, string] = funl_policy().parse(text) match
+    Ok(n) -> num_value(n)
+    Err(e) -> Err(s"'$text' is not a number: $e")
+
+// An operation's answer as a value, or its refusal as an error term. `what` is the operation as a
+// message shows it, and `culprit` the operand a type error names.
+num_result(r: Result[Number, NumberError], what: string, culprit: Value) -> Result[Value, Fault] = r match
+    Ok(n) -> num_value(n) match
+        Ok(x) -> Ok(x)
+        Err(e) -> Err(Broken(e))
+    Err(e) -> Err(num_fault(e, what, culprit))
+
+// The answer of `a op b`, the message of a refusal written only when there is one: an operation
+// that succeeds renders nothing.
+num_answer(r: Result[Number, NumberError], op: string, a: Value, b: Value) -> Result[Value, Fault] = r match
+    Ok(n) -> num_result(Ok(n), "", Undefined)
+    Err(e) -> Err(num_fault(e, s"${render(a)} $op ${render(b)}", non_integer(a, b)))
+
+// The answer of `name(a)`, likewise.
+num_answer1(r: Result[Number, NumberError], name: string, a: Value) -> Result[Value, Fault] = r match
+    Ok(n) -> num_result(Ok(n), "", Undefined)
+    Err(e) -> Err(num_fault(e, s"$name(${render(a)})", a))
+
+// What one of `dal`'s refusals is as an ISO error term, following the mapping in `dal`'s README.
+num_fault(e: NumberError, what: string, culprit: Value) -> Fault = e match
+    NumberError.DivisionByZero -> evaluation_error("zero_divisor", s"$what divides by zero")
+    NumberError.Overflow -> evaluation_error("int_overflow", s"$what does not fit in 64 bits")
+    NumberError.FloatOverflow -> evaluation_error("float_overflow", s"$what is too large for a float")
+    NumberError.Undefined -> evaluation_error("undefined", s"$what has no value")
+    NumberError.NotAnInteger -> type_error("integer", culprit, s"$what wants integers and was given ${described(culprit)}")
+
+    // A fraction where the policy has no rationals: ISO's answer for `2 ^ -1`, an integer power that
+    // only a float could hold.
+    NumberError.NeedsRational -> type_error("float", culprit, s"$what is not an integer, and integer powers are exact")
+    NumberError.ExponentTooLarge -> resource_error("memory", s"$what would need more than 2^26 bits")
+    NumberError.Syntax -> syntax_error("illegal_number", s"'$what' is not a number")
+
+    // Neither policy the machine runs leaves out floats or forbids mixing kinds.
+    _ -> Broken(s"$what: $e")
+
+// The operand of two that a type error over integers names: the first that is not an integer.
+non_integer(a: Value, b: Value) -> Value = if is_int(a) then b else a

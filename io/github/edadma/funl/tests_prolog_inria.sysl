@@ -307,8 +307,7 @@ INRIA_SUITE()
 // and a listed line that is no entry are each a failure.
 @test
 AN_UNMET_ENTRY_NOT_LISTED_FAILS()
-    assert_eq(inria_failures(["arith_eq"], ""), "arith_eq:4 unreadable: floats are not supported yet\n" +
-        "arith_eq:8 unreadable: floats are not supported yet\n")
+    assert_eq(inria_failures(["atom_length"], ""), "atom_length:9 got answers([[]]) want error(type_error(atom,1.23))\n")
 
 @test
 A_LISTED_ENTRY_THAT_IS_MET_IS_STALE()

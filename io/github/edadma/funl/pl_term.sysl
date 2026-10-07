@@ -25,6 +25,9 @@ enum TermKind
     TAtom(id: u32)
     TInt(n: long)
 
+    // A float, or an integer past 64 bits, as its text: the tower reads it when the clause is built.
+    TNum(text: string)
+
     // Double-quoted text, read as a string.
     TStr(s: string)
 

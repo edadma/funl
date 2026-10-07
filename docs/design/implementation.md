@@ -70,7 +70,7 @@ however even the halves look. The first layout, to be revisited by counting once
 | the machine | `vm_state.sysl` (`struct Vm`, `current()`), `op.sysl` (the instruction set), `run.sysl` (the dispatch loop), `control.sysl` (entries, `fail`, marks, cut, `Restore`), `trail.sysl`, `frame.sysl`, `gen.sysl` (cursors: `!`, `to`/`until`, and `|e`'s `ChangeMark`), `regex_run.sysl` (the regex instructions) |
 | logic | `unify.sysl` (unification, dereferencing, standard order), `copy.sysl` (`copy_term`, `findall`'s copies), `index.sysl` (first-argument indexing, the instantiation check on a function's patterns) |
 | values | `value.sysl`, `obj.sysl` (heap objects and constructors), `atom.sysl` (the intern table), `collector.sysl` (kinds, roots, the schedule), `seq.sysl` (lists, ranges and sets as values: `+`, `in`, indexing, `.length`, the list patterns, what a comprehension collects) |
-| numbers | `number.sysl` (mapping `dal`'s number to and from `Value`), `arith.sysl` (FunL's operators over `dal`), `render.sysl` (printing values) |
+| numbers | `number.sysl` (mapping `dal`'s number to and from `Value`, the FunL and ISO policies, `dal`'s refusals as ISO error terms), `arith.sysl` (FunL's operators over `dal`, with `Int` arithmetic inline), `render.sysl` (printing values) |
 | builtins | `native_fn.sysl` (the registry), `natives.sysl` (which scope gets which), `scan.sysl` (`tab`, `move`, `upto` …), `collections.sysl`, `io.sysl` |
 | Prolog | `pl_read.sysl` (tokens and the operator table), `pl_compile.sysl` (clauses and control constructs), `pl_db.sysl` (assert, retract, generations), `pl_arith.sysl` (`is` and comparison), `pl_builtins.sysl`, `pl_lib.sysl` (the library clauses, as Prolog source carried in a `raw"""` block), `pl_errors.sysl` (ISO error terms) |
 | tests | `tests_kit.sysl` (run a program, capture what it printed) plus a `tests_*.sysl` per subject |
@@ -90,7 +90,7 @@ builtin id, or marked process-wide with a reason — is written on day one, whil
 |---|---|
 | `sh.sysl.parsing` | spans, the cursor, literal reading, interpolation, diagnostics and `Report`, `layout`, `pratt` |
 | `sh.sysl.gc` | the heap: `Kind`s, `alloc`, `collect`, finalizers |
-| `sysl-lang/dal` | the numeric tower: `Int` → `Big` → `Rat` → `Real` → `Dec`, promotion, overflow, demotion, exact comparison and printing, over the standard library's `bigint`, `rational` and `decimal` |
+| `sysl-lang/dal` 0.1.0 | the numeric tower: `Int` → `Big` → `Rat` → `Real` (`Dec` is not in 0.1.0), promotion, overflow, demotion, exact comparison and printing, over the standard library's `bigint` and `rational` |
 
 **No C library is bound**, and none is needed for the language: regex is the machine's own, numbers
 are the standard library's, and there is no event loop. The binary needs nothing installed. A line

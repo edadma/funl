@@ -267,6 +267,7 @@ private head_arg(e: *Emit, sc: *Scope, p: &Expr, src: Src, seen: *Buf[bool]) -> 
                 Arg(_) -> ()
         AtomE(n) -> e.op(GetConst(e.constant(atom(n)), src))
         IntE(n) -> e.op(GetConst(e.constant(Int(n)), src))
+        NumE(text) -> e.op(GetConst(e.constant(literal_value(text)?), src))
         StrE(s) -> e.op(GetConst(e.constant(new_str(s)?), src))
         CallE(n, _, args) ->
             e.op(GetCompound(intern(n), args.len(), src))

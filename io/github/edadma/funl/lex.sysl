@@ -1,6 +1,7 @@
 module io.github.edadma.funl
 
 import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
 import sysl.text.from_utf8_unchecked
 
 // FunL's tokens, over `sh.sysl.parsing`'s byte cursor and its layout pass.
@@ -180,21 +181,29 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
     if is_digit(c)
         val radix = c == u8('0') && s.peek_at(1).map((p) -> is_radix_letter(p)).unwrap_or(false)
 
+        // A decimal number that is not a 64-bit integer -- a real, or an integer past 64 bits -- is
+        // carried as its text; a radix integer has to fit 64 bits.
         read_integer(s) match
             Ok(n) ->
                 if !radix && float_follows(s)
                     read_float_tail(s)
-                    report.add(error(Span(start, s.at), "floats are not supported yet")
-                        .with_note("FunL has no float value until its numeric tower lands; write an integer"))
-
-                    // An integer in its place, so the expression it was part of is not refused as well.
-                    out.push(IntLit(0), Span(start, s.at))
-                elif n > 9223372036854775807
-                    report.add(error(Span(start, s.at), "this integer is too large to hold")
-                        .with_note("an integer is 64 bits, signed"))
-                else
+                    out.push(NumLit(plain_digits(src.text(Span(start, s.at)))), Span(start, s.at))
+                elif n <= 9223372036854775807
                     out.push(IntLit(long(n)), Span(start, s.at))
-            Err(e) -> report.add(error(where(e), s"this number is $e"))
+                elif radix
+                    report.add(error(Span(start, s.at), "this integer is too large to hold")
+                        .with_note("an integer written in a radix is 64 bits, signed"))
+                else
+                    out.push(NumLit(plain_digits(src.text(Span(start, s.at)))), Span(start, s.at))
+            Err(e) -> e match
+                Overflow(_) ->
+                    if radix
+                        report.add(error(where(e), s"this number is $e"))
+                    else
+                        if float_follows(s) then read_float_tail(s)
+
+                        out.push(NumLit(plain_digits(src.text(Span(start, s.at)))), Span(start, s.at))
+                _ -> report.add(error(where(e), s"this number is $e"))
 
         return true
 
@@ -382,6 +391,15 @@ private read_float_tail(s: *Scanner)
         s.bump()
         s.accept_any("+-".bytes)
         s.accept_while(is_digit)
+
+// A number's text with its digit separators taken out, as the tower reads it: `1_000.5` is `1000.5`.
+plain_digits(bs: []const u8) -> string
+    var out: Buf[u8] = buf()
+
+    for b in bs
+        if b != u8('_') then out.push(b)
+
+    from_utf8_unchecked(out.view())
 
 // The second letter of a radix prefix, `0x`, `0o` or `0b`.
 private is_radix_letter(b: u8) -> bool =

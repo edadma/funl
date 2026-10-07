@@ -22,7 +22,15 @@ enum Value
     // The empty list.
     Nil
 
+    // A number, in the four kinds of `dal`'s tower (`number.sysl`). **The two kinds that fit a word
+    // are held inline**: `Int`, the fast path every loop counter and index takes, is matched and
+    // added without leaving the value, and `Real` is a double carried the same way. The two that own
+    // storage -- an integer past 64 bits and an exact fraction -- live in a collected `NumObj`, under
+    // a tag of their own so a test of kind never reads the object.
     Int(n: long)
+    Big(p: *NumObj)
+    Rat(p: *NumObj)
+    Real(x: real)
 
     // An interned name. Two atoms are the same atom exactly when their ids are equal.
     Atom(id: u32)

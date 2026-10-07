@@ -423,6 +423,7 @@ private walk_head(sc: *Scope, p: &Expr, report: *Report)
         Anon -> ()
         AtomE(_) -> ()
         IntE(_) -> ()
+        NumE(_) -> ()
         StrE(_) -> ()
         CallE(_, _, args) ->
             for a in args.view()

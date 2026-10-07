@@ -62,7 +62,8 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             expr(Ref(n), t.span)
         AtomLit(a) -> expr(AtomE(a), t.span)
-        IntLit(n) -> number(p, n, t.span)
+        IntLit(n) -> number(p, IntE(n), t.span)
+        NumLit(text) -> number(p, NumE(text), t.span)
         StrLit(s) -> expr(StrE(s), t.span)
         RegexLit(r) -> regex_literal(p, r, t.span)
         InterpLit -> interpolated(p, t)
@@ -86,6 +87,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             e.kind match
                 IntE(n) -> expr(IntE(-n), t.span.to(e.span))
+                NumE(text) -> expr(NumE(s"-$text"), t.span.to(e.span))
                 _ -> expr(MinusE(e), t.span.to(e.span))
         LParen -> paren(p, t.span)
         Not ->
@@ -451,8 +453,8 @@ private field(p: *Parser, left: &Expr) -> &Expr
 
 // A number literal, and juxtaposition: a literal immediately followed by a name or `(`, with no
 // space between, multiplies it -- `2n`, `3(x + 1)`.
-private number(p: *Parser, n: long, at: Span) -> &Expr
-    val lit = expr(IntE(n), at)
+private number(p: *Parser, kind: ExprKind, at: Span) -> &Expr
+    val lit = expr(kind, at)
 
     val next = p.toks.peek() match
         Some(k) -> k

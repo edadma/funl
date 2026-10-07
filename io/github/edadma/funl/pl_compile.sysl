@@ -241,6 +241,7 @@ private head_arg(e: *Emit, cx: *ClauseCtx, t: &Term, src: Src) -> Result[unit, P
                 e.op(GetVar(n, src))
         TAtom(id) -> e.op(GetConst(e.constant(Atom(id)), src))
         TInt(n) -> e.op(GetConst(e.constant(Int(n)), src))
+        TNum(text) -> e.op(GetConst(e.constant(made(literal_value(text), t.span)?), src))
         TStr(s) -> e.op(GetConst(e.constant(made(new_str(s), t.span)?), src))
         TNil -> e.op(GetNil(src))
         TCons(h, tl) ->
@@ -267,6 +268,7 @@ private build(e: *Emit, cx: *ClauseCtx, t: &Term) -> Result[unit, PlError]
         TVar(n) -> e.op(if cx.counts.at(n) == 1 then PushVar else LoadSlot(0, n))
         TAtom(id) -> e.op(PushConst(e.constant(Atom(id))))
         TInt(n) -> e.op(PushInt(n))
+        TNum(text) -> e.op(PushConst(e.constant(made(literal_value(text), t.span)?)))
         TStr(s) -> e.op(PushConst(e.constant(made(new_str(s), t.span)?)))
         TNil -> e.op(PushNil)
         TCons(h, tl) ->

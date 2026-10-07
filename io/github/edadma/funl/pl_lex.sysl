@@ -22,6 +22,9 @@ enum PlTok
     PlVarT(name: string)
     PlIntT(n: long)
 
+    // A float, `1.5`, `1.0e10`, or a decimal integer past 64 bits, as its text.
+    PlNumT(text: string)
+
     // Double-quoted text.
     PlStrT(text: string)
 
@@ -165,7 +168,8 @@ private skip_layout(s: *Scanner, report: *Report) -> bool
     s.offset > from
 end skip_layout
 
-// A number: decimal, `0x1F`, `0o17`, `0b101`, or `0'c`, a character's code. A float is refused.
+// A number: decimal, `0x1F`, `0o17`, `0b101`, `0'c`, a character's code, or a float -- `1.5`,
+// `1.0e10`, and `1e10` as SWI-Prolog reads it.
 private number(s: *Scanner, report: *Report) -> PlTok
     val start = s.offset
 
@@ -188,8 +192,6 @@ private number(s: *Scanner, report: *Report) -> PlTok
 
     val n = integer_of(s, report, start, 10)
 
-    // `1.5` and `1.0e3` are floats, which this machine has no value for yet; `1e3` is refused the
-    // same way, since it is a float everywhere it is accepted at all.
     val fraction = s.peek() == Some(u8('.')) && s.peek_at(1).map((d) -> is_digit(d)).unwrap_or(false)
     val exponent = (s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))) && exponent_digits(s.peek_at(1), s.peek_at(2))
 
@@ -204,9 +206,7 @@ private number(s: *Scanner, report: *Report) -> PlTok
                 s.accept_any("+-".bytes)
                 s.accept_while(is_digit)
 
-        report.add(error(s.span_from(start), "floats are not supported yet")
-            .with_note("FunL has no float value until its numeric tower lands; write an integer"))
-        return PlBad
+        return PlNumT(plain_digits(s.text_from(start)))
 
     n
 end number
@@ -221,17 +221,22 @@ exponent_digits(a: Option[u8], b: Option[u8]) -> bool = a match
     None -> false
 
 // The digits of an integer in `base`, from where the scanner stands; `start` is the whole literal's.
+// A decimal integer past 64 bits is carried as its text, for the tower to read; one in a radix has
+// to fit.
 private integer_of(s: *Scanner, report: *Report, start: usize, base: int) -> PlTok
     read_digits(s, base) match
-        Ok(n) ->
-            if n > 9223372036854775807
-                report.add(error(s.span_from(start), "this integer is too large to hold"))
+        Ok(n) -> if n <= 9223372036854775807 then return PlIntT(long(n))
+        Err(e) -> e match
+            Overflow(_) -> ()
+            _ ->
+                report.add(error(where(e), s"this number is malformed: $e"))
                 return PlBad
 
-            PlIntT(long(n))
-        Err(e) ->
-            report.add(error(where(e), s"this number is malformed: $e"))
-            PlBad
+    if base == 10 then return PlNumT(plain_digits(s.text_from(start)))
+
+    report.add(error(s.span_from(start), "this integer is too large to hold")
+        .with_note("an integer written in a radix is 64 bits, signed"))
+    PlBad
 
 // `0'c`: the code of one character, which may be an escape, or `''` for the quote itself.
 private char_code(s: *Scanner, report: *Report, start: usize) -> PlTok

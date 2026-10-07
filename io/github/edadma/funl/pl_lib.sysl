@@ -1,5 +1,6 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal
 import sh.sysl.parsing.{full_report, source_of}
 
 // The Prolog library: the predicates that are natural to write in Prolog, as Prolog source loaded
@@ -47,6 +48,9 @@ private pl_must_be(base: usize, argc: usize) -> Result[Value, Fault]
             Int(n) ->
                 if kind == "nonneg" && n < 0
                     return Err(domain_error("not_less_than_zero", x, s"$who wants an integer of 0 or more, and was given $n"))
+            Big(p) ->
+                if kind == "nonneg" && dal.sign(p.n) < 0
+                    return Err(domain_error("not_less_than_zero", x, s"$who wants an integer of 0 or more, and was given ${render(x)}"))
             Var(_) -> return Err(unbound_error)
             _ -> return Err(type_error("integer", x, s"type error: $who wants an integer, and was given ${described(x)}"))
     elif kind == "callable"

@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
-import sysl.text.{char_from_u32, chars_of, from_utf8_unchecked, str_builder}
+import sysl.text.{Search, char_from_u32, chars_of, from_utf8_unchecked, str_builder}
 
 // Prolog's builtins over the text of atoms: `atom_codes/2`, `atom_chars/2`, `char_code/2`,
 // `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `number_codes/2`, `number_chars/2` and
@@ -30,10 +30,12 @@ private text_of(x: Value, who: string) -> Result[Option[string], Fault]
     y match
         Atom(id) -> Ok(Some(atom_name(id)))
         Nil -> Ok(Some("[]"))
-        Int(n) -> Ok(Some(s"$n"))
         Str(p) -> Ok(Some(p.s))
         Var(_) -> Ok(None)
-        _ -> Err(type_error("atom", y, s"$who wants an atom, and was given ${described(y)}"))
+        _ ->
+            if is_num(y) then return Ok(Some(written_number(y)))
+
+            Err(type_error("atom", y, s"$who wants an atom, and was given ${described(y)}"))
 
 // The text of atomic `x`, which must be bound.
 private bound_text(x: Value, who: string) -> Result[string, Fault]
@@ -315,9 +317,9 @@ private next_place(ask: *SubAtomAsk, from_b: long, from_l: long) -> Option[(long
     None
 end next_place
 
-// The integer text `s` spells, with layout before it and a `-` touching it allowed: decimal, `0x`,
-// `0o`, `0b`, or `0'c`. `None` when it spells no integer.
-parse_integer(s: string) -> Result[Option[long], Fault]
+// The number text `s` spells, with layout before it and a `-` touching it allowed: a decimal
+// integer of any size, a float, `0x`, `0o`, `0b`, or `0'c`. `None` when it spells no number.
+parse_number(s: string) -> Result[Option[Value], Fault]
     val b = s.bytes
     var i: usize = 0
 
@@ -339,7 +341,7 @@ parse_integer(s: string) -> Result[Option[long], Fault]
 
         val code = long(u32(chars_of(rest.bytes).peek().unwrap()))
 
-        return Ok(Some(if negative then -code else code))
+        return Ok(Some(Int(if negative then -code else code)))
 
     var radix: long = 10
 
@@ -349,6 +351,21 @@ parse_integer(s: string) -> Result[Option[long], Fault]
         radix = if r == u8('x') then 16 elif r == u8('o') then 8 elif r == u8('b') then 2 else 10
 
         if radix != 10 then i += 2
+
+    // A decimal number is the tower's to read -- an integer of any size, or a float -- though not a
+    // fraction, which Prolog's syntax has no literal for.
+    if radix == 10
+        val rest = from_utf8_unchecked(b[i..<b.len])
+
+        if rest.contains("/") then return Ok(None)
+
+        val text = if negative then s"-$rest" else rest
+
+        return funl_policy().parse(text) match
+            Ok(n) -> num_value(n) match
+                Ok(x) -> Ok(Some(x))
+                Err(e) -> Err(Broken(e))
+            Err(_) -> Ok(None)
 
     // Accumulated negatively, so the least `long` is reached without passing the largest.
     var value: long = 0
@@ -360,7 +377,7 @@ parse_integer(s: string) -> Result[Option[long], Fault]
         if d >= radix then return Ok(None)
 
         if value < (-9223372036854775807 - 1 + d) / radix
-            return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, and only integers are built"))
+            return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, as an integer written in a radix has to"))
 
         value = value * radix - d
         digits += 1
@@ -368,13 +385,13 @@ parse_integer(s: string) -> Result[Option[long], Fault]
 
     if digits == 0 then return Ok(None)
 
-    if negative then return Ok(Some(value))
+    if negative then return Ok(Some(Int(value)))
 
     if value == -9223372036854775807 - 1
-        return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, and only integers are built"))
+        return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, as an integer written in a radix has to"))
 
-    Ok(Some(-value))
-end parse_integer
+    Ok(Some(Int(-value)))
+end parse_number
 
 // What digit `c` is worth, in any base up to 16; 99 for a character that is no digit.
 private digit_value(c: u8) -> long
@@ -389,21 +406,16 @@ private digit_value(c: u8) -> long
 private number_and_list(base: usize, who: string, chars: bool) -> Result[Answer, Fault]
     val n = deref(arg(base, 0))
 
-    n match
-        Int(_) -> ()
-        Var(_) -> ()
-        _ -> return Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))
+    if !is_num(n) && !is_unbound(n) then return Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))
 
     list_text(arg(base, 1), who, chars)? match
         Some(text) ->
-            parse_integer(text)? match
-                Some(k) -> return unified(n, Int(k))
+            parse_number(text)? match
+                Some(k) -> return unified(n, k)
                 None -> return Err(syntax_error("illegal_number", s"$who: '$text' is not a number"))
         None -> ()
 
-    n match
-        Int(k) -> unified(arg(base, 1), text_list(s"$k", chars)?)
-        _ -> Err(unbound_list(who))
+    if is_num(n) then unified(arg(base, 1), text_list(written_number(n), chars)?) else Err(unbound_list(who))
 
 // `atom_number(A, N)`: `A` read as a number, failing when it is none -- as SWI-Prolog does; ISO has no
 // such predicate.
@@ -412,13 +424,14 @@ private pl_atom_number(base: usize, argc: usize, cursor: long) -> Result[Answer,
 
     text_of(arg(base, 0), who)? match
         Some(s) ->
-            parse_integer(s)? match
-                Some(k) -> unified(arg(base, 1), Int(k))
+            parse_number(s)? match
+                Some(k) -> unified(arg(base, 1), k)
                 None -> Ok(Refuses)
         None ->
             val n = deref(arg(base, 1))
 
+            if is_num(n) then return unified(arg(base, 0), atom(written_number(n)))
+
             n match
-                Int(k) -> unified(arg(base, 0), atom(s"$k"))
                 Var(_) -> Err(instantiation_error("instantiation error: atom_number/2 wants its atom or its number"))
                 _ -> Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))

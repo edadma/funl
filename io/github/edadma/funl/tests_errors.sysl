@@ -12,6 +12,8 @@ private const Program: string = "import \"tests/prolog/errors.pl\"\n" +
     "def floor_divide( a, b ) = a // b\n" +
     "def add( a, b ) = a + b\n" +
     "def subtract( a, b ) = a - b\n" +
+    "def power( a, b ) = a ^ b\n" +
+    "def divides( a, b ) = a div b\n" +
     "def head( h:_ ) = h\n" +
     "def element( c, i ) = c( i )\n" +
     "def lookup( k ) = {a: 1}( k )\n" +
@@ -37,12 +39,18 @@ DIVIDING_BY_ZERO_IS_AN_EVALUATION_ERROR()
     assert_eq(formal("floor_divide_by_zero"), "evaluation_error(zero_divisor)\nsucceeded")
 
 @test
-AN_OVERFLOW_IS_AN_EVALUATION_ERROR()
-    assert_eq(formal("overflow"), "evaluation_error(int_overflow)\nsucceeded")
+A_POWER_TOO_LARGE_TO_BUILD_IS_A_RESOURCE_ERROR()
+    assert_eq(formal("too_large"), "resource_error(memory)\nsucceeded")
 
 @test
-A_DIVISION_THAT_IS_NOT_WHOLE_IS_A_REPRESENTATION_ERROR_UNTIL_THERE_ARE_RATIONALS()
-    assert_eq(formal("inexact"), "representation_error(rational)\nsucceeded")
+DIV_OF_A_REAL_IS_A_TYPE_ERROR_NAMING_IT()
+    assert_eq(formal("not_an_integer"), "type_error(integer,2.5)\nsucceeded")
+
+@test
+FUNLS_RATIONALS_BIG_INTEGERS_AND_REALS_ARE_PROLOG_NUMBERS()
+    assert_eq(formal("exact_quotient"), "7r2\n7\nsucceeded")
+    assert_eq(formal("grown_sum"), "9223372036854775808\nsucceeded")
+    assert_eq(formal("real_sum"), "3.5\n7.0\nsucceeded")
 
 @test
 AN_OPERAND_OF_THE_WRONG_KIND_IS_A_TYPE_ERROR_NAMING_IT()

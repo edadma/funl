@@ -11,8 +11,8 @@ try(Goal) :- catch((Goal, Formal = none), error(Formal, _), true), write(Formal)
 % Call each FunL function with arguments that make it raise.
 divide_by_zero :- try(divide(1, 0, _)).
 floor_divide_by_zero :- try(floor_divide(1, 0, _)).
-overflow :- try(add(9223372036854775807, 1, _)).
-inexact :- try(divide(7, 2, _)).
+too_large :- try(power(2, 100000000000, _)).
+not_an_integer :- try(divides(2.5, 5, _)).
 not_a_number :- try(subtract(1, a, _)).
 unbound :- try(add(_, 1, _)).
 pattern_unbound :- try(head(_, _)).
@@ -26,6 +26,11 @@ wrong_count :- try(call_with_two(x, _)).
 negative_size :- try(make_array(1, _)).
 no_field :- try(field_z(point(3, 4), _)).
 no_scan :- try(tab_outside(1, _)).
+
+% What FunL's arithmetic answers is an ordinary number here: a rational, a big integer, a float.
+exact_quotient :- divide(7, 2, Q), write(Q), nl, X is Q * 2, write(X), nl.
+grown_sum :- add(9223372036854775807, 1, S), write(S), nl, integer(S).
+real_sum :- add(1, 2.5, S), write(S), nl, float(S), X is S * 2, write(X), nl.
 
 % A Prolog error thrown inside a FunL function and caught out here, the FunL frames between unwound.
 boom(_) :- throw(deep).

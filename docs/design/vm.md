@@ -502,10 +502,10 @@ enum Value
     Unit
     Null
     Int(i64)                        // the fast path of the integer tower
-    Big(*BigObj)                    // sysl.math.bigint.BigInt, boxed
-    Rat(*RatObj)                    // numerator and denominator, both BigInt
+    Big(*NumObj)                    // a dal Number holding a BigInt, boxed
+    Rat(*NumObj)                    // a dal Number holding a Rational, boxed
     Real(f64)
-    Dec(*DecObj)                    // sysl.math.decimal.Decimal, boxed
+    Dec(*DecObj)                    // sysl.math.decimal.Decimal, boxed -- not built: dal has no Dec yet
     Str(*StrObj)
     Atom(u32)                       // interned; true and false are atoms
     Compound(*CompoundObj)          // a functor atom and arguments: records, Prolog terms
@@ -571,6 +571,28 @@ kinds, and printing by exact digit generation rather than `printf`, so a real pr
 decimal that reads back as the same double. It is built on the standard library's
 `sysl.math.bigint`, `sysl.math.decimal` and `sysl.math.rational`. FunL's arithmetic and Prolog's
 `is/2` both call it; what FunL adds is only the mapping between `dal`'s number and the `Value` enum.
+
+**The mapping keeps the two word-sized kinds inline and boxes the two that own storage.** `Int` and
+`Real` are `Value` variants of their own, so the instruction that adds two integers matches on the
+value it already has and never builds a `dal` number at all: `+`, `-`, `*` and the orderings on two
+`Int`s are a checked operation in the machine, and only a result that overflows, or an operand of
+another kind, goes through `dal`. A `Big` or a `Rat` is a collected `NumObj` holding `dal`'s
+`Number` -- the object is the `BigInt`'s only owner, as the value model asks -- under a tag of its
+own, so a test of kind (`integer/1`, an integer-only operation's check) never reads the object. One
+`Num(*NumObj)` variant for both was the alternative; it would make every such test a load.
+
+**Two policies over one tower** (`number.sysl`): FunL's operators run under `dal.funl()`, where
+`7 / 2` is `7/2`, and Prolog's `is/2` under `dal.iso_prolog(prefer_rationals)`, where `7 / 2` is
+`3.5` -- or `7r2` with SWI-Prolog's `prefer_rationals` flag on -- and `//`, `mod`, `rem` and `div`
+refuse a float. A refusal from `dal` becomes the ISO error term its README maps it to:
+`evaluation_error(zero_divisor)`, `(float_overflow)`, `(undefined)`, `type_error(integer, X)`, and
+`resource_error(memory)` for a power or a shift past 2^26 bits.
+
+**Both readers take a float literal and an integer past 64 bits** -- `2.5`, `1e10`, `2e-1`,
+`123456789012345678901234567890` -- carried as text until it becomes a constant; an integer written
+in a radix still has to fit 64 bits. FunL prints a real as `dal` writes it, the shortest decimal that
+reads back as the same double, always with a `.0` or an exponent (`5.0`, `1.0e+22`); Prolog writes a
+rational as `7r2`.
 
 ## What the collector has to see
 

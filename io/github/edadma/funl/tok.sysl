@@ -14,6 +14,10 @@ enum Tok
     Name(text: string)
     AtomLit(text: string)
     IntLit(n: long)
+
+    // A number literal that is not a 64-bit integer -- a real, `2.5`, `1e10`, or an integer past 64
+    // bits -- as its digits, underscores taken out; the tower reads it when it becomes a constant.
+    NumLit(text: string)
     StrLit(text: string)
 
     // A regex between backticks, its text exactly as written: the regex parser reads its escapes,
@@ -135,6 +139,7 @@ describe(t: Tok) -> string
         Name(s) -> s"`$s`"
         AtomLit(s) -> s"`#$s`"
         IntLit(n) -> s"`$n`"
+        NumLit(t) -> s"`$t`"
         StrLit(_) -> "a string"
         RegexLit(_) -> "a regex"
         InterpLit -> "a string"
@@ -387,6 +392,7 @@ starts_expr(t: Tok) -> bool
         Name(_) -> true
         AtomLit(_) -> true
         IntLit(_) -> true
+        NumLit(_) -> true
         StrLit(_) -> true
         RegexLit(_) -> true
         InterpLit -> true

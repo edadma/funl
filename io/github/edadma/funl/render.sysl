@@ -1,5 +1,6 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal.Number
 import sysl.text.{StrBuilder, str_builder}
 
 // How a term is printed.
@@ -28,6 +29,9 @@ private write_value(out: *StrBuilder, v: Value, depth: usize)
         Undefined -> out.push("undefined")
         Nil -> out.push("[]")
         Int(n) -> out.push_int(n)
+        Big(p) -> out.push(num_text(p.n))
+        Rat(p) -> out.push(num_text(p.n))
+        Real(r) -> out.push(num_text(Number.Real(r)))
         Atom(id) -> out.push(atom_name(id))
         Compound(p) ->
             out.push(atom_name(p.functor))

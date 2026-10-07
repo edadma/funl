@@ -1,5 +1,6 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal.Number
 import sh.sysl.gc
 import sysl.buf.{Buf, buf}
 
@@ -20,6 +21,10 @@ struct StrObj
     chars: usize
     at_char: usize
     at_byte: usize
+
+// A number that owns storage: a `dal` `Big` or `Rat`, whose limbs are this object's alone.
+struct NumObj
+    n: Number
 
 // A cset: a set of characters, which the scanning builtins test characters against.
 struct CSetObj
@@ -133,6 +138,15 @@ new_str(s: string) -> Result[Value, string]
     o.chars = char_count(s)
     v.allocated += s.bytes.len
     Ok(Str(o))
+
+// A `Big` or a `Rat` boxed as a value, its limbs charged to the collection schedule as well.
+new_num(n: Number, limbs: usize, fraction: bool) -> Result[Value, string]
+    val v = current()
+    val o: *NumObj = ptr_cast(take(v, sizeof(NumObj), &num_kind)?)
+
+    o.n = n
+    v.allocated += limbs * 8
+    Ok(if fraction then Rat(o) else Big(o))
 
 new_cset(set: CharSet) -> Result[Value, string]
     val v = current()

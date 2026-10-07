@@ -20,6 +20,9 @@ enum ExprKind
 
     AtomE(name: string)
     IntE(n: long)
+
+    // A number literal that is not a 64-bit integer, as its text: a real, or an integer past 64 bits.
+    NumE(text: string)
     StrE(s: string)
     BoolE(b: bool)
 

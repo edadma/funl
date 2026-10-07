@@ -13,9 +13,10 @@ install_prolog_terms(v: *Vm)
     register_generator(v, "var/1", 1, (b, n, c) -> answer(is_unbound(arg(b, 0))))
     register_generator(v, "nonvar/1", 1, (b, n, c) -> answer(!is_unbound(arg(b, 0))))
     register_generator(v, "atom/1", 1, (b, n, c) -> answer(is_atom(arg(b, 0))))
-    register_generator(v, "number/1", 1, (b, n, c) -> answer(is_int(arg(b, 0))))
-    register_generator(v, "integer/1", 1, (b, n, c) -> answer(is_int(arg(b, 0))))
-    register_generator(v, "float/1", 1, (b, n, c) -> answer(false))
+    register_generator(v, "number/1", 1, (b, n, c) -> answer(is_num(deref(arg(b, 0)))))
+    register_generator(v, "integer/1", 1, (b, n, c) -> answer(is_int(deref(arg(b, 0)))))
+    register_generator(v, "float/1", 1, (b, n, c) -> answer(is_float(deref(arg(b, 0)))))
+    register_generator(v, "rational/1", 1, (b, n, c) -> answer(is_rational(deref(arg(b, 0)))))
     register_generator(v, "string/1", 1, (b, n, c) -> answer(is_str_value(arg(b, 0))))
     register_generator(v, "atomic/1", 1, (b, n, c) -> answer(is_atomic(arg(b, 0))))
     register_generator(v, "compound/1", 1, (b, n, c) -> answer(compound_parts(arg(b, 0)).is_some()))
@@ -46,10 +47,6 @@ is_unbound(x: Value) -> bool = deref(x) match
 is_atom(x: Value) -> bool = deref(x) match
     Atom(_) -> true
     Nil -> true
-    _ -> false
-
-private is_int(x: Value) -> bool = deref(x) match
-    Int(_) -> true
     _ -> false
 
 private is_str_value(x: Value) -> bool = deref(x) match

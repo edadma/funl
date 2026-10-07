@@ -221,6 +221,7 @@ tag(t: Tok) -> u8
         RegexLit(_) -> 81
         DotDotPlus -> 82
         SlashSlash -> 83
+        NumLit(_) -> 84
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.

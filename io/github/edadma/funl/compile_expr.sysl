@@ -101,6 +101,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         Anon -> e.op(PushVar)
         AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
         IntE(n) -> e.op(PushInt(n))
+        NumE(text) -> e.op(PushConst(e.constant(literal_value(text)?)))
         StrE(s) -> e.op(PushConst(e.constant(new_str(s)?)))
         BoolE(b) -> e.op(PushConst(e.constant(Bool(b))))
         TupleE(items) ->

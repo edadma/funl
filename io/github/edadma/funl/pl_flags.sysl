@@ -4,20 +4,23 @@ import sysl.buf.{Buf, buf}
 
 // Prolog's flags: `set_prolog_flag/2`, and what `current_prolog_flag/2` (in the library) enumerates.
 //
-// **Three flags can be changed**, and each changes something: `unknown` decides what a call of a
+// **Four flags can be changed**, and each changes something: `unknown` decides what a call of a
 // predicate nothing defines does (`error`, `fail`, or `warning`, which fails after saying so on
 // standard error); `double_quotes` decides what the reader makes of `"text"` from then on (`string`,
-// the default, or ISO's `codes`, `chars` and `atom`); `debug` is `off`, and `on` is accepted and
-// recorded, there being no debugger for it to start. **The rest describe the machine and cannot be
-// changed**: integers are 64 bits and division rounds toward zero, and a compound holds at most
-// `max_arity` arguments.
+// the default, or ISO's `codes`, `chars` and `atom`); `prefer_rationals`, SWI-Prolog's, makes `/` on
+// two integers exact -- `7 / 2` is `7r2` rather than ISO's `3.5` -- when `true`, and is `false` by
+// default; `debug` is `off`, and `on` is accepted and recorded, there being no debugger for it to
+// start. **The rest describe the machine and cannot be changed**: integers are unbounded (so
+// `bounded` is `false`, and `max_integer` and `min_integer` name the 64-bit range an integer is held
+// inline in), `//` rounds toward zero, and a compound holds at most `max_arity` arguments.
 
 struct PlFlags
     unknown: string
     double_quotes: string
     debug: string
+    prefer_rationals: bool
 
-pl_flags() -> PlFlags = PlFlags("error", "string", "off")
+pl_flags() -> PlFlags = PlFlags("error", "string", "off", false)
 
 private const MaxInteger: long = 9223372036854775807
 
@@ -30,7 +33,7 @@ private flag_list() -> Result[Value, Fault]
     val f = current().flags
     var items: Buf[Value] = buf()
 
-    items.push(pair("bounded", atom("true"))?)
+    items.push(pair("bounded", atom("false"))?)
     items.push(pair("max_integer", Int(MaxInteger))?)
     items.push(pair("min_integer", Int(-MaxInteger - 1))?)
     items.push(pair("integer_rounding_function", atom("toward_zero"))?)
@@ -38,6 +41,7 @@ private flag_list() -> Result[Value, Fault]
     items.push(pair("debug", atom(f.debug))?)
     items.push(pair("unknown", atom(f.unknown))?)
     items.push(pair("double_quotes", atom(f.double_quotes))?)
+    items.push(pair("prefer_rationals", atom(if f.prefer_rationals then "true" else "false"))?)
 
     Ok(list_of(&items, Nil)?)
 
@@ -61,6 +65,8 @@ private settable(name: string, value: string) -> bool
 
     if name == "debug" then return value == "on" || value == "off"
 
+    if name == "prefer_rationals" then return value == "true" || value == "false"
+
     false
 
 // `set_prolog_flag(Flag, Value)`, as a goal or as a directive while a file loads.
@@ -75,7 +81,8 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
         Atom(id) -> atom_name(id)
         _ -> return Err(type_error("atom", f, s"type error: $who wants a flag's name, an atom, and was given ${described(f)}"))
 
-    val known = read_only(name) || name == "unknown" || name == "double_quotes" || name == "debug"
+    val known = read_only(name) || name == "unknown" || name == "double_quotes" || name == "debug" ||
+        name == "prefer_rationals"
 
     if !known then return Err(domain_error("prolog_flag", f, s"$who: there is no flag $name"))
 
@@ -100,6 +107,8 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
         v.flags.unknown = text
     elif name == "double_quotes"
         v.flags.double_quotes = text
+    elif name == "prefer_rationals"
+        v.flags.prefer_rationals = text == "true"
     else
         v.flags.debug = text
 

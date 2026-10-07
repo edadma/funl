@@ -120,6 +120,12 @@ private step(x: Value, y: Value, check: bool) -> bool
         Int(n) -> y match
             Int(m) -> n == m
             _ -> false
+
+        // **Unification compares numbers by kind and value**, so `1` and `1.0` do not unify, while
+        // FunL's `==` and Prolog's `=:=` compare them by value.
+        Big(_) -> same_number(x, y)
+        Rat(_) -> same_number(x, y)
+        Real(_) -> same_number(x, y)
         Atom(i) -> y match
             Atom(j) -> i == j
             _ -> false
@@ -347,7 +353,10 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, Fault]
                 _ -> false
             Int(n) -> y match
                 Int(m) -> n == m
-                _ -> false
+                _ -> same_value(x, y)
+            Big(_) -> same_value(x, y)
+            Rat(_) -> same_value(x, y)
+            Real(_) -> same_value(x, y)
             Atom(i) -> y match
                 Atom(j) -> i == j
                 _ -> false
@@ -447,7 +456,10 @@ compare_terms(a: Value, b: Value) -> int
                 _ -> 0
             Int(n) -> y match
                 Int(m) -> if n < m then -1 elif n > m then 1 else 0
-                _ -> 0
+                _ -> number_order(x, y)
+            Big(_) -> number_order(x, y)
+            Rat(_) -> number_order(x, y)
+            Real(_) -> number_order(x, y)
             Str(p) -> y match
                 Str(q) -> texts(p.s, q.s)
                 _ -> 0
@@ -479,6 +491,9 @@ private const CompoundRank: int = 4
 private rank(x: Value) -> int = x match
     Var(_) -> 0
     Int(_) -> 1
+    Big(_) -> 1
+    Rat(_) -> 1
+    Real(_) -> 1
     Atom(_) -> AtomRank
     Nil -> AtomRank
     Bool(_) -> AtomRank

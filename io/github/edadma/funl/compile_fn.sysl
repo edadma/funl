@@ -176,6 +176,9 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
         IntE(n) ->
             inspect(e, param)
             equal_to(e, Int(n))
+        NumE(text) ->
+            inspect(e, param)
+            equal_to(e, literal_value(text)?)
         StrE(s) ->
             inspect(e, param)
             equal_to(e, new_str(s)?)

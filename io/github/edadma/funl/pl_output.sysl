@@ -99,7 +99,12 @@ private bad_option(x: Value) -> Fault =
 
 // `tab(N)`: `N` spaces, `N` an expression.
 private pl_tab(base: usize, argc: usize) -> Result[Value, Fault]
-    val n = eval(arg(base, 0))?
+    val x = eval(arg(base, 0))?
+
+    val n = x match
+        Int(k) -> k
+        _ -> return Err(type_error("integer", x, s"tab/1 wants an integer count, and was given ${described(x)}"))
+
     var spaces = ""
 
     for i in 0..<n

@@ -35,7 +35,11 @@ workspace = ["funl", "prolog"]
 //
 // **`parsing` is the scanner tier and the diagnostics**: the byte cursor, literal reading, `layout`
 // for the off-side rule, `pratt` for the operator ladder, and the `Report` every refusal goes into.
+//
+// **`dal` is the numeric tower** -- integers that grow past 64 bits, exact rationals and doubles,
+// with FunL's arithmetic under `dal.funl()` and Prolog's under `dal.iso_prolog(prefer_rationals)`.
 dependencies {
+  dal     { git = "github.com/sysl-lang/dal", version = "0.1.0" }
   gc      { git = "github.com/sysl-lang/gc", version = "0.2.7" }
   parsing { git = "github.com/sysl-lang/parsing", version = "0.11.0" }
 }

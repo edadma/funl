@@ -18,7 +18,9 @@ private gives(goal: string) -> string =
 
 @test
 THE_FLAGS_DESCRIBE_THE_MACHINE()
-    assert_eq(gives("current_prolog_flag(bounded, X)"), ok("true"))
+    assert_eq(gives("current_prolog_flag(bounded, X)"), ok("false"))
+    assert_eq(gives("current_prolog_flag(prefer_rationals, X)"), ok("false"))
+    assert_eq(holds("set_prolog_flag(prefer_rationals, true), current_prolog_flag(prefer_rationals, true)"), ok("yes"))
     assert_eq(gives("current_prolog_flag(max_integer, X)"), ok("9223372036854775807"))
     assert_eq(gives("current_prolog_flag(min_integer, X)"), ok("-9223372036854775808"))
     assert_eq(gives("current_prolog_flag(integer_rounding_function, X)"), ok("toward_zero"))
@@ -26,7 +28,7 @@ THE_FLAGS_DESCRIBE_THE_MACHINE()
     assert_eq(gives("current_prolog_flag(unknown, X)"), ok("error"))
     assert_eq(gives("current_prolog_flag(double_quotes, X)"), ok("string"))
     assert_eq(gives("current_prolog_flag(debug, X)"), ok("off"))
-    assert_eq(gives("findall(F, current_prolog_flag(F, _), L), length(L, X)"), ok("8"))
+    assert_eq(gives("findall(F, current_prolog_flag(F, _), L), length(L, X)"), ok("9"))
 
 @test
 SET_PROLOG_FLAG_CHANGES_WHAT_CURRENT_PROLOG_FLAG_SAYS()

@@ -106,8 +106,8 @@ THERE_IS_A_STANDARD_ORDER_OF_TERMS()
     assert_eq(gives("sort([c, a, b, a], X)"), ok("[a,b,c]"))
     assert_eq(holds("compare(foo, a, b)"), ok("domain_error(order,foo)"))
 
-// The 2019 engine compared numbers by value, so `1 = 1.0` succeeded. Floats wait for the numeric
-// tower; until it lands the kinds that exist are compared first in the same way.
+// The 2019 engine compared numbers by value, so `1 = 1.0` succeeded. Unification compares kinds
+// first, numbers among them: `1` and `1.0` are two terms, which only arithmetic calls equal.
 @test
 UNIFICATION_COMPARES_KINDS_BEFORE_VALUES()
     assert_eq(holds("1 = '1'"), ok("no"))
@@ -116,7 +116,7 @@ UNIFICATION_COMPARES_KINDS_BEFORE_VALUES()
     assert_eq(holds("f(1) = f('1')"), ok("no"))
     assert_eq(holds("1 = 1"), ok("yes"))
 
-@test(ignore: "Prolog has no floats until FunL's numeric tower lands")
+@test
 AN_INTEGER_DOES_NOT_UNIFY_WITH_A_FLOAT_OF_EQUAL_VALUE()
     assert_eq(holds("1 = 1.0"), ok("no"))
     assert_eq(holds("f(1) = f(1.0)"), ok("no"))
@@ -126,6 +126,11 @@ AN_INTEGER_DOES_NOT_UNIFY_WITH_A_FLOAT_OF_EQUAL_VALUE()
     // Arithmetic comparison is by value.
     assert_eq(holds("1 =:= 1.0"), ok("yes"))
     assert_eq(holds("1.0 = 1.0"), ok("yes"))
+
+    // In the standard order an integer and a float of equal value put the float first.
+    assert_eq(holds("1.0 @< 1"), ok("yes"))
+    assert_eq(holds("compare(O, 1, 1.0), O == (>)"), ok("yes"))
+    assert_eq(gives("msort([2, 1.5, 1, 1.0, 2.0e0, 18446744073709551616], X)"), ok("[1.0,1,1.5,2.0,2,18446744073709551616]"))
 
 @test
 AN_UNBOUND_VARIABLE_IN_ARITHMETIC_IS_AN_INSTANTIATION_ERROR_NOT_A_STACK_OVERFLOW()

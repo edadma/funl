@@ -190,6 +190,7 @@ private nud(t: Spanned[PlTok], r: *PlReader) -> Rd
 
     t.value match
         PlIntT(n) -> Rd(term(TInt(n), t.span), 0)
+        PlNumT(text) -> Rd(term(TNum(text), t.span), 0)
         PlVarT(name) -> Rd(term(TVar(variable(r, name)), t.span), 0)
         PlStrT(s) -> Rd(quoted_text(s, t.span), 0)
         PlOpen -> bracketed(r, t.span)
@@ -276,6 +277,10 @@ private named(r: *PlReader, n: string, at: Span, max: u16, quoted: bool) -> Rd
                     if n == "-" && !quoted && x.span.start == at.end
                         r.take()
                         return Rd(term(TInt(-k), at.to(x.span)), 0)
+                PlNumT(text) ->
+                    if n == "-" && !quoted && x.span.start == at.end
+                        r.take()
+                        return Rd(term(TNum(s"-$text"), at.to(x.span)), 0)
                 _ -> ()
         None -> ()
 
@@ -370,6 +375,7 @@ private pl_tag(t: PlTok) -> int = t match
     PlBar -> 13
     PlEnd -> 14
     PlBad -> 15
+    PlNumT(_) -> 16
 
 // Take the next token when it is of `want`'s kind.
 private accept(r: *PlReader, want: PlTok) -> bool

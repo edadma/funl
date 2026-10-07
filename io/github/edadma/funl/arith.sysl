@@ -1,15 +1,17 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal
+import sh.sysl.dal.Number
 import sysl.math.{checked_add, checked_mul, checked_sub}
 
 // FunL's arithmetic and ordering operators. `+` on a list or a range is `list_add` (`seq.sysl`), and
 // `+` and `-` on a set or a map are `combined` and `removed` (`data.sysl`).
 //
-// **Numbers are 64-bit integers here, and a result that is not one is refused, never rounded or
-// wrapped**: an overflow, or a division that does not come out whole, raises an error naming the
-// operation.
-// The numeric tower, where those results are a bigger integer or a rational, replaces exactly
-// those refusals.
+// **Numbers are `dal`'s tower under FunL's policy** (`number.sysl`): an integer that overflows grows
+// into a big one, `7 / 2` is the rational `7/2`, an exact result is demoted to the smallest kind that
+// holds it, and a real appears only where a literal or an operation brings one in. **Two 64-bit
+// integers are added, subtracted, multiplied and compared here without entering the tower**, since
+// that is what nearly every operation in a running program is.
 
 enum BinOp
     Add
@@ -22,8 +24,8 @@ enum BinOp
     // `\`: integer division, rounding down.
     IntQuo
 
-    // `//`: floor division, the quotient rounded toward negative infinity. On two integers it is
-    // the same quotient as `\`.
+    // `//`: floor division, the quotient rounded toward negative infinity -- today the same quotient
+    // as `\`.
     FloorQuo
 
     // `%`: the remainder, with the sign of the dividend.
@@ -80,81 +82,91 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], Fault]
         Sub -> if combines(x) then return Ok(Some(removed(x, y)?))
         _ -> ()
 
-    val n = int_operand(o, x)?
-    val m = int_operand(o, y)?
+    // The fast path: two 64-bit integers whose sum, difference or product is one too.
+    x match
+        Int(n) -> y match
+            Int(m) ->
+                val quick = o match
+                    Add -> checked_add(n, m)
+                    Sub -> checked_sub(n, m)
+                    Mul -> checked_mul(n, m)
+                    _ -> None
 
-    val r: long = o match
-        Add -> fits(o, n, m, checked_add(n, m))?
-        Sub -> fits(o, n, m, checked_sub(n, m))?
-        Mul -> fits(o, n, m, checked_mul(n, m))?
-        Quo ->
-            nonzero(o, n, m)?
+                quick match
+                    Some(r) -> return Ok(Some(Int(r)))
+                    None -> ()
+            _ -> ()
+        _ -> ()
 
-            if n % m != 0 then return Err(not_whole(s"$n / $m"))
+    val n = num_operand(o, x)?
+    val m = num_operand(o, y)?
+    val p = funl_policy()
 
-            fits(o, n, m, if n == -9223372036854775807 - 1 && m == -1 then None else Some(n / m))?
-        IntQuo ->
-            nonzero(o, n, m)?
-            fits(o, n, m, floor_quo(n, m))?
-        FloorQuo ->
-            nonzero(o, n, m)?
-            fits(o, n, m, floor_quo(n, m))?
-        Rem ->
-            nonzero(o, n, m)?
+    val r = o match
+        Add -> p.add(n, m)
+        Sub -> p.sub(n, m)
+        Mul -> p.mul(n, m)
+        Quo -> p.div(n, m)
+        IntQuo -> p.floor_div(n, m)
+        FloorQuo -> p.floor_div(n, m)
+        Rem -> p.rem(n, m)
+        Modulo -> p.modulo(n, m)
+        Divides -> return divides(x, y, n, m)
+        Pow -> p.pow(n, m)
+        _ -> return Err(Broken(s"'${op_text(o)}' reached arithmetic"))
 
-            if m == -1 then 0 else n % m
-        Modulo ->
-            nonzero(o, n, m)?
-
-            if m == -1 then 0 else floor_mod(n, m)
-        Divides ->
-            if n == 0 then return Ok(if m == 0 then Some(Int(m)) else None)
-
-            if n == -1 || m % n == 0 then return Ok(Some(Int(m)))
-
-            return Ok(None)
-        Pow -> power(n, m)?
-        _ -> return Err(Broken(s"'${op_text(o)}' reached integer arithmetic"))
-
-    Ok(Some(Int(r)))
+    Ok(Some(num_answer(r, op_text(o), x, y)?))
 end arith
+
+// `a div b`: `b` when integer `a` divides integer `b`, which only 0 does of 0.
+private divides(x: Value, y: Value, a: Number, b: Number) -> Result[Option[Value], Fault]
+    if !is_int(x) || !is_int(y)
+        val culprit = non_integer(x, y)
+
+        return Err(type_error("integer", culprit, s"'div' asks whether one integer divides another, and was given ${described(culprit)}"))
+
+    if dal.sign(a) == 0 then return Ok(if dal.sign(b) == 0 then Some(y) else None)
+
+    val r = num_result(funl_policy().rem(b, a), s"${render(y)} % ${render(x)}", x)?
+
+    r match
+        Int(k) -> Ok(if k == 0 then Some(y) else None)
+        _ -> Ok(None)
 
 // Prefix `-`.
 negate(a: Value) -> Result[Value, Fault]
-    deref(a) match
-        Int(n) ->
-            if n == -9223372036854775807 - 1 then return Err(overflow(s"-($n)"))
+    val x = deref(a)
 
-            Ok(Int(-n))
-        Var(_) -> Err(instantiation_error("instantiation error: '-' was given an unbound variable"))
-        x -> Err(type_error("number", x, s"'-' wants a number and was given ${described(x)}"))
+    x match
+        Int(n) -> if n != -9223372036854775807 - 1 then return Ok(Int(-n))
+        Var(_) -> return Err(instantiation_error("instantiation error: '-' was given an unbound variable"))
+        _ -> ()
+
+    num_of(x) match
+        Some(n) -> num_result(funl_policy().neg(n), s"-(${render(x)})", x)
+        None -> Err(type_error("number", x, s"'-' wants a number and was given ${described(x)}"))
 
 private is_str(x: Value) -> bool = x match
     Str(_) -> true
     _ -> false
 
-private int_operand(o: BinOp, x: Value) -> Result[long, Fault]
-    x match
-        Int(n) -> Ok(n)
-        Var(_) -> Err(unbound_operand(o))
-        _ -> Err(type_error("number", x, s"'${op_text(o)}' wants numbers and was given ${described(x)}"))
+private num_operand(o: BinOp, x: Value) -> Result[Number, Fault]
+    num_of(x) match
+        Some(n) -> Ok(n)
+        None -> x match
+            Var(_) -> Err(unbound_operand(o))
+            _ -> Err(type_error("number", x, s"'${op_text(o)}' wants numbers and was given ${described(x)}"))
 
 private unbound_operand(o: BinOp) -> Fault =
     instantiation_error(s"instantiation error: '${op_text(o)}' was given an unbound variable")
-
-// A result past 64 bits: `evaluation_error(int_overflow)`.
-private overflow(what: string) -> Fault =
-    evaluation_error("int_overflow", s"$what does not fit in 64 bits, and only integers are built")
-
-// A result that is not a whole number, which the machine has no way to hold until it has rationals:
-// `representation_error(rational)`.
-private not_whole(what: string) -> Fault =
-    representation_error("rational", s"$what is not a whole number, and only integers are built")
 
 // A value as a message names it: its kind, and what it prints as.
 described(x: Value) -> string
     deref(x) match
         Int(n) -> s"the integer $n"
+        Big(_) -> s"the integer ${render(x)}"
+        Rat(_) -> s"the rational ${render(x)}"
+        Real(_) -> s"the real ${render(x)}"
         Str(p) -> s"the string '${p.s}'"
         Bool(b) -> if b then "true" else "false"
         Unit -> "()"
@@ -163,74 +175,40 @@ described(x: Value) -> string
         Var(_) -> "an unbound variable"
         y -> render(y)
 
-private fits(o: BinOp, n: long, m: long, r: Option[long]) -> Result[long, Fault]
-    r match
-        Some(x) -> Ok(x)
-        None -> Err(overflow(s"$n ${op_text(o)} $m"))
-
-private nonzero(o: BinOp, n: long, m: long) -> Result[unit, Fault]
-    if m == 0 then return Err(evaluation_error("zero_divisor", s"$n ${op_text(o)} 0 divides by zero"))
-
-    Ok(())
-
-private floor_quo(n: long, m: long) -> Option[long]
-    if n == -9223372036854775807 - 1 && m == -1 then return None
-
-    val q = n / m
-
-    if n % m != 0 && (n < 0) != (m < 0) then Some(q - 1) else Some(q)
-
-private floor_mod(n: long, m: long) -> long
-    val r = n % m
-
-    if r != 0 && (r < 0) != (m < 0) then r + m else r
-
-// `n ^ m` by squaring, refusing a negative exponent and a result past 64 bits.
-private power(n: long, m: long) -> Result[long, Fault]
-    if m < 0 then return Err(not_whole(s"$n ^ $m"))
-
-    var result: long = 1
-    var base = n
-    var e = m
-
-    loop
-        if e % 2 == 1
-            result = checked_mul(result, base) match
-                Some(r) -> r
-                None -> return Err(overflow(s"$n ^ $m"))
-
-        e = e / 2
-
-        if e == 0 then break
-
-        base = checked_mul(base, base) match
-            Some(r) -> r
-            None -> return Err(overflow(s"$n ^ $m"))
-
-    Ok(result)
-end power
-
 // Whether ordering `o` holds of a three-way comparison's answer.
 private holds(o: BinOp, c: int) -> bool
     o match
         Lt -> c < 0
         Le -> c <= 0
-        Gt -> c > 0
-        _ -> c >= 0
+        Gt -> c == 1
+        _ -> c == 0 || c == 1
 
-// An ordering: integers by value, strings by their bytes.
+// An ordering: numbers by value across kinds, exactly, and strings by their bytes. A NaN is in no
+// order with anything, so every ordering of one fails.
 private ordered(o: BinOp, x: Value, y: Value) -> Result[Option[Value], Fault]
     val c: int = x match
         Int(n) -> y match
             Int(m) -> if n < m then -1 elif n > m then 1 else 0
-            _ -> return Err(mismatch(o, x, y, "integer", y))
+            _ -> num_order(o, x, y)?
         Str(p) -> y match
             Str(q) -> if p.s < q.s then -1 elif p.s > q.s then 1 else 0
             _ -> return Err(mismatch(o, x, y, "string", y))
         Var(_) -> return Err(unbound_operand(o))
-        _ -> return Err(mismatch(o, x, y, "number", x))
+        _ -> num_order(o, x, y)?
 
     Ok(if holds(o, c) then Some(y) else None)
+
+// Two values an ordering compares as numbers; a NaN compares as 2, which no ordering holds of.
+private num_order(o: BinOp, x: Value, y: Value) -> Result[int, Fault]
+    val a = num_of(x) match
+        Some(n) -> n
+        None -> return Err(mismatch(o, x, y, "number", x))
+
+    val b = num_of(y) match
+        Some(n) -> n
+        None -> return Err(mismatch(o, x, y, "number", y))
+
+    Ok(dal.compare(a, b).unwrap_or(2))
 
 // Two values an ordering cannot compare: `type_error(Kind, Culprit)`, the culprit the operand that is
 // not the kind the other one, or an ordering, wants.
