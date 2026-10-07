@@ -7,7 +7,7 @@ weight: 20
 
 What FunL is, page by page. Every program on these pages is run by the test suite, and what it
 prints is compared with the `output` block under it; a program followed by an `error` block is
-required to be refused with that message. A page here says what the language does, so a page and
+required to be refused with that message, and one followed by a `warning` block to draw that warning. A page here says what the language does, so a page and
 the language cannot disagree for long.
 
 | page | what it covers |
@@ -31,10 +31,19 @@ kind:
 - followed by an `output` block, it is run and must print exactly that;
 - followed by an `error` block, it must be refused — at compile time or by a fault — with a message
   containing that text;
-- followed by neither, it is a fragment, shown for its shape and not run.
+- followed by a `warning` block, it must compile with a warning containing that text; with an
+  `output` block as well, it must also print exactly that;
+- followed by none of them, it is a fragment, shown for its shape and not run.
 
-The claim for a program is the first `output` or `error` block after it and before the next program,
-so a page may put other blocks between a program and what it prints.
+The claim for a program is the first `output` or `error` block, and the first `warning` block, after
+it and before the next program, so a page may put other blocks between a program and what it prints.
+A `warning` block and an `output` block may come in either order; the pages put the warning first,
+as the compiler says it first.
+
+A program with an `output` block and no `warning` block must compile without a warning, so a page
+never shows a program whose warning a reader running it would see and the page leaves out. A
+`warning` block does not go with an `error` block: a refused program's warnings are part of what it
+says, and the `error` block quotes them.
 
 A block tagged `lfunl` is a whole literate document, compiled exactly as `funl` compiles a `.lfunl`
 file. The word after `lfunl` is the document's file name (`document.lfunl` if there is none), and an
