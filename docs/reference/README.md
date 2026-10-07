@@ -14,6 +14,8 @@ the language cannot disagree for long.
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
 | [Functions](functions.md) | `def`, lambdas, operator sections, clauses and guards, patterns, `where`, generator functions, `yield` and `return`, partial function literals |
+| [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max` |
+| [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
 
 ## How a page is checked
 
