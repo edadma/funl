@@ -5,10 +5,9 @@ weight: 10
 
 # The language
 
-This chapter is FunL as the old implementation and its test suite define it — the seventy-odd
-programs in `FunLExamples` and `FunLTests` are the behavioural specification, and every example
-below is taken from or modelled on one of them. It says what a reader needs in order to follow the
-machine chapter, and it marks every place the rewrite changes something.
+This chapter says what FunL is: its expressions, functions, data, scanning, regex and values. It
+says what a reader needs in order to follow the machine chapter, and it marks every place a rule
+was chosen to close a rough edge.
 
 ## Every expression succeeds or fails
 
@@ -48,17 +47,16 @@ write( 'next' )     ;; prints next
 
 ### Conditions and `false`
 
-**FunL has the values `true` and `false`, but a condition is decided by success and failure.** In
-the old implementation `if false then 'a' else 'b'` answers `'a'`, because `false` is a value and a
-value is success. The instruction that would have failed on `false` exists and its use in the
-compiler is commented out.
+**FunL has the values `true` and `false`, but a condition is decided by success and failure.** If
+only failure failed, `if false then 'a' else 'b'` would answer `'a'`, because `false` is a value and
+a value is success.
 
 > **Decided — does `false` fail in a condition?**
 > **Decision: yes.** A condition — the test of `if`, `elif`, `while`, a guard, an operand of
 > `and`, `or` and `not`, a comprehension filter — fails when its expression fails *or* produces
 > `false`. Everywhere else `false` is an ordinary value. This keeps goal-directed evaluation intact
 > (a comparison still fails rather than answering `false`) while making `if done then …` mean what
-> every reader expects. **Rejected:** keep the old rule (a condition only fails on failure),
+> every reader expects. **Rejected:** a condition that only fails on failure,
 > which is Icon's, and costs a `== true` wherever a boolean is tested; or make every operation that
 > could produce `false` fail instead, which removes booleans as values and breaks `write(x is int)`.
 
@@ -225,20 +223,20 @@ every write( permute([1, 2, 3, 4]) )        ;; all 24 permutations, Heap's order
 ```
 
 `permute` generates because its body `permute_(…)` does: **a body expression passes every value it
-produces through to the caller.** The old implementation emits nothing to bound it.
+produces through to the caller.** Nothing bounds it.
 
 A `yield` resumed carries on with `()` as its own value — except where it is the last thing the
 body does, when the function has no more to produce and fails, as Icon's procedure does on falling
-off its end. So `def g()` with the two lines `yield 1` and `yield 2` produces exactly `1` and `2`;
-the old implementation produced a third value, `()`.
+off its end. So `def g()` with the two lines `yield 1` and `yield 2` produces exactly `1` and `2`,
+and no third value `()`.
 
 Inside parentheses, in a call's arguments and at the head of `every`, `name = e` is an assignment
 expression: it stores each value of `e` in `name` and produces it, so `every write( (k = 1 to 3) to
 k + 2 )` binds `k` once per value of the outer range.
 
 > **Decided — is `return e` bounded?**
-> The old compiler unmarks the enclosing statements and then evaluates `e` *unbounded*, so
-> `return !xs` generates every element. **Decision: `return e` produces only `e`'s first
+> A `return` could unmark the enclosing statements and then evaluate `e` *unbounded*, so
+> `return !xs` would generate every element. **Decision: `return e` produces only `e`'s first
 > value** (Icon's rule, and what a reader of `return` expects), while a body written `= e` or ending
 > in an expression keeps passing every value through, and `yield` is how a block body generates
 > explicitly. **Rejected:** keep `return` unbounded, so `return` means "leave the enclosing
@@ -255,9 +253,8 @@ val classify =
   _ -> 'positive'
 ```
 
-**Fixed in the rewrite:** the old compiler parses this and emits *no code at all* for it, so the
-value on the stack is whatever was there before. The rewrite compiles it exactly as a multi-clause
-anonymous function with committed choice.
+**Closed by design:** it compiles exactly as a multi-clause anonymous function with committed
+choice, and never to nothing.
 
 ## Data
 
@@ -281,9 +278,8 @@ operators test it: `\x` succeeds if `x` is defined and `/x` if it is undefined. 
 assignable, so `\a = 123` assigns only if `a` already has a value and `/b = 123` only if `b` has
 none.
 
-**Fixed in the rewrite:** records and functions report a class — the old value model has
-`clas = null` on records and on function references, so `x is` against either answers nothing
-useful. Every value has a type the program can test.
+**Closed by design:** records and functions report a class, so `x is` against either answers
+something useful. Every value has a type the program can test.
 
 ### Numbers
 
@@ -303,8 +299,8 @@ and floor forms; the machine chapter has the [tower and its promotion rules](vm.
 
 **An exact result is demoted to the smallest exact kind that holds it** — a rational whose
 denominator is 1 is an integer — **and an inexact result is never demoted**: `2.5 * 2` is the real
-`5.0`, not the integer `5`. The old arithmetic library carried a demotion of whole-valued doubles
-to integers; the rewrite has no such path.
+`5.0`, not the integer `5`. Whole-valued doubles are never demoted
+to integers.
 
 ## Assignment, and assignment that undoes itself
 
@@ -314,22 +310,20 @@ assignment.
 
 **Every block has names of its own**: an indented block, a sequence `(s; s; e)`, and a `for`'s
 bindings. `val`, `var`, `free` and a pattern declare in the innermost block, in scope from the end
-of the declaration to the end of the block, shadowing the name outside it (`variable shadowing`,
-`for loop scope`). `x = e` stores into the nearest `x` in scope -- this block's, an enclosing
+of the declaration to the end of the block, shadowing the name outside it. `x = e` stores into the nearest `x` in scope -- this block's, an enclosing
 block's, or an enclosing function's -- and declares `x` in the innermost block only when there is
-none, which is how a loop assigns the counter declared above it (`break`, `continue`). `x op= e`,
+none, which is how a loop assigns the counter declared above it. `x op= e`,
 `x++` and `x--` change a variable that must already be in scope, and a name declared by `val` or
 bound by `where` cannot be assigned at all. **A name read after its block has ended reads
-`undefined`** (`while loop lexical scope`, `nested compound expression declaration`); a name that
+`undefined`**; a name that
 no block has declared before the read is refused.
 
 **`x <- e` is reversible assignment**: it assigns, and if the expression it is part of is later
-backtracked into, the old value comes back. It is what lets the n-queens placement above undo
+backtracked into, the previous value comes back. It is what lets the n-queens placement above undo
 itself when a later column fails.
 
-**Fixed in the rewrite:** `x in c` and `x not in c` parse and do nothing — the old machine's case
-for them is empty, so the stack is left one value short. They are membership tests, and in keeping
-with the rest of the language they succeed with `x` or fail.
+**`x in c` and `x not in c` are membership tests**, and in keeping with the rest of the language
+they succeed with `x` or fail.
 
 ## String scanning
 
@@ -394,9 +388,9 @@ blanked rather than removed (`sh.sysl.parsing`'s `tangle_literate`), so every di
 line and column of the document the reader has open. `funl program.lfunl` and a Prolog file's
 `:- import("file.lfunl")` both read it.
 
-## Rough edges, and what the rewrite does about each
+## Rough edges, and what FunL does about each
 
-| old behaviour | in the rewrite |
+| rough edge | what FunL does |
 |---|---|
 | `if false` takes the `then` branch | `false` fails a condition (decided above) |
 | `in` / `not in` do nothing and unbalance the stack | membership, succeeding with the left operand |

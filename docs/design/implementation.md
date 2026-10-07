@@ -21,11 +21,13 @@ package.hocon           the package: name, version, the sysl floor, dependencies
 docs/design/            these pages
 docs/reference/         the language as built, every program on it run by the suite
 docs/library/           the builtins and the Prolog library, likewise run
-tests/funl/             FunL programs with the output each must print
-tests/prolog/           Prolog programs, the INRIA suite, the 2019 regressions
+tests/                  only published third-party suites, kept as published (below)
 tests/regex/            the AT&T data files and the exclusion list
-examples/               family_tree.fl, family_tree.pl, sicp/, and the old examples
+examples/               FunL's own programs, in `.funl` and `.pl`, written to be read
 ```
+
+**A test's program is a string literal in the unit test**, with its expected output beside it.
+`tests/` holds only third-party data, and `examples/` is untested by design: no test reads or runs it.
 
 **Branches are `dev` and `stable`**, as slate's are: work lands on `dev` by fast-forward after the
 full suite is green on the commit being merged, and a release is `stable` fast-forwarded to `dev`,
@@ -105,8 +107,7 @@ obvious candidate — goes into `parsing`, is released there, and is consumed he
 **A hand-written recursive-descent parser with `pratt` for expressions**, which is slate's
 arrangement and the `parsing` package's whole argument: what matters about a parser is what it says
 about invalid input, and that is the part a generator or a combinator library cannot tell you
-about. The old FunL parser was Scala parser combinators with packrat memoisation; none of it is
-carried over except the grammar it encodes.
+about.
 
 - **The `TokenStream` `pratt` runs on is the parser**, so a callback can complain about what it read
   and can reach the scope table.
@@ -114,19 +115,19 @@ carried over except the grammar it encodes.
 - **Indentation is `layout`'s**, Python-style off-side lines, with brackets suspending it. The tokens
   nominated to open a block when they end a line are `->`, `=`, `then`, `else`, `do`, `?` and `:-`,
   so a lambda or a scan written as an argument can still have an indented body.
-- **The binding-power ladder is the old grammar's**, lowest first: assignment forms (`=`, `<-`, `?=`,
+- **The binding-power ladder**, lowest first: assignment forms (`=`, `<-`, `?=`,
   `+=` …) · scanning `?` · `or` · `and` · `not` · comparison, `in`, `is` · alternation `|` ·
   conjunction `&` · `fail` / `break` / `return` / `yield` · cons `:` (right) · ranges `..` and `to` ·
   `+ -` · `* / \ % // mod div` · `^` (right) · prefix `-` · `++ --` · prefix `! \ /` · application,
   field and index.
-- **`::`, `#`, `~` and `:-` are tokens.** `::` was used by the old grammar and never lexed.
+- **`::`, `#`, `~` and `:-` are tokens.** `::` is the typed pattern.
 
 > **Decided — juxtaposition as multiplication.**
-> The old grammar multiplied any two adjacent operands, so `2n` is `2 * n` — and so is `f (x)`
-> wherever a space separates a name from a bracket. **Decision: juxtaposition multiplies only
-> a number literal immediately followed by a name or `(`**, with no space — `2n`, `3(x + 1)`, which
-> is every use in the old tests. **Rejected:** keep the general rule, and with it the parse in
-> which a stray space changes a call into a multiplication.
+> Multiplying any two adjacent operands would make `2n` be `2 * n` — and `f (x)` too, wherever a
+> space separates a name from a bracket. **Decision: juxtaposition multiplies only
+> a number literal immediately followed by a name or `(`**, with no space — `2n`, `3(x + 1)`.
+> **Rejected:** the general rule, and with it the parse in which a stray space changes a call into
+> a multiplication.
 
 **The resolver runs before the compiler** and does everything that needs to know what a name is:
 numbering slots as `(depth, index)`, applying the [relation variable rule](logic.md#variables-in-a-relation),
@@ -161,7 +162,7 @@ nothing else: the statement's `Unmark` is what lets all of it go.
 more force, because a native here may run a FunL callback (`findall`, `sort` with a comparator, a
 FunL function called from a Prolog goal) that collects. A native keeps what it needs on the operand
 stack or holds it on the shadow stack across any call that can collect, and the tests run the
-corpus against a deliberately tiny heap so that collections land inside such calls.
+suite against a deliberately tiny heap so that collections land inside such calls.
 
 **Collection happens at the dispatch loop's top, never inside `alloc`**, when allocation since the
 last collection crosses a threshold. The threshold is raised after every collection to a multiple of
@@ -181,14 +182,14 @@ already obey.
 | the collector | `sh.sysl.gc` |
 | `BigInt`, `Decimal`, checked arithmetic | the sysl standard library |
 | slate's *approach*: the `Vm` struct and its census, the open builtin registry, slot-numbered locals, exact number printing, a `Value` with no counted member, heap scheduling on live size and payload, docs that the suite runs, `dev`/`stable` | slate's design and `CLAUDE.md` |
-| the old machine's *design*: the control stack, marks, clause marks, `yield` as choice-then-return, regex compiled forward and reverse | the 2021 Scala implementation |
-| the old test programs and the AT&T regex data | `funl-2021`'s tests |
+| the AT&T regex data | Hackage's `regex-posix-unittest-1.1`, fetched from upstream (`tests/regex/SOURCE.txt`) |
 
 | written fresh | why not reused |
 |---|---|
-| the instruction loop, control stack, trail | slate's machine is coroutine-shaped; the old machine is Scala |
-| the operand-stack copying and the `Restore` entry | the old machine had an immutable stack and never needed them |
-| unification, relations, the Prolog front end | nothing to reuse: the 2019 engine is a different machine with the defects the Prolog chapter lists |
+| the instruction loop, control stack, trail | slate's machine is coroutine-shaped |
+| the control stack's design: marks, clause marks, `yield` as choice-then-return, regex compiled forward and reverse | the [machine chapter](vm.md) |
+| the operand-stack copying and the `Restore` entry | the operand stack is a mutable `Buf`, which a choice point cannot save by pointer |
+| unification, relations, the Prolog front end | nothing to reuse |
 | the regex engine | it is part of the machine; an external engine cannot be resumed |
 
 ## How it is tested
@@ -197,25 +198,23 @@ already obey.
 The sysl tests drive the machine in the same process — `tests_kit.sysl` runs a program and answers
 what it printed — so a test is a sentence in shouting case and an assertion about output.
 
-### The old tests are the first corpus
+### Programs are literals in the tests
 
-**`FunLTests` (≈35 tests), `FunLExamples` (≈40) and `FunLPredefTests` are ported as programs** under
-`tests/funl/`, one file per old test with the name it had, and its expected output beside it. They
-are the behavioural specification, so a port that changes an expected output is a decision about
-the language and says so in the commit — the three places the rough-edge table in the [language
-chapter](language.md#rough-edges-and-what-the-rewrite-does-about-each) changes behaviour are the
-only ones expected. **The SICP examples** under the old repo's `examples/sicp-code` are the second
-corpus, ported the same way once the core passes.
+**Every test's program is a string literal in the unit test**, with its expected output beside it,
+and a test that needs a real file (consult, `:- import`) writes the literal to a scratch file first.
+`tests/` holds only published third-party suites, kept as published; `examples/` holds FunL's own
+programs for people to read, and no test reads or runs them. An example may show what a unit test
+checks, and the test then holds its own copy as a literal.
 
 ### Regex: the AT&T data, and a second oracle
 
-**The old regex tests were generated from Haskell's `regex-posix-unittest` data** — the AT&T
-`testregex` files `basic3`, `class`, `forced-assoc`, `left-assoc`, `nullsub3`, `osx-bsd-critical`,
-`repetition2`, `right-assoc` and `totest`. The data files are vendored under `tests/regex/` with their
-provenance, and one sysl test reads them directly rather than generating a test per line.
+**The regex data is Haskell's `regex-posix-unittest` package** — the AT&T `testregex` files
+`basic3`, `class`, `forced-assoc`, `left-assoc`, `nullsub3`, `osx-bsd-critical`, `repetition2`,
+`right-assoc` and `totest`. The data files are vendored under `tests/regex/` with their provenance,
+and one sysl test reads them directly rather than generating a test per line.
 
-**The old harness was weaker than it looks**: it collected *every* way the pattern could match and
-passed if *any* of them had the expected spans. That accepts an engine that finds the expected
+**A harness that collected *every* way the pattern could match and passed if *any* of them had the
+expected spans would be weaker than it looks**: it accepts an engine that finds the expected
 match only on its fourth backtrack, and it cannot tell leftmost-first from leftmost-longest at all —
 which matters, because the AT&T data is written for POSIX and this engine is not POSIX.
 
@@ -233,13 +232,14 @@ which matters, because the AT&T data is written for POSIX and this engine is not
 > exact on every span and group. `lookbehind.txt` is compared too: PCRE2 refuses 20 of its lines as
 > unbounded (counted, nothing to compare) and answers 9 differently, which
 > `tests/regex/pcre2_lookbehind.txt` lists with the reason; a listed line that comes to agree fails.
-> **Rejected:** keep the old any-match rule, which passes today's data and proves little.
+> **Rejected:** an any-match rule, which passes the data and proves little.
 
 ### Logic and Prolog
 
 - **The family tree runs in both syntaxes and prints one expected output**, duplicates included, as
   the [logic chapter](logic.md#the-family-tree-natively) gives it.
-- **Every 2019 defect is a named regression test**, written before the feature that fixes it.
+- **Every failure mode in the [Prolog chapter](prolog.md#failure-modes-of-a-prolog-engine-and-what-rules-each-one-out)
+  is a named regression test**, written before the feature that guards it.
 - **The INRIA ISO conformance suite** runs once the Prolog reader and core builtins exist, with
   every expected outcome either met or listed with a reason.
 - **Interop has tests in both directions**: a Prolog clause calling a generating FunL function, a
@@ -252,7 +252,7 @@ which matters, because the AT&T data is written for POSIX and this engine is not
   that exercises it — including the cases that motivated the design: a generating function returning
   into a caller with operands below its marks (the `Restore` entry), a cut past a binding that an
   older choice point must undo (the separate trail), an `every` over an `every` over a `yield`.
-- **A collector stress run**: the whole corpus again against a heap small enough that a collection
+- **A collector stress run**: the whole suite again against a heap small enough that a collection
   happens every few hundred allocations, so that a value held only in a sysl local, or a root
   missing from the list above, fails a test instead of a user's program.
 - **Error paths are tested with the features**: every instantiation error, type error and existence

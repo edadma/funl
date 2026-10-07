@@ -1,4 +1,4 @@
-% The family tree in standard Prolog: the facts, rules and queries of family_tree.fl, and the same
+% The family tree in standard Prolog: the facts, rules and queries of family_tree.funl, and the same
 % output.
 
 female(anne).

@@ -86,7 +86,7 @@ unify(a, b)
         arrays, maps, sets, closures, cursors: identical objects, or fail
 ```
 
-Four rules in it are deliberate, and each is a defect of the 2019 engine that it closes:
+Four rules in it are deliberate, and each closes a failure a careless unifier has:
 
 - **A variable unified with itself succeeds at once.** The identity test comes before anything else,
   so `X ~ X` cannot loop.
@@ -314,8 +314,8 @@ so a collection in the middle of a long `findall` sees it.
 
 ## The family tree, natively
 
-This is the program the [first milestone](milestones.md) runs: the 2019 repository's
-`examples/family_tree`, written in FunL.
+This is the program the [first milestone](milestones.md) runs, as a string literal in a unit test;
+`examples/family_tree.funl` holds the same program for reading.
 
 ```
 def
@@ -373,7 +373,7 @@ if father(who, #mia) then write(who)        ;; liam
 ```
 
 **The expected answers include the duplicates, and that is the test.** `father(F, _)` has one
-solution per child, so don, liam and logan are each a father twice; the 2019 repository's README
-shows each once, which is not what a Prolog answers and not what this program may print. `x != y`
+solution per child, so don, liam and logan are each a father twice; listing each once is not what a Prolog answers and not what this program may
+print. `x != y`
 is FunL's inequality on two values that are ground by the time it runs, which is the same test
 Prolog's `\=` makes in this program.

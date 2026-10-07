@@ -11,9 +11,8 @@ suspended at `yield`, a scan position moved by `tab`, a regex trying its next al
 the [next chapter](logic.md) — a relation trying its next clause. All of them push an entry on one
 control stack, and failure pops entries until one of them says where to go next.
 
-The old machine already worked this way. What this chapter adds is a precise statement of the
-state each entry saves, the two places the old design was unsound (the trail and the operand
-stack), and a value model fit for a garbage-collected heap in sysl.
+This chapter states precisely what state each entry saves, how the trail and the operand stack are
+kept sound under backtracking, and a value model fit for a garbage-collected heap in sysl.
 
 ## The machine's state
 
@@ -88,10 +87,8 @@ failure that passes back over a movement of the position undoes it through `undo
 scan fields on the entry. Saving `subject` and `pos` in every entry would restore them at *every*
 failure, which is wrong for a bounded expression that has completed: in `'abc' ? every 1 to 3 do
 write(move(1))` the generator's choice point predates every `move`, so resuming it would put the
-position back to 1 and write `a` three times, where Icon writes `a`, `b`, `c`. The old machine had
-`tab` and `move` each push an extra entry whose only job was to run a closure putting the position
-back (`pushChoice(vm => { vm.seq = …; vm.scanpos = … })`); the rewrite has no closures on the
-control stack, and one kind of choice point.
+position back to 1 and write `a` three times, where Icon writes `a`, `b`, `c`. There are no
+closures on the control stack, and one kind of choice point.
 
 ## Marks: how a bounded expression is built
 
@@ -148,26 +145,26 @@ its condition fails the loop fails, which the enclosing statement absorbs.
 
 ### Leaving several marks at once
 
-**`break`, `continue` and `return` have to discard every mark between them and their target.** The
-old compiler counted the marks it had emitted (`markNesting`) and emitted that many `Unmark`s, which
-is correct exactly as long as every construct that pushes a mark remembers to count it — a new
-construct that forgets turns into a corrupted control stack with no diagnostic.
+**`break`, `continue` and `return` have to discard every mark between them and their target.** Counting
+the marks emitted and emitting that many `Unmark`s is correct exactly as long as every construct
+that pushes a mark remembers to count it — a new construct that forgets turns into a corrupted
+control stack with no diagnostic.
 
-The rewrite records instead of counting. A loop's head stores the index of its mark in a frame slot
+So the compiler records instead of counting. A loop's head stores the index of its mark in a frame slot
 with `SaveMark(slot)`, and `break` is `UnmarkTo(slot)`, which truncates to that recorded entry and
 puts back the mark register it recorded. `return` truncates to the frame's own entry height, which
 the frame records when it is entered. Nothing has to agree with anything else about a count.
 
 ## The operand stack, and why backtracking has to copy part of it
 
-**The old machine's operand stack was an immutable Scala list**, so a choice point could save the
-whole stack by keeping a pointer to it, and restoring it cost nothing. A sysl `Buf` is mutable: once
+**An immutable operand stack would let a choice point save the whole stack by keeping a pointer to
+it, and restoring it would cost nothing.** A sysl `Buf` is mutable: once
 a choice point has been pushed, the instructions after it pop cells *below* the height it was pushed
 at and push others in their place. In `a + !xs`, the generator's choice point is pushed with `a`
 beneath it; `+` then pops `a`. Restoring "the height" on backtracking would leave the sum where `a`
 belongs.
 
-**The rewrite copies.** A `Choice` entry saves the operand cells between the innermost mark's floor
+**So it copies.** A `Choice` entry saves the operand cells between the innermost mark's floor
 and the top into `saved`, and failure writes them back. The cells between a mark and the top are
 the operands of one bounded expression — two or three values in an ordinary program — so the copy is
 small, and `saved` is one buffer used as a stack, so it allocates nothing once warm. This is how
@@ -191,7 +188,7 @@ nothing.
 > **Decision: copy the bounded expression's cells into the entry, and push a `Restore` on a
 > non-deterministic return**, as above. The cost is a copy of a few cells per choice point and
 > nothing per ordinary call. **Rejected: a persistent operand stack** — cons cells on the
-> collected heap, as the old machine had — where a choice point saves one pointer and nothing is
+> collected heap — where a choice point saves one pointer and nothing is
 > ever copied. It is simpler to get right and costs one heap allocation per push, on every
 > expression whether it backtracks or not, which is the common case paying for the rare one.
 
@@ -291,10 +288,10 @@ collection alike: a list's position stays 0 while its cell moves down the list. 
 advanced cursor is already exhausted pushes no choice point, so its last element leaves nothing
 behind.
 
-**The old machine kept a mutable Scala iterator in the saved stack** and advanced it on each
-resumption. That works only while every choice point is restored at most once, which is true today
-and would silently stop being true the first time anything copied a choice point. An immutable
-cursor makes the question not arise.
+**A cursor is immutable.** Keeping a mutable iterator in the saved stack and advancing it on each
+resumption works only while every choice point is restored at most once, which would silently stop
+being true the first time anything copied a choice point. An immutable cursor makes the question not
+arise.
 
 ## Cut, `Atomic`, and why the barrier is never global
 
@@ -311,12 +308,11 @@ CutClause           control.truncate(frame.cut)
 A regex's atomic group and lookaround keep the height in an operand cell instead (`Barrier`, `CutTo`),
 which is just as private to the construct: nothing else can reach a cell a regex pushed.
 
-**The height lives in a frame slot or in the frame itself, never in a machine register.** The 2019
-Prolog engine kept its cut and mark points in global registers, so a cut inside a called predicate
-leaked into the caller and a nested `->` overwrote the outer one's point. A height saved where the
-construct that needs it can find it — a slot for `SaveHeight`, `frame.cut` for a clause — cannot be
-overwritten by anybody else. The old FunL machine already did the right thing for regex, pushing
-the height as a `Cut(size)` value onto the operand stack.
+**The height lives in a frame slot or in the frame itself, never in a machine register.** Cut and mark
+points kept in global registers would let a cut inside a called predicate leak into the caller and a
+nested `->` overwrite the outer one's point. A height saved where the construct that needs it can
+find it — a slot for `SaveHeight`, `frame.cut` for a clause, an operand cell for a regex — cannot be
+overwritten by anybody else.
 
 ## The trail
 
@@ -339,15 +335,14 @@ old span.
 
 ### A separate trail, because a commit is not an undo
 
-**In the old machine the trail was the control stack.** `x <- e` pushed an entry whose only content
-was a closure restoring the old value, and failure ran it on the way past. That made the undo
-records indistinguishable from choice points, so **every commit threw undo records away**: `CutInst`
-and `UnmarkInst` both truncate the control stack, closures and all. For Icon's reversible assignment
+**Were the trail the control stack, `x <- e` would push an entry whose only content was a closure
+restoring the old value, and failure would run it on the way past.** That makes the undo records
+indistinguishable from choice points, so **every commit throws undo records away**: a cut and an
+`Unmark` both truncate the control stack, closures and all. For Icon's reversible assignment
 that happens to be right at an `Unmark` — the assignment becomes permanent when its bounded
 expression completes. It is wrong for a cut, and it is fatal for logic variables: a variable bound
 after an older choice point and then cut past must still be unbound when that older choice point is
-resumed. That is why the WAM keeps a trail separate from its choice points, and the rewrite does the
-same.
+resumed. That is why the WAM keeps a trail separate from its choice points, and so does this machine.
 
 **A commit therefore filters the trail instead of truncating it:**
 
@@ -397,9 +392,7 @@ ScanLeave(n)    pop n off scans; (subject, pos) = the last popped, the outermost
 Each push and pop of `scans` is trailed (`ScanOpened`, `ScanClosed`) as well as the change of
 `subject` and `pos`. If the scanned expression later resumes — `every write(text ? upto(vowel))` —
 failure back into it undoes the `ScanEnd`: the saved state goes back on `scans` and the subject and
-position become the scan's again, where its own `ScanEnd` will find them. The old machine needed two
-closures per scan to get the same effect.
-
+position become the scan's again, where its own `ScanEnd` will find them.
 ### Leaving a scan by a jump
 
 **`return`, `break`, `continue` and `yield` restore the scan state the outermost scan they leave
@@ -478,8 +471,8 @@ end before its start. Lookaround is then four short sequences:
 **A lookbehind may therefore be any pattern at all** — unbounded repetition, alternatives of
 different lengths, nested lookaround, backreferences — because it is not matched by trying start
 points behind `pos`; it is matched backwards *from* `pos`. PCRE2 refuses an unbounded lookbehind
-outright. This is the old machine's design (`Compiler.compile(pat, mode)`, with
-`LookbehindPattern` compiling its body with `!mode`) and the rewrite keeps it unchanged.
+outright. The compiler takes a direction with each pattern, and a lookbehind compiles
+its body in the opposite one.
 
 **Semantics are leftmost-first backtracking, Perl's and JavaScript's, not POSIX's leftmost-longest.**
 A machine whose alternatives are tried in order cannot be leftmost-longest without exploring every
@@ -490,8 +483,7 @@ conformance data, which is written for POSIX.
 ### The combinators are the same patterns
 
 `string(s)`, `ccls(c)`, `rep(p)`, `rep1(p)`, `repn(n, p)`, `opt(p)` and the reluctant forms build
-pattern trees at compile time — the old implementation made them macros over the pattern AST, and
-the rewrite does the same — so `rep(ccls(digits))` and `` `[0-9]*` `` compile to the same
+pattern trees at compile time, as macros over the pattern AST, so `rep(ccls(digits))` and `` `[0-9]*` `` compile to the same
 instructions.
 
 ## The value model

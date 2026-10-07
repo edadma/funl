@@ -1,7 +1,10 @@
 The *.txt data files here (all but exclusions.txt and this one) are the AT&T testregex data as
 packaged by Christopher Kuklewicz in Haskell's regex-posix-unittest-1.1 (data-dir/), under the
-licence in LICENSE. They are copied unchanged from the old FunL repository (funl-2021,
-bvm/regex-posix-unittest-1.1/data-dir/), whose regex tests were generated from them.
+licence in LICENSE. They are copied unchanged from the upstream package's data-dir/:
+https://hackage.haskell.org/package/regex-posix-unittest-1.1/regex-posix-unittest-1.1.tar.gz
+(version 1.1, fetched 2026-10-07, tarball SHA-256
+7d9772ee791900692c000b6a11d6480d4b9b2529f9f9796776b73e5a6cd39d4d). The package's test-manifest.txt
+is not kept. The lookaround, lookbehind and pcre2_lookbehind files here are this project's own.
 
 Each line is: an id, a pattern, a subject, and the expected match -- `(start,end)` for the whole
 match and then for each group, 0-based character offsets, `(?,?)` or `(-1,-1)` for a group that

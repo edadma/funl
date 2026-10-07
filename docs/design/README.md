@@ -21,9 +21,8 @@ FunL is a small, dynamically typed, indentation-structured language in the Icon 
 one after another when the context asks for more, and control flow is driven by success and
 failure rather than by `true` and `false`. Its implementation is a single backtracking virtual
 machine — one stack of choice points drives generators, alternation, `every`, string scanning,
-reversible assignment and regular expressions alike. **The rewrite finishes the idea that machine
-was always halfway to:** add logic variables, a trail and unification, and the same machine runs
-Prolog. FunL relations, FunL functions, regular expressions and Prolog predicates then call one
+reversible assignment and regular expressions alike. **Add logic variables, a trail and unification
+to that machine, and the same machine runs Prolog.** FunL relations, FunL functions, regular expressions and Prolog predicates then call one
 another freely, because they are all just code on one machine.
 
 ## The chapters
@@ -32,10 +31,10 @@ Read them in order; each leans on the one before it.
 
 | | |
 |---|---|
-| [The language](language.md) | FunL as the old implementation and its tests define it: goal-directed evaluation, generators, functions and clauses, patterns, scanning, regex, values — with the rough edges this rewrite fixes |
+| [The language](language.md) | goal-directed evaluation, generators, functions and clauses, patterns, scanning, regex, values, and the rough edges each rule closes |
 | [The machine](vm.md) | the backtracking VM: machine state, the control stack of marks and choice points, the trail, generators, cut, scanning and regex in forward and reverse, the value model and the numeric tower |
 | [Logic programming in FunL](logic.md) | logic variables, unification, facts and rules, clause selection, and how functions and relations call each other |
-| [Prolog on the same machine](prolog.md) | standard Prolog syntax compiled to the same instructions, the builtin set it aims for, and the defects of the 2019 engine it must not repeat |
+| [Prolog on the same machine](prolog.md) | standard Prolog syntax compiled to the same instructions, the builtin set it aims for, and the failure modes of a Prolog engine its design rules out |
 | [The sysl implementation](implementation.md) | the repository and module layout, the parser, the collector and its roots, what is reused and what is written fresh, and how it is tested |
 | [Milestones](milestones.md) | the order the work is done in, and what proves each step |
 
@@ -43,10 +42,9 @@ Read them in order; each leans on the one before it.
 
 - **"Decided"** marks a choice between real alternatives. Each one names the decision and what was
   rejected, so that revisiting it changes one section rather than the whole page.
-- **"Fixed in the rewrite"** marks a place where the old implementation did something wrong or
-  nothing at all, and says what the rewrite does instead.
-- Instruction names are written `LikeThis` and are the rewrite's, not the old machine's, unless a
-  sentence says otherwise.
+- **"Closed by design"** marks a place where a naive implementation would do something wrong or
+  nothing at all, and says what FunL does instead.
+- Instruction names are written `LikeThis`.
 - A position in a string is a **character position** in the Icon sense: position 1 is before the
   first character, and position 0 means the end.
 
