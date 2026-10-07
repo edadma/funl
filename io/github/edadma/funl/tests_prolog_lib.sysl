@@ -1,0 +1,132 @@
+module io.github.edadma.funl
+@tests
+
+// The library written in Prolog (`pl_lib.sysl`): the list predicates, the higher-order ones over
+// `call/N`, and the sorts, each with the errors SWI-Prolog's library raises.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+private const Helpers: string = "double(X, Y) :- Y is X * 2.\nadd(X, A0, A) :- A is A0 + X.\n" +
+    "add3(X, Y, A0, A) :- A is A0 + X * Y.\nadd4(X, Y, Z, A0, A) :- A is A0 + X + Y + Z.\n" +
+    "odd(X) :- X mod 2 =:= 1.\nsum3(A, B, C) :- C is A + B.\nsum4(A, B, C, D) :- D is A + B + C.\n" +
+    "by_length(O, A, B) :- atom_length(A, X), atom_length(B, Y), compare(O, X, Y).\n"
+
+// Every solution of `goal`, `X` written by `writeq`, one a line; or the formal term of its error.
+private every(goal: string) -> string =
+    ran_prolog(Helpers + s":- catch(forall($goal, (writeq(X), nl)), error(F, _), (writeq(F), nl)).\n")
+
+private no(goal: string) -> string = every(s"(\\+ ($goal) -> X = no ; X = yes)")
+
+@test
+APPEND_JOINS_AND_SPLITS()
+    assert_eq(every("append([1, 2], [3], X)"), ok("[1,2,3]"))
+    assert_eq(every("(append(A, B, [1, 2]), X = A+B)"), ok("[]+[1,2]\n[1]+[2]\n[1,2]+[]"))
+    assert_eq(every("append([[1], [], [2, 3]], X)"), ok("[1,2,3]"))
+    assert_eq(every("append(_, X)"), ok("instantiation_error"))
+
+@test
+MEMBER_AND_MEMBERCHK()
+    assert_eq(every("member(X, [a, b, c])"), ok("a\nb\nc"))
+    assert_eq(every("memberchk(X, [a, b, c])"), ok("a"))
+    assert_eq(no("member(d, [a, b, c])"), ok("no"))
+    assert_eq(every("(memberchk(f(X), [g(1), f(2), f(3)]))"), ok("2"))
+
+@test
+REVERSE_LAST_AND_THE_NTH_ELEMENT()
+    assert_eq(every("reverse([1, 2, 3], X)"), ok("[3,2,1]"))
+    assert_eq(every("last([1, 2, 3], X)"), ok("3"))
+    assert_eq(no("last([], _)"), ok("no"))
+    assert_eq(every("nth0(1, [a, b, c], X)"), ok("b"))
+    assert_eq(every("nth1(1, [a, b, c], X)"), ok("a"))
+    assert_eq(every("(nth0(I, [a, b], E), X = I-E)"), ok("0-a\n1-b"))
+    assert_eq(every("(nth1(I, [a, b], E), X = I-E)"), ok("1-a\n2-b"))
+    assert_eq(no("nth0(5, [a], _)"), ok("no"))
+    assert_eq(no("nth1(0, [a], _)"), ok("no"))
+    assert_eq(every("nth0(a, [a], X)"), ok("type_error(integer,a)"))
+
+@test
+SELECT_AND_SELECTCHK()
+    assert_eq(every("(select(E, [a, b, c], R), X = E-R)"), ok("a-[b,c]\nb-[a,c]\nc-[a,b]"))
+    assert_eq(every("select(b, [a, b, c, b], X)"), ok("[a,c,b]\n[a,b,c]"))
+    assert_eq(every("selectchk(b, [a, b, c, b], X)"), ok("[a,c,b]"))
+    assert_eq(every("select(x, X, [a, b])"), ok("[x,a,b]\n[a,x,b]\n[a,b,x]"))
+
+@test
+INCLUDE_EXCLUDE_AND_PARTITION()
+    assert_eq(every("include(odd, [1, 2, 3, 4, 5], X)"), ok("[1,3,5]"))
+    assert_eq(every("exclude(odd, [1, 2, 3, 4, 5], X)"), ok("[2,4]"))
+    assert_eq(every("(partition(odd, [1, 2, 3, 4], I, E), X = I/E)"), ok("[1,3]/[2,4]"))
+    assert_eq(every("include(_, [1], X)"), ok("instantiation_error"))
+
+@test
+MAPLIST_OVER_ONE_TO_FOUR_LISTS()
+    assert_eq(no("maplist(odd, [1, 3])"), ok("yes"))
+    assert_eq(no("maplist(odd, [1, 2])"), ok("no"))
+    assert_eq(every("maplist(double, [1, 2, 3], X)"), ok("[2,4,6]"))
+    assert_eq(every("maplist(sum3, [1, 2], [3, 4], X)"), ok("[4,6]"))
+    assert_eq(every("maplist(sum4, [1], [2], [3], X)"), ok("[6]"))
+    assert_eq(no("maplist(double, [1, 2], [_])"), ok("no"))
+    assert_eq(every("maplist(_, [1], X)"), ok("instantiation_error"))
+
+@test
+FOLDL_OVER_ONE_TO_THREE_LISTS()
+    assert_eq(every("foldl(add, [1, 2, 3], 0, X)"), ok("6"))
+    assert_eq(every("foldl(add3, [1, 2], [3, 4], 0, X)"), ok("11"))
+    assert_eq(every("foldl(add4, [1], [2], [3], 10, X)"), ok("16"))
+    assert_eq(every("foldl(add, [], 7, X)"), ok("7"))
+
+@test
+SUMS_MAXIMA_MINIMA_AND_NUMLIST()
+    assert_eq(every("sum_list([1, 2, 3], X)"), ok("6"))
+    assert_eq(every("sumlist([], X)"), ok("0"))
+    assert_eq(every("max_list([3, 1, 4, 1], X)"), ok("4"))
+    assert_eq(every("min_list([3, 1, 4, 1], X)"), ok("1"))
+    assert_eq(no("max_list([], _)"), ok("no"))
+    assert_eq(every("numlist(1, 5, X)"), ok("[1,2,3,4,5]"))
+    assert_eq(every("numlist(3, 3, X)"), ok("[3]"))
+    assert_eq(no("numlist(5, 1, _)"), ok("no"))
+    assert_eq(every("numlist(a, 5, X)"), ok("type_error(integer,a)"))
+    assert_eq(every("numlist(1, _, X)"), ok("instantiation_error"))
+    assert_eq(every("sum_list([1, a], X)"), ok("type_error(evaluable,a/0)"))
+
+@test
+DELETE_SUBTRACT_INTERSECTION_AND_UNION()
+    assert_eq(every("delete([a, B, c, a], a, X)"), ok("[c]"))
+    assert_eq(every("delete([f(1), g(2), f(3)], f(_), X)"), ok("[g(2)]"))
+    assert_eq(every("subtract([1, 2, 3, 4], [2, 4], X)"), ok("[1,3]"))
+    assert_eq(every("intersection([1, 2, 3, 4], [4, 2, 9], X)"), ok("[2,4]"))
+    assert_eq(every("union([1, 2], [2, 3], X)"), ok("[1,2,3]"))
+
+@test
+LIST_TO_SET_PERMUTATION_AND_FLATTEN()
+    assert_eq(every("list_to_set([a, b, a, c, b], X)"), ok("[a,b,c]"))
+    assert_eq(every("(list_to_set([A, B, A], S), length(S, X))"), ok("2"))
+    assert_eq(every("list_to_set(foo, X)"), ok("type_error(list,foo)"))
+    assert_eq(every("permutation([1, 2, 3], X)"), ok("[1,2,3]\n[1,3,2]\n[2,1,3]\n[2,3,1]\n[3,1,2]\n[3,2,1]"))
+    assert_eq(every("(permutation(X, [a, b]))"), ok("[a,b]\n[b,a]"))
+    assert_eq(every("flatten([1, [2, [3, 4], []], [[5]]], X)"), ok("[1,2,3,4,5]"))
+    assert_eq(every("flatten(a, X)"), ok("[a]"))
+
+@test
+SORT_4_ON_A_KEY_IN_EACH_ORDER()
+    val pairs = "[f(2, a), f(1, b), f(2, c), f(1, d)]"
+
+    assert_eq(every(s"sort(1, @=<, $pairs, X)"), ok("[f(1,b),f(1,d),f(2,a),f(2,c)]"))
+    assert_eq(every(s"sort(1, @<, $pairs, X)"), ok("[f(1,b),f(2,a)]"))
+    assert_eq(every(s"sort(1, @>=, $pairs, X)"), ok("[f(2,a),f(2,c),f(1,b),f(1,d)]"))
+    assert_eq(every(s"sort(1, @>, $pairs, X)"), ok("[f(2,a),f(1,b)]"))
+    assert_eq(every("sort(0, @>=, [1, 3, 2, 3], X)"), ok("[3,3,2,1]"))
+    assert_eq(every("sort(0, @<, [c, a, b, a], X)"), ok("[a,b,c]"))
+    assert_eq(every("sort(a, @<, [], X)"), ok("type_error(integer,a)"))
+    assert_eq(every("sort(-1, @<, [], X)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(every("sort(0, foo, [], X)"), ok("domain_error(order,foo)"))
+    assert_eq(every("sort(0, _, [], X)"), ok("instantiation_error"))
+    assert_eq(every("sort(0, @<, [a|_], X)"), ok("instantiation_error"))
+    assert_eq(every("sort(0, @<, foo, X)"), ok("type_error(list,foo)"))
+    assert_eq(every("sort(1, @<, [a], X)"), ok("type_error(compound,a)"))
+
+@test
+PREDSORT_ORDERS_BY_A_PREDICATE_AND_DROPS_WHAT_IT_CALLS_EQUAL()
+    assert_eq(every("predsort(by_length, [ccc, a, bb, dd], X)"), ok("[a,bb,ccc]"))
+    assert_eq(every("predsort(by_length, [], X)"), ok("[]"))
+    assert_eq(every("predsort(_, [b, a], X)"), ok("instantiation_error"))

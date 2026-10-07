@@ -1,0 +1,621 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.{full_report, source_of}
+
+// The Prolog library: the predicates that are natural to write in Prolog, as Prolog source loaded
+// into every VM when it is made (`prolog.md` § "The builtin set"). They are ordinary clauses a
+// reader can look at, compiled and indexed as any program's are.
+//
+// **A program may define a predicate the library defines**, in a Prolog file or as a FunL
+// definition: its own replaces the library's (`offer_predicate`, `PredInfo.kind`). Helpers are named
+// `'$...'`, which no FunL name can spell and a Prolog program does not reach by accident.
+//
+// What needs the machine is native and not here: `'$findall'/3` is compiled into the clause that
+// calls it (`pl_compile.sysl`), the database primitives are in `pl_db_builtins.sysl`, and the type
+// checks that raise ISO errors with a sentence are `'$must_be'/3` below.
+
+// Load the library into `v`, which is being made.
+install_library(v: *Vm)
+    val was = enter(v)
+    val src = source_of("library", library_text())
+    var report = full_report()
+
+    if load_prolog(src, &report).is_none() then panic(s"the Prolog library does not load:\n${report.render(src)}")
+
+    mark_library()
+    leave(was)
+
+install_prolog_lib(v: *Vm)
+    register(v, "$must_be/3", 3, pl_must_be)
+
+// `'$must_be'(Type, X, Who)`: `X` is of `Type`, or the error says what `Who` -- a predicate
+// indicator -- wanted. The types: `integer`, `nonneg`, `callable`, `list`, `list_or_partial_list`,
+// `order` (`@<`, `@>`, `@=<`, `@>=`), `aggregate_spec` and `pi_pattern` (what `current_predicate/1`
+// takes: a variable, or `Name/Arity` with each part unbound or of its kind).
+private pl_must_be(base: usize, argc: usize) -> Result[Value, Fault]
+    val kind = deref(arg(base, 0)) match
+        Atom(id) -> atom_name(id)
+        _ -> return Err(Broken("'$must_be' was given no type"))
+
+    val x = deref(arg(base, 1))
+    val who = render(arg(base, 2))
+    val unbound = is_unbound(x)
+    val unbound_error = instantiation_error(s"instantiation error: $who was given an unbound variable")
+
+    if kind == "integer" || kind == "nonneg"
+        x match
+            Int(n) ->
+                if kind == "nonneg" && n < 0
+                    return Err(domain_error("not_less_than_zero", x, s"$who wants an integer of 0 or more, and was given $n"))
+            Var(_) -> return Err(unbound_error)
+            _ -> return Err(type_error("integer", x, s"type error: $who wants an integer, and was given ${described(x)}"))
+    elif kind == "callable"
+        x match
+            Atom(_) -> ()
+            Compound(_) -> ()
+            Var(_) -> return Err(unbound_error)
+            _ -> return Err(type_error("callable", x, s"type error: $who wants a callable term, and was given ${described(x)}"))
+    elif kind == "list"
+        if !is_proper_list(x)
+            if is_partial_list(x) then return Err(unbound_error)
+
+            return Err(type_error("list", x, s"type error: $who wants a list, and was given ${render(x)}"))
+    elif kind == "list_or_partial_list"
+        if !is_partial_list(x) then return Err(type_error("list", x, s"type error: $who wants a list, and was given ${render(x)}"))
+    elif kind == "order"
+        if unbound then return Err(unbound_error)
+
+        val ok = x match
+            Atom(id) ->
+                val n = atom_name(id)
+
+                n == "@<" || n == "@>" || n == "@=<" || n == "@>="
+            _ -> false
+
+        if !ok then return Err(domain_error("order", x, s"$who wants an order, one of @<, @>, @=< and @>=, and was given ${render(x)}"))
+    elif kind == "aggregate_spec"
+        if unbound then return Err(unbound_error)
+
+        val ok = x match
+            Atom(id) -> atom_name(id) == "count"
+            Compound(c) ->
+                val n = atom_name(c.functor)
+
+                c.args.len() == 1 && (n == "sum" || n == "max" || n == "min" || n == "bag" || n == "set")
+            _ -> false
+
+        if !ok
+            return Err(domain_error("aggregate_spec", x,
+                s"$who wants count, sum(E), max(E), min(E), bag(E) or set(E), and was given ${render(x)}"))
+    elif kind == "pi_pattern"
+        if unbound then return Ok(Unit)
+
+        val ok = x match
+            Compound(c) ->
+                if c.args.len() == 2 && atom_name(c.functor) == "/"
+                    val n = deref(c.args.at(0))
+                    val a = deref(c.args.at(1))
+
+                    (is_unbound(n) || is_atom(n)) && (is_unbound(a) || is_int_value(a))
+                else
+                    false
+            _ -> false
+
+        if !ok
+            return Err(type_error("predicate_indicator", x, s"type error: $who wants a predicate indicator Name/Arity, and was given ${render(x)}"))
+    else
+        return Err(Broken(s"the library's type check has no type $kind"))
+
+    Ok(Unit)
+end pl_must_be
+
+private is_int_value(x: Value) -> bool = x match
+    Int(_) -> true
+    _ -> false
+
+// The library, as Prolog source.
+private library_text() -> string = raw"""
+    % -- All solutions ------------------------------------------------------------------------
+
+    findall(T, G, L) :-
+        '$must_be'(list_or_partial_list, L, findall/3),
+        '$findall'(T, G, L).
+
+    findall(T, G, L, Tail) :-
+        '$must_be'(list_or_partial_list, L, findall/4),
+        '$findall'(T, G, L0),
+        append(L0, Tail, L).
+
+    % bagof/3: one bag for each binding of the goal's free variables -- those not in the template
+    % nor bound by ^ -- in the standard order of those bindings, each bag in the order its
+    % solutions came. Witnesses that are variants of each other share a bag.
+    bagof(T, G, L) :-
+        '$must_be'(list_or_partial_list, L, bagof/3),
+        '$free_variables'(T, G, W, Goal),
+        (   W == '$w'
+        ->  '$findall'(T, Goal, L0),
+            L0 \== [],
+            L = L0
+        ;   '$findall'(W-T, Goal, Pairs),
+            Pairs \== [],
+            keysort(Pairs, Sorted),
+            '$bags'(Sorted, Bags),
+            member(W-L, Bags)
+        ).
+
+    setof(T, G, S) :-
+        '$must_be'(list_or_partial_list, S, setof/3),
+        bagof(T, G, L),
+        sort(L, S).
+
+    _ ^ G :-
+        call(G).
+
+    '$free_variables'(T, G, W, Goal) :-
+        '$strip_carets'(G, Goal, Bound0),
+        term_variables(Goal, GoalVars),
+        term_variables(T-Bound0, Bound),
+        '$vars_not_in'(GoalVars, Bound, Free),
+        W =.. ['$w'|Free].
+
+    '$strip_carets'(G, G, []) :-
+        var(G),
+        !.
+    '$strip_carets'(V^G0, G, [V|Vs]) :-
+        !,
+        '$strip_carets'(G0, G, Vs).
+    '$strip_carets'(G, G, []).
+
+    '$vars_not_in'([], _, []).
+    '$vars_not_in'([V|Vs], Bound, Free) :-
+        (   '$memberchk_eq'(V, Bound)
+        ->  Free = Free1
+        ;   Free = [V|Free1]
+        ),
+        '$vars_not_in'(Vs, Bound, Free1).
+
+    '$memberchk_eq'(X, [Y|Ys]) :-
+        (   X == Y
+        ->  true
+        ;   '$memberchk_eq'(X, Ys)
+        ).
+
+    '$bags'([], []).
+    '$bags'([W-T|Ps], [W-[T|Ts]|Bags]) :-
+        '$same_witness'(Ps, W, Ts, Rest),
+        '$bags'(Rest, Bags).
+
+    '$same_witness'([], _, [], []).
+    '$same_witness'([W1-T|Ps], W, Ts, Rest) :-
+        (   W1 =@= W
+        ->  W1 = W,
+            Ts = [T|Ts1],
+            Rest = Rest1
+        ;   Ts = Ts1,
+            Rest = [W1-T|Rest1]
+        ),
+        '$same_witness'(Ps, W, Ts1, Rest1).
+
+    aggregate_all(Spec, G, R) :-
+        '$must_be'(aggregate_spec, Spec, aggregate_all/3),
+        '$aggregate_all'(Spec, G, R).
+
+    '$aggregate_all'(count, G, C) :-
+        findall(x, G, L),
+        length(L, C).
+    '$aggregate_all'(sum(E), G, S) :-
+        findall(E, G, L),
+        sum_list(L, S).
+    '$aggregate_all'(max(E), G, M) :-
+        findall(E, G, L),
+        max_list(L, M).
+    '$aggregate_all'(min(E), G, M) :-
+        findall(E, G, L),
+        min_list(L, M).
+    '$aggregate_all'(bag(E), G, L) :-
+        findall(E, G, L).
+    '$aggregate_all'(set(E), G, S) :-
+        findall(E, G, L),
+        sort(L, S).
+
+    % -- The database ---------------------------------------------------------------------------
+
+    retract(Clause) :-
+        '$clause_parts'(Clause, H, B),
+        '$retract'(H, B, Ref),
+        '$erase'(Ref).
+
+    retractall(H) :-
+        '$retractall'(H),
+        (   '$retract'(H, _, Ref),
+            '$erase'(Ref),
+            fail
+        ;   true
+        ).
+
+    '$clause_parts'(C, H, B) :-
+        nonvar(C),
+        C = (H0 :- B0),
+        !,
+        H = H0,
+        B = B0.
+    '$clause_parts'(H, H, true).
+
+    current_predicate(PI) :-
+        '$must_be'(pi_pattern, PI, current_predicate/1),
+        '$user_predicates'(L),
+        member(PI, L).
+
+    % -- Lists ----------------------------------------------------------------------------------
+
+    append([], L, L).
+    append([H|T], L, [H|R]) :-
+        append(T, L, R).
+
+    append(Lists, List) :-
+        '$must_be'(list, Lists, append/2),
+        '$append_all'(Lists, List).
+
+    '$append_all'([], []).
+    '$append_all'([L|Ls], As) :-
+        append(L, Ws, As),
+        '$append_all'(Ls, Ws).
+
+    % The list is the first argument of the helper, so the index leaves no choice point at the
+    % last element.
+    member(X, [H|T]) :-
+        '$member'(T, X, H).
+
+    '$member'(_, X, X).
+    '$member'([H|T], X, _) :-
+        '$member'(T, X, H).
+
+    memberchk(X, L) :-
+        member(X, L),
+        !.
+
+    reverse(L, R) :-
+        '$reverse'(L, [], R).
+
+    '$reverse'([], R, R).
+    '$reverse'([H|T], Acc, R) :-
+        '$reverse'(T, [H|Acc], R).
+
+    nth0(I, L, E) :-
+        '$nth'(I, L, E, 0, nth0/3).
+
+    nth1(I, L, E) :-
+        '$nth'(I, L, E, 1, nth1/3).
+
+    '$nth'(I, L, E, Base, Who) :-
+        (   var(I)
+        ->  '$nth_each'(L, E, Base, I)
+        ;   '$must_be'(integer, I, Who),
+            I >= Base,
+            K is I - Base,
+            '$nth_at'(K, L, E)
+        ).
+
+    '$nth_at'(K, [H|T], E) :-
+        (   K =:= 0
+        ->  E = H
+        ;   K1 is K - 1,
+            '$nth_at'(K1, T, E)
+        ).
+
+    '$nth_each'([H|T], E, I0, I) :-
+        '$nth_each'(T, H, E, I0, I).
+
+    '$nth_each'(_, H, H, I, I).
+    '$nth_each'([H|T], _, E, I0, I) :-
+        I1 is I0 + 1,
+        '$nth_each'(T, H, E, I1, I).
+
+    last([X|Xs], Last) :-
+        '$last'(Xs, X, Last).
+
+    '$last'([], Last, Last).
+    '$last'([X|Xs], _, Last) :-
+        '$last'(Xs, X, Last).
+
+    select(X, [X|T], T).
+    select(X, [H|T], [H|R]) :-
+        select(X, T, R).
+
+    selectchk(X, L, R) :-
+        select(X, L, R),
+        !.
+
+    include(P, L, R) :-
+        '$include'(L, P, R).
+
+    '$include'([], _, []).
+    '$include'([X|Xs], P, R) :-
+        (   call(P, X)
+        ->  R = [X|R1]
+        ;   R = R1
+        ),
+        '$include'(Xs, P, R1).
+
+    exclude(P, L, R) :-
+        '$exclude'(L, P, R).
+
+    '$exclude'([], _, []).
+    '$exclude'([X|Xs], P, R) :-
+        (   call(P, X)
+        ->  R = R1
+        ;   R = [X|R1]
+        ),
+        '$exclude'(Xs, P, R1).
+
+    partition(P, L, I, E) :-
+        '$partition'(L, P, I, E).
+
+    '$partition'([], _, [], []).
+    '$partition'([X|Xs], P, I, E) :-
+        (   call(P, X)
+        ->  I = [X|I1],
+            E = E1
+        ;   I = I1,
+            E = [X|E1]
+        ),
+        '$partition'(Xs, P, I1, E1).
+
+    maplist(G, L) :-
+        '$maplist'(L, G).
+
+    '$maplist'([], _).
+    '$maplist'([X|Xs], G) :-
+        call(G, X),
+        '$maplist'(Xs, G).
+
+    maplist(G, L1, L2) :-
+        '$maplist'(L1, L2, G).
+
+    '$maplist'([], [], _).
+    '$maplist'([X|Xs], [Y|Ys], G) :-
+        call(G, X, Y),
+        '$maplist'(Xs, Ys, G).
+
+    maplist(G, L1, L2, L3) :-
+        '$maplist'(L1, L2, L3, G).
+
+    '$maplist'([], [], [], _).
+    '$maplist'([X|Xs], [Y|Ys], [Z|Zs], G) :-
+        call(G, X, Y, Z),
+        '$maplist'(Xs, Ys, Zs, G).
+
+    maplist(G, L1, L2, L3, L4) :-
+        '$maplist'(L1, L2, L3, L4, G).
+
+    '$maplist'([], [], [], [], _).
+    '$maplist'([X|Xs], [Y|Ys], [Z|Zs], [W|Ws], G) :-
+        call(G, X, Y, Z, W),
+        '$maplist'(Xs, Ys, Zs, Ws, G).
+
+    foldl(G, L, V0, V) :-
+        '$foldl'(L, G, V0, V).
+
+    '$foldl'([], _, V, V).
+    '$foldl'([X|Xs], G, V0, V) :-
+        call(G, X, V0, V1),
+        '$foldl'(Xs, G, V1, V).
+
+    foldl(G, L1, L2, V0, V) :-
+        '$foldl'(L1, L2, G, V0, V).
+
+    '$foldl'([], [], _, V, V).
+    '$foldl'([X|Xs], [Y|Ys], G, V0, V) :-
+        call(G, X, Y, V0, V1),
+        '$foldl'(Xs, Ys, G, V1, V).
+
+    foldl(G, L1, L2, L3, V0, V) :-
+        '$foldl'(L1, L2, L3, G, V0, V).
+
+    '$foldl'([], [], [], _, V, V).
+    '$foldl'([X|Xs], [Y|Ys], [Z|Zs], G, V0, V) :-
+        call(G, X, Y, Z, V0, V1),
+        '$foldl'(Xs, Ys, Zs, G, V1, V).
+
+    sum_list(L, S) :-
+        '$sum_list'(L, 0, S).
+
+    '$sum_list'([], S, S).
+    '$sum_list'([X|Xs], S0, S) :-
+        S1 is S0 + X,
+        '$sum_list'(Xs, S1, S).
+
+    sumlist(L, S) :-
+        sum_list(L, S).
+
+    max_list([X|Xs], M) :-
+        '$max_list'(Xs, X, M).
+
+    '$max_list'([], M0, M) :-
+        M is M0.
+    '$max_list'([X|Xs], M0, M) :-
+        M1 is max(M0, X),
+        '$max_list'(Xs, M1, M).
+
+    min_list([X|Xs], M) :-
+        '$min_list'(Xs, X, M).
+
+    '$min_list'([], M0, M) :-
+        M is M0.
+    '$min_list'([X|Xs], M0, M) :-
+        M1 is min(M0, X),
+        '$min_list'(Xs, M1, M).
+
+    numlist(Low, High, L) :-
+        '$must_be'(integer, Low, numlist/3),
+        '$must_be'(integer, High, numlist/3),
+        Low =< High,
+        '$numlist'(Low, High, L).
+
+    '$numlist'(Low, High, [Low|T]) :-
+        (   Low =:= High
+        ->  T = []
+        ;   Next is Low + 1,
+            '$numlist'(Next, High, T)
+        ).
+
+    % delete/3 drops every element that unifies with Elem, binding nothing.
+    delete([], _, []).
+    delete([X|Xs], Elem, R) :-
+        (   X \= Elem
+        ->  R = [X|R1]
+        ;   R = R1
+        ),
+        delete(Xs, Elem, R1).
+
+    subtract([], _, []).
+    subtract([X|Xs], L, R) :-
+        (   memberchk(X, L)
+        ->  R = R1
+        ;   R = [X|R1]
+        ),
+        subtract(Xs, L, R1).
+
+    intersection([], _, []).
+    intersection([X|Xs], L, R) :-
+        (   memberchk(X, L)
+        ->  R = [X|R1]
+        ;   R = R1
+        ),
+        intersection(Xs, L, R1).
+
+    union([], L, L).
+    union([X|Xs], L, R) :-
+        (   memberchk(X, L)
+        ->  R = R1
+        ;   R = [X|R1]
+        ),
+        union(Xs, L, R1).
+
+    % list_to_set/2 keeps the first of each run of identical (==) elements, in order.
+    list_to_set(L, S) :-
+        '$must_be'(list, L, list_to_set/2),
+        '$list_to_set'(L, [], S).
+
+    '$list_to_set'([], _, []).
+    '$list_to_set'([X|Xs], Seen, S) :-
+        (   '$memberchk_eq'(X, Seen)
+        ->  S = S1
+        ;   S = [X|S1]
+        ),
+        '$list_to_set'(Xs, [X|Seen], S1).
+
+    % With only the second list proper, the first is made as long first, so the search ends.
+    permutation(Xs, Ys) :-
+        (   is_list(Xs)
+        ->  true
+        ;   is_list(Ys)
+        ->  length(Ys, N),
+            length(Xs, N)
+        ;   true
+        ),
+        '$permutation'(Xs, Ys).
+
+    '$permutation'([], []).
+    '$permutation'(L, [X|Xs]) :-
+        select(X, L, Rest),
+        '$permutation'(Rest, Xs).
+
+    flatten(L, Flat) :-
+        '$flatten'(L, [], Flat0),
+        !,
+        Flat = Flat0.
+
+    '$flatten'(X, Tail, [X|Tail]) :-
+        var(X),
+        !.
+    '$flatten'([], Tail, Tail) :-
+        !.
+    '$flatten'([H|T], Tail, Flat) :-
+        !,
+        '$flatten'(H, Rest, Flat),
+        '$flatten'(T, Tail, Rest).
+    '$flatten'(X, Tail, [X|Tail]).
+
+    % sort/4 sorts on argument Key of each element (0: the whole element). @=< and @>= keep
+    % elements with equal keys, in their order; @< and @> keep only the first of them.
+    sort(Key, Order, L, Sorted) :-
+        '$must_be'(nonneg, Key, sort/4),
+        '$must_be'(order, Order, sort/4),
+        '$must_be'(list, L, sort/4),
+        '$keyed'(L, Key, Pairs),
+        '$sort_pairs'(Order, Pairs, SortedPairs),
+        '$pair_values'(SortedPairs, Sorted0),
+        Sorted = Sorted0.
+
+    '$keyed'([], _, []).
+    '$keyed'([X|Xs], Key, [K-X|Ps]) :-
+        (   Key =:= 0
+        ->  K = X
+        ;   arg(Key, X, K)
+        ),
+        '$keyed'(Xs, Key, Ps).
+
+    '$sort_pairs'(@=<, Ps, S) :-
+        keysort(Ps, S).
+    '$sort_pairs'(@<, Ps, S) :-
+        keysort(Ps, S0),
+        '$first_of_keys'(S0, S).
+    '$sort_pairs'(@>=, Ps, S) :-
+        reverse(Ps, R),
+        keysort(R, S0),
+        reverse(S0, S).
+    '$sort_pairs'(@>, Ps, S) :-
+        keysort(Ps, S0),
+        '$first_of_keys'(S0, S1),
+        reverse(S1, S).
+
+    '$first_of_keys'([], []).
+    '$first_of_keys'([K-X|Ps], [K-X|Rs]) :-
+        '$drop_key'(Ps, K, Rest),
+        '$first_of_keys'(Rest, Rs).
+
+    '$drop_key'([K1-_|Ps], K, Rest) :-
+        K1 == K,
+        !,
+        '$drop_key'(Ps, K, Rest).
+    '$drop_key'(Ps, _, Ps).
+
+    '$pair_values'([], []).
+    '$pair_values'([_-V|Ps], [V|Vs]) :-
+        '$pair_values'(Ps, Vs).
+
+    % predsort/3: a merge sort ordering by call(P, O, A, B), O one of <, > and =; of two elements
+    % P calls equal, only the first is kept.
+    predsort(P, L, Sorted) :-
+        length(L, N),
+        '$predsort'(N, P, L, _, S),
+        !,
+        Sorted = S.
+
+    '$predsort'(0, _, L, L, []) :-
+        !.
+    '$predsort'(1, _, [X|L], L, [X]) :-
+        !.
+    '$predsort'(N, P, L0, L, S) :-
+        A is N // 2,
+        B is N - A,
+        '$predsort'(A, P, L0, L1, S1),
+        '$predsort'(B, P, L1, L, S2),
+        '$predmerge'(S1, S2, P, S).
+
+    '$predmerge'([], S, _, S) :-
+        !.
+    '$predmerge'(S, [], _, S) :-
+        !.
+    '$predmerge'([X|Xs], [Y|Ys], P, S) :-
+        call(P, O, X, Y),
+        '$predmerge'(O, X, Xs, Y, Ys, P, S).
+
+    '$predmerge'(<, X, Xs, Y, Ys, P, [X|S]) :-
+        '$predmerge'(Xs, [Y|Ys], P, S).
+    '$predmerge'(=, X, Xs, _, Ys, P, [X|S]) :-
+        '$predmerge'(Xs, Ys, P, S).
+    '$predmerge'(>, X, Xs, Y, Ys, P, [Y|S]) :-
+        '$predmerge'([X|Xs], Ys, P, S).
+    """

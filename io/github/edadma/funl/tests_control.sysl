@@ -1,6 +1,8 @@
 module io.github.edadma.funl
 @tests
 
+import sysl.text.Search
+
 // Marks, choice points, the trail, and returns that leave choice points behind.
 
 // `X` is made, then a choice point; inside a bounded expression `X ~ #a`, which `Unmark` commits.
@@ -167,13 +169,20 @@ A_RETURN_FROM_THE_TOP_LEVEL_IS_A_FAULT()
 private call_nowhere() -> Result[usize, string]
     var e = emit("main")
 
-    e.op(Call(7, 0))
+    e.op(Call(4000000000, 0))
     e.op(Halt)
     finish(e)
 
+// How many chunks there are depends on the Prolog library every VM is made with.
 @test
 A_CALL_TO_A_CHUNK_THAT_DOES_NOT_EXIST_IS_A_FAULT()
-    assert_eq(ran(call_nowhere), "fault: main@0: a call names chunk 7, and there are 1")
+    val said = ran(call_nowhere)
+
+    val at = said.index_of("fault: main@0: a call names chunk 4000000000, and there are ") match
+        Some(i) -> i
+        None -> said.bytes.len
+
+    assert_eq(at, 0, said)
 
 private pop_nothing() -> Result[usize, string]
     var e = emit("main")

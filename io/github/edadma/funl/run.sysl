@@ -491,6 +491,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             consult(v)?
             Ok(Next)
         NoProcedure -> Err(no_procedure(v.chunks.at(v.code).name))
+        TryDynamic(p) -> Ok(fails_if(try_dynamic(v, p)?))
         PushCatch(to) ->
             push_catch(v, to)
             Ok(Next)

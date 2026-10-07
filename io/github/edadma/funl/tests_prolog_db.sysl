@@ -1,0 +1,263 @@
+module io.github.edadma.funl
+@tests
+
+// The clause database: `assert/1`, `asserta/1`, `assertz/1`, `retract/1`, `retractall/1`,
+// `abolish/1`, `clause/2`, `dynamic/1` and `current_predicate/1`, the logical update view each call
+// has, and the ISO errors.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Whether `goal` succeeds, fails, or the formal term of the error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(F, _), writeq(F)), nl.\n")
+
+// `defs` loaded, then every solution `X` of `goal` written, one a line.
+private every(defs: string, goal: string) -> string =
+    ran_prolog(defs + s":- forall($goal, (writeq(X), nl)).\n")
+
+@test
+ASSERTZ_ADDS_A_CLAUSE_LAST_AND_ASSERTA_FIRST()
+    val goal = "(assertz(p(b)), assertz(p(c)), asserta(p(a)), assert(p(d)), p(X))"
+
+    assert_eq(every("", goal), ok("a\nb\nc\nd"))
+
+@test
+AN_ASSERTED_RULE_RUNS_AS_A_CLAUSE_DOES()
+    val defs = ":- assertz((len([], 0))), assertz((len([_|T], N) :- len(T, M), N is M + 1)).\n"
+
+    assert_eq(ran_prolog(defs + ":- len([a, b, c], N), write(N), nl.\n"), ok("3"))
+
+@test
+A_CUT_IN_AN_ASSERTED_CLAUSE_CUTS_THE_CLAUSES_AFTER_IT()
+    val defs = ":- assertz((q(X) :- X = 1, !)), assertz(q(2)).\n"
+
+    assert_eq(every(defs, "q(X)"), ok("1"))
+    assert_eq(every(":- assertz((q(X) :- member(X, [1, 2, 3]), X > 1, !)), assertz(q(9)).\n", "q(X)"), ok("2"))
+
+@test
+A_DYNAMIC_DECLARATION_MAKES_A_FILES_OWN_CLAUSES_CHANGEABLE()
+    val defs = ":- dynamic counter/1.\ncounter(0).\n" +
+        "bump :- retract(counter(N)), M is N + 1, assertz(counter(M)).\n"
+
+    assert_eq(ran_prolog(defs + ":- bump, bump, counter(X), write(X), nl.\n"), ok("2"))
+
+@test
+A_DECLARED_PREDICATE_WITH_NO_CLAUSES_FAILS_RATHER_THAN_RAISING()
+    assert_eq(holds("(dynamic(none/1), none(_))"), ok("no"))
+    assert_eq(ran_prolog(":- dynamic (a/1, b/2), [c/0].\n:- (a(_) ; b(_, _) ; c) -> write(yes) ; write(no).\n"), "no\nsucceeded")
+
+@test
+DYNAMIC_REFUSES_A_STATIC_PREDICATE()
+    val fixed = "s(1).\n"
+
+    assert_eq(ran_prolog(fixed + ":- catch(dynamic(s/1), error(F, _), (writeq(F), nl)).\n"),
+        ok("permission_error(modify,static_procedure,s/1)"))
+    assert_eq(holds("dynamic(atom/1)"), ok("permission_error(modify,static_procedure,atom/1)"))
+    assert_eq(holds("dynamic(_)"), ok("instantiation_error"))
+    assert_eq(holds("dynamic(foo)"), ok("type_error(predicate_indicator,foo)"))
+    assert_eq(holds("dynamic(foo/bar)"), ok("type_error(integer,bar)"))
+
+@test
+A_CALL_DOES_NOT_SEE_A_CLAUSE_ASSERTED_WHILE_IT_RUNS()
+    val defs = ":- dynamic q/1.\nq(1).\nq(2).\n"
+
+    assert_eq(every(defs, "(q(X), assertz(q(9)))"), ok("1\n2"))
+    assert_eq(every(defs, "(q(X), asserta(q(0)))"), ok("1\n2"))
+
+    // ...but the next call does.
+    assert_eq(every(defs + ":- forall(q(_), assertz(q(9))).\n", "q(X)"), ok("1\n2\n9\n9"))
+
+@test
+A_CALL_STILL_SEES_A_CLAUSE_RETRACTED_WHILE_IT_RUNS()
+    val defs = ":- dynamic q/1.\nq(1).\nq(2).\nq(3).\n"
+
+    assert_eq(every(defs, "(q(X), (X == 1 -> retract(q(2)) ; true) ; q(X))"), ok("1\n2\n3\n1\n3"))
+    assert_eq(every(defs, "(q(X), retractall(q(_)))"), ok("1\n2\n3"))
+
+@test
+A_RUNNING_CALL_SURVIVES_ITS_PREDICATE_BEING_EMPTIED_AND_REFILLED()
+    val defs = ":- dynamic q/1.\nq(1).\nq(2).\n"
+    val goal = "(q(X), retractall(q(_)), assertz(q(5)))"
+
+    assert_eq(every(defs, goal), ok("1\n2"))
+    assert_eq(every(defs + s":- forall($goal, true).\n", "q(X)"), ok("5"))
+
+@test
+RETRACT_REMOVES_THE_FIRST_CLAUSE_THAT_UNIFIES_AND_THE_REST_ON_BACKTRACKING()
+    val defs = ":- dynamic q/2.\nq(1, a).\nq(2, b).\nq(3, a).\n"
+
+    assert_eq(every(defs + ":- retract(q(N, b)), write(N), nl.\n", "q(X, _)"), ok("2\n1\n3"))
+    assert_eq(every(defs + ":- forall(retract(q(N, a)), (write(N), nl)).\n", "q(X, _)"), ok("1\n3\n2"))
+
+@test
+RETRACT_MATCHES_A_RULE_BY_ITS_BODY()
+    val defs = ":- dynamic r/1.\nr(1) :- true.\nr(2) :- fail.\nr(3).\n"
+
+    assert_eq(every(defs + ":- retract((r(X) :- fail)), write(X), nl.\n", "r(X)"), ok("2\n1\n3"))
+    assert_eq(every(defs + ":- retract((r(X) :- B)), write(X-B), nl.\n", "clause(r(X), _)"), ok("1-true\n2\n3"))
+
+    // A fact is `Head :- true`, so `retract(Head)` takes no rule with another body.
+    assert_eq(every(defs + ":- forall(retract(r(_)), true).\n", "clause(r(X), _)"), ok("2"))
+
+@test
+RETRACT_ITERATES_OVER_THE_CLAUSES_THAT_STOOD_WHEN_IT_BEGAN()
+    // Each retracted clause is asserted again; the retract sees none of the new ones, so it ends.
+    val defs = ":- dynamic q/1.\nq(1).\nq(2).\n:- forall(retract(q(X)), (Y is X * 10, assertz(q(Y)))).\n"
+
+    assert_eq(every(defs, "q(X)"), ok("10\n20"))
+
+@test
+RETRACT_OF_A_CLAUSE_ALREADY_GONE_MOVES_ON()
+    val defs = ":- dynamic q/1.\nq(1).\nq(2).\nq(3).\n"
+
+    // The inner retract takes 2 before the outer one reaches it; the outer one goes on to 3.
+    assert_eq(every(defs + ":- forall((retract(q(X)), (X == 1 -> retract(q(2)) ; true)), (write(X), nl)).\n", "q(X)"), ok("1\n3"))
+
+@test
+RETRACTALL_EMPTIES_WHAT_MATCHES_AND_MAKES_AN_UNKNOWN_PREDICATE_DYNAMIC()
+    val defs = ":- dynamic q/2.\nq(1, a).\nq(2, b).\nq(3, a).\n"
+
+    assert_eq(every(defs + ":- retractall(q(_, a)).\n", "q(X, _)"), ok("2"))
+    assert_eq(holds("(retractall(fresh(_)), \\+ fresh(_))"), ok("yes"))
+    assert_eq(holds("(retractall(fresh(_)), current_predicate(fresh/1))"), ok("yes"))
+
+@test
+ABOLISH_REMOVES_A_DYNAMIC_PREDICATE_ENTIRELY()
+    val defs = ":- dynamic q/1.\nq(1).\n"
+
+    assert_eq(ran_prolog(defs + ":- abolish(q/1), catch(q(_), error(F, _), (writeq(F), nl)).\n"),
+        ok("existence_error(procedure,q/1)"))
+    assert_eq(ran_prolog(defs + ":- abolish(q/1), \\+ current_predicate(q/1), assertz(q(7)), q(X), write(X), nl.\n"), ok("7"))
+    assert_eq(holds("abolish(never/3)"), ok("yes"))
+
+@test
+CLAUSE_GIVES_EACH_CLAUSE_HEAD_AND_BODY_AS_A_COPY()
+    val defs = ":- dynamic r/2.\nr(X, Y) :- X > 0, Y is X * 2.\nr(0, zero).\n"
+
+    assert_eq(every(defs, "(clause(r(A, B), Body), (Body == (A > 0, B is A * 2) -> X = rule ; X = A-B-Body))"), ok("rule\n0-zero-true"))
+
+    // The copy is fresh each time: binding it does not change the clause.
+    assert_eq(ran_prolog(defs + ":- clause(r(A, _), _), A = 5, clause(r(B, _), _), var(B), write(fresh), nl.\n"), ok("fresh"))
+
+@test
+CLAUSE_STORES_A_VARIABLE_GOAL_AS_CALL()
+    assert_eq(holds("(assertz((r(X) :- X)), clause(r(Y), B), B == call(Y))"), ok("yes"))
+    assert_eq(holds("(assertz((r2(X) :- (true, X))), clause(r2(Y), B), B == (true, call(Y)))"), ok("yes"))
+
+@test
+CURRENT_PREDICATE_NAMES_WHAT_THE_PROGRAM_DEFINES()
+    val defs = "s(1).\nt(1, 2).\n:- dynamic d/0.\n"
+
+    assert_eq(every(defs, "current_predicate(X)"), ok("d/0\ns/1\nt/2"))
+    assert_eq(every(defs, "current_predicate(t/X)"), ok("2"))
+    assert_eq(holds("current_predicate(append/3)"), ok("no"))
+    assert_eq(holds("current_predicate(atom/1)"), ok("no"))
+    assert_eq(holds("current_predicate(4)"), ok("type_error(predicate_indicator,4)"))
+    assert_eq(holds("current_predicate(f/a)"), ok("type_error(predicate_indicator,f/a)"))
+
+@test
+THE_DATABASE_RAISES_THE_ISO_ERRORS()
+    assert_eq(holds("assertz(_)"), ok("instantiation_error"))
+    assert_eq(holds("assertz((_ :- true))"), ok("instantiation_error"))
+    assert_eq(holds("assertz(4)"), ok("type_error(callable,4)"))
+    assert_eq(holds("assertz((foo :- 4))"), ok("type_error(callable,4)"))
+    assert_eq(holds("assertz((foo :- (true, 4)))"), ok("type_error(callable,(true,4))"))
+    assert_eq(holds("asserta((atom(_) :- true))"), ok("permission_error(modify,static_procedure,atom/1)"))
+    assert_eq(holds("catch(assertz((a, b)), error(permission_error(modify, static_procedure, ','/2), _), true)"), ok("yes"))
+    assert_eq(holds("assertz(append(a, b, c))"), ok("permission_error(modify,static_procedure,append/3)"))
+    assert_eq(holds("retract(_)"), ok("instantiation_error"))
+    assert_eq(holds("retract(4)"), ok("type_error(callable,4)"))
+    assert_eq(holds("retract(atom(_))"), ok("permission_error(modify,static_procedure,atom/1)"))
+    assert_eq(holds("retract(nothing(_))"), ok("no"))
+    assert_eq(holds("retractall(_)"), ok("instantiation_error"))
+    assert_eq(holds("retractall(4)"), ok("type_error(callable,4)"))
+    assert_eq(holds("retractall(atom(_))"), ok("permission_error(modify,static_procedure,atom/1)"))
+    assert_eq(holds("clause(_, B)"), ok("instantiation_error"))
+    assert_eq(holds("clause(4, B)"), ok("type_error(callable,4)"))
+    assert_eq(holds("(assertz(f(1)), clause(f(_), 5))"), ok("type_error(callable,5)"))
+    assert_eq(holds("clause(atom(_), B)"), ok("permission_error(access,private_procedure,atom/1)"))
+    assert_eq(holds("clause(nothing, B)"), ok("no"))
+    assert_eq(holds("abolish(_)"), ok("instantiation_error"))
+    assert_eq(holds("abolish(foo)"), ok("type_error(predicate_indicator,foo)"))
+    assert_eq(holds("abolish(foo/_)"), ok("instantiation_error"))
+    assert_eq(holds("abolish(foo/a)"), ok("type_error(integer,a)"))
+    assert_eq(holds("abolish(1/1)"), ok("type_error(atom,1)"))
+    assert_eq(holds("abolish(foo/(-1))"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("abolish(abolish/1)"), ok("permission_error(modify,static_procedure,abolish/1)"))
+
+@test
+A_STATIC_PREDICATE_OF_THE_PROGRAM_IS_NOT_CHANGED()
+    val defs = "s(1).\n"
+    val goal = ":- catch(assertz(s(2)), error(F, _), (writeq(F), nl)), catch(retract(s(1)), error(G, _), (writeq(G), nl)), " +
+        "catch(clause(s(_), _), error(H, _), (writeq(H), nl)), catch(abolish(s/1), error(I, _), (writeq(I), nl)), forall(s(X), (write(X), nl)).\n"
+
+    assert_eq(ran_prolog(defs + goal), ok("permission_error(modify,static_procedure,s/1)\npermission_error(modify,static_procedure,s/1)\n" +
+        "permission_error(access,private_procedure,s/1)\npermission_error(modify,static_procedure,s/1)\n1"))
+
+@test
+A_DYNAMIC_FACT_LOOKUP_LEAVES_NO_CHOICE_POINT()
+    val program = ":- dynamic f/2.\nf(0, zero).\nf(1, one).\nf(2, two).\n" +
+        "walk(0) :- !.\nwalk(N) :- K is N mod 3, f(K, _), M is N - 1, walk(M).\n:- walk(2000).\n"
+    val said = roomy(() -> prolog_text(program))
+
+    assert_eq(said.text, "succeeded")
+    assert(said.control_peak < 20, s"the control stack reached ${said.control_peak} entries")
+
+@test
+A_LONG_RUN_OF_RETRACTS_AND_ASSERTS_REUSES_ITS_SLOTS_AND_CHUNKS()
+    val program = ":- dynamic counter/1.\ncounter(0).\n" +
+        "count(0) :- !.\ncount(N) :- retract(counter(C)), D is C + 1, assertz(counter(D)), M is N - 1, count(M).\n"
+    val short = roomy(() -> prolog_text(program + ":- count(10), counter(X), write(X), nl.\n"))
+    val long = roomy(() -> prolog_text(program + ":- count(3000), counter(X), write(X), nl.\n"))
+
+    assert_eq(short.text, ok("10"))
+    assert_eq(long.text, ok("3000"))
+    assert(long.chunks < short.chunks + 100, s"3000 asserts left ${long.chunks} chunks, and 10 left ${short.chunks}")
+
+@test
+A_SWEEP_KEEPS_EVERY_CLAUSE_A_RUNNING_CALL_CAN_STILL_SEE()
+    // Retracting 49 clauses sweeps the database; the call that began before them, and `clause/2`'s
+    // walk, still see all fifty.
+    val defs = ":- dynamic q/1.\n:- forall(between(1, 50, K), assertz(q(K))).\n"
+    val purge = "(X =:= 1 -> forall(between(2, 50, K), retract(q(K))) ; true)"
+
+    assert_eq(ran_prolog(defs + s":- findall(X, (q(X), $purge), L), length(L, N), write(N), nl, findall(Y, q(Y), M), write(M), nl.\n"),
+        ok("50\n[1]"))
+    assert_eq(ran_prolog(defs + s":- findall(X, (clause(q(X), true), $purge), L), length(L, N), write(N), nl.\n"), ok("50"))
+    assert_eq(ran_prolog(defs + s":- findall(X, (retract(q(X)), $purge), L), length(L, N), write(N), nl.\n"), ok("1"))
+
+@test
+A_CLAUSE_RETRACTED_WHILE_IT_RUNS_FINISHES_THROUGH_A_SWEEP()
+    // `p` retracts itself, and enough churn follows to sweep it and hand out spare chunks; the body
+    // still running is not one of them.
+    val program = ":- dynamic p/0, junk/1.\n" +
+        ":- assertz((p :- retract((p :- _)), churn, churn, write(still), nl, \\+ p, write(gone), nl)).\n" +
+        "churn :- forall(between(1, 40, K), assertz(junk(K))), retractall(junk(_)).\n:- p.\n"
+
+    assert_eq(ran_prolog(program), ok("still\ngone"))
+
+@test
+ASSERTED_TERMS_SURVIVE_EVERY_COLLECTION()
+    // Compound arguments, strings and lists, asserted in a loop and read back, on a heap collected
+    // before every instruction (`ran` compares the two runs).
+    val program = "fill(0) :- !.\nfill(N) :- atom_length(abc, L), assertz(item(N, f(\"s\", [N, L]), _)), M is N - 1, fill(M).\n" +
+        ":- fill(30), findall(K-T, item(K, T, _), L), length(L, Len), write(Len), nl, L = [First|_], writeq(First), nl.\n"
+
+    assert_eq(ran_prolog(program), ok("30\n30-f(\"s\",[30,3])"))
+
+@test
+A_PROGRAMS_OWN_DEFINITION_REPLACES_THE_LIBRARYS()
+    val defs = "member(mine, _).\n"
+
+    assert_eq(every(defs, "member(X, [a, b])"), ok("mine"))
+    assert_eq(holds("(dynamic(last/2), assertz(last(_, me)), last([a], X), X == me)"), ok("yes"))
+
+@test
+VARIANT_IS_ALIKE_BUT_FOR_A_RENAMING()
+    assert_eq(holds("f(A, B, A) =@= f(X, Y, X)"), ok("yes"))
+    assert_eq(holds("f(A, B, A) =@= f(X, Y, Y)"), ok("no"))
+    assert_eq(holds("f(A, A) =@= f(X, Y)"), ok("no"))
+    assert_eq(holds("f(A, b) =@= f(_, b)"), ok("yes"))
+    assert_eq(holds("f(A) =@= f(a)"), ok("no"))
+    assert_eq(holds("[1, X] \\=@= [1, Y]"), ok("no"))
+    assert_eq(holds("g(X, Y) \\=@= g(Y, X)"), ok("no"))

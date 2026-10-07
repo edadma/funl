@@ -160,6 +160,14 @@ private clause_code(e: *Emit, c: ReadClause) -> Result[unit, PlError]
     Ok(())
 end clause_code
 
+// One clause as a chunk of its own: what a dynamic predicate's `TryDynamic` enters, in the frame the
+// call made, with the call's arguments.
+compile_clause(name: string, c: ReadClause) -> Result[Emit, PlError]
+    var e = emit(name)
+
+    clause_code(&e, c)?
+    Ok(e)
+
 // A goal with no head -- a directive, or what `call/N` was handed -- as a chunk run in a frame of its
 // own: `Frame(n)`, the body in tail position.
 compile_query(name: string, c: ReadClause) -> Result[Emit, PlError]
@@ -262,6 +270,8 @@ is_inline(name: string, arity: usize) -> bool
     if arity == 2
         return name == "," || name == ";" || name == "->" || name == "*->" || name == "=" ||
             name == "\\=" || name == "forall"
+
+    if arity == 3 then return name == "$findall"
 
     false
 
@@ -390,9 +400,33 @@ private control(e: *Emit, cx: *ClauseCtx, t: &Term, name: string, args: Buf[&Ter
         build(e, cx, args.at(0))?
         e.op(Consult)
         settle(e, tail)
+    elif name == "$findall"
+        all_found(e, cx, args, tail)?
 
     Ok(())
 end control
+
+// `'$findall'(T, G, L)`, what the library's `findall/3` is written over: run `G` to exhaustion inside
+// a mark, a copy of `T` collected at each solution into the operand cell below it (`copy.sysl`), and
+// unify the list with `L`. A cut in `G` is local to it.
+//
+//     PushNil; Mark(done); G; Pop; T; CollectCopy; Fail; done: Gathered(AllFound); L; Unify
+private all_found(e: *Emit, cx: *ClauseCtx, args: Buf[&Term], tail: bool) -> Result[unit, PlError]
+    val done = e.label()
+
+    e.op(PushNil)
+    e.op(Mark(done))
+    goal(e, cx, args.at(1), false, local_cut(e, cx, args.at(1)))?
+    e.op(Pop)
+    build(e, cx, args.at(0))?
+    e.op(CollectCopy)
+    e.op(Fail)
+    e.place(done)
+    e.op(Gathered(AllFound))
+    build(e, cx, args.at(2))?
+    e.op(Unify)
+    settle(e, tail)
+    Ok(())
 
 private atom_term(name: string, at: Span) -> &Term = term(TAtom(intern(name)), at)
 

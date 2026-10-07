@@ -1,0 +1,121 @@
+module io.github.edadma.funl
+@tests
+
+// Prolog's all-solutions predicates: `findall/3`, `findall/4`, `bagof/3` and `setof/3` with their
+// free-variable grouping and `^`, and `aggregate_all/3`. The grouping cases are checked against what
+// SWI-Prolog answers.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+private const Facts: string = "p(1, a).\np(2, b).\np(3, a).\nage(peter, 7).\nage(ann, 11).\nage(pat, 8).\nage(tom, 5).\nage(mike, 11).\n"
+
+// Every solution of `goal`, `X` written by `writeq`, one a line; or the formal term of its error.
+private every(goal: string) -> string =
+    ran_prolog(Facts + s":- catch(forall($goal, (writeq(X), nl)), error(F, _), (writeq(F), nl)).\n")
+
+@test
+FINDALL_COLLECTS_EVERY_SOLUTION_IN_ORDER()
+    assert_eq(every("findall(N, p(N, _), X)"), ok("[1,2,3]"))
+    assert_eq(every("findall(N-L, p(N, L), X)"), ok("[1-a,2-b,3-a]"))
+    assert_eq(every("findall(N, fail, X)"), ok("[]"))
+    assert_eq(every("findall(N, p(N, _), [1|X])"), ok("[2,3]"))
+    assert_eq(every("(findall(N, p(N, _), [9|X]) -> true ; X = no)"), ok("no"))
+
+@test
+FINDALL_COPIES_EACH_SOLUTION_AND_BINDS_NOTHING()
+    assert_eq(every("(findall(Y, (Y = f(Z) ; Y = g), L), var(Z), L = [f(W), g], var(W), W \\== Z -> X = copied ; X = no)"), ok("copied"))
+
+@test
+FINDALL_4_APPENDS_TO_A_TAIL()
+    assert_eq(every("findall(N, p(N, _), X, [end])"), ok("[1,2,3,end]"))
+    assert_eq(every("(findall(N, fail, X, T), T = [t])"), ok("[t]"))
+
+@test
+A_CUT_IN_THE_GOAL_OF_FINDALL_IS_LOCAL_TO_IT()
+    assert_eq(every("(findall(N, (p(N, _), !), X) ; X = second)"), ok("[1]\nsecond"))
+
+@test
+FINDALL_RAISES_THE_ISO_ERRORS()
+    assert_eq(every("findall(N, G, X)"), ok("instantiation_error"))
+    assert_eq(every("findall(N, 4, X)"), ok("type_error(callable,4)"))
+    assert_eq(every("findall(N, true, foo)"), ok("type_error(list,foo)"))
+    assert_eq(every("findall(N, true, [a|b])"), ok("type_error(list,[a|b])"))
+    assert_eq(every("catch(findall(N, (N = 1 ; throw(oops)), X), oops, X = caught)"), ok("caught"))
+
+@test
+BAGOF_GROUPS_BY_THE_FREE_VARIABLES_IN_THEIR_STANDARD_ORDER()
+    // SWI-Prolog: L = [1, 3], Y = a ; L = [2], Y = b.
+    assert_eq(every("(bagof(N, p(N, Y), L), X = Y-L)"), ok("a-[1,3]\nb-[2]"))
+    assert_eq(every("(bagof(N, age(N, A), L), X = A-L)"), ok("5-[tom]\n7-[peter]\n8-[pat]\n11-[ann,mike]"))
+
+@test
+CARET_BINDS_A_VARIABLE_SO_IT_DOES_NOT_GROUP()
+    assert_eq(every("bagof(N, Y^p(N, Y), X)"), ok("[1,2,3]"))
+    assert_eq(every("setof(N, A^age(N, A), X)"), ok("[ann,mike,pat,peter,tom]"))
+    assert_eq(every("(bagof(N, Z^Y^(p(N, Y), Z = Y), X))"), ok("[1,2,3]"))
+
+@test
+BAGOF_FAILS_WHERE_FINDALL_GIVES_THE_EMPTY_LIST()
+    assert_eq(every("(bagof(N, fail, X) -> true ; X = none)"), ok("none"))
+    assert_eq(every("(setof(N, p(N, zzz), X) -> true ; X = none)"), ok("none"))
+
+@test
+SETOF_SORTS_EACH_GROUP_AND_DROPS_DUPLICATES()
+    assert_eq(every("setof(Y-N, p(N, Y), X)"), ok("[a-1,a-3,b-2]"))
+    assert_eq(every("(setof(N, p(N, Y), L), X = Y-L)"), ok("a-[1,3]\nb-[2]"))
+    assert_eq(every("setof(Y, N^p(N, Y), X)"), ok("[a,b]"))
+    assert_eq(every("setof(E, member(E, [c, a, b, a]), X)"), ok("[a,b,c]"))
+    assert_eq(every("bagof(E, member(E, [c, a, b, a]), X)"), ok("[c,a,b,a]"))
+
+@test
+WITNESSES_THAT_ARE_VARIANTS_SHARE_A_BAG()
+    // The ISO example: SWI-Prolog answers L = [Y, Z] ; L = [_], Y = 1.
+    val goal = "(bagof(V, (V = Y ; V = Z ; Y = 1), L), (L == [Y, Z] -> X = two ; Y == 1, L = [E], var(E) -> X = one ; X = L))"
+
+    assert_eq(every(goal), ok("two\none"))
+
+    // Unbound witnesses from different solutions are variants, so there is one bag.
+    assert_eq(every("bagof(N, (member(N, [1, 2, 3]), W = f(_)), X)"), ok("[1,2,3]"))
+
+    // ...unless the variables are shared differently: f(A, A, B) and f(C, D, C) are not variants.
+    // SWI-Prolog: L = [1, 3] ; L = [2].
+    assert_eq(every("bagof(N, member(N-W, [1-A, 2-B, 3-A]), X)"), ok("[1,3]\n[2]"))
+
+@test
+BAGOF_BACKTRACKS_INTO_THE_GROUP_A_BOUND_LIST_MATCHES()
+    assert_eq(every("(bagof(N, p(N, Y), [2]), X = Y)"), ok("b"))
+
+@test
+BAGOF_AND_SETOF_RAISE_THE_ISO_ERRORS()
+    assert_eq(every("bagof(N, G, X)"), ok("instantiation_error"))
+    assert_eq(every("bagof(N, Y^G, X)"), ok("instantiation_error"))
+    assert_eq(every("bagof(N, 1, X)"), ok("type_error(callable,1)"))
+    assert_eq(every("setof(N, 1, X)"), ok("type_error(callable,1)"))
+    assert_eq(every("bagof(N, p(N, _), foo)"), ok("type_error(list,foo)"))
+    assert_eq(every("setof(N, p(N, _), [a|b])"), ok("type_error(list,[a|b])"))
+
+@test
+CARET_AS_A_GOAL_CALLS_ITS_RIGHT_SIDE()
+    assert_eq(every("Y^p(X, Y)"), ok("1\n2\n3"))
+
+@test
+AGGREGATE_ALL_COUNTS_SUMS_AND_COLLECTS()
+    assert_eq(every("aggregate_all(count, p(_, _), X)"), ok("3"))
+    assert_eq(every("aggregate_all(count, fail, X)"), ok("0"))
+    assert_eq(every("aggregate_all(sum(N), p(N, _), X)"), ok("6"))
+    assert_eq(every("aggregate_all(sum(N), fail, X)"), ok("0"))
+    assert_eq(every("aggregate_all(max(A), age(_, A), X)"), ok("11"))
+    assert_eq(every("aggregate_all(min(A), age(_, A), X)"), ok("5"))
+    assert_eq(every("(aggregate_all(max(A), fail, X) -> true ; X = none)"), ok("none"))
+    assert_eq(every("aggregate_all(bag(Y), p(_, Y), X)"), ok("[a,b,a]"))
+    assert_eq(every("aggregate_all(set(Y), p(_, Y), X)"), ok("[a,b]"))
+    assert_eq(every("aggregate_all(foo, true, X)"), ok("domain_error(aggregate_spec,foo)"))
+    assert_eq(every("aggregate_all(_, true, X)"), ok("instantiation_error"))
+
+@test
+ALL_SOLUTIONS_HOLD_THEIR_LIST_THROUGH_EVERY_COLLECTION()
+    // `ran` runs each program on a heap collected before every instruction too.
+    val program = ":- findall(N-f(N, \"s\"), between(1, 60, N), L), length(L, Len), last(L, Last), writeq(Len-Last), nl.\n" +
+        ":- setof(K-V, member(K-V, [3-c, 1-a, 2-b, 1-a]), S), writeq(S), nl.\n"
+
+    assert_eq(ran_prolog(program), ok("60-(60-f(60,\"s\"))\n[1-a,2-b,3-c]"))

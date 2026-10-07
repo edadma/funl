@@ -420,6 +420,11 @@ enum Op
     // The body of a predicate that has been called and never defined.
     NoProcedure
 
+    // The body of dynamic predicate `pred` (`pl_db.sysl`), over a cursor on top: pop it; enter, in
+    // the running frame, the next clause the call can see, leaving a choice point that re-runs this
+    // instruction with the cursor after it when another may follow.
+    TryDynamic(pred: usize)
+
     // `catch/3` begins: push a `Catch` entry in the running frame, whose recovery starts at `to`.
     PushCatch(to: usize)
 

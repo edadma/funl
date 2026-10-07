@@ -133,7 +133,7 @@ private holds_key(ks: Buf[Key], k: Key) -> bool
 
     false
 
-private same_key(a: Key, b: Key) -> bool = a match
+same_key(a: Key, b: Key) -> bool = a match
     KAtom(i) -> b match
         KAtom(j) -> i == j
         _ -> false
@@ -151,7 +151,7 @@ private same_key(a: Key, b: Key) -> bool = a match
         _ -> false
 
 // The key of a bound first argument, or `None` for a kind no clause can key.
-private value_key(x: Value) -> Option[Key] = x match
+value_key(x: Value) -> Option[Key] = x match
     Atom(i) -> Some(KAtom(i))
     Int(n) -> Some(KInt(n))
     Compound(c) -> Some(KFunctor(c.functor, c.args.len()))

@@ -29,6 +29,9 @@ struct Said
     // The most entries the control stack held at once.
     control_peak: usize
 
+    // How many chunks the VM held when the run ended.
+    chunks: usize
+
 outcome_text(o: Outcome) -> string = o match
     Succeeded -> "succeeded"
     Failed -> "failed"
@@ -50,7 +53,7 @@ run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, stri
 
     out.push(outcome)
 
-    val said = Said(out.finish(), v.collections, v.trail.len(), v.control_peak)
+    val said = Said(out.finish(), v.collections, v.trail.len(), v.control_peak, v.chunks.len())
 
     dispose_vm(&v)
     leave(was)

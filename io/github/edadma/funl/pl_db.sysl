@@ -1,0 +1,553 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.point
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+
+// The clause database: the dynamic predicates, their clauses, and the generations that give every
+// call the logical update view (`prolog.md` § "Dynamic predicates").
+//
+// **Every change to the database is a generation.** A clause records the generation that added it
+// and, once retracted, the one that removed it; a call records the generation when it starts and
+// sees exactly the clauses alive at it. So a clause asserted while a call is running is not seen by
+// that call, and one retracted is still seen by it -- whatever happens to the clause list meanwhile.
+//
+// **A clause is compiled when it is added**, into a chunk of its own that begins with `Frame(n)`
+// and unifies the head, as every clause of a static predicate does. The predicate's own chunk is
+// two instructions, `PushInt(0); TryDynamic(p)`: the cursor and the walk. `TryDynamic` finds the
+// next clause the call can see, leaves a choice point re-running itself with the cursor past it when
+// another may follow, and enters the clause in the running frame -- so the frame's `cut`, set when
+// the predicate was called, is below that choice point, and a `!` in the clause discards it exactly
+// as it discards a static predicate's other clauses.
+//
+// **A dynamic predicate is not indexed**: a call walks its clauses in order. The walk skips, without
+// entering it, a clause whose first head argument cannot match the call's -- the same test the
+// static index makes -- and so leaves no choice point when no later clause can match, which keeps a
+// lookup in a table of facts deterministic.
+//
+// **A retracted clause stays in its list while a running call may still see it.** Every call that
+// can resume holds its generation in a choice point's saved cell, so the oldest is found by walking
+// the control stack; a sweep unlinks the retracted clauses older than every running call, and reuses
+// their slots. A clause's chunk is reused only once no frame is running it.
+
+// The end of a clause list.
+const NoClause: usize = 4294967295
+
+// A generation and a clause slot, packed into one cursor: `generation * Packing + slot`.
+const Packing: long = 4294967296
+
+// One clause of a dynamic predicate.
+struct DbClause
+    // The predicate it belongs to, an index into `Db.preds`.
+    pred: usize
+
+    // The clause `Head :- Body`, a copy no binding ever reaches; `Undefined` once the slot is free.
+    term: Value
+
+    // What its first head argument is keyed by, as the static index keys it.
+    key: Option[Key]
+
+    chunk: usize
+
+    // The generation that added it, and the one that retracted it, 0 while it stands.
+    born: long
+    died: long
+
+    // The next clause of the predicate, or `NoClause`.
+    next: usize
+
+// A dynamic predicate.
+struct DynPred
+    name: string
+    arity: usize
+    chunk: usize
+
+    // Its clause list, retracted clauses not yet swept included.
+    first: usize
+    last: usize
+
+    // Whether `abolish/1` has removed it: a call that starts now finds no procedure.
+    abolished: bool
+
+struct Db
+    preds: Buf[DynPred]
+    clauses: Buf[DbClause]
+
+    // Slots of `clauses` a sweep has freed.
+    free: Buf[usize]
+
+    // Chunks of swept clauses, which a frame may still be running; and those proven idle, to reuse.
+    retired: Buf[usize]
+    spare: Buf[usize]
+
+    // The generation now: the one the latest change made.
+    gen: long
+
+    // Clauses retracted and still linked, and how many there must be before the next sweep.
+    dead: usize
+    sweep_at: usize
+
+new_db() -> Db = Db(buf(), buf(), buf(), buf(), buf(), 1, 0, 32)
+
+// Whether clause `c` stands at generation `g`.
+private alive_at(c: DbClause, g: long) -> bool = c.born <= g && (c.died == 0 || g < c.died)
+
+// Whether a clause keyed `k` could match a call whose first argument is keyed `arg`.
+private may_match(k: Option[Key], arg: Option[Key]) -> bool = k match
+    Some(a) -> arg match
+        Some(b) -> same_key(a, b)
+        None -> true
+    None -> true
+
+// The key of a call's first argument, `None` when it is unbound or of a kind no clause keys.
+first_key(args: Buf[Value]) -> Option[Key]
+    if args.len() == 0 then return None
+
+    value_key(deref(args.at(0)))
+
+// The first clause from `at` on, along its list, that stands at `g` and may match `arg`.
+next_visible(at: usize, g: long, arg: Option[Key]) -> usize
+    val db = current().db
+    var i = at
+
+    while i != NoClause
+        val c = db.clauses.at(i)
+
+        if alive_at(c, g) && may_match(c.key, arg) then return i
+
+        i = c.next
+
+    NoClause
+
+// The cursor naming generation `g` and slot `slot`.
+pack(g: long, slot: usize) -> long = g * Packing + long(slot)
+
+cursor_gen(k: long) -> long = k / Packing
+
+cursor_slot(k: long) -> usize = usize(k % Packing)
+
+// `TryDynamic(p)`: pop the cursor -- 0 on the way in -- and enter the next clause of predicate `p`
+// the call can see. Answers false when there is none.
+try_dynamic(v: *Vm, p: usize) -> Result[bool, Fault]
+    val top = v.stack.pop().unwrap_or(Undefined)
+
+    val cursor = top match
+        Int(k) -> k
+        _ -> return Err(Broken("`TryDynamic` found no cursor on the operand stack"))
+
+    val d = v.db.preds.at(p)
+    var g = v.db.gen
+    var at = d.first
+
+    if cursor == 0
+        if d.abolished then return Err(unknown_procedure(d.name, d.arity))
+    else
+        g = cursor_gen(cursor)
+        at = cursor_slot(cursor)
+
+    val arg = first_key(v.frame.args)
+    val c = next_visible(at, g, arg)
+
+    if c == NoClause then return Ok(false)
+
+    val after = next_visible(v.db.clauses.at(c).next, g, arg)
+
+    // The choice point saves the cursor in its cells, and failure into it puts the cursor back for
+    // this instruction to pop again; the clause runs without it on the stack.
+    if after != NoClause
+        v.stack.push(Int(pack(g, after)))
+        push_choice(v, v.ip - 1)
+        v.stack.pop()
+
+    val chunk = v.db.clauses.at(c).chunk
+
+    v.frame.chunk = chunk
+    v.code = chunk
+    v.ip = 0
+    Ok(true)
+end try_dynamic
+
+// -- Changing the database ------------------------------------------------------------------------
+
+// Make `name/arity` a dynamic predicate with no clauses, its chunk the one calls to it already name
+// where there is one: the database index.
+make_dynamic(name: string, arity: usize) -> Result[usize, string]
+    val v = current()
+    val key = pred_key(name, arity)
+    val p = v.db.preds.len()
+    var e = emit(key)
+
+    e.op(PushInt(0))
+    e.op(TryDynamic(p))
+
+    val chunk = v.preds.get(key) match
+        Some(info) ->
+            install(e, info.chunk)?
+            info.chunk
+        None -> finish(e)?
+
+    v.db.preds.push(DynPred(name, arity, chunk, NoClause, NoClause, false))
+    v.preds.put(key, PredInfo(chunk, true, DynamicPred(p)))
+    Ok(p)
+
+// Dynamic predicate `p` is defined again, if `abolish/1` had removed it.
+revive(p: usize)
+    val v = current()
+    var d = v.db.preds.at(p)
+
+    if !d.abolished then return
+
+    d.abolished = false
+    v.db.preds.set(p, d)
+    v.preds.put(pred_key(d.name, d.arity), PredInfo(d.chunk, true, DynamicPred(p)))
+
+// Add clause `t` -- `Head :- Body`, already a copy of its own -- to dynamic predicate `p`, first
+// (`asserta`) or last.
+add_clause(p: usize, t: Value, front: bool) -> Result[unit, Fault]
+    val v = current()
+    val d = v.db.preds.at(p)
+    val (rule, nvars) = clause_term(t)
+    var names: Buf[string] = buf()
+
+    for _ in 0..<nvars
+        names.push("_")
+
+    val e = compile_clause(pred_key(d.name, d.arity), ReadClause(rule, names)) match
+        Ok(e) -> e
+        Err(m) -> return Err(type_error("callable", clause_body(t), s"type error: ${m.message}"))
+
+    val chunk = v.db.spare.pop() match
+        Some(at) ->
+            install(e, at)?
+            at
+        None -> finish(e)?
+
+    if v.db.gen + 1 >= Packing / 2 then return Err(Broken("the database has run out of generations"))
+
+    v.db.gen += 1
+
+    val key = deref(clause_head(t)) match
+        Compound(h) -> first_key(h.args)
+        _ -> None
+
+    val c = DbClause(p, t, key, chunk, v.db.gen, 0, NoClause)
+
+    val slot = v.db.free.pop() match
+        Some(at) ->
+            v.db.clauses.set(at, c)
+            at
+        None ->
+            v.db.clauses.push(c)
+            v.db.clauses.len() - 1
+
+    var dp = v.db.preds.at(p)
+
+    if front
+        var nc = v.db.clauses.at(slot)
+
+        nc.next = dp.first
+        v.db.clauses.set(slot, nc)
+        dp.first = slot
+
+        if dp.last == NoClause then dp.last = slot
+    else
+        if dp.last == NoClause
+            dp.first = slot
+        else
+            var lc = v.db.clauses.at(dp.last)
+
+            lc.next = slot
+            v.db.clauses.set(dp.last, lc)
+
+        dp.last = slot
+
+    v.db.preds.set(p, dp)
+    Ok(())
+end add_clause
+
+// Retract the clause in slot `slot`, unless it already is: answers whether it did.
+erase(slot: usize) -> bool
+    val v = current()
+    var c = v.db.clauses.at(slot)
+
+    if c.died != 0 then return false
+
+    v.db.gen += 1
+    c.died = v.db.gen
+    v.db.clauses.set(slot, c)
+    v.db.dead += 1
+
+    if v.db.dead >= v.db.sweep_at then sweep(v)
+
+    true
+
+// Retract every clause of dynamic predicate `p` that stands now. The slots are listed first: a
+// retraction may sweep, which rewrites the list.
+erase_all(p: usize)
+    val v = current()
+    var standing: Buf[usize] = buf()
+    var i = v.db.preds.at(p).first
+
+    while i != NoClause
+        val c = v.db.clauses.at(i)
+
+        if c.died == 0 then standing.push(i)
+
+        i = c.next
+
+    for s in standing.view()
+        erase(s)
+
+// The head and the body of a stored clause, `Head :- Body`.
+clause_head(t: Value) -> Value = clause_part(t, 0)
+
+clause_body(t: Value) -> Value = clause_part(t, 1)
+
+private clause_part(t: Value, i: usize) -> Value = deref(t) match
+    Compound(c) -> c.args.at(i)
+    _ -> Undefined
+
+// -- The sweep --------------------------------------------------------------------------------------
+
+// Unlink every retracted clause no running call can see, free its slot, and set its chunk aside for
+// reuse once no frame is running it.
+private sweep(v: *Vm)
+    val oldest = oldest_running(v)
+
+    for p in 0..<v.db.preds.len()
+        var d = v.db.preds.at(p)
+        var prev = NoClause
+        var i = d.first
+
+        while i != NoClause
+            val c = v.db.clauses.at(i)
+            val next = c.next
+
+            if c.died != 0 && c.died <= oldest
+                if prev == NoClause
+                    d.first = next
+                else
+                    var pc = v.db.clauses.at(prev)
+
+                    pc.next = next
+                    v.db.clauses.set(prev, pc)
+
+                if d.last == i then d.last = prev
+
+                v.db.clauses.set(i, DbClause(p, Undefined, None, 0, 0, 0, NoClause))
+                v.db.free.push(i)
+                v.db.retired.push(c.chunk)
+                v.db.dead -= 1
+            else
+                prev = i
+
+            i = next
+
+        v.db.preds.set(p, d)
+
+    val visited = recycle_chunks(v)
+    val more = if visited / 4 > 32 then visited / 4 else 32
+
+    v.db.sweep_at = v.db.dead + (if v.db.dead > more then v.db.dead else more)
+end sweep
+
+// The generation of the oldest call into the database that can still resume: the cursors that
+// `TryDynamic`, `clause/2` and `retract/1` leave in their choice points. The generation now plus one
+// when there is none.
+private oldest_running(v: *Vm) -> long
+    val clause_id = native_id("clause/2")
+    val retract_id = native_id("$retract/3")
+    var oldest = v.db.gen + 1
+    val n = v.control.len()
+
+    for i in 0..<n
+        val e = v.control.at(i)
+
+        if e.kind != Choice then continue
+
+        val code = v.chunks.at(e.code).code
+
+        if e.ip >= code.len() then continue
+
+        val walks = code.at(e.ip) match
+            TryDynamic(_) -> true
+            NativeGen(id, _) -> names(clause_id, id) || names(retract_id, id)
+            _ -> false
+
+        if !walks then continue
+
+        val end = if i + 1 < n then v.control.at(i + 1).saved_at else v.saved.len()
+
+        if end <= e.saved_at then continue
+
+        v.saved.at(end - 1) match
+            Int(k) ->
+                val g = cursor_gen(k)
+
+                if k != 0 && g < oldest then oldest = g
+            _ -> ()
+
+    oldest
+end oldest_running
+
+private names(o: Option[usize], id: usize) -> bool = o match
+    Some(k) -> k == id
+    None -> false
+
+// Move every retired chunk no frame is running to the spares, emptied: the running frame, every
+// entry's frame, and every frame they return to. Answers how many frames it looked at.
+private recycle_chunks(v: *Vm) -> usize
+    if v.db.retired.len() == 0 then return 0
+
+    var busy: Map[usize, bool] = map()
+    var seen: Map[usize, bool] = map()
+    var visited: usize = 0
+
+    busy.put(v.code, true)
+    visited += frames_running(v.frame, &busy, &seen)
+
+    for e in v.control.view()
+        busy.put(e.code, true)
+        visited += frames_running(e.frame, &busy, &seen)
+
+    var still: Buf[usize] = buf()
+
+    for c in v.db.retired.view()
+        if busy.get(c).is_some()
+            still.push(c)
+        else
+            v.chunks.set(c, Chunk("", buf(), buf(), AnyArity))
+            v.db.spare.push(c)
+
+    v.db.retired = still
+    visited
+end recycle_chunks
+
+// Record in `busy` the chunk of `f` and of every frame it returns to, stopping at one already seen.
+private frames_running(from: *FrameObj, busy: *Map[usize, bool], seen: *Map[usize, bool]) -> usize
+    var f = from
+    var count: usize = 0
+
+    while f != null
+        if seen.get(usize(f)).is_some() then break
+
+        seen.put(usize(f), true)
+        busy.put(f.chunk, true)
+        count += 1
+        f = f.caller
+
+    count
+
+// -- A stored clause as the compiler reads it --------------------------------------------------------
+
+// Clause `t`, `Head :- Body`, as a term the clause compiler takes: each variable numbered in the
+// order first met, and every ground part of the head and of a goal's arguments a constant, shared
+// with the stored clause rather than built again. Answers the term and how many variables it has.
+clause_term(t: Value) -> (&Term, usize)
+    var vars: Map[u64, usize] = map()
+
+    // The head keeps its own shape, whatever its arguments: the compiler reads them one by one.
+    val head = deref(clause_head(t)) match
+        Compound(c) ->
+            var args: Buf[&Term] = buf()
+
+            for a in c.args.view()
+                args.push(data_term(a, &vars))
+
+            term(TComp(c.functor, args), point(0))
+        h -> data_term(h, &vars)
+
+    val body = goal_term_of(clause_body(t), &vars)
+    var parts: Buf[&Term] = buf()
+
+    parts.push(head)
+    parts.push(body)
+    (term(TComp(intern(":-"), parts), point(0)), vars.len())
+
+// A goal: a control construct's goal arguments stay goals, so the compiler sees the construct.
+private goal_term_of(x: Value, vars: *Map[u64, usize]) -> &Term
+    val y = deref(x)
+
+    y match
+        Atom(id) -> term(TAtom(id), point(0))
+        Compound(c) ->
+            val goals = goal_args(atom_name(c.functor), c.args.len())
+            var args: Buf[&Term] = buf()
+
+            for a in c.args.view()
+                args.push(if goals then goal_term_of(a, vars) else data_term(a, vars))
+
+            term(TComp(c.functor, args), point(0))
+        _ -> data_term(y, vars)
+
+// A term in a head or an argument.
+private data_term(x: Value, vars: *Map[u64, usize]) -> &Term
+    val y = deref(x)
+
+    y match
+        Var(q) ->
+            val n = vars.get(q.id) match
+                Some(k) -> k
+                None ->
+                    val k = vars.len()
+
+                    vars.put(q.id, k)
+                    k
+
+            term(TVar(n), point(0))
+        Atom(id) -> term(TAtom(id), point(0))
+        Int(n) -> term(TInt(n), point(0))
+        Nil -> term(TNil, point(0))
+        Compound(c) ->
+            if c.record != 0 || is_ground(y) then return term(TConst(y), point(0))
+
+            var args: Buf[&Term] = buf()
+
+            for a in c.args.view()
+                args.push(data_term(a, vars))
+
+            term(TComp(c.functor, args), point(0))
+        Cons(c) ->
+            if is_ground(y) then return term(TConst(y), point(0))
+
+            term(TCons(data_term(c.head, vars), data_term(c.tail, vars)), point(0))
+        _ -> term(TConst(y), point(0))
+
+private is_ground(x: Value) -> bool = variables_of(x, true).len() == 0
+
+// -- A stored clause from what the reader read --------------------------------------------------------
+
+// The value of reader term `t`, each variable numbered `n` the one in `vars` at `n`, made fresh the
+// first time it is met.
+term_value(t: &Term, vars: *Buf[Value]) -> Result[Value, string]
+    t.kind match
+        TVar(n) ->
+            while vars.len() <= n
+                vars.push(Undefined)
+
+            vars.at(n) match
+                Undefined ->
+                    val x = Var(new_var()?)
+
+                    vars.set(n, x)
+                    Ok(x)
+                x -> Ok(x)
+        TAtom(id) -> Ok(Atom(id))
+        TInt(n) -> Ok(Int(n))
+        TStr(s) -> new_str(s)
+        TNil -> Ok(Nil)
+        TCons(h, tl) -> new_cons(term_value(h, vars)?, term_value(tl, vars)?)
+        TComp(f, args) ->
+            var xs: Buf[Value] = buf()
+
+            for a in args.view()
+                xs.push(term_value(a, vars)?)
+
+            val c = new_compound(f, xs.len())?
+
+            for i in 0..<xs.len()
+                c.args.set(i, xs.at(i))
+
+            Ok(Compound(c))
+        TConst(x) -> Ok(x)
+end term_value

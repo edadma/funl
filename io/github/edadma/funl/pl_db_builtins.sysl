@@ -1,0 +1,419 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+import sysl.slices.sort_by
+
+// The database builtins over `pl_db.sysl`: `assert/1`, `asserta/1`, `assertz/1`, `clause/2`,
+// `abolish/1`, `dynamic/1`, and the primitives the library's `retract/1`, `retractall/1` and
+// `current_predicate/1` are written over -- with the ISO errors: an unbound head is an instantiation
+// error, a head that is not an atom or a compound a type error, and a static procedure is not
+// changed, `permission_error(modify, static_procedure, Name/Arity)`, nor read,
+// `permission_error(access, private_procedure, Name/Arity)`.
+//
+// `'$retract'(H, B, Ref)` gives, one by one, the clauses that stand when it is first called and
+// unify with `H :- B`, with a reference to each; `'$erase'(Ref)` retracts the one referred to, and
+// fails when something has retracted it first. `retract/1` is the two in turn, so it retracts only a
+// clause that unified, and a failure after it backtracks to the next.
+
+install_prolog_db(v: *Vm)
+    register(v, "assert/1", 1, (b, n) -> assert_clause(arg(b, 0), false, "assert/1"))
+    register(v, "asserta/1", 1, (b, n) -> assert_clause(arg(b, 0), true, "asserta/1"))
+    register(v, "assertz/1", 1, (b, n) -> assert_clause(arg(b, 0), false, "assertz/1"))
+    register_generator(v, "clause/2", 2, (b, n, c) -> db_walk(b, c, false))
+    register_generator(v, "$retract/3", 3, (b, n, c) -> db_walk(b, c, true))
+    register_generator(v, "$erase/1", 1, pl_erase)
+    register(v, "$retractall/1", 1, pl_retractall)
+    register(v, "abolish/1", 1, pl_abolish)
+    register(v, "dynamic/1", 1, pl_dynamic)
+    register_generator(v, "$user_predicates/1", 1, pl_user_predicates)
+    register_generator(v, "=@=/2", 2, (b, n, c) -> answer(variant(arg(b, 0), arg(b, 1))))
+    register_generator(v, "\\=@=/2", 2, (b, n, c) -> answer(!variant(arg(b, 0), arg(b, 1))))
+
+// What a predicate indicator names, as far as changing it goes.
+private enum Proc
+    // A dynamic predicate, its index in the database.
+    Dyn(p: usize)
+
+    // A static procedure: a control construct, a builtin, the library's, or a program's.
+    Fixed
+
+    // Nothing.
+    Absent
+
+private procedure(name: string, arity: usize) -> Proc
+    if is_inline(name, arity) then return Fixed
+
+    val key = pred_key(name, arity)
+
+    current().preds.get(key) match
+        Some(p) ->
+            p.kind match
+                DynamicPred(i) -> Dyn(i)
+                Unclaimed -> Absent
+                _ -> Fixed
+        None -> if key == "catch/3" || native_id(key).is_some() then Fixed else Absent
+
+private cannot_modify(name: string, arity: usize, who: string) -> Fault
+    val pi = indicator(name, arity) match
+        Ok(x) -> x
+        Err(e) -> return Broken(e)
+
+    permission_error("modify", "static_procedure", pi, s"permission error: $who cannot change $name/$arity, which is a static procedure")
+
+// The name and arity of the clause head `x`.
+private head_parts(x: Value, who: string) -> Result[(string, usize), Fault] = deref(x) match
+    Atom(id) -> Ok((atom_name(id), 0))
+    Compound(c) -> Ok((atom_name(c.functor), c.args.len()))
+    Var(_) -> Err(instantiation_error(s"instantiation error: $who was given an unbound variable as a clause's head"))
+    y -> Err(type_error("callable", y, s"type error: $who wants a head that is an atom or a compound, and was given ${described(y)}"))
+
+// `asserta(C)` (`front`) and `assertz(C)`: `C` is `Head :- Body` or a fact `Head`, added as a copy.
+private assert_clause(x: Value, front: bool, who: string) -> Result[Value, Fault]
+    val (t, name, arity) = stored_clause(x, who)?
+
+    val p = procedure(name, arity) match
+        Dyn(i) ->
+            revive(i)
+            i
+        Fixed -> return Err(cannot_modify(name, arity, who))
+        Absent -> make_dynamic(name, arity)?
+
+    add_clause(p, t, front)?
+    Ok(Unit)
+
+// Clause `x` -- `Head :- Body`, or a fact `Head` -- as the database keeps it: checked, each variable
+// standing as a goal made `call(X)`, and copied. With the name and arity of its predicate.
+stored_clause(x: Value, who: string) -> Result[(Value, string, usize), Fault]
+    val t = deref(x)
+    var head = t
+    var body = atom("true")
+
+    t match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable as its clause"))
+        Compound(c) ->
+            if c.args.len() == 2 && atom_name(c.functor) == ":-"
+                head = c.args.at(0)
+                body = c.args.at(1)
+        _ -> ()
+
+    val (name, arity) = head_parts(head, who)?
+
+    val goal = as_body(body)? match
+        Some(g) -> g
+        None -> return Err(type_error("callable", deref(body), s"type error: $who wants a body made of goals, and was given ${render(body)}"))
+
+    val rule = new_compound(intern(":-"), 2)?
+
+    rule.args.set(0, head)
+    rule.args.set(1, goal)
+    Ok((copy_term(Compound(rule))?, name, arity))
+end stored_clause
+
+// Term `x` as a clause body: a variable where a goal stands is `call(X)`, through `,`, `;`, `->` and
+// `*->`; `None` when some goal there is neither a variable, an atom nor a compound.
+private as_body(x: Value) -> Result[Option[Value], string]
+    val y = deref(x)
+
+    y match
+        Var(_) ->
+            val c = new_compound(intern("call"), 1)?
+
+            c.args.set(0, y)
+            Ok(Some(Compound(c)))
+        Atom(_) -> Ok(Some(y))
+        Compound(c) ->
+            val n = atom_name(c.functor)
+
+            if c.args.len() != 2 || !(n == "," || n == ";" || n == "->" || n == "*->") then return Ok(Some(y))
+
+            val a = as_body(c.args.at(0))? match
+                Some(g) -> g
+                None -> return Ok(None)
+
+            val b = as_body(c.args.at(1))? match
+                Some(g) -> g
+                None -> return Ok(None)
+
+            val d = new_compound(c.functor, 2)?
+
+            d.args.set(0, a)
+            d.args.set(1, b)
+            Ok(Some(Compound(d)))
+        _ -> Ok(None)
+
+// `clause(H, B)`, and the library's `'$retract'(H, B, Ref)` (`retracting`): the clauses standing at
+// the first call that unify with `H :- B`, one an answer.
+private db_walk(base: usize, cursor: long, retracting: bool) -> Result[Answer, Fault]
+    val who = if retracting then "retract/1" else "clause/2"
+    val head = arg(base, 0)
+    val body = arg(base, 1)
+    val (name, arity) = head_parts(head, who)?
+
+    if !retracting
+        deref(body) match
+            Var(_) -> ()
+            Atom(_) -> ()
+            Compound(_) -> ()
+            y -> return Err(type_error("callable", y, s"type error: clause/2 wants a body that is a variable or a goal, and was given ${described(y)}"))
+
+    val p = procedure(name, arity) match
+        Dyn(i) -> i
+        Absent -> return Ok(Refuses)
+        Fixed ->
+            if retracting then return Err(cannot_modify(name, arity, who))
+
+            return Err(permission_error("access", "private_procedure", indicator(name, arity)?,
+                s"permission error: clause/2 cannot read $name/$arity, which is a static procedure"))
+
+    val v = current()
+    var g = v.db.gen
+    var at = v.db.preds.at(p).first
+
+    if cursor != 0
+        g = cursor_gen(cursor)
+        at = cursor_slot(cursor)
+
+    val k = deref(head) match
+        Compound(h) -> first_key(h.args)
+        _ -> None
+
+    val c = next_visible(at, g, k)
+
+    if c == NoClause then return Ok(Refuses)
+
+    val found = v.db.clauses.at(c)
+    val after = next_visible(found.next, g, k)
+    val copy = copy_term(found.term)?
+
+    unify_on_answer(head, clause_head(copy))
+    unify_on_answer(body, clause_body(copy))
+
+    if retracting then unify_on_answer(arg(base, 2), Int(pack(found.born, c)))
+
+    Ok(if after == NoClause then Gives(Unit) else GivesMore(Unit, pack(g, after)))
+end db_walk
+
+// `'$erase'(Ref)`: retract the clause `'$retract'` referred to, failing if it is gone already.
+private pl_erase(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val k = deref(arg(base, 0)) match
+        Int(n) -> n
+        _ -> return Err(Broken("'$erase' was given no clause reference"))
+
+    val v = current()
+    val slot = cursor_slot(k)
+
+    if slot >= v.db.clauses.len() then return Ok(Refuses)
+
+    val c = v.db.clauses.at(slot)
+
+    c.term match
+        Undefined -> return Ok(Refuses)
+        _ -> ()
+
+    if c.born != cursor_gen(k) then return Ok(Refuses)
+
+    answer(erase(slot))
+
+// `'$retractall'(H)`: the checks of `retractall/1`, and a predicate never defined made dynamic, as
+// ISO's `retractall/1` makes it.
+private pl_retractall(base: usize, argc: usize) -> Result[Value, Fault]
+    val (name, arity) = head_parts(arg(base, 0), "retractall/1")?
+
+    procedure(name, arity) match
+        Dyn(i) -> revive(i)
+        Fixed -> return Err(cannot_modify(name, arity, "retractall/1"))
+        Absent -> make_dynamic(name, arity)?
+
+    Ok(Unit)
+
+// A predicate indicator `Name/Arity`, both bound.
+private indicated(x: Value, who: string) -> Result[(string, usize), Fault]
+    val pi = deref(x)
+
+    val (n, a) = pi match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable as a predicate indicator"))
+        Compound(c) ->
+            if c.args.len() != 2 || atom_name(c.functor) != "/" then return Err(not_indicator(pi, who))
+
+            (deref(c.args.at(0)), deref(c.args.at(1)))
+        _ -> return Err(not_indicator(pi, who))
+
+    val name = n match
+        Atom(id) -> atom_name(id)
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given a predicate indicator with an unbound name"))
+        _ -> return Err(type_error("atom", n, s"type error: $who wants a predicate's name to be an atom, and was given ${described(n)}"))
+
+    val arity = a match
+        Int(k) ->
+            if k < 0 then return Err(domain_error("not_less_than_zero", a, s"$who wants an arity of 0 or more, and was given $k"))
+
+            usize(k)
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given a predicate indicator with an unbound arity"))
+        _ -> return Err(type_error("integer", a, s"type error: $who wants an arity that is an integer, and was given ${described(a)}"))
+
+    Ok((name, arity))
+
+private not_indicator(x: Value, who: string) -> Fault =
+    type_error("predicate_indicator", x, s"type error: $who wants a predicate indicator Name/Arity, and was given ${render(x)}")
+
+// `abolish(Name/Arity)`: every clause of a dynamic predicate goes, and the predicate with them.
+private pl_abolish(base: usize, argc: usize) -> Result[Value, Fault]
+    val (name, arity) = indicated(arg(base, 0), "abolish/1")?
+
+    procedure(name, arity) match
+        Dyn(p) ->
+            erase_all(p)
+
+            val v = current()
+            var d = v.db.preds.at(p)
+
+            d.abolished = true
+            v.db.preds.set(p, d)
+            v.preds.put(pred_key(name, arity), PredInfo(d.chunk, false, DynamicPred(p)))
+        Fixed -> return Err(cannot_modify(name, arity, "abolish/1"))
+        Absent -> ()
+
+    Ok(Unit)
+
+// `dynamic(Spec)`: each predicate `Spec` names -- `Name/Arity`, a conjunction or a list of them --
+// is dynamic, with no clauses if it had none. A static predicate refuses; one of the library is
+// replaced, as a program's own definition replaces it.
+private pl_dynamic(base: usize, argc: usize) -> Result[Value, Fault]
+    declare_dynamic(arg(base, 0))?
+    Ok(Unit)
+
+declare_dynamic(spec: Value) -> Result[unit, Fault]
+    var work: Buf[Value] = buf()
+
+    work.push(spec)
+
+    while work.len() > 0
+        val x = deref(work.pop().unwrap())
+
+        x match
+            Compound(c) ->
+                if c.args.len() == 2 && atom_name(c.functor) == ","
+                    work.push(c.args.at(1))
+                    work.push(c.args.at(0))
+                    continue
+            Cons(c) ->
+                work.push(c.tail)
+                work.push(c.head)
+                continue
+            Nil -> continue
+            _ -> ()
+
+        val (name, arity) = indicated(x, "dynamic/1")?
+
+        procedure(name, arity) match
+            Dyn(i) -> revive(i)
+            Absent -> make_dynamic(name, arity)?
+            Fixed ->
+                if !is_library(pred_key(name, arity)) then return Err(cannot_modify(name, arity, "dynamic/1"))
+
+                make_dynamic(name, arity)?
+
+    Ok(())
+end declare_dynamic
+
+// `'$user_predicates'(L)`: the indicators of every predicate a program has defined, static or
+// dynamic, in the standard order -- what `current_predicate/1` enumerates.
+private pl_user_predicates(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val v = current()
+    var items: Buf[Value] = buf()
+    var walk = v.preds.walk()
+
+    loop
+        walk.next() match
+            Some((k, p)) ->
+                if !p.defined then continue
+
+                val user = p.kind match
+                    ProgramPred -> true
+                    DynamicPred(_) -> true
+                    _ -> false
+
+                if user then items.push(indicator(key_name(k), key_arity(k))?)
+            None -> break
+
+    sort_by(items.view(), (a, b) -> compare_terms(a, b) < 0)
+
+    var out = Nil
+    var i = items.len()
+
+    while i > 0
+        i -= 1
+        out = new_cons(items.at(i), out)?
+
+    unified(arg(base, 0), out)
+end pl_user_predicates
+
+// The arity part of key `name/arity`.
+private key_arity(k: string) -> usize
+    var n: usize = 0
+    var scale: usize = 1
+    var i = k.bytes.len
+
+    while i > 0
+        i -= 1
+
+        val b = k.bytes[i]
+
+        if b < u8('0') || b > u8('9') then break
+
+        n += usize(b - u8('0')) * scale
+        scale *= 10
+
+    n
+
+// Whether `a` and `b` are variants: alike but for a one-to-one renaming of their variables (`=@=`).
+variant(a: Value, b: Value) -> bool
+    var left: Map[u64, u64] = map()
+    var right: Map[u64, u64] = map()
+    var work: Buf[Value] = buf()
+
+    work.push(a)
+    work.push(b)
+
+    while work.len() > 0
+        val y = deref(work.pop().unwrap())
+        val x = deref(work.pop().unwrap())
+
+        x match
+            Var(p) ->
+                val q = y match
+                    Var(q) -> q
+                    _ -> return false
+
+                left.get(p.id) match
+                    Some(id) -> if id != q.id then return false
+                    None ->
+                        if right.get(q.id).is_some() then return false
+
+                        left.put(p.id, q.id)
+                        right.put(q.id, p.id)
+
+                continue
+            _ -> ()
+
+        y match
+            Var(_) -> return false
+            _ -> ()
+
+        compound_parts(x) match
+            Some((f, xs)) ->
+                val (g, ys) = compound_parts(y) match
+                    Some(parts) -> parts
+                    None -> return false
+
+                if f != g || xs.len() != ys.len() then return false
+
+                for i in 0..<xs.len()
+                    work.push(xs.at(i))
+                    work.push(ys.at(i))
+            None ->
+                if compound_parts(y).is_some() || compare_terms(x, y) != 0 then return false
+
+    true
+end variant

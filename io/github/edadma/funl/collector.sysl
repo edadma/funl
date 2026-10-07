@@ -225,6 +225,10 @@ roots(h: *gc.Heap)
     // Every constant a chunk can push.
     for c in v.chunks.view()
         mark_values(h, c.consts)
+
+    // The clauses of the dynamic predicates, as `clause/2` and `retract/1` read them.
+    for c in v.db.clauses.view()
+        mark_value(h, c.term)
 end roots
 
 // Collect if enough has been allocated since the last collection.

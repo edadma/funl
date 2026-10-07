@@ -21,6 +21,25 @@ import sysl.text.from_utf8_unchecked
 struct PredInfo
     chunk: usize
     defined: bool
+    kind: PredKind
+
+// Where a predicate's code came from, which says what may change it.
+enum PredKind
+    // Nothing has defined it: its chunk runs `NoProcedure`.
+    Unclaimed
+
+    // A builtin, or `catch/3`.
+    NativePred
+
+    // A predicate of the library written in Prolog (`pl_lib.sysl`): a program that defines the same
+    // name and arity replaces it.
+    LibraryPred
+
+    // Clauses a program loaded, or a FunL definition: static.
+    ProgramPred
+
+    // A dynamic predicate, entry `index` of the database (`pl_db.sysl`).
+    DynamicPred(index: usize)
 
 // The chunk of predicate `name/arity`: its own, a builtin's, or one reserved for it.
 predicate_chunk(name: string, arity: usize) -> usize
@@ -34,14 +53,14 @@ predicate_chunk(name: string, arity: usize) -> usize
     if key == "catch/3"
         val at = catch_chunk()
 
-        v.preds.put(key, PredInfo(at, true))
+        v.preds.put(key, PredInfo(at, true, NativePred))
         return at
 
     native_id(key) match
         Some(id) ->
             val at = finish(native_predicate(key, id, arity)).unwrap()
 
-            v.preds.put(key, PredInfo(at, true))
+            v.preds.put(key, PredInfo(at, true, NativePred))
             at
         None ->
             var e = emit(key)
@@ -50,7 +69,7 @@ predicate_chunk(name: string, arity: usize) -> usize
 
             val at = finish(e).unwrap()
 
-            v.preds.put(key, PredInfo(at, false))
+            v.preds.put(key, PredInfo(at, false, Unclaimed))
             at
 end predicate_chunk
 
@@ -84,35 +103,67 @@ define_predicate(key: string, e: Emit) -> Result[unit, string]
     v.preds.get(key) match
         Some(p) ->
             install(e, p.chunk)?
-            v.preds.put(key, PredInfo(p.chunk, true))
+            v.preds.put(key, PredInfo(p.chunk, true, ProgramPred))
         None ->
             val at = finish(e)?
 
-            v.preds.put(key, PredInfo(at, true))
+            v.preds.put(key, PredInfo(at, true, ProgramPred))
 
     Ok(())
 
-// Make `e` the code of predicate `key` unless something has already defined it: how a FunL
-// definition becomes visible to Prolog by name and arity. Answers whether it did.
+// Make `e` the code of predicate `key` unless something other than the library has already defined
+// it: how a FunL definition becomes visible to Prolog by name and arity. Answers whether it did.
 offer_predicate(key: string, e: Emit) -> Result[bool, string]
-    if pred_defined(key) then return Ok(false)
+    if pred_defined(key) && !is_library(key) then return Ok(false)
 
     define_predicate(key, e)?
     Ok(true)
 
+// Whether `key` is a predicate of the library written in Prolog, which a program may replace.
+is_library(key: string) -> bool = current().preds.get(key) match
+    Some(p) -> p.kind match
+        LibraryPred -> true
+        _ -> false
+    None -> false
+
+// Every predicate defined so far becomes the library's: what loading the library ends with.
+mark_library()
+    val v = current()
+    var keys: Buf[string] = buf()
+    var walk = v.preds.walk()
+
+    loop
+        walk.next() match
+            Some((k, p)) ->
+                p.kind match
+                    ProgramPred -> keys.push(k)
+                    _ -> ()
+            None -> break
+
+    for k in keys.view()
+        val p = v.preds.get(k).unwrap()
+
+        v.preds.put(k, PredInfo(p.chunk, p.defined, LibraryPred))
+
 // Whether `name` has a Prolog predicate -- of any arity -- defined in the table; what a FunL program
-// calls by name.
+// calls by name. **The library's predicates are Prolog's own and not among them**: a FunL program
+// names a program's predicates, and its own forms -- `findall`, `bagof`, `setof` -- keep their
+// meaning whatever the library defines.
 pred_name_known(name: string) -> bool
     var walk = current().preds.walk()
 
     loop
         walk.next() match
             Some((k, p)) ->
-                if p.defined && key_name(k) == name then return true
+                val library = p.kind match
+                    LibraryPred -> true
+                    _ -> false
+
+                if p.defined && !library && key_name(k) == name then return true
             None -> return false
 
 // The name part of key `name/arity`.
-private key_name(k: string) -> string
+key_name(k: string) -> string
     var i = k.bytes.len
 
     while i > 0
@@ -184,6 +235,11 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
     var codes: Buf[Emit] = buf()
 
     for g in groups.view()
+        // A dynamic predicate's clauses are added to the database below, one chunk each.
+        if dynamic_index(pred_key(g.name, g.arity)).is_some()
+            codes.push(emit(""))
+            continue
+
         compile_predicate(g.name, g.arity, g.clauses) match
             Ok(e) -> codes.push(e)
             Err(p) -> report.add(error(p.at, p.message))
@@ -192,8 +248,13 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
 
     for i in 0..<groups.len()
         val g = groups.at(i)
+        val key = pred_key(g.name, g.arity)
 
-        define_predicate(pred_key(g.name, g.arity), codes.at(i)).unwrap()
+        dynamic_index(key) match
+            Some(p) -> load_dynamic(report, p, g.clauses)
+            None -> define_predicate(key, codes.at(i)).unwrap()
+
+    if report.has_errors() then return None
 
     var load = emit(s"load ${src.name}")
 
@@ -212,6 +273,34 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
             report.add(error(point(0), s"the Prolog compiler failed: $e"))
             None
 end load_prolog
+
+// A file's clauses for dynamic predicate `p`, added to the database in order.
+private load_dynamic(report: *Report, p: usize, clauses: Buf[ReadClause])
+    for c in clauses.view()
+        var vars: Buf[Value] = buf()
+
+        val x = term_value(c.t, &vars) match
+            Ok(x) -> x
+            Err(m) ->
+                report.add(error(c.t.span, m))
+                continue
+
+        val stored = stored_clause(x, "a clause") match
+            Ok((t, _, _)) -> t
+            Err(f) ->
+                report.add(error(c.t.span, fault_text(f)))
+                continue
+
+        add_clause(p, stored, false) match
+            Ok(_) -> ()
+            Err(f) -> report.add(error(c.t.span, fault_text(f)))
+
+// The database index of `key`, when it is a dynamic predicate.
+dynamic_index(key: string) -> Option[usize] = current().preds.get(key) match
+    Some(p) -> p.kind match
+        DynamicPred(i) -> Some(i)
+        _ -> None
+    None -> None
 
 // The goal of a directive `:- G` (or `?- G`).
 private directive_goal(t: &Term) -> Option[&Term]
@@ -239,6 +328,23 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[ReadC
 
             if n == "initialization" && (args.len() == 1 || args.len() == 2)
                 inits.push(ReadClause(args.at(0), c.names))
+                return
+
+            // `dynamic/1` is carried out now too: the file's own clauses for the predicates it
+            // names are added to the database rather than compiled as static code.
+            if n == "dynamic" && args.len() == 1
+                var vars: Buf[Value] = buf()
+
+                val spec = term_value(args.at(0), &vars) match
+                    Ok(x) -> x
+                    Err(m) ->
+                        report.add(error(t.span, m))
+                        return
+
+                declare_dynamic(spec) match
+                    Ok(_) -> ()
+                    Err(f) -> report.add(error(t.span, fault_text(f)))
+
                 return
         _ -> ()
 
