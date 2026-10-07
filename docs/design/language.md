@@ -59,7 +59,7 @@ a value is success.
 > (a comparison still fails rather than answering `false`) while making `if done then …` mean what
 > every reader expects. **Rejected:** a condition that only fails on failure,
 > which is Icon's, and costs a `== true` wherever a boolean is tested; or make every operation that
-> could produce `false` fail instead, which removes booleans as values and breaks `write(x is int)`.
+> could produce `false` fail instead, which removes booleans as values and breaks `write(x is integer)`.
 
 ## Generators: an expression may produce more than one value
 
