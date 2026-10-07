@@ -3,12 +3,15 @@
 ;; The puzzle is stated, not programmed: `colour` lists the choices, `differ` says when two
 ;; neighbours are acceptable, and `colouring` is one conjunction over the regions, written one
 ;; line per conjunct. The relation machinery does the search: when a `differ` fails, it backtracks
-;; into the most recent `colour` choice.
+;; into the most recent `colour` choice. The colours are a `data` type's constructors, so each is
+;; the atom of its name: `red` is `#red`, in a head as anywhere else.
+
+data hue = red | green | blue
 
 def
-  colour( #red )
-  colour( #green )
-  colour( #blue )
+  colour( red )
+  colour( green )
+  colour( blue )
 
   differ( a, b ) :- colour( a ) & colour( b ) & a != b
 
