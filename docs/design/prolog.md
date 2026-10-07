@@ -38,8 +38,11 @@ shared (choice points, the trail, frames, calls, unification); all of them live 
 the same loop, with no layering and no extension seam.
 
 **The standalone Prolog is that machine with the Prolog reader, the Prolog builtins and an ISO top
-level** (`?- goal.`, `;` for the next answer, `consult/1`), and nothing else; its front end never
-emits a FunL-only instruction. It knows only standard Prolog:
+level** (`?- goal.`, `;` for the next answer, `consult/1`); its front end never emits a FunL-only
+instruction. **Later it also runs FunL**: `:- import("geometry.fl")` from a Prolog file or the top
+level brings in the FunL front end and the file's functions become predicates, as [Calling FunL from
+Prolog](#calling-funl-from-prolog) describes. Because the machine is one machine, that is a matter of
+which front ends are linked in, never of a second VM or a bridge. It knows only standard Prolog:
 no FunL syntax, no FunL builtins, no FunL value kinds reachable from it. The same Prolog program
 runs identically in it and through `funl family.pl`; the difference is only what else is loaded.
 
