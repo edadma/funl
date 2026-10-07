@@ -414,6 +414,8 @@ def inverse(n) = 1 / n
 def ages() = {alice: 30}
 def nothing() = ()
 def unset() = undefined
+def yes() = true
+def no() = false
 ```
 
 ```prolog
@@ -443,6 +445,46 @@ different
 not_nil
 undefined
 not_atom
+```
+
+**FunL's `true` and `false` are the atoms `true` and `false`**, one value in both languages. A boolean
+a FunL function answers unifies with the atom, is an atom to `atom/1` and every atom builtin, takes
+its place among the atoms in the standard order, and is written as the atom; called as a goal, it is
+the control construct `true` or `false`:
+
+```prolog
+:- import("prolog/shapes.funl").
+
+:- yes(T), (T = true -> write(unifies) ; write(differs)), nl.
+:- no(F), (F = true -> write(unifies) ; write(differs)), nl.
+:- yes(T), atom(T), atom_length(T, N), T =.. L, write(N-L), nl.
+:- yes(T), no(F), msort([b, T, a, F], S), write(S), nl.
+:- yes(T), (call(T) -> write(succeeds) ; write(fails)), nl.
+:- no(F), (call(F) -> write(succeeds) ; write(fails)), nl.
+:- (atom(1) -> write(atom) ; write(not_atom)), nl.
+```
+
+```output
+unifies
+differs
+4-[true]
+[a,b,false,true]
+succeeds
+fails
+not_atom
+```
+
+The other way round, the atom `false` is FunL's `false`, so it fails a condition wherever it came
+from, and `#true` is the value `true` is:
+
+```funl
+if #false then write( 'taken' ) else write( 'not taken' )
+write( true == #true, #false is boolean )
+```
+
+```output
+not taken
+true, false
 ```
 
 ## Calling FunL from Prolog
