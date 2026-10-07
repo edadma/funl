@@ -265,6 +265,12 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(MakeRange(false, false, true))
         CompE(id, elem, gens, set) -> compile_comprehension(e, c, id, elem, gens, set)?
         InE(a, coll, negated) -> binary(e, c, a, coll, Member(negated))?
+        IsE(a, t, at) ->
+            compile_value(e, c, a)?
+
+            type_test(c.meaning(t, at.start), t) match
+                Some(test) -> e.op(TestType(test))
+                None -> return Err(s"`$t` is not a type, and the resolver let it through")
         DefinedE(a, defined) ->
             compile_value(e, c, a)?
             e.op(TestDefined(defined))
@@ -567,7 +573,7 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
         DefS(_) -> ()
 
         // A constructor's name is resolved to the constructor wherever it is read; nothing is stored.
-        DataS(_) -> ()
+        DataS(_, _) -> ()
 
     Ok(())
 

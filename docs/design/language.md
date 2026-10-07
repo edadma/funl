@@ -175,7 +175,7 @@ The pieces in that example:
 
 - **Parameters are patterns.** A literal (`0`), a variable, `_`, a tuple `(a, b)`, a list `[x, y]`,
   a cons `x:xs`, the empty list `[]`, a record `point(x, y)`, an alternation `0 | 1`, a named
-  pattern `p@(a, b)`, and a typed pattern `x::int`.
+  pattern `p@(a, b)`, and a typed pattern `x::integer`, which names its type as `is` does.
 - **Guards** are written `| condition = body`, one per line, with `otherwise` for the last.
 - **`where`** introduces local definitions — values and functions, mutually recursive — visible to
   the guards and the body.
@@ -307,8 +307,61 @@ operators test it: `\x` succeeds if `x` is defined and `/x` if it is undefined. 
 assignable, so `\a = 123` assigns only if `a` already has a value and `/b = 123` only if `b` has
 none.
 
-**Closed by design:** records and functions report a class, so `x is` against either answers
-something useful. Every value has a type the program can test.
+### Types, and `is`
+
+**Every value has a type, and `x is t` tests it.** Like a comparison, it **succeeds producing `x`**
+when `x`'s value is of type `t` and **fails** otherwise, so it is a condition, a guard and a filter
+without a boolean in between:
+
+```
+if x is string then write( x ) else write( "not text" )
+def kind( x ) | x is number = "number"
+def kind( _ ) = "something else"
+every write( (1 | 'a' | 2.5 | #b) is number )     ;; 1, then 2.5
+[x | x <- items if x is record]
+```
+
+- **`t` is a name, never an expression**, resolved when the program is compiled. A name that is not a
+  type is an error there: ``error: `integr` is not a type``, and `x is 4` is a syntax error.
+- **`is` binds as a comparison does**: on the level of `==`, `<` and `in`, left-associative with
+  them, tighter than `|`, `and` and `or`. So `a < b is integer` tests the comparison's value (`b`),
+  and `x is integer and y is string` needs no parentheses.
+- **The name is looked up in this order**: a `data` type the program declares, then a constructor
+  the name means where it is written, then the built-in names below. A program's own `data list = …`
+  therefore hides the built-in `list` from `is`, and nothing else.
+- **A `data` type is tested by its name, and each constructor by its own**: with
+  `data shape = circle(r) | square(s) | blank`, `circle(2) is shape` and `circle(2) is circle` both
+  succeed, `square(1) is circle` fails, and `blank is shape` succeeds, a constructor with no fields
+  being its atom. A record's class is its constructor, so `data point(x, y)` makes `point(1, 2) is
+  point` succeed. A record is tested by its functor and number of fields, so a term of the same shape
+  that unification or Prolog made is one too.
+- **A bound logic variable is tested by its value**; only an unbound one is a `variable`.
+
+| name | the values of that type |
+|---|---|
+| `number` | every number: `integer`, `rational` and `real` |
+| `integer` | an integer of any size, `3`, `10^30` |
+| `rational` | an exact fraction that is not an integer, `1/3` |
+| `real` | an inexact number, `1.5` |
+| `string` | `'abc'` |
+| `atom` | `#name`, and a constructor with no fields |
+| `boolean` | `true`, `false` |
+| `list` | `[]`, a list cell `x:xs`, and a range, which reads as a list wherever one is |
+| `range` | `1..10`, `1..<n`, `1..` |
+| `tuple` | `(1, 2)` |
+| `unit` | `()` |
+| `map` | `{a: 1}`, and a mutable map, `map()` |
+| `set` | `{1, 2}`, and a mutable set, `set(s)` |
+| `array` | `array(n)` |
+| `buffer` | `buffer()` |
+| `cset` | `cset('aeiou')`, `letters` |
+| `function` | a function or a lambda, and a constructor with fields, which makes a record when called |
+| `record` | a record, and any other compound term |
+| `undefined` | `undefined` |
+| `variable` | an unbound logic variable |
+
+The names are the ones FunL's messages already use for those values (``'div' … was given the
+rational 1/3``, `a function`), and the ones of the builtins that make the mutable kinds.
 
 ### Numbers
 
@@ -424,7 +477,7 @@ line and column of the document the reader has open. `funl program.lfunl` and a 
 | `if false` takes the `then` branch | `false` fails a condition (decided above) |
 | `in` / `not in` do nothing and unbalance the stack | membership, succeeding with the left operand |
 | a partial function literal compiles to nothing | a committed-choice anonymous function |
-| records and functions have no class | every value has a type |
+| records and functions have no class | every value has a type, which `x is t` tests |
 | system variables (`$name`) answer raw host values | they answer FunL values |
 | `::` (a typed pattern) is used by the grammar but is not a token | a token |
 | `return e` generates | bounded: the first value only (decided above) |

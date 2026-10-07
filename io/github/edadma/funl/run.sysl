@@ -346,6 +346,12 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
                 _ -> false
 
             Ok(fails_if(undefined != defined))
+        TestType(t) ->
+            val top = v.stack.len()
+
+            if top == 0 then return Err(Broken("the operand stack is empty"))
+
+            Ok(fails_if(of_type(v, v.stack.at(top - 1), t)))
         Field(name) ->
             val x = pop(v)?
 

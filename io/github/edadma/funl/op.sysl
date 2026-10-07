@@ -228,6 +228,9 @@ enum Op
     // Fail unless the top is defined (`defined`) or `undefined`, leaving it.
     TestDefined(defined: bool)
 
+    // Fail unless the top is of the type `t` names (`types.sysl`), leaving it: `x is t`.
+    TestType(t: TypeTest)
+
     // Replace the top with its field `name`, an atom id.
     Field(name: u32)
 

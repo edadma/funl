@@ -451,6 +451,27 @@ private field(p: *Parser, left: &Expr) -> &Expr
     p.fail_here("a field's name after `.`")
     expr(BadE, left.span)
 
+// `e is t`, the `is` already read: `t` is a type's name, never an expression. `undefined` is a
+// word of its own, and names its type too.
+private type_name(p: *Parser, left: &Expr) -> &Expr
+    p.peek_tok() match
+        Some(k) ->
+            val n = k match
+                Name(s) -> s
+                UndefinedW -> "undefined"
+                _ -> ""
+
+            if n != ""
+                p.take()
+
+                val at = p.toks.previous()
+
+                return expr(IsE(left, n, at), left.span.to(at))
+        None -> ()
+
+    p.fail_here("a type's name after `is`")
+    expr(BadE, left.span)
+
 // A number literal, and juxtaposition: a literal immediately followed by a name or `(`, with no
 // space between, multiplies it -- `2n`, `3(x + 1)`.
 private number(p: *Parser, kind: ExprKind, at: Span) -> &Expr
@@ -486,6 +507,7 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
         DotDotLess -> return range_value(p, left, t.span, false)
         DotDotPlus -> return range_count(p, left)
         Dot -> return field(p, left)
+        Is -> return type_name(p, left)
         LBracket ->
             val key = parse_expr(p, 0)
 

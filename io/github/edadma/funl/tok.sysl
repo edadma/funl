@@ -114,6 +114,9 @@ enum Tok
     In
     NotIn
 
+    // `is`: the type test, `x is string`.
+    Is
+
     // `+=`, `-=`, `*=`, `/=`, `\=`, `%=`, `^=`, and `<:=` and `>:=`, which store the right operand
     // when the ordering holds and fail otherwise: an assignment through the operator.
     OpEq(o: BinOp)
@@ -195,6 +198,7 @@ private spelling(t: Tok) -> string
         Dot -> "."
         In -> "in"
         NotIn -> "not in"
+        Is -> "is"
         OpEq(o) ->
             o match
                 Lt -> "<:="
@@ -260,6 +264,7 @@ keyword(s: string) -> Option[Tok]
     if s == "until" then return Some(Until)
     if s == "by" then return Some(By)
     if s == "in" then return Some(In)
+    if s == "is" then return Some(Is)
     if s == "yield" then return Some(YieldW)
     if s == "var" then return Some(VarW)
     if s == "while" then return Some(While)
@@ -292,6 +297,7 @@ power(t: Tok) -> Power
         GreaterEq -> left_assoc(40)
         In -> left_assoc(40)
         NotIn -> left_assoc(40)
+        Is -> left_assoc(40)
         Colon -> right_assoc(ConsPower)
         To -> left_assoc(RangePower)
         Until -> left_assoc(RangePower)
@@ -323,7 +329,7 @@ power(t: Tok) -> Power
 continues_line(t: Tok) -> bool
     t match
         Or | And | Bar | Amp | Tilde -> true
-        EqEq | BangEq | Less | LessEq | Greater | GreaterEq | In | NotIn -> true
+        EqEq | BangEq | Less | LessEq | Greater | GreaterEq | In | NotIn | Is -> true
         Colon | To | Until | By | DotDotLess | DotDotPlus -> true
         Plus | Minus | Star | Slash | SlashSlash | Backslash | Percent | Mod | Div | Caret -> true
         LeftArrow | QuestionEq -> true

@@ -21,6 +21,9 @@ data point(x, y)
 val p = point(3, 4)
 write( p.x + p.y )                              ;; 7
 
+;; `is` tests a value's type: a data type, a constructor, or a built-in one such as `number`.
+write( circle(2) is shape, p is point, (p is shape) | 'no', 3/4 is number )   ;; circle(2), point(3, 4), no, 3/4
+
 ;; A binary search tree as a sum type. Insertion builds a new tree; the old one is unchanged.
 data tree = leaf | node(left, key, right)
 

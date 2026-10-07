@@ -118,13 +118,20 @@ walk_stmt(w: *Walk, s: Stmt)
         DefS(clauses) -> written_in_block(w, clauses)
 
         // Each constructor is a name of the block, which nothing can assign, from its declaration on.
-        DataS(ctors) ->
+        // A data type's name is known to `is` from here on, wherever it is written.
+        DataS(ctors, typ) ->
+            var ids: Buf[usize] = buf()
+
             for d in ctors.view()
                 if refused_as_variable(w, d.name, d.at) then continue
 
                 val slot = w.sc.declare(w.blk, d.name, d.at, d.at.end, true)
+                val id = declare_ctor(d.name, d.fields)
 
-                w.sc.ctors.put(slot, declare_ctor(d.name, d.fields))
+                w.sc.ctors.put(slot, id)
+                ids.push(id)
+
+            if typ != "" then declare_data_type(typ, ids)
 
 // The name a statement `name(k) = e` writes through, or "" for any other left side.
 call_name(pat: &Expr) -> string = pat.kind match
@@ -331,7 +338,12 @@ walk(w: *Walk, e: &Expr)
             walk_maybe(w, by)
         CompE(id, elem, gens, _) -> walk_comprehension(w, id, elem, gens, e.span)
         InE(a, c, _) -> walk_two(w, a, c)
-        DefinedE(x, _) -> walk(w, x)
+        IsE(x, t, at) ->
+            walk(w, x)
+
+            if type_test(w.meaning(t, at.start), t).is_none()
+                w.report.add(error(at, s"`$t` is not a type")
+                    .with_note("`is` takes a type's name: `integer`, `string`, `list` and the rest, a `data` type, or a constructor"))
         FieldE(x, _) -> walk(w, x)
         RevAssignE(n, x) ->
             walk(w, x)
@@ -516,7 +528,7 @@ hoist_stmts(w: *Walk, stmts: Buf[Stmt])
                     Some(x) -> hoist_expr(w, x)
                     None -> ()
             FreeS(_) -> ()
-            DataS(_) -> ()
+            DataS(_, _) -> ()
 
 // The `def`s in the blocks of an expression -- but not inside a lambda, which is a scope of its own.
 hoist_expr(w: *Walk, e: &Expr)
@@ -597,6 +609,7 @@ hoist_expr(w: *Walk, e: &Expr)
 
             hoist_expr(w, elem)
         InE(a, c, _) -> hoist_two(w, a, c)
+        IsE(x, _, _) -> hoist_expr(w, x)
         DefinedE(x, _) -> hoist_expr(w, x)
         FieldE(x, _) -> hoist_expr(w, x)
         RevAssignE(_, x) -> hoist_expr(w, x)

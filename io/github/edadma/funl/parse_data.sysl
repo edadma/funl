@@ -132,11 +132,11 @@ data_declaration(p: *Parser) -> Stmt
 
     val first = constructor(p) match
         Some(c) -> c
-        None -> return DataS(ctors)
+        None -> return DataS(ctors, "")
 
     if !p.accept(Equals)
         ctors.push(first)
-        return DataS(ctors)
+        return DataS(ctors, "")
 
     if first.fields.len() > 0
         p.report.add(error(first.at, "a data type's name has no fields; its constructors do")
@@ -145,11 +145,11 @@ data_declaration(p: *Parser) -> Stmt
     loop
         constructor(p) match
             Some(c) -> ctors.push(c)
-            None -> return DataS(ctors)
+            None -> return DataS(ctors, first.name)
 
         if !p.accept(Bar) then break
 
-    DataS(ctors)
+    DataS(ctors, first.name)
 end data_declaration
 
 // A constructor: its name and, in parentheses, its fields' names.

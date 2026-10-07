@@ -1,0 +1,180 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// `x is t`: the types a program can test a value against (language.md § "Types").
+//
+// **The name after `is` is resolved when the program is compiled**, never evaluated: a `data` type's
+// name first, then a constructor the name means where it is written, then the built-in names. A name
+// that is none of these is refused before the program runs, so a test that runs always has a type to
+// answer for.
+
+// What `is` tests a value for.
+enum TypeTest
+    // Any number, and each kind of `dal`'s tower: an integer of any size, an exact fraction, a real.
+    NumberT
+    IntegerT
+    RationalT
+    RealT
+
+    StringT
+    AtomT
+    BooleanT
+
+    // `[]`, a list cell, or a range, which is read as a list wherever one is.
+    ListT
+    RangeT
+
+    TupleT
+    UnitT
+    MapT
+    SetT
+    ArrayT
+    BufferT
+
+    // A function value, or a constructor with fields, which makes a record when called.
+    FunctionT
+
+    // A record, or any other compound term.
+    RecordT
+
+    CSetT
+    UndefinedT
+
+    // An unbound logic variable.
+    VariableT
+
+    // The records constructor `id` makes, or its atom when it has no fields.
+    CtorT(id: usize)
+
+    // The values of every constructor of `data` type `id`, an index into `Vm.data_types`.
+    DataT(id: usize)
+end TypeTest
+
+// The built-in type `name` is, if it is one.
+builtin_type(name: string) -> Option[TypeTest]
+    if name == "number" then return Some(NumberT)
+    if name == "integer" then return Some(IntegerT)
+    if name == "rational" then return Some(RationalT)
+    if name == "real" then return Some(RealT)
+    if name == "string" then return Some(StringT)
+    if name == "atom" then return Some(AtomT)
+    if name == "boolean" then return Some(BooleanT)
+    if name == "list" then return Some(ListT)
+    if name == "range" then return Some(RangeT)
+    if name == "tuple" then return Some(TupleT)
+    if name == "unit" then return Some(UnitT)
+    if name == "map" then return Some(MapT)
+    if name == "set" then return Some(SetT)
+    if name == "array" then return Some(ArrayT)
+    if name == "buffer" then return Some(BufferT)
+    if name == "function" then return Some(FunctionT)
+    if name == "record" then return Some(RecordT)
+    if name == "cset" then return Some(CSetT)
+    if name == "undefined" then return Some(UndefinedT)
+    if name == "variable" then return Some(VariableT)
+
+    None
+
+// What `x is name` tests, `m` being what `name` means where it is written: a `data` type, a
+// constructor, a built-in type -- or nothing, when `name` is not a type.
+type_test(m: Meaning, name: string) -> Option[TypeTest]
+    current().data_ids.get(name) match
+        Some(id) -> return Some(DataT(id))
+        None -> ()
+
+    m match
+        Constructor(id) -> return Some(CtorT(id))
+        _ -> ()
+
+    builtin_type(name)
+
+// Record `data` type `name` as the constructors `ctors`; a later declaration of the name replaces it.
+declare_data_type(name: string, ctors: Buf[usize])
+    val v = current()
+
+    v.data_types.push(ctors)
+    v.data_ids.put(name, v.data_types.len() - 1)
+
+// Whether `x` is of the type `t`.
+of_type(v: *Vm, x: Value, t: TypeTest) -> bool
+    val y = deref(x)
+
+    t match
+        NumberT -> y match
+            Int(_) | Big(_) | Rat(_) | Real(_) -> true
+            _ -> false
+        IntegerT -> y match
+            Int(_) | Big(_) -> true
+            _ -> false
+        RationalT -> y match
+            Rat(_) -> true
+            _ -> false
+        RealT -> y match
+            Real(_) -> true
+            _ -> false
+        StringT -> y match
+            Str(_) -> true
+            _ -> false
+        AtomT -> y match
+            Atom(_) -> true
+            _ -> false
+        BooleanT -> y match
+            Bool(_) -> true
+            _ -> false
+        ListT -> y match
+            Nil | Cons(_) | Range(_) -> true
+            _ -> false
+        RangeT -> y match
+            Range(_) -> true
+            _ -> false
+        TupleT -> y match
+            Tuple(_) -> true
+            _ -> false
+        UnitT -> y match
+            Unit -> true
+            _ -> false
+        MapT -> y match
+            Map(_) | MutMap(_) -> true
+            _ -> false
+        SetT -> y match
+            Set(_) | MutSet(_) -> true
+            _ -> false
+        ArrayT -> y match
+            Array(_) -> true
+            _ -> false
+        BufferT -> y match
+            Buffer(_) -> true
+            _ -> false
+        FunctionT -> y match
+            Func(_) | Ctor(_) -> true
+            _ -> false
+        RecordT -> y match
+            Compound(_) -> true
+            _ -> false
+        CSetT -> y match
+            CSet(_) -> true
+            _ -> false
+        UndefinedT -> y match
+            Undefined -> true
+            _ -> false
+        VariableT -> y match
+            Var(_) -> true
+            _ -> false
+        CtorT(id) -> made_by(v, y, id)
+        DataT(id) ->
+            for c in v.data_types.at(id).view()
+                if made_by(v, y, c) then return true
+
+            false
+end of_type
+
+// Whether `y` is what constructor `id` makes: a compound of its functor and number of fields, or,
+// when it has none, its atom.
+private made_by(v: *Vm, y: Value, id: usize) -> bool
+    val d = v.ctors.at(id)
+
+    y match
+        Atom(a) -> d.fields.len() == 0 && a == d.functor
+        Compound(p) -> p.functor == d.functor && p.args.len() == d.fields.len()
+        _ -> false

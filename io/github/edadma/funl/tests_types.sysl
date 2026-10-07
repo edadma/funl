@@ -1,0 +1,100 @@
+module io.github.edadma.funl
+@tests
+
+// `x is t`, the type test (language.md § "Types"): it succeeds producing `x` when `x` is of the type
+// `t` names and fails otherwise, so it works as a condition, in a guard and as a filter of a
+// generator. `t` is a name resolved when the program is compiled: a built-in type, a `data` type, or a
+// constructor. Prolog's `is/2` is arithmetic, and is untouched by any of it.
+
+@test
+EACH_BUILT_IN_NUMBER_TYPE_ACCEPTS_ITS_OWN_KIND_AND_REFUSES_THE_OTHERS()
+    assert_eq(ran_funl("write( 3 is integer, 100000000000000000000000 is integer, 1/3 is rational, 1.5 is real )\n"),
+        "3, 100000000000000000000000, 1/3, 1.5\nsucceeded")
+    assert_eq(ran_funl("write( 3 is number, 1/3 is number, 1.5 is number )\n"), "3, 1/3, 1.5\nsucceeded")
+    assert_eq(ran_funl("write( (1.5 is integer) | \"no\", (3 is rational) | \"no\", (3 is real) | \"no\", (\"3\" is number) | \"no\" )\n"),
+        "no, no, no, no\nsucceeded")
+
+@test
+EACH_BUILT_IN_TYPE_ACCEPTS_ITS_OWN_VALUES_AND_REFUSES_ANOTHER()
+    assert_eq(ran_funl("write( 'a' is string, #a is atom, true is boolean, false is boolean )\n"), "a, a, true, false\nsucceeded")
+    assert_eq(ran_funl("write( [] is list, [1] is list, 1..3 is list, 1..3 is range )\n"), "[], [1], 1..3, 1..3\nsucceeded")
+    assert_eq(ran_funl("write( (1, 2) is tuple, () is unit, {a: 1} is map, map() is map, {1} is set, set({1}) is set )\n"),
+        "(1, 2), (), {\"a\": 1}, MutableMap(), {1}, MutableSet(1)\nsucceeded")
+    assert_eq(ran_funl("write( undefined is undefined, (x -> x) is function )\n"), "undefined, <function lambda>\nsucceeded")
+
+    // These are written as `yes` once the test passes, so the line does not depend on how each prints.
+    assert_eq(ran_funl("free v\nwrite( (array(2) is array) & #yes, (buffer() is buffer) & #yes, (cset('ab') is cset) & #yes, (v is variable) & #yes )\n"),
+        "yes, yes, yes, yes\nsucceeded")
+
+    val no = "\"no\""
+
+    assert_eq(ran_funl(s"write( (#a is string) | $no, ('a' is atom) | $no, (1 is boolean) | $no, ((1, 2) is list) | $no )\n"),
+        "no, no, no, no\nsucceeded")
+    assert_eq(ran_funl(s"write( ([1] is range) | $no, ([1] is tuple) | $no, ((1, 2) is unit) | $no, ({1} is map) | $no )\n"),
+        "no, no, no, no\nsucceeded")
+    assert_eq(ran_funl(s"write( ({a: 1} is set) | $no, (buffer() is array) | $no, (array(1) is buffer) | $no, ('ab' is cset) | $no )\n"),
+        "no, no, no, no\nsucceeded")
+    assert_eq(ran_funl(s"write( (0 is undefined) | $no, (0 is function) | $no, (0 is record) | $no, (0 is variable) | $no )\n"),
+        "no, no, no, no\nsucceeded")
+
+@test
+A_BOUND_LOGIC_VARIABLE_IS_TESTED_BY_ITS_VALUE()
+    assert_eq(ran_funl("free v\nv = 5\nwrite( v is integer, (v is variable) | \"bound\" )\n"), "5, bound\nsucceeded")
+
+@test
+A_VALUE_IS_OF_ITS_DATA_TYPE_AND_OF_THE_CONSTRUCTOR_THAT_MADE_IT()
+    val shapes = "data shape = circle(r) | square(s) | blank\n"
+
+    assert_eq(ran_funl(shapes + "write( circle(2) is shape, circle(2) is circle, blank is shape, blank is blank )\n"),
+        "circle(2), circle(2), blank, blank\nsucceeded")
+    assert_eq(ran_funl(shapes + "write( (square(1) is circle) | \"no\", (#other is shape) | \"no\", (2 is shape) | \"no\" )\n"),
+        "no, no, no\nsucceeded")
+    assert_eq(ran_funl(shapes + "write( circle(1) is record, circle is function, blank is atom )\n"),
+        "circle(1), <constructor circle(r)>, blank\nsucceeded")
+
+@test
+A_RECORD_IS_OF_ITS_CLASS_WHICH_IS_ITS_CONSTRUCTOR()
+    assert_eq(ran_funl("data point(x, y)\nwrite( point(1, 2) is point, point(1, 2) is record, ((1, 2) is point) | \"no\" )\n"),
+        "point(1, 2), point(1, 2), no\nsucceeded")
+
+@test
+A_DATA_TYPE_NAMED_LIKE_ONE_OF_ITS_CONSTRUCTORS_MEANS_THE_WHOLE_TYPE()
+    assert_eq(ran_funl("data tree = tree(l, r) | leaf\nwrite( leaf is tree, tree(leaf, leaf) is tree )\n"), "leaf, tree(leaf, leaf)\nsucceeded")
+
+@test
+A_DATA_NAME_TAKES_PRECEDENCE_OVER_A_BUILT_IN_ONE()
+    assert_eq(ran_funl("data list = item(x) | stop\nwrite( item(1) is list, ([1] is list) | \"no\" )\n"), "item(1), no\nsucceeded")
+
+@test
+IS_IS_A_CONDITION_A_GUARD_AND_A_FILTER()
+    assert_eq(ran_funl("if 3 is string then write( \"text\" ) else write( \"not text\" )\n"), "not text\nsucceeded")
+    assert_eq(ran_funl("def kind( x ) | x is string = \"text\"\ndef kind( x ) | x is number = \"number\"\ndef kind( _ ) = \"other\"\n" +
+        "write( kind('a'), kind(1/2), kind([]) )\n"), "text, number, other\nsucceeded")
+    assert_eq(ran_funl("every write( (1 | 'a' | 2.5 | #b | [3]) is number )\n"), "1\n2.5\nsucceeded")
+    assert_eq(ran_funl("write( [x | x <- [1, 'a', 2, #b] if x is integer] )\n"), "[1, 2]\nsucceeded")
+
+@test
+IS_BINDS_AS_A_COMPARISON_DOES()
+    // Tighter than `and`, `or` and `|`; level with comparison, and left-associative with it.
+    assert_eq(ran_funl("write( 3 is integer and 'a' is string, (3 is string or 3 is real) | \"neither\" )\n"), "a, neither\nsucceeded")
+    assert_eq(ran_funl("every write( 1 | 'a' | 2 is number )\n"), "1\na\n2\nsucceeded")
+    assert_eq(ran_funl("write( 1 + 2 is integer, 2 < 3 is integer, (3 == 3.0 is integer) | \"no\" )\n"), "3, 3, no\nsucceeded")
+
+@test
+A_NAME_THAT_IS_NOT_A_TYPE_IS_REFUSED_WHEN_THE_PROGRAM_IS_COMPILED()
+    assert_eq(complaints("write( 3 is integr )\n"), "error 1:13 `integr` is not a type\n")
+    assert_eq(complaints("val n = 1\nwrite( 3 is n )\n"), "error 2:13 `n` is not a type\n")
+    assert_eq(complaints("write( 3 is 4 )\n"), "error 1:13 expected a type's name after `is`\n")
+
+@test
+PROLOGS_IS_STAYS_ARITHMETIC_BESIDE_A_FUNL_FILE_THAT_TESTS_TYPES()
+    assert_eq(ran_prolog(":- X is 1 + 2, write(X), nl.\n"), "3\nsucceeded")
+
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "kinds.funl", "def kind( x ) | x is integer = #int\ndef kind( _ ) = #other\n")
+
+    val text = s":- import(\"$d/kinds.funl\").\n:- X is 1 + 2, kind(X, K), write(X-K), nl.\n:- Y is 1 / 2, kind(Y, K), write(K), nl.\n"
+
+    assert_eq(ran_prolog(text), "3-int\nother\nsucceeded")
