@@ -1,9 +1,0 @@
-var n = 0
-
-while n++ < 2
-  val a = 2n
-  var b = 3n
-
-  write( a, b, n )
-
-write( a, b, n )

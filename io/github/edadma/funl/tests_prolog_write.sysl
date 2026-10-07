@@ -169,7 +169,10 @@ TAB_AND_PUT_CHAR_RAISE_THE_ISO_ERRORS()
 FUNL_VALUES_WITHOUT_A_TERM_ARE_WRITTEN_OPAQUE()
     // A tuple is the compound `tuple(...)`; a map and a function are opaque (`prolog.md` § "The term
     // mapping").
-    val text = "import \"tests/prolog/interop.pl\"\n" +
+    val d = scratch()
+    defer scrap(d)
+
+    val text = import_interop(d) +
         "show_term((1, #a))\n" +
         "show_term({#a: 1})\n" +
         "show_term(x -> x)\n"

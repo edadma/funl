@@ -12,7 +12,7 @@ import sysl.text.Search
 @test
 A_DIAGNOSTIC_QUOTES_THE_LINE_AND_POINTS_AT_WHAT_IS_WRONG()
     val want = "error: expected an atom's name after `#`\n" +
-        " --> test.fl:2:8\n" +
+        " --> test.funl:2:8\n" +
         "  |\n" +
         "2 | write(#)\n" +
         "  |        ^ found `)`\n" +

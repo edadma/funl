@@ -1,3 +1,2 @@
 # Benchmark entries not met, each with why: `name<TAB>reason`. tests_prolog_bench.sysl fails on an
 # unmet entry not listed here, on a listed entry that is met, and on a name that is no entry.
-classic_lips	the harness reads the clock as `T is time`, an evaluable the old FunL had and ISO does not, and reports the rate through float/1; FunL has no floats yet

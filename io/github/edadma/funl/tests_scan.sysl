@@ -87,7 +87,7 @@ POSITIONS_COUNT_CHARACTERS()
 
 @test
 SCAN_ASSIGN_STORES_THE_RESULT()
-    assert_eq(ran_funl("var line = '   asdf'\nline ?= tab(many(' ')) & tab(0)\nwrite( line )\n"), "asdf\nsucceeded")
+    assert_eq(ran_funl("var padded = '  trimmed'\npadded ?= tab(many(' ')) & tab(0)\nwrite( padded )\n"), "trimmed\nsucceeded")
     assert_eq(complaints("'a' ?= tab(1)\n"), "error 1:1 only a variable can be scanned and assigned with `?=`\n")
 
 @test

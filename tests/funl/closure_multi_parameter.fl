@@ -1,6 +1,0 @@
-def f( x, y )
-  def g( m, n ) = x + y + m + n
-
-  g( 5, 6 ) + 1
-
-write( f(3, 4) )

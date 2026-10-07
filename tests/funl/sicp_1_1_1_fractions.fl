@@ -1,5 +1,0 @@
-;; SICP 1.1.1  Expressions: the ones whose values are not integers, or pass through one
-
-write( 10 / 4 )
-write( 2.7 + 10 )
-write( 3 * 2 * (3 - 5 + 4) + 27 / 6 * 10 )

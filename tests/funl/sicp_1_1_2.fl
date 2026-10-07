@@ -1,6 +1,0 @@
-;; SICP 1.1.2  Naming and the Environment
-
-val size = 2
-
-write( size )
-write( 5 * size )

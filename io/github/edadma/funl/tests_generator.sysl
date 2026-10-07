@@ -104,14 +104,20 @@ EVERY_DRIVES_A_GENERATOR_THROUGH_A_BODY_WITH_OR_WITHOUT_DO()
 
     assert_eq(ran_funl(text), "1\n2\na\nb\nsucceeded")
 
+@test
+A_GENERATORS_BOUND_CAN_COME_FROM_ANOTHER_GENERATOR()
+    // Each value of the inner generator starts the outer one again, from its first value.
+    assert_eq(ran_funl("every write( 1 to (2 to 3) )\n"), "1\n2\n1\n2\n3\nsucceeded")
+    assert_eq(ran_funl("every write( (n = 0 to 2) to 2n )\n"), "0\n1\n2\n2\n3\n4\nsucceeded")
+
 // -- |e --------------------------------------------------------------------------------------------
 
-// `repeated alternation 1` of the old suite, with an assignment where it has `a++`.
 @test
 REPEATED_ALTERNATION_RUNS_ROUNDS_UNTIL_ONE_PRODUCES_NOTHING()
-    val text = "a = 0\nevery write( |(if (a = a + 1) < 4 then a) )\n"
+    // Each round counts `n` down by three; the round that leaves it below one produces nothing.
+    val text = "n = 10\nevery write( |(if (n = n - 3) > 0 then n) )\n"
 
-    assert_eq(ran_funl(text), "1\n2\n3\nsucceeded")
+    assert_eq(ran_funl(text), "7\n4\n1\nsucceeded")
 
 // Each round passes on every value its expression has, and the `+` beneath it is put back for
 // each.

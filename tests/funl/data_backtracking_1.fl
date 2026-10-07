@@ -1,4 +1,0 @@
-"asdf,zxvc." ? tab(upto(',') + 1) & write(move(1)) | write(tab(upto('.')))
-"asdf," ? tab(upto(',') + 1) & write(move(1)) | write(tab(upto('.')))
-"asdf." ? tab(upto(',') + 1) & write(move(1)) | write(tab(upto('.')))
-"asdf" ? tab(upto(',') + 1) & write(move(1)) | write(tab(upto('.')))

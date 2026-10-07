@@ -17,9 +17,3 @@ Licence, file by file, as the files and that repository's README state it:
   repository's README lists them as programs "written and shared within the Prolog community for a
   very long time" that "lack explicit clear conditions that allows redistribution". They are test
   data here, never part of what FunL ships.
-
-Also from the old FunL (github.com/edadma/funl, the 2021 Scala implementation, prolog/benchmarks/):
-
-- classic.pl is classic.prolog, the Quintus "classic" naive-reverse benchmark (supplied by Quintus
-  Computer Systems, April 1984), as the old FunL kept it.
-- queens11.pl is queens.prolog, the old FunL's eleven-queens benchmark.

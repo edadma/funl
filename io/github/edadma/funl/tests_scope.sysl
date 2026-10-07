@@ -32,6 +32,16 @@ ASSIGNMENT_TO_A_NAME_NOTHING_DECLARES_DECLARES_IT_IN_THE_BLOCK()
     assert_eq(ran_funl("def f()\n  a, b = 0, 1\n  a, b = b, a + b\n  (a, b)\n\nwrite( f() )\n"), "(1, 1)\nsucceeded")
 
 @test
+A_FOR_OR_COMPREHENSION_VARIABLE_SHADOWS_AN_OUTER_NAME_ONLY_INSIDE_IT()
+    assert_eq(ran_funl("val n = #outer\nfor n <- [1, 2] do write( n )\nwrite( [n * n | n <- 3..4], n )\n"),
+        "1\n2\n[9, 16], outer\nsucceeded")
+
+@test
+A_DECLARATION_IN_A_LOOP_BODY_IS_MADE_AGAIN_EACH_TURN_AND_GONE_AFTER()
+    assert_eq(ran_funl("var i = 0\nwhile i++ < 3\n  val sq = i * i\n  write( sq )\n\nwrite( sq )\n"),
+        "1\n4\n9\nundefined\nsucceeded")
+
+@test
 A_VAR_WITHOUT_A_VALUE_IS_UNDEFINED_ON_EVERY_TURN()
     assert_eq(ran_funl("var n = 0\n\nwhile n++ < 2\n  var u\n  write( u )\n  u = n\n"), "undefined\nundefined\nsucceeded")
 

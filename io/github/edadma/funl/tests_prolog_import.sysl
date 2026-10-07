@@ -1,19 +1,23 @@
 module io.github.edadma.funl
 @tests
 
-// `:- import("file.fl")`: a Prolog file loading a FunL file, whose relations are predicates `r/n`
+// `:- import("file.funl")`: a Prolog file loading a FunL file, whose relations are predicates `r/n`
 // and whose functions are predicates `f/(n+1)` (`prolog.md` § "Calling FunL from Prolog"). The path
 // is relative to the importing file, a file imported twice is loaded once, and the namespace's rules
 // refuse a key two definitions want.
 
-private const Shapes: string = ":- consult(\"tests/prolog/shapes.pl\").\n"
-
 // Write each formal term `consult(File)` raises, or `none`.
 private const Try: string = "try(F) :- catch((consult(F), E = none), error(E, _), true), write(E), nl.\n"
 
+// The directive consulting `file`.
+private consulting(file: string) -> string = s":- consult(\"$file\").\n"
+
 @test
 A_PROLOG_FILE_CALLS_A_RELATION_A_GENERATOR_AND_A_FUNCTION_OF_THE_FUNL_FILE_IT_IMPORTS()
-    val text = Shapes +
+    val d = scratch()
+    defer scrap(d)
+
+    val text = consulting(put_shapes(d)) +
         ":- forall(sides(S, N), (write(S-N), nl)).\n" +
         ":- counted(3, L), write(L), nl.\n" +
         ":- area(4, A), write(A), nl.\n"
@@ -23,44 +27,75 @@ A_PROLOG_FILE_CALLS_A_RELATION_A_GENERATOR_AND_A_FUNCTION_OF_THE_FUNL_FILE_IT_IM
 
 @test
 AN_ERROR_THE_IMPORTED_FUNL_CODE_RAISES_IS_CAUGHT_BY_PROLOG()
-    assert_eq(ran_prolog(Shapes + ":- guarded(0, R), write(R), nl.\n:- guarded(5, R), write(R), nl.\n"),
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(ran_prolog(consulting(put_shapes(d)) + ":- guarded(0, R), write(R), nl.\n:- guarded(5, R), write(R), nl.\n"),
         "geometry\ncaught(evaluation_error(zero_divisor))\n2\nsucceeded")
 
 @test
-AN_IMPORT_FROM_THE_PROGRAM_ITSELF_IS_READ_RELATIVE_TO_IT()
-    assert_eq(ran_prolog(":- import(\"tests/prolog/geometry.fl\").\n:- scaled(2, X), write(X), nl.\n"), "geometry\n20\nsucceeded")
+AN_IMPORT_FROM_THE_PROGRAM_ITSELF_LOADS_THE_FUNL_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    val geometry = put(d, "geometry.funl", GeometryFunl)
+
+    assert_eq(ran_prolog(s":- import(\"$geometry\").\n:- scaled(2, X), write(X), nl.\n"), "geometry\n20\nsucceeded")
 
 @test
 A_FUNL_FILE_IMPORTED_TWICE_IS_LOADED_ONCE_AND_ITS_IMPORTER_CAN_BE_CONSULTED_AGAIN()
-    val text = Shapes + Shapes + ":- import(\"tests/prolog/geometry.fl\").\n:- area(1, A), write(A), nl.\n"
+    val d = scratch()
+    defer scrap(d)
+
+    val shapes = consulting(put_shapes(d))
+    val text = shapes + shapes + s":- import(\"$d/geometry.funl\").\n:- area(1, A), write(A), nl.\n"
 
     assert_eq(ran_prolog(text), "geometry\n10\nsucceeded")
 
 @test
 A_PROLOG_FILES_OWN_CLAUSES_ON_A_KEY_ITS_FUNL_IMPORT_DEFINES_ARE_REFUSED_NAMING_BOTH()
-    assert_eq(prolog_complaints(":- import(\"tests/prolog/geometry.fl\").\nscaled(_, 0).\n"),
-        "error 2:1 `scaled/2` cannot be defined twice: the FunL function `scaled` at tests/prolog/geometry.fl:11:5, " +
+    val d = scratch()
+    defer scrap(d)
+
+    val shapes = put_shapes(d)
+    val geometry = s"$d/geometry.funl"
+
+    assert_eq(prolog_complaints(s":- import(\"$geometry\").\nscaled(_, 0).\n"),
+        s"error 2:1 `scaled/2` cannot be defined twice: the FunL function `scaled` at $geometry:5:5, " +
         "which is `scaled/2` to Prolog, and the Prolog predicate `scaled/2` at test.pl:2:1. Prolog and FunL share one predicate for each name and arity\n")
 
-    // Through consult, the same refusal is a permission error.
     // Through consult, the same refusal is a permission error. The refused file's import never ran
-    // its top level, so the next file importing geometry.fl loads it again, and its functions work.
-    val text = Try + ":- try(\"tests/prolog/shapes_clash.pl\").\n" + Shapes + ":- area(3, X), write(X), nl.\n"
+    // its top level, so the next file importing geometry.funl loads it again, and its functions work.
+    val clash = put(d, "shapes_clash.pl", ":- import(\"geometry.funl\").\nscaled(_, 0).\n")
+    val text = Try + s":- try(\"$clash\").\n" + consulting(shapes) + ":- area(3, X), write(X), nl.\n"
 
     assert_eq(ran_prolog(text), "permission_error(modify,static_procedure,scaled/2)\ngeometry\n30\nsucceeded")
 
 @test
 AN_IMPORTED_FUNL_DEFINITION_ON_A_KEY_A_PROLOG_FILE_HOLDS_IS_REFUSED()
-    // `scaled/2` is the earlier file's, so the FunL function is refused when geometry.fl is loaded.
-    val text = Try + ":- consult(\"tests/prolog/scaled.pl\").\n:- try(\"tests/prolog/shapes.pl\").\n"
+    val d = scratch()
+    defer scrap(d)
+
+    // `scaled/2` is the earlier file's, so the FunL function is refused when geometry.funl is loaded.
+    val shapes = put_shapes(d)
+    val scaled = put(d, "scaled.pl", "scaled(N, N).\n")
+    val text = Try + consulting(scaled) + s":- try(\"$shapes\").\n"
 
     assert_eq(ran_prolog(text), "permission_error(modify,static_procedure,scaled/2)\nsucceeded")
 
 @test
 AN_IMPORT_OF_A_MISSING_OR_UNREADABLE_FUNL_FILE_IS_AN_ERROR_PROLOG_CATCHES()
-    val text = Try + ":- try(\"tests/prolog/shapes_missing.pl\").\n:- try(\"tests/prolog/shapes_broken.pl\").\n"
+    val d = scratch()
+    defer scrap(d)
 
-    assert_eq(ran_prolog(text), "existence_error(source_sink,tests/prolog/nowhere.fl)\nsyntax_error(tests/prolog/shapes_broken.pl)\nsucceeded")
+    val missing = put(d, "shapes_missing.pl", ":- import(\"nowhere.funl\").\n")
+    val broken = put(d, "shapes_broken.pl", ":- import(\"broken.funl\").\n")
+
+    put(d, "broken.funl", "def f(x) = )\n")
+
+    val text = Try + s":- try(\"$missing\").\n:- try(\"$broken\").\n"
+
+    assert_eq(ran_prolog(text), s"existence_error(source_sink,$d/nowhere.funl)\nsyntax_error($broken)\nsucceeded")
 
 @test
 AN_IMPORT_NAMES_ITS_FILE_WITH_A_STRING()

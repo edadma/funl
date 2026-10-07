@@ -9,7 +9,12 @@ import sysl.text.{Search, join}
 // the top level said -- and the status it ends with. This is the `prolog` executable with its
 // terminal swapped for the script.
 
-private const Family: string = "tests/prolog/toplevel_family.pl"
+// A family the top level consults, saying so as it loads.
+private const FamilyPl: string = "parent(tom, bob).\n" +
+    "parent(tom, liz).\n" +
+    "parent(bob, ann).\n" +
+    "grandparent(X, Z) :- parent(X, Y), parent(Y, Z).\n" +
+    ":- write(loaded), nl.\n"
 
 private struct Session
     script: Buf[string]
@@ -64,13 +69,23 @@ EVERY_BINDING_OF_AN_ANSWER_IS_SHOWN_QUOTED_AND_UNBOUND_ONES_ARE_LEFT_OUT()
 
 @test
 A_FILE_NAMED_ON_THE_COMMAND_LINE_IS_CONSULTED_BEFORE_THE_FIRST_QUERY()
-    assert_eq(session([Family], ["grandparent(tom, W).", ";", "parent(tom, C).", ";"]),
+    val d = scratch()
+    defer scrap(d)
+
+    val family = put(d, "family.pl", FamilyPl)
+
+    assert_eq(session([family], ["grandparent(tom, W).", ";", "parent(tom, C).", ";"]),
         "loaded\n?- grandparent(tom, W).\nW = ann\n;\nfalse.\n?- parent(tom, C).\nC = bob\n;\nC = liz.\nstatus: 0")
 
 @test
 CONSULT_FROM_THE_TOP_LEVEL_LOADS_A_FILE_TOO()
-    assert_eq(session([], ["consult('tests/prolog/toplevel_family.pl').", "parent(bob, A)."]),
-        "?- consult('tests/prolog/toplevel_family.pl').\nloaded\ntrue.\n?- parent(bob, A).\nA = ann.\nstatus: 0")
+    val d = scratch()
+    defer scrap(d)
+
+    val family = put(d, "family.pl", FamilyPl)
+
+    assert_eq(session([], [s"consult('$family').", "parent(bob, A)."]),
+        s"?- consult('$family').\nloaded\ntrue.\n?- parent(bob, A).\nA = ann.\nstatus: 0")
 
 @test
 WHAT_A_QUERY_WRITES_COMES_BEFORE_ITS_ANSWER()
@@ -121,8 +136,11 @@ A_QUERY_THAT_DOES_NOT_READ_IS_REPORTED_AND_THE_SESSION_GOES_ON()
 
 @test
 A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR_AND_THE_SESSION_STARTS_ALL_THE_SAME()
-    assert_eq(session(["tests/prolog/no_such_file.pl"], ["X = 1."]),
-        "uncaught exception: error(existence_error(source_sink,'tests/prolog/no_such_file.pl'),_)\n?- X = 1.\nX = 1.\nstatus: 0")
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(session([s"$d/no_such_file.pl"], ["X = 1."]),
+        s"uncaught exception: error(existence_error(source_sink,'$d/no_such_file.pl'),_)\n?- X = 1.\nX = 1.\nstatus: 0")
 
 // -- It knows standard Prolog and no FunL ---------------------------------------------------------
 
@@ -134,15 +152,18 @@ A_FUNL_BUILTIN_IS_NO_PREDICATE_THERE()
 
 @test
 A_PROLOG_FILE_CANNOT_IMPORT_FUNL_THERE()
-    // `shapes.pl` imports `geometry.fl` and defines `area/2` over its `scaled` function
+    // `ShapesPl` imports `geometry.funl` and defines `area/2` over its `scaled` function
     // (`tests_prolog_import.sysl` runs it through `funl`, where it works). Here `import/1` is an
     // unknown procedure, so the directive warns and nothing the FunL file would have defined exists.
-    val said = session(["tests/prolog/shapes.pl"], ["area(4, A)."])
+    val d = scratch()
+    defer scrap(d)
+
+    val said = session([put_shapes(d)], ["area(4, A)."])
 
     assert(said.contains("unknown procedure import/1"), said)
     assert(said.ends_with("?- area(4, A).\nuncaught exception: error(existence_error(procedure,scaled/2),_)\nstatus: 0"), said)
 
 @test
 AN_IMPORT_QUERY_IS_AN_UNKNOWN_PROCEDURE_THERE()
-    assert_eq(session([], ["import(\"tests/prolog/geometry.fl\")."]),
-        "?- import(\"tests/prolog/geometry.fl\").\nuncaught exception: error(existence_error(procedure,import/1),_)\nstatus: 0")
+    assert_eq(session([], ["import(\"geometry.funl\")."]),
+        "?- import(\"geometry.funl\").\nuncaught exception: error(existence_error(procedure,import/1),_)\nstatus: 0")

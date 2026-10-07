@@ -1,8 +1,0 @@
-var k = 123
-
-if true
-  var k = 456
-
-  write( k )
-
-write( k )

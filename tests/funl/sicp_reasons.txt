@@ -1,3 +1,0 @@
-# SICP programs not met, each with why: `name<TAB>reason`. tests_sicp.sysl fails on an unmet program
-# not listed here, on a listed program that is met, and on a name that is no program.
-sicp_1_3_1_reals	the integral steps by 0.001 through a sum recursing a thousand deep, whose frames are more live data than the 64 KB heap the stress run collects at every step

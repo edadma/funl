@@ -7,43 +7,60 @@ import sysl.text.Search
 // relation and ordinary FunL code calling a Prolog predicate, and loading Prolog from FunL at compile
 // time (`import`) and at run time (`consult`).
 
-private const Imports: string = "import \"tests/prolog/interop.pl\"\n" +
+// The program importing `InteropPl` from scratch directory `dir`, with the relation and the function
+// that file calls.
+private imports(dir: string) -> string = import_interop(dir) +
     "def par(#a, #b)\n" +
     "def par(#b, #c)\n" +
     "def par(#b, #d)\n" +
     "def double(n) = 2 * n\n"
 
+// The transcript of `imports` followed by `rest`.
+private ran_imports(rest: string) -> string
+    val d = scratch()
+    defer scrap(d)
+
+    ran_funl(imports(d) + rest)
+
 @test
 AN_IMPORTED_FILES_DIRECTIVES_RUN_BEFORE_THE_PROGRAMS_OWN_STATEMENTS()
-    assert_eq(ran_funl(Imports + "write(#after)\n"), "loaded\nafter\nsucceeded")
+    assert_eq(ran_imports("write(#after)\n"), "loaded\nafter\nsucceeded")
 
 @test
 A_PROLOG_PREDICATE_CALLS_A_FUNL_RELATION()
-    assert_eq(ran_funl(Imports + "free z\nevery grand(#a, z) do write(z)\n"), "loaded\nc\nd\nsucceeded")
+    assert_eq(ran_imports("free z\nevery grand(#a, z) do write(z)\n"), "loaded\nc\nd\nsucceeded")
 
 @test
 A_PROLOG_PREDICATE_CALLS_A_FUNL_FUNCTION_AS_A_PREDICATE_ONE_ARGUMENT_LONGER()
-    assert_eq(ran_funl(Imports + "free y\nif twice_of(21, y) then write(y)\n"), "loaded\n42\nsucceeded")
-    assert_eq(ran_funl(Imports + "if twice_of(21, 42) then write(#yes)\nif twice_of(21, 41) then write(#no) else write(#right)\n"),
+    assert_eq(ran_imports("free y\nif twice_of(21, y) then write(y)\n"), "loaded\n42\nsucceeded")
+    assert_eq(ran_imports("if twice_of(21, 42) then write(#yes)\nif twice_of(21, 41) then write(#no) else write(#right)\n"),
         "loaded\nyes\nright\nsucceeded")
 
 @test
 A_FUNL_RELATION_CALLS_A_PROLOG_PREDICATE()
-    val text = Imports + "def r(x) :- either(x)\ndef s(x) :- grand(#a, x) & x != #c\nfree z\nevery r(z) do write(z)\nevery s(z) do write(z)\n"
+    val text = "def r(x) :- either(x)\ndef s(x) :- grand(#a, x) & x != #c\nfree z\nevery r(z) do write(z)\nevery s(z) do write(z)\n"
 
-    assert_eq(ran_funl(text), "loaded\nleft\nright\nd\nsucceeded")
+    assert_eq(ran_imports(text), "loaded\nleft\nright\nd\nsucceeded")
 
 @test
 ORDINARY_FUNL_CODE_CALLS_A_PROLOG_PREDICATE_AS_A_RELATION()
     // After the `if`, `z` keeps the binding its first solution made, so `findall` is over `w`.
-    assert_eq(ran_funl(Imports + "free z, w\nif either(z) then write(z)\nwrite(findall(w, either(w)))\nwrite(z)\n"),
+    assert_eq(ran_imports("free z, w\nif either(z) then write(z)\nwrite(findall(w, either(w)))\nwrite(z)\n"),
         "loaded\nleft\n[left, right]\nleft\nsucceeded")
 
-// `tests/prolog/both_ways.pl` and this program call each other in both directions: Prolog
+// A Prolog file and the FunL program importing it call each other in both directions: Prolog
 // backtracking into a FunL relation and a FunL generator, FunL backtracking into Prolog, a cut on
 // the Prolog side committing nothing of FunL's, and errors raised on one side caught on the other.
-private const BothWays: string = "import \"tests/prolog/both_ways.pl\"\n" +
-    "def edge(#a, #b)\n" +
+// `edge/2`, `upto/2`, `halve/2` and `through/1` are the FunL program's.
+private const BothWaysPl: string = "reach(X, Z) :- edge(X, Y), edge(Y, Z).\n" +
+    "multiples(N, M) :- upto(N, K), M is K * 10.\n" +
+    "first_multiple(N, M) :- multiples(N, M), !.\n" +
+    "small(X) :- member(X, [1, 2, 3]).\n" +
+    "guarded(X, R) :- catch(halve(X, R), error(E, _), R = caught(E)).\n" +
+    "boom(_) :- throw(oops(deep)).\n" +
+    "relay(R) :- catch(through(R), oops(X), R = got(X)).\n"
+
+private const BothWays: string = "def edge(#a, #b)\n" +
     "def edge(#b, #c)\n" +
     "def edge(#b, #d)\n" +
     "def upto(n) = 1 to n\n" +
@@ -52,33 +69,45 @@ private const BothWays: string = "import \"tests/prolog/both_ways.pl\"\n" +
     "def big(x) :- small(x) & x > 1\n" +
     "def pick(x, y) :- small(x) & first_multiple(x, y)\n"
 
+// The transcript of the program importing `BothWaysPl`, then `BothWays`, then `rest`.
+private ran_both_ways(rest: string) -> string
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, "both_ways.pl", BothWaysPl)
+
+    ran_funl(s"import \"$file\"\n" + BothWays + rest)
+
 @test
 A_PROLOG_PROGRAM_AND_A_FUNL_PROGRAM_CALL_EACH_OTHER_IN_BOTH_DIRECTIONS()
     // Prolog backtracks into a FunL relation, and into a FunL function for each value it generates.
-    assert_eq(ran_funl(BothWays + "free z\nevery reach(#a, z) do write(z)\nevery multiples(3, z) do write(z)\n"),
+    assert_eq(ran_both_ways("free z\nevery reach(#a, z) do write(z)\nevery multiples(3, z) do write(z)\n"),
         "c\nd\n10\n20\n30\nsucceeded")
 
     // FunL backtracks into Prolog, through a relation and from its own code.
-    assert_eq(ran_funl(BothWays + "free z\nevery big(z) do write(z)\nevery small(z) & z < 3 do write(z)\n"), "2\n3\n1\n2\nsucceeded")
+    assert_eq(ran_both_ways("free z\nevery big(z) do write(z)\nevery small(z) & z < 3 do write(z)\n"), "2\n3\n1\n2\nsucceeded")
 
     // The cut in first_multiple/2 commits it and leaves FunL's choices standing on either side of it.
-    assert_eq(ran_funl(BothWays + "free z, w\nevery (1 | 2) & first_multiple(3, z) do write(z)\nevery pick(z, w) do write(z + w)\n"),
+    assert_eq(ran_both_ways("free z, w\nevery (1 | 2) & first_multiple(3, z) do write(z)\nevery pick(z, w) do write(z + w)\n"),
         "10\n10\n11\n12\n13\nsucceeded")
 
     // A FunL error caught by Prolog, and a Prolog ball caught by Prolog across a FunL relation.
-    assert_eq(ran_funl(BothWays + "free a, b, c\nif guarded(0, a) then write(a)\nif guarded(5, b) then write(b)\nif relay(c) then write(c)\n"),
+    assert_eq(ran_both_ways("free a, b, c\nif guarded(0, a) then write(a)\nif guarded(5, b) then write(b)\nif relay(c) then write(c)\n"),
         "caught(evaluation_error(zero_divisor))\n2\ngot(deep)\nsucceeded")
 
     // The same ball with no catch on the way out ends the run naming it.
-    assert_eq(ran_funl(BothWays + "free c\nif through(c) then write(c)\n").index_of("oops(deep)").is_some(), true)
+    assert_eq(ran_both_ways("free c\nif through(c) then write(c)\n").index_of("oops(deep)").is_some(), true)
 
 @test
 A_CUT_IN_A_PREDICATE_FUNL_CALLS_COMMITS_THAT_PREDICATE_AND_NOTHING_OF_THE_CALLERS()
-    assert_eq(ran_funl(Imports + "free z\nevery (#a | #b) & first(z) do write(z)\n"), "loaded\nleft\nleft\nsucceeded")
+    assert_eq(ran_imports("free z\nevery (#a | #b) & first(z) do write(z)\n"), "loaded\nleft\nleft\nsucceeded")
 
 @test
 A_PROLOG_RECURSION_THE_INDEX_MAKES_DETERMINISTIC_RUNS_IN_CONSTANT_CONTROL_SPACE()
-    val text = Imports + "free r\nif walk(1..100000, r) then write(r)\n"
+    val d = scratch()
+    defer scrap(d)
+
+    val text = imports(d) + "free r\nif walk(1..100000, r) then write(r)\n"
     val said = roomy(() -> compiled_text(text))
 
     assert_eq(said.text, "loaded\ndone\nsucceeded")
@@ -86,20 +115,35 @@ A_PROLOG_RECURSION_THE_INDEX_MAKES_DETERMINISTIC_RUNS_IN_CONSTANT_CONTROL_SPACE(
 
 @test
 A_PROLOG_PREDICATE_CALLED_WITH_THE_WRONG_ARITY_FROM_FUNL_IS_REFUSED()
-    assert_eq(complaints(Imports + "free z\nif either(z, z) then write(z)\n"),
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(complaints(imports(d) + "free z\nif either(z, z) then write(z)\n"),
         "error 7:4 the Prolog predicate `either` has no clauses of 2 arguments\n")
 
 @test
 AN_IMPORT_OF_A_MISSING_FILE_IS_REFUSED_AT_THE_IMPORT()
-    assert_eq(complaints("import \"tests/prolog/missing.pl\"\nwrite(1)\n").index_of("error 1:8 `tests/prolog/missing.pl` cannot be read").is_some(), true)
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(complaints(s"import \"$d/missing.pl\"\nwrite(1)\n").index_of(s"error 1:8 `$d/missing.pl` cannot be read").is_some(), true)
 
 @test
 CONSULT_LOADS_A_FILE_WHILE_THE_PROGRAM_RUNS_AND_RUNS_ITS_DIRECTIVES()
-    assert_eq(ran_funl("write(#before)\nconsult(\"tests/prolog/hello.pl\")\nwrite(#after)\n"), "before\nhello\nworld\nafter\nsucceeded")
+    val d = scratch()
+    defer scrap(d)
+
+    val hello = put(d, "hello.pl", HelloPl)
+
+    assert_eq(ran_funl(s"write(#before)\nconsult(\"$hello\")\nwrite(#after)\n"), "before\nhello\nworld\nafter\nsucceeded")
 
 @test
 A_CONSULTED_FILES_PREDICATES_ARE_CALLABLE_FROM_PROLOG_LOADED_LATER()
-    val text = ":- consult(\"tests/prolog/hello.pl\").\n" +
+    val d = scratch()
+    defer scrap(d)
+
+    val hello = put(d, "hello.pl", HelloPl)
+    val text = s":- consult(\"$hello\").\n" +
         ":- greeting(X), write(X), nl.\n"
 
     assert_eq(ran_prolog(text), "hello\nworld\nhello\nsucceeded")

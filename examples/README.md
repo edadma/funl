@@ -20,4 +20,4 @@ comments in each file say what it prints.
 | `shop.funl` | the FunL half of a shared program: relations and functions that Prolog uses as predicates |
 | `shop.pl` | the Prolog half: `:- import("shop.funl")`, run with `./funl/funl examples/shop.pl` |
 | `calculator.pl` | standard Prolog with no FunL in it (a DCG, `catch/3`), run with `./prolog/prolog examples/calculator.pl` |
-| `family_tree.fl`, `family_tree.pl` | the family tree in FunL and in Prolog |
+| `family_tree.funl`, `family_tree.pl` | the family tree in FunL and in Prolog |

@@ -3,6 +3,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.{full_report, source_of}
 import sysl.buf.{Buf, buf}
+import sysl.fs.{make_temp_dir, remove_dir_all, write_text}
 import sysl.text.{Search, split, str_builder}
 
 // The harness: assemble a program into a fresh VM, run it, and answer what it said.
@@ -99,7 +100,7 @@ unplaced(said: string) -> string
 
 // Compile FunL `text` into the running VM: its chunk, or every diagnostic rendered.
 compiled_text(text: string) -> Result[usize, string]
-    val src = source_of("test.fl", text)
+    val src = source_of("test.funl", text)
     var r = full_report()
 
     compile_program(src, &r) match
@@ -115,7 +116,7 @@ ran_funl(text: string) -> string = ran(() -> compiled_text(text))
 complaints(text: string) -> string
     var v = new_vm(RoomyHeap, RoomyFloor, 2)
     val was = enter(&v)
-    val src = source_of("test.fl", text)
+    val src = source_of("test.funl", text)
     var r = full_report()
     var out = str_builder()
 
@@ -135,7 +136,7 @@ end complaints
 rendered(text: string) -> string
     var v = new_vm(RoomyHeap, RoomyFloor, 2)
     val was = enter(&v)
-    val src = source_of("test.fl", text)
+    val src = source_of("test.funl", text)
     var r = full_report()
 
     compile_program(src, &r)
@@ -180,6 +181,79 @@ prolog_complaints(text: string) -> string
     leave(was)
     out.finish()
 end prolog_complaints
+
+// -- Scratch files ------------------------------------------------------------------------------
+
+// A directory of the test's own for the files it needs on disk -- a file to consult or import, a
+// program for the driver -- made under `TMPDIR`, so nothing is ever written into the tree. The test
+// removes it with `defer scrap(d)` on the line after.
+scratch() -> string = make_temp_dir("funl-test-").unwrap()
+
+// Write `text` to `name` in scratch directory `dir`, answering the file's path.
+put(dir: string, name: string, text: string) -> string
+    val file = s"$dir/$name"
+
+    write_text(file, text).unwrap()
+    file
+
+// Remove scratch directory `dir` and everything in it.
+scrap(dir: string)
+    remove_dir_all(dir).unwrap()
+
+// A Prolog file a FunL program imports, calling FunL and called from it: `par/2` is a FunL relation
+// and `double/2` the FunL function `double/1`, both the importing program's. `walk/2` is indexed on
+// its first argument, so each step leaves no choice point. `grand/2` is at line 1 and `either/1` at
+// line 3, which the clash reports name.
+const InteropPl: string = "grand(X, Z) :- par(X, Y), par(Y, Z).\n" +
+    "twice_of(X, Y) :- double(X, Y).\n" +
+    "either(X) :- X = left ; X = right.\n" +
+    "first(X) :- either(X), !.\n" +
+    "walk([], done).\n" +
+    "walk([_|T], R) :- walk(T, R).\n" +
+    "show_term(X) :- writeq(X), nl.\n" +
+    ":- write(loaded), nl.\n"
+
+// The FunL line importing `InteropPl`, written into scratch directory `dir`.
+import_interop(dir: string) -> string
+    val file = put(dir, "interop.pl", InteropPl)
+
+    s"import \"$file\"\n"
+
+// A Prolog file other files and FunL programs define again, to be refused: `shared/1` at line 1, and
+// `counter/1` declared dynamic at line 2, column 4.
+const ClashAPl: string = "shared(a).\n:- dynamic(counter/1).\ncounter(0).\n"
+
+// `shared/1` again, at line 1.
+const ClashBPl: string = "shared(b).\n"
+
+// Clauses for `counter/1`, which `ClashAPl` declares dynamic, at line 1.
+const ClashCPl: string = "counter(5).\n"
+
+// A FunL file Prolog imports: a relation, a generating function and plain functions, one of them
+// reading a variable of the file's top level. `scaled` is at line 5, column 5.
+const GeometryFunl: string = "val scale = 10\n" +
+    "def side(#square, 4)\n" +
+    "def side(#triangle, 3)\n" +
+    "def upto(n) = 1 to n\n" +
+    "def scaled(n) = n * scale\n" +
+    "def halve(n) = 10 / n\n" +
+    "write(#geometry)\n"
+
+// A Prolog file importing `GeometryFunl` by a path relative to itself, and calling what it defines:
+// `side/2`, `upto/2`, `scaled/2` and `halve/2` there, the last raising on zero.
+const ShapesPl: string = ":- import(\"geometry.funl\").\n" +
+    "sides(S, N) :- side(S, N).\n" +
+    "counted(N, L) :- findall(K, upto(N, K), L).\n" +
+    "area(N, A) :- scaled(N, A).\n" +
+    "guarded(X, R) :- catch(halve(X, R), error(E, _), R = caught(E)).\n"
+
+// Write `GeometryFunl` and `ShapesPl` into scratch directory `dir`, answering the path of the latter.
+put_shapes(dir: string) -> string
+    put(dir, "geometry.funl", GeometryFunl)
+    put(dir, "shapes.pl", ShapesPl)
+
+// Two greetings, written as the file loads.
+const HelloPl: string = "greeting(hello).\ngreeting(world).\n:- forall(greeting(G), (write(G), nl)).\n"
 
 // -- Reasons files ------------------------------------------------------------------------------
 

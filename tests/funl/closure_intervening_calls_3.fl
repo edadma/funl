@@ -1,8 +1,0 @@
-def f( a )
-  def g( b ) = a + b
-
-  h( g, 4 )
-
-def h(fn, x) = fn( x )
-
-write( f(3) )

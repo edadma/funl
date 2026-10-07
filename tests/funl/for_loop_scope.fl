@@ -1,6 +1,0 @@
-val a = 123
-
-for a <- 1..3
-  write( a )
-
-write( a )

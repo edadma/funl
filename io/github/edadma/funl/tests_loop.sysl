@@ -23,32 +23,31 @@ REPEAT_RUNS_ITS_BODY_UNTIL_A_BREAK()
 
 @test
 BREAK_LEAVES_THE_INNERMOST_LOOP_AND_A_LABELLED_BREAK_THE_LOOP_OF_THAT_NAME()
-    val pairs = "1, 1\n1, 2\n2, 1\n2, 2\n3, 1\n4, 1\n4, 2\n"
+    // The inner loop stops where `j` reaches `i`, and the outer one at the first turn with `i` at 4.
+    val body = "    if j == i then break\n    if i == 4 then break outer\n    write( i, j )\n"
+    val pairs = "2, 1\n3, 1\n3, 2\nsucceeded"
 
-    assert_eq(ran_funl("var i\nvar j\n\nouter: every i = 1 to 10\n  every j = 1 to 2\n    if 3 div i and j == 2 then break\n    if 5 div i then break outer\n\n    write( i, j )\n"),
-        pairs + "succeeded")
-    assert_eq(ran_funl("var i = 0\nvar j\n\nouter: while i++ < 10\n  j = 0\n\n  while j++ < 2\n    if 3 div i and j == 2 then break\n    if 5 div i then break outer\n\n    write( i, j )\n"),
-        pairs + "succeeded")
-    assert_eq(ran_funl("var i = 0\nvar j\n\nouter: repeat\n  if not i++ < 10 then break\n  j = 0\n\n  repeat\n    if j++ >= 2 then break\n    if 3 div i and j == 2 then break\n    if 5 div i then break outer\n\n    write( i, j )\n"),
-        pairs + "succeeded")
+    assert_eq(ran_funl("var i\nvar j\nouter: every i = 1 to 5\n  every j = 1 to 3\n" + body), pairs)
+    assert_eq(ran_funl("var i = 0\nvar j\nouter: while i++ < 5\n  j = 0\n  while j++ < 3\n" + body), pairs)
+    assert_eq(ran_funl("var i = 0\nvar j\nouter: repeat\n  if i++ == 5 then break\n  j = 0\n  repeat\n    if j++ == 3 then break\n" + body), pairs)
 
 @test
 CONTINUE_STARTS_THE_NEXT_TURN_OF_THE_INNERMOST_LOOP_OR_OF_THE_LOOP_IT_NAMES()
-    val pairs = "1, 1\n1, 2\n2, 1\n2, 2\n3, 1\n4, 1\n4, 2\n6, 1\n7, 1\n7, 2\n8, 1\n8, 2\n9, 1\n"
+    // The inner loop skips the turn where `j` is `i`, and the outer one the rest of the turn with `i`
+    // at 4.
+    val body = "    if j == i then continue\n    if i == 4 then continue outer\n    write( i, j )\n"
+    val pairs = "1, 2\n1, 3\n2, 1\n2, 3\n3, 1\n3, 2\n5, 1\n5, 2\n5, 3\nsucceeded"
 
-    assert_eq(ran_funl("var i\nvar j\n\nouter: every i = 1 to 10\n  every j = 1 to 2\n    if 3 div i and j == 2 then continue\n    if 5 div i then continue outer\n\n    write( i, j )\n"),
-        pairs + "succeeded")
-    assert_eq(ran_funl("var i = 0\nvar j\n\nouter: while i++ < 10\n  j = 0\n\n  while j++ < 2\n    if 3 div i and j == 2 then continue\n    if 5 div i then continue outer\n\n    write( i, j )\n"),
-        pairs + "succeeded")
-    assert_eq(ran_funl("var i = 0\nvar j\n\nouter: repeat\n  if not i++ < 10 then break\n  j = 0\n\n  repeat\n    if j++ >= 2 then break\n    if 3 div i and j == 2 then continue\n    if 5 div i then continue outer\n\n    write( i, j )\n"),
-        pairs + "succeeded")
+    assert_eq(ran_funl("var i\nvar j\nouter: every i = 1 to 5\n  every j = 1 to 3\n" + body), pairs)
+    assert_eq(ran_funl("var i = 0\nvar j\nouter: while i++ < 5\n  j = 0\n  while j++ < 3\n" + body), pairs)
+    assert_eq(ran_funl("var i = 0\nvar j\nouter: repeat\n  if i++ == 5 then break\n  j = 0\n  repeat\n    if j++ == 3 then break\n" + body), pairs)
     assert_eq(ran_funl("outer: for i <- 1..3, j <- 1..3\n  if j > i then continue outer\n  write( i, j )\n"),
         "1, 1\n2, 1\n2, 2\n3, 1\n3, 2\n3, 3\nsucceeded")
 
 @test
 A_BREAK_WITH_A_VALUE_IS_THE_LOOPS_VALUE_AND_A_BARE_ONE_GIVES_UNIT()
-    assert_eq(ran_funl("val cr =\n  for d <- 1..100\n    if d*d >= 12 then break (d)\n\nwrite( cr )\nwrite( (for x <- [1, 2, 3] do if x == 2 then break) )\n"),
-        "4\n()\nsucceeded")
+    assert_eq(ran_funl("val long =\n  for w <- ['ox', 'horse', 'cat']\n    if w.length > 3 then break (w)\n\nwrite( long )\nwrite( (for x <- [1, 2, 3] do if x == 2 then break) )\n"),
+        "horse\n()\nsucceeded")
 
 @test
 RETURN_LEAVES_EVERY_LOOP_AROUND_IT()
@@ -57,9 +56,10 @@ RETURN_LEAVES_EVERY_LOOP_AROUND_IT()
 
 @test
 A_GENERATING_FUNCTION_YIELDS_FROM_A_LOOP_AND_BREAKS_OUT_OF_IT()
-    val text = "def divisors( n )\n  val cr =\n    for d <- 1..n\n      if d*d >= n then break (d)\n      if d div n then yield d\n\n  if cr*cr == n then yield cr\n\nevery write( divisors(12) )\nevery write( divisors(16) )\n"
+    // The squares below `n`, then the first root whose square reaches it, which the loop breaks with.
+    val text = "def squares_below( n )\n  val root =\n    for r <- 1..n\n      if r * r >= n then break (r)\n      yield r * r\n\n  yield root\n\nevery write( squares_below(10) )\nevery write( squares_below(9) )\n"
 
-    assert_eq(ran_funl(text), "1\n2\n3\n1\n2\n4\nsucceeded")
+    assert_eq(ran_funl(text), "1\n4\n9\n4\n1\n4\n3\nsucceeded")
     assert_eq(ran_funl("def evens( n )\n  for k <- 1..n if 2 div k do yield k\n\nevery write( evens(6) )\n"), "2\n4\n6\nsucceeded")
 
 @test

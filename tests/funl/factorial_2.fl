@@ -1,7 +1,0 @@
-def factorial( n )
-  var i = 1
-
-  every i *= 1 to n
-  i
-
-write( factorial(5) )

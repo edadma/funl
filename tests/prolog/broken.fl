@@ -1,3 +1,0 @@
-;; Read by tests_prolog_import.sysl through tests/prolog/shapes_broken.pl: FunL the parser refuses.
-
-def f(x) = )
