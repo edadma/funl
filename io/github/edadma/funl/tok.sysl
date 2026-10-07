@@ -315,6 +315,21 @@ power(t: Tok) -> Power
         MinusMinus -> left_assoc(ApplyPower)
         _ -> left_assoc(0)
 
+// Whether a line ending in this token has not finished its statement: an infix operator still owes
+// its right operand, so the next line continues the statement. Assignment through an operator and
+// reversible assignment `<-` count; the tokens that open a block when they end a line (`=`, `->`,
+// `?`, `:-`) do not, and nor do the postfix `++` and `--`, or `..`, which ends the endless range
+// `1..`.
+continues_line(t: Tok) -> bool
+    t match
+        Or | And | Bar | Amp | Tilde -> true
+        EqEq | BangEq | Less | LessEq | Greater | GreaterEq | In | NotIn -> true
+        Colon | To | Until | By | DotDotLess | DotDotPlus -> true
+        Plus | Minus | Star | Slash | SlashSlash | Backslash | Percent | Mod | Div | Caret -> true
+        LeftArrow | QuestionEq -> true
+        OpEq(_) -> true
+        _ -> false
+
 // The arrow of a lambda: below everything, so a lambda's body reaches as far right as it can.
 const ArrowPower: u16 = 5
 

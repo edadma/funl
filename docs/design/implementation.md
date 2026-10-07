@@ -114,7 +114,10 @@ about.
 - **A parse error is a node**, so one pass reports every mistake in a file through a `Report`.
 - **Indentation is `layout`'s**, Python-style off-side lines, with brackets suspending it. The tokens
   nominated to open a block when they end a line are `->`, `=`, `then`, `else`, `do`, `?` and `:-`,
-  so a lambda or a scan written as an argument can still have an indented body.
+  so a lambda or a scan written as an argument can still have an indented body. **A line ending in an
+  infix operator continues onto the next**, which is indented deeper than the line the statement
+  began on and opens and closes nothing (`layout`'s `continues`), so n-queens' condition runs over
+  two lines with no bracket; `..`, `++` and `--` end a line as postfix operators and continue nothing.
 - **The binding-power ladder**, lowest first: assignment forms (`=`, `<-`, `?=`,
   `+=` …) · scanning `?` · `or` · `and` · `not` · comparison, `in`, `is` · alternation `|` ·
   conjunction `&` · `fail` / `break` / `return` / `yield` · cons `:` (right) · ranges `..` and `to` ·
