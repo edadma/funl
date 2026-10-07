@@ -4,3 +4,4 @@ module io.github.edadma.funl
 // some. Each file registers its own.
 install_natives(v: *Vm)
     install_io(v)
+    install_predef(v)

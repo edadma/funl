@@ -1,0 +1,215 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Definitions: clauses, their guards, `where`, and rule bodies.
+//
+// **What follows a head says which kind of clause it is**: nothing for a fact, `:-` for a rule, and
+// for a function `= body`, a guard `| condition = body`, an indented block of guards, or an indented
+// block that is the body. A function clause may end in `where`, on its line or indented under it.
+
+// What follows `def`: one clause on the line, or an indented block of them.
+definition(p: *Parser, clauses: *Buf[Clause])
+    if !p.accept(Indent)
+        clause(p, clauses)
+        return
+
+    loop
+        while p.accept(Newline)
+            ()
+
+        if p.accept(Dedent) || p.peek_tok().is_none() then return
+
+        clause(p, clauses)
+
+        if p.at_tok(Newline) || p.at_tok(Dedent) then continue
+
+        p.fail_here("the end of the clause")
+        p.skip_line()
+end definition
+
+// `name(args)`, then what makes it a fact, a rule or a function clause.
+private clause(p: *Parser, clauses: *Buf[Clause])
+    val first = p.toks.peek() match
+        Some(t) -> t
+        None ->
+            p.fail_here("the name being defined")
+            return
+
+    val name = first.value match
+        Name(n) -> n
+        _ ->
+            p.fail_here("the name being defined")
+            p.skip_line()
+            return
+
+    p.take()
+
+    val params = if p.accept(LParen) then arguments(p) else buf()
+    val head = first.span.to(p.toks.previous())
+
+    if p.accept(Turnstile)
+        clauses.push(Clause(name, head, params, Rule(rule_body(p))))
+        return
+
+    fn_body(p) match
+        Some(b) -> clauses.push(Clause(name, head, params, FunctionC(b)))
+        None -> clauses.push(Clause(name, head, params, Fact))
+end clause
+
+// A function clause's guards and `where`, the head already read; `None` when nothing that makes a
+// function clause follows, which is a fact.
+fn_body(p: *Parser) -> Option[FnBody]
+    var guards: Buf[Guard] = buf()
+    var wheres: Buf[Stmt] = buf()
+
+    if p.accept(Equals)
+        guards.push(Guard(None, body_expr(p)))
+    elif p.accept(Bar)
+        guards.push(guard(p))
+    elif p.at_tok(Indent) && p.next_is(Bar)
+        p.take()
+
+        val block_wheres = guard_block(p, &guards)
+
+        return Some(FnBody(guards, block_wheres))
+    elif p.at_tok(Indent)
+        guards.push(Guard(None, branch(p)))
+    else
+        return None
+
+    if p.accept(Where)
+        wheres = where_part(p)
+    elif p.at_tok(Indent) && p.next_is(Where)
+        p.take()
+        p.take()
+        wheres = where_part(p)
+        p.accept(Newline)
+
+        if !p.accept(Dedent) then p.fail_here("the end of the `where`")
+
+    Some(FnBody(guards, wheres))
+end fn_body
+
+// `condition = body`, the `|` already read. `otherwise` is a condition that always holds.
+private guard(p: *Parser) -> Guard
+    val cond = parse_expr(p, 0)
+
+    if !p.expect(Equals, "`=` and the body this guard chooses") then return Guard(Some(cond), expr(BadE, cond.span))
+
+    Guard(Some(cond), body_expr(p))
+
+// The indented lines of guards, the `Indent` already taken, through the `Dedent`; a `where` line
+// may close them, and what it binds is the answer.
+private guard_block(p: *Parser, guards: *Buf[Guard]) -> Buf[Stmt]
+    var wheres: Buf[Stmt] = buf()
+
+    loop
+        if p.accept(Bar)
+            guards.push(guard(p))
+        elif p.accept(Where)
+            wheres = where_part(p)
+        else
+            p.fail_here("a guard, `| condition = body`")
+            p.skip_line()
+
+        if p.accept(Newline) then continue
+
+        if p.accept(Dedent) then break
+
+        p.fail_here("the end of the line")
+        p.skip_line()
+
+        if p.accept(Newline) then continue
+
+        p.accept(Dedent)
+        break
+
+    wheres
+end guard_block
+
+// What follows `where`: one binding on the line, or an indented block of them.
+private where_part(p: *Parser) -> Buf[Stmt]
+    var out: Buf[Stmt] = buf()
+
+    if !p.accept(Indent)
+        out.push(binding(p))
+        return out
+
+    loop
+        while p.accept(Newline)
+            ()
+
+        if p.accept(Dedent) || p.peek_tok().is_none() then break
+
+        out.push(binding(p))
+
+        if p.at_tok(Newline) || p.at_tok(Dedent) then continue
+
+        p.fail_here("the end of the line")
+        p.skip_line()
+
+    out
+end where_part
+
+// One `where` binding: a function clause `name(params) ...`, or `pattern = e`.
+private binding(p: *Parser) -> Stmt
+    val first = p.toks.peek() match
+        Some(t) -> t
+        None ->
+            p.fail_here("a definition")
+            return ExprS(expr(BadE, p.toks.here()))
+
+    first.value match
+        Name(n) ->
+            if p.next_is(LParen)
+                p.take()
+                p.take()
+
+                val params = arguments(p)
+                val head = first.span.to(p.toks.previous())
+                var clauses: Buf[Clause] = buf()
+
+                fn_body(p) match
+                    Some(b) -> clauses.push(Clause(n, head, params, FunctionC(b)))
+                    None -> p.fail_here("`=` or a guard")
+
+                return DefS(clauses)
+        _ -> ()
+
+    val pat = parse_expr(p, 0)
+
+    if !p.expect(Equals, "`=`") then return ValS(pat, expr(BadE, pat.span))
+
+    ValS(pat, body_expr(p))
+end binding
+
+// What follows a `=`: an expression on the line, or an indented block.
+body_expr(p: *Parser) -> &Expr = if p.at_tok(Indent) then branch(p) else parse_expr(p, 0)
+
+// A rule's body: one goal on the line, or an indented block whose lines are its conjuncts.
+private rule_body(p: *Parser) -> &Expr
+    if !p.accept(Indent) then return parse_expr(p, 0)
+
+    var body = parse_expr(p, 0)
+
+    loop
+        if p.accept(Newline)
+            val next = parse_expr(p, 0)
+
+            body = expr(Conj(body, next), body.span.to(next.span))
+            continue
+
+        if p.accept(Dedent) then break
+
+        p.fail_here("the end of the line")
+        p.skip_line()
+
+        if p.at_tok(Newline) then continue
+
+        p.accept(Dedent)
+        break
+
+    body
+end rule_body

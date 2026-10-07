@@ -40,14 +40,13 @@ compile_program(src: Source, report: *Report) -> Option[usize]
 end compile_program
 
 private compiled(res: *Resolved) -> Result[usize, string]
-    for i in 0..<res.rels.len()
-        compile_relation(res, res.rels.at(i), res.scopes.at(i))?
+    for r in res.rels.view()
+        if r.function then compile_function(res, r)? else compile_relation(res, r)?
 
-    var top = res.top
     var e = emit("main")
-    val c = Ctx(res, &top)
+    val c = Ctx(res, res.top)
 
-    e.op(Frame(top.count()))
+    e.op(Frame(res.scopes.at(res.top).count()))
 
     for s in res.top_stmts.view()
         compile_stmt(&e, c, s)?
@@ -56,13 +55,13 @@ private compiled(res: *Resolved) -> Result[usize, string]
     finish(e)
 end compiled
 
-private compile_relation(res: *Resolved, r: Rel, scopes: Buf[Scope]) -> Result[unit, string]
+private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
     var e = emit(r.name)
 
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
-        var sc = scopes.at(i)
-        val c = Ctx(res, &sc)
+        var sc = res.scopes.at(r.scopes.at(i))
+        val c = Ctx(res, r.scopes.at(i))
         val last = i + 1 == r.clauses.len()
         val next = e.label()
 
@@ -124,14 +123,9 @@ end head_arg
 private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
         CallE(n, _, args) ->
-            c.res.rel(n) match
-                Some(r) ->
-                    for a in args.view()
-                        compile_value(e, c, a)?
-
-                    e.op(TailCall(r.chunk, args.len()))
-                    e.op(Return)
-                None -> returning(e, c, x)?
+            c.res.meaning(c.sc, n) match
+                Relation(_) -> call_named(e, c, n, args, true)?
+                _ -> returning(e, c, x)?
         Conj(a, b) ->
             compile_value(e, c, a)?
             e.op(Pop)

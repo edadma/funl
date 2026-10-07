@@ -84,17 +84,13 @@ A_DEFINITION_MIXING_A_FUNCTION_CLAUSE_WITH_RELATION_CLAUSES_IS_REFUSED_NAMING_BO
         "note 1:5 `p` is first defined here, by a fact\n")
 
 @test
-A_FUNCTION_IS_REFUSED_UNTIL_FUNCTIONS_ARE_COMPILED()
-    assert_eq(complaints("def f(x) = x\n"), "error 1:5 `f` is a function, and this build compiles relations only\n")
-
-@test
 CLAUSES_OF_ONE_DEFINITION_MUST_AGREE_ON_ARITY()
     assert_eq(complaints("def p(#a)\ndef p(#a, #b)\n"), "error 2:5 `p` was defined with 1 argument, and this clause has 2\n")
 
 @test
 A_CALL_WITH_THE_WRONG_NUMBER_OF_ARGUMENTS_IS_REFUSED()
-    assert_eq(complaints("def p(#a)\nwrite(#a, #b)\nif p(#a, #b) then write(#a)\n"),
-        "error 2:1 `write` takes 1 argument, and this call gives 2\n" +
+    assert_eq(complaints("def p(#a)\nabs(#a, #b)\nif p(#a, #b) then write(#a)\n"),
+        "error 2:1 `abs` takes 1 argument, and this call gives 2\n" +
         "error 3:4 `p` takes 1 argument, and this call gives 2\n")
 
 @test

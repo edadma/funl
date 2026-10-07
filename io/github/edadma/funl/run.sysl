@@ -1,5 +1,7 @@
 module io.github.edadma.funl
 
+import sysl.buf.Buf
+
 // The instruction loop.
 //
 // **There is no host recursion anywhere in it.** A call moves `ip` into a new heap frame, a
@@ -29,6 +31,7 @@ run(v: *Vm, chunk: usize) -> Outcome
         Ok(f) -> f
         Err(e) -> return Faulted(e)
 
+    v.globals = v.frame
     v.code = chunk
     v.ip = 0
     v.mark = NoMark
@@ -177,7 +180,93 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             v.stack.truncate(top - n)
             v.stack.push(Tuple(t))
             Ok(Next)
+        Arith(o) ->
+            val b = pop(v)?
+            val a = pop(v)?
+
+            arith(o, a, b)? match
+                Some(x) ->
+                    v.stack.push(x)
+                    Ok(Next)
+                None -> Ok(Fails)
+        Negate ->
+            val a = pop(v)?
+
+            v.stack.push(negate(a)?)
+            Ok(Next)
+        FailIfFalse ->
+            val top = v.stack.len()
+
+            if top == 0 then return Err("the operand stack is empty")
+
+            deref(v.stack.at(top - 1)) match
+                Bool(b) -> Ok(fails_if(b))
+                _ -> Ok(Next)
+        Dup ->
+            val top = v.stack.len()
+
+            if top == 0 then return Err("the operand stack is empty")
+
+            v.stack.push(v.stack.at(top - 1))
+            Ok(Next)
+        LoadArg(i) ->
+            val args = v.frame.args
+
+            if i >= args.len() then return Err(s"argument $i of a call that passed ${args.len()}")
+
+            v.stack.push(args.at(i))
+            Ok(Next)
+        StoreSlot(slot) ->
+            val x = pop(v)?
+
+            set_slot(v.frame, slot, x)?
+            Ok(Next)
+        MakeClosure(target, up) ->
+            make_closure(v, target, up)?
+            Ok(Next)
+        CallFn(target, argc, up) ->
+            call_fn(v, target, argc, up)?
+            Ok(Next)
+        TailCallFn(target, argc, up) ->
+            tail_call_fn(v, target, argc, up)?
+            Ok(Next)
+        CallValue(argc) ->
+            call_value(v, argc, false)?
+            Ok(Next)
+        TailCallValue(argc) ->
+            call_value(v, argc, true)?
+            Ok(Next)
+        MatchTuple(n) ->
+            deref(pop(v)?) match
+                Tuple(t) ->
+                    if t.items.len() != n then return Ok(Fails)
+
+                    push_parts(v, t.items)
+                    Ok(Next)
+                Var(_) -> Err("instantiation error: a tuple pattern was given an unbound variable")
+                _ -> Ok(Fails)
+        MatchCompound(functor, n) ->
+            deref(pop(v)?) match
+                Compound(c) ->
+                    if c.functor != functor || c.args.len() != n then return Ok(Fails)
+
+                    push_parts(v, c.args)
+                    Ok(Next)
+                Var(_) -> Err(s"instantiation error: a pattern '${atom_name(functor)}(...)' was given an unbound variable")
+                _ -> Ok(Fails)
+        NoMatch ->
+            no_match(v)?
+            Ok(Next)
 end execute
+
+// Push a tuple's items or a term's arguments, the last first, so the first is on top for the
+// pattern that matches it.
+private push_parts(v: *Vm, parts: Buf[Value])
+    var i = parts.len()
+
+    while i > 0
+        i -= 1
+        v.stack.push(parts.at(i))
 
 // `TestEq` and `TestNe`: pop `b` and `a`, and push `b` when their equality is `want`.
 private compare(v: *Vm, want: bool, op: string) -> Result[Flow, string]
@@ -196,7 +285,7 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, string]
     val n = v.natives.at(id)
     val top = v.stack.len()
 
-    if argc != n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
+    if n.arity != Variadic && argc != n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
 
     if argc > top then return Err(s"'${n.name}' wants $argc operands and the stack holds $top")
 

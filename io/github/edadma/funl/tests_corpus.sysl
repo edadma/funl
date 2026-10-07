@@ -1,0 +1,81 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.read_text
+
+// The old implementation's own programs, each a file under `tests/funl/` beside the output it must
+// print: `<name>.fl` and `<name>.out`. Each runs on both heaps and must print exactly that and
+// succeed.
+
+private corpus(name: string)
+    val dir = "tests/funl/"
+
+    val text = read_text(dir + name + ".fl") match
+        Ok(t) -> t
+        Err(e) -> panic(s"cannot read $dir$name.fl (run the suite from the project root): $e")
+
+    val want = read_text(dir + name + ".out") match
+        Ok(t) -> t
+        Err(e) -> panic(s"cannot read $dir$name.out: $e")
+
+    assert_eq(ran_funl(text), want + "succeeded")
+
+@test
+ANONYMOUS_FUNCTIONS()
+    corpus("anonymous_functions")
+
+@test
+ANONYMOUS_FUNCTIONS_CURRYING_1()
+    corpus("currying_1")
+
+@test
+ANONYMOUS_FUNCTIONS_CURRYING_2()
+    corpus("currying_2")
+
+@test
+CLOSURE_SINGLE_PARAMETER()
+    corpus("closure_single_parameter")
+
+@test
+CLOSURE_ACCESSING_AN_OUT_OF_SCOPE_PARAMETER()
+    corpus("closure_out_of_scope_parameter")
+
+@test
+CLOSURE_ACCESSING_AN_OUT_OF_SCOPE_PARAMETER_2()
+    corpus("closure_out_of_scope_parameter_2")
+
+@test
+CLOSURE_WITH_INTERVENING_FUNCTION_CALLS()
+    corpus("closure_intervening_calls")
+
+@test
+CLOSURE_WITH_INTERVENING_FUNCTION_CALLS_2()
+    corpus("closure_intervening_calls_2")
+
+@test
+CLOSURE_WITH_INTERVENING_FUNCTION_CALLS_3()
+    corpus("closure_intervening_calls_3")
+
+@test
+CLOSURE_MULTI_PARAMETER()
+    corpus("closure_multi_parameter")
+
+@test
+CLOSURE_WITH_LOCALS()
+    corpus("closure_with_locals")
+
+@test
+GCD_2()
+    corpus("gcd_2")
+
+@test
+GCD_3()
+    corpus("gcd_3")
+
+@test
+SIGN()
+    corpus("sign")
+
+@test
+FACTORIAL_1()
+    corpus("factorial_1")

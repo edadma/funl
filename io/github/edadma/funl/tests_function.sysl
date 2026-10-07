@@ -1,0 +1,354 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Functions, compiled from source and run on both heaps: clauses and committed choice, guards,
+// `where`, lambdas and closures, sections, partial function literals, tail calls, `return` -- and
+// what each refuses.
+
+// What a program said, which must have faulted with a message containing `want`.
+private faulted_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- clauses and committed choice -----------------------------------------------------------------
+
+@test
+CLAUSES_ARE_TRIED_IN_ORDER_AND_THE_FIRST_THAT_MATCHES_IS_CHOSEN()
+    val text = "def\n  f( 0 ) = #zero\n  f( 'one' ) = #string\n  f( n ) = n\nwrite( f(0), f('one'), f(7) )\n"
+
+    assert_eq(ran_funl(text), "zero, string, 7\nsucceeded")
+
+// Once a clause is chosen, failure in its body is the body's: the next clause is not tried.
+@test
+FAILURE_IN_A_CHOSEN_BODY_DOES_NOT_TRY_THE_NEXT_CLAUSE()
+    val text = "def f( 0 ) = fail\ndef f( n ) = n\nwrite( f(0) )\nwrite( f(1) )\n"
+
+    assert_eq(ran_funl(text), "1\nsucceeded")
+
+@test
+NO_CLAUSE_MATCHING_IS_AN_ERROR_NAMING_THE_FUNCTION_AND_ITS_ARGUMENTS()
+    faulted_with("def f( 0 ) = 1\nwrite( f(5) )\n", "argument match not found: no clause of 'f' matches (5)")
+
+@test
+A_NAME_WRITTEN_TWICE_IN_THE_PARAMETERS_MUST_SEE_EQUAL_ARGUMENTS()
+    val text = "def\n  same( a, a ) = #same\n  same( _, _ ) = #different\nwrite( same(3, 3), same(3, 4), same('x', 'x') )\n"
+
+    assert_eq(ran_funl(text), "same, different, same\nsucceeded")
+
+@test
+PARAMETERS_MATCH_TUPLES_TERMS_ALTERNATIONS_AND_NAMED_PATTERNS()
+    val text = "def\n" +
+        "  f( (a, b) ) = a + b\n" +
+        "  f( point(x, y) ) = x * y\n" +
+        "  f( #a | #b ) = #ab\n" +
+        "  f( t@(_, _, _) ) = t\n" +
+        "  f( _ ) = #other\n" +
+        "def p( point(2, 5) )\n" +
+        "free q\n" +
+        "if p( q ) then write( f(q) )\n" +
+        "write( f((3, 4)), f(#b), f((1, 2, 3)), f(#c), f((1, 2, 3, 4)) )\n"
+
+    assert_eq(ran_funl(text), "10\n7, ab, (1, 2, 3), other, other\nsucceeded")
+
+// One-way: a pattern inspects the argument and never binds it.
+@test
+A_PATTERN_GIVEN_AN_UNBOUND_VARIABLE_IS_AN_INSTANTIATION_ERROR()
+    faulted_with("def f( 0 ) = 1\nfree x\nwrite( f(x) )\n", "instantiation error")
+
+// -- guards and where -----------------------------------------------------------------------------
+
+@test
+GUARDS_ARE_TRIED_IN_ORDER_AND_OTHERWISE_ALWAYS_HOLDS()
+    val text = "def sign( x )\n  | x < 0 = -1\n  | x == 0 = 0\n  | otherwise = 1\nwrite( sign(-4), sign(0), sign(9) )\n"
+
+    assert_eq(ran_funl(text), "-1, 0, 1\nsucceeded")
+
+// A clause whose guards all fail is not chosen: the next clause is tried.
+@test
+A_CLAUSE_WHOSE_GUARDS_ALL_FAIL_FALLS_THROUGH_TO_THE_NEXT_CLAUSE()
+    val text = "def g( x ) | x > 5 = #big\ndef g( _ ) = #small\nwrite( g(9), g(1) )\n"
+
+    assert_eq(ran_funl(text), "big, small\nsucceeded")
+
+@test
+A_GUARD_THAT_PRODUCES_FALSE_FAILS()
+    val text = "def g( x )\n  | false = #never\n  | x == 1 = #one\ndef g( _ ) = #other\nwrite( g(1), g(2) )\n"
+
+    assert_eq(ran_funl(text), "one, other\nsucceeded")
+
+@test
+EVERY_GUARD_FAILING_IN_THE_LAST_CLAUSE_IS_NO_MATCH()
+    faulted_with("def g( x ) | x > 5 = x\nwrite( g(1) )\n", "argument match not found: no clause of 'g' matches (1)")
+
+@test
+WHERE_VALUES_ARE_SEEN_BY_THE_GUARDS_AND_WHERE_FUNCTIONS_ARE_MUTUALLY_RECURSIVE()
+    val text = "def pow( _, 0 ) = 1\n" +
+        "def pow( x, n ) | n > 0 = pow_( x, n - 1, x )\n" +
+        "  where\n" +
+        "    pow_( _, 0, v ) = v\n" +
+        "    pow_( u, n, v )\n" +
+        "      | even( n ) = pow_( u*u, n/2, v )\n" +
+        "      | otherwise = pow_( u, n - 1, u*v )\n" +
+        "    even( 0 ) = true\n" +
+        "    even( n ) = odd( n - 1 )\n" +
+        "    odd( 0 ) = fail\n" +
+        "    odd( n ) = even( n - 1 )\n" +
+        "def pow( _, _ ) = error( \"pow: negative exponent\" )\n" +
+        "def size( n )\n" +
+        "  | n < small = #small\n" +
+        "  | otherwise = #large\n" +
+        "  where\n" +
+        "    (small, _) = (10, 20)\n" +
+        "write( pow(3, 0), pow(3, 1), pow(3, 13), pow(2, 62) )\n" +
+        "write( size(4), size(40) )\n" +
+        "write( pow(2, -1) )\n"
+
+    val said = ran_funl(text)
+
+    assert(said.starts_with("1, 3, 1594323, 4611686018427387904\nsmall, large\nfault: "), said)
+    assert(said.contains("pow: negative exponent"), said)
+
+@test
+A_WHERE_ON_THE_CLAUSE_LINE_AND_A_NESTED_WHERE_BOTH_BIND()
+    val text = "def f( x ) = g( x ) where g( y ) = y + 1\n" +
+        "def pow( x, n ) = f( x, n, 1 )\n" +
+        "  where\n" +
+        "    f( _, 0, y ) = y\n" +
+        "    f( x, n, y ) = g( x, n )\n" +
+        "      where\n" +
+        "        g( x, n )\n" +
+        "          | 2 div n = g( x*x, n/2 )\n" +
+        "          | otherwise = f( x, n - 1, x*y )\n" +
+        "write( f(1), pow(2, 10) )\n"
+
+    assert_eq(ran_funl(text), "2, 1024\nsucceeded")
+
+// -- lambdas, closures, sections ------------------------------------------------------------------
+
+@test
+A_LAMBDA_CLOSES_OVER_WHAT_IT_MENTIONS_AND_OUTLIVES_THE_FRAME_IT_WAS_MADE_IN()
+    val text = "def adder( n ) = x -> x + n\n" +
+        "val add2 = adder( 2 )\n" +
+        "val add5 = adder( 5 )\n" +
+        "write( add2(1), add5(1), adder(10)(1) )\n"
+
+    assert_eq(ran_funl(text), "3, 6, 11\nsucceeded")
+
+@test
+A_LAMBDA_TAKES_A_PARENTHESIZED_LIST_OF_PATTERNS_OR_NONE()
+    val text = "val swap = (a, (b, c)) -> (c, b, a)\nval k = () -> 42\nwrite( swap(1, (2, 3)), k() )\n"
+
+    assert_eq(ran_funl(text), "(3, 2, 1), 42\nsucceeded")
+
+@test
+A_FUNCTION_IS_A_VALUE_THAT_PRINTS_AS_ITS_NAME()
+    assert_eq(ran_funl("def f( x ) = x\nwrite( f )\nwrite( x -> x )\n"), "<function f>\n<function lambda>\nsucceeded")
+
+@test
+CALLING_A_FUNCTION_VALUE_WITH_THE_WRONG_NUMBER_OF_ARGUMENTS_IS_AN_ERROR()
+    faulted_with("val f = (a, b) -> a\nwrite( f(1) )\n", "'lambda' takes 2 arguments and was given 1")
+
+@test
+CALLING_WHAT_IS_NOT_A_FUNCTION_IS_AN_ERROR()
+    faulted_with("val x = 3\nwrite( x(1) )\n", "the integer 3 is not a function, and cannot be called")
+
+@test
+SECTIONS_FIX_ONE_SIDE_OF_AN_OPERATOR_AND_A_BARE_OPERATOR_IS_A_FUNCTION_OF_TWO()
+    val text = "val n = 6\n" +
+        "write( (+)(1, 2), (+ 1)(2), (2 *)(5), (10 -)(3), (-)(5, 2), (- 1) )\n" +
+        "write( (< n)(3), (div n)(3), (== 2)(2), (n >)(1) )\n" +
+        "write( (< n)(9) )\n"
+
+    assert_eq(ran_funl(text), "3, 3, 10, 7, 3, -1\n6, 6, 2, 1\nsucceeded")
+
+@test
+A_BLOCK_OF_LAMBDAS_IS_A_PARTIAL_FUNCTION_WITH_COMMITTED_CHOICE()
+    val text = "val classify =\n" +
+        "  0 -> 'zero'\n" +
+        "  n | n < 0 -> 'negative'\n" +
+        "  _ -> 'positive'\n" +
+        "write( classify(0), classify(-3), classify(9) )\n" +
+        "val half =\n" +
+        "  n | 2 div n -> n / 2\n" +
+        "write( half(10) )\n" +
+        "write( half(3) )\n"
+
+    val said = ran_funl(text)
+
+    assert(said.starts_with("zero, negative, positive\n5\nfault: "), said)
+    assert(said.contains("argument match not found: no clause of 'lambda' matches (3)"), said)
+
+// -- generators and return ------------------------------------------------------------------------
+
+@test
+A_BODY_THAT_GENERATES_PASSES_EVERY_VALUE_THROUGH_AND_RETURN_KEEPS_THE_FIRST()
+    val text = "def both() = 1 | 2\n" +
+        "def first()\n" +
+        "  return (1 | 2)\n" +
+        "every write( 10 + both() )\n" +
+        "every write( first() )\n"
+
+    assert_eq(ran_funl(text), "11\n12\n1\nsucceeded")
+
+@test
+RETURN_LEAVES_THE_FUNCTION_FROM_THE_MIDDLE_OF_A_BLOCK_OR_AN_EXPRESSION()
+    val text = "def f( x )\n" +
+        "  if x > 0 then return #positive\n" +
+        "  #other\n" +
+        "def g( x ) = 100 + (if x then return #early else 1)\n" +
+        "def h()\n" +
+        "  return\n" +
+        "write( f(1), f(0), g(true), g(false), h() )\n"
+
+    assert_eq(ran_funl(text), "positive, other, early, 101, ()\nsucceeded")
+
+// -- tail calls -----------------------------------------------------------------------------------
+
+// Each loop runs far more turns than the stressed heap could hold frames for, so a frame that was
+// not reused would exhaust it.
+@test
+A_TAIL_CALL_REUSES_THE_FRAME_WHETHER_THE_CALLEE_IS_TOP_LEVEL_LOCAL_OR_A_VALUE()
+    val text = "def loop( n, acc ) = if n == 0 then acc else loop( n - 1, acc + n )\n" +
+        "def count( n ) = go( n, 0 )\n" +
+        "  where\n" +
+        "    go( 0, acc ) = acc\n" +
+        "    go( k, acc ) = go( k - 1, acc + 1 )\n" +
+        "def apply( f, n ) = if n == 0 then #done else f( f, n - 1 )\n" +
+        "write( loop(3000, 0), count(3000), apply(apply, 3000) )\n"
+
+    assert_eq(ran_funl(text), "4501500, 3000, done\nsucceeded")
+
+// The premise of the test above: the same depth of calls that are not in tail position is more
+// frames than the stressed heap holds.
+@test
+THE_STRESSED_HEAP_CANNOT_HOLD_THREE_THOUSAND_LIVE_FRAMES()
+    val said = stressed(() -> compiled_text("def sum( n ) = if n == 0 then 0 else n + sum( n - 1 )\nwrite( sum(3000) )\n")).text
+
+    assert(said.contains("heap exhausted"), said)
+
+// A function value made in a frame keeps that frame from being reused: `h` tail-calls `apply` with
+// `g`, whose frame is `h`'s.
+@test
+A_CAPTURED_FRAME_IS_NOT_REUSED_BY_A_TAIL_CALL()
+    val text = "def h( a )\n" +
+        "  def g( b ) = a + b\n" +
+        "  apply( g, 4 )\n" +
+        "def apply( f, x ) = f( x )\n" +
+        "write( h(3) )\n"
+
+    assert_eq(ran_funl(text), "7\nsucceeded")
+
+// -- conditions, arithmetic, juxtaposition --------------------------------------------------------
+
+@test
+FALSE_FAILS_A_CONDITION_AND_IS_AN_ORDINARY_VALUE_ELSEWHERE()
+    val text = "if false then write( #wrong ) else write( #right )\n" +
+        "write( false, true )\n" +
+        "if not false then write( #not )\n" +
+        "if true and false then write( #wrong )\n" +
+        "if false or true then write( #or )\n" +
+        "if 1 == 1 then write( #yes )\n"
+
+    assert_eq(ran_funl(text), "right\nfalse, true\nnot\nor\nyes\nsucceeded")
+
+@test
+IF_ELIF_ELSE_AND_AN_INDENTED_BLOCK_NEEDS_NO_THEN()
+    val text = "def f( n ) = if n == 1 then 'a' elif n == 2 then 'b' else 'c'\n" +
+        "write( f(1), f(2), f(3) )\n" +
+        "if 3 < 5\n" +
+        "  write( 1 )\n" +
+        "elif 4 < 5\n" +
+        "  write( 2 )\n" +
+        "write( 3 )\n"
+
+    assert_eq(ran_funl(text), "a, b, c\n1\n3\nsucceeded")
+
+@test
+ARITHMETIC_ON_INTEGERS_AND_ORDERINGS_THAT_CHAIN()
+    val text = "write( 1 + 2 * 3, (1 + 2) * 3, 2 ^ 3 ^ 2, -2 ^ 2, 7 \\ 2, -7 \\ 2, 7 % -2, 7 mod -2 )\n" +
+        "write( 1 < 2 < 3, 'a' < 'b', 'ab' + 1 )\n" +
+        "write( 3 < 2 )\n" +
+        "write( 3 div 12, 12 / 4 )\n" +
+        "write( 5 div 12 )\n"
+
+    assert_eq(ran_funl(text), "7, 9, 512, -4, 3, -4, 1, -1\n3, b, ab1\n12, 3\nsucceeded")
+
+@test
+A_RESULT_THAT_IS_NOT_A_64_BIT_INTEGER_IS_AN_ERROR()
+    faulted_with("write( 7 / 2 )\n", "7 / 2 is not a whole number")
+    faulted_with("write( 9223372036854775807 + 1 )\n", "does not fit in 64 bits")
+    faulted_with("write( 2 ^ 64 )\n", "2 ^ 64 does not fit in 64 bits")
+    faulted_with("write( 1 \\ 0 )\n", "divides by zero")
+    faulted_with("write( #a + 1 )\n", "'+' wants numbers and was given a")
+    faulted_with("write( 1 < 'a' )\n", "'<' cannot compare the integer 1 with the string 'a'")
+
+@test
+A_NUMBER_TOUCHING_A_NAME_OR_A_PARENTHESIS_MULTIPLIES_AND_A_SPACE_MAKES_IT_A_CALL()
+    val text = "val n = 5\nwrite( 2n, 3(n + 1), 2n - 1 )\nwrite( 2 (n) )\n"
+
+    val said = ran_funl(text)
+
+    assert(said.starts_with("10, 18, 9\nfault: "), said)
+    assert(said.contains("the integer 2 is not a function"), said)
+
+@test
+BUILTINS_ABS_MIN_MAX_AND_ERROR()
+    val text = "write( abs(-3), abs(4), min(3, 1, 2), max(3, 1, 2), min('b', 'a') )\nerror( 'stop here' )\nwrite( #after )\n"
+
+    val said = ran_funl(text)
+
+    assert(said.starts_with("3, 4, 1, 3, a\nfault: "), said)
+    assert(said.contains("stop here"), said)
+
+// -- functions and relations ----------------------------------------------------------------------
+
+@test
+A_RELATION_BODY_CALLS_A_TOP_LEVEL_FUNCTION_AND_A_FUNCTION_CALLS_A_RELATION()
+    val text = "def double( x ) = 2x\n" +
+        "def twice( x, y ) :- y ~ double( x )\n" +
+        "def parent( #a, #b )\n" +
+        "def child_of( p ) = if parent( p, c ) then c\n" +
+        "free y, c\n" +
+        "if twice( 3, y ) then write( y )\n" +
+        "write( child_of(#a) )\n"
+
+    assert_eq(ran_funl(text), "6\nb\nsucceeded")
+
+// -- what the resolver refuses --------------------------------------------------------------------
+
+@test
+A_CALL_OF_A_FUNCTION_WITH_THE_WRONG_NUMBER_OF_ARGUMENTS_IS_REFUSED()
+    assert_eq(complaints("def f( x ) = x\nwrite( f(1, 2) )\n"), "error 2:8 `f` takes 1 argument, and this call gives 2\n")
+
+@test
+A_NAME_A_FUNCTION_NEVER_DECLARED_IS_REFUSED()
+    assert_eq(complaints("def f( x ) = x + y\n"), "error 1:18 `y` is not defined\n")
+
+@test
+RETURN_OUTSIDE_A_FUNCTION_IS_REFUSED()
+    assert_eq(complaints("return 1\n"), "error 1:1 `return` is written inside a function\n")
+
+@test
+A_RELATION_INSIDE_A_FUNCTION_IS_REFUSED()
+    assert_eq(complaints("def f( x )\n  def p( #a )\n  x\n"),
+        "error 2:7 `p` is a relation, and a relation is defined at the top level\n")
+
+@test
+A_NAMED_PATTERN_OUTSIDE_A_PATTERN_IS_REFUSED()
+    assert_eq(complaints("val x = 1\nwrite( y@x )\n"), "error 2:8 `name@pattern` is a pattern, and this is not where one is matched\n")
+
+@test
+AN_OPERATOR_WITH_NO_RIGHT_OPERAND_OUTSIDE_A_SECTION_IS_REFUSED()
+    assert_eq(complaints("val x = 1\nwrite( x + )\n"), "error 2:8 this operator has no right operand\n")
+
+@test
+SOMETHING_THAT_CANNOT_BE_MATCHED_IS_REFUSED_AS_A_PARAMETER()
+    assert_eq(complaints("def f( x, y + 1 ) = x\n"), "error 1:11 this cannot be matched against anything\n")
+
+@test
+A_VAL_CANNOT_NAME_A_TOP_LEVEL_FUNCTION()
+    assert_eq(complaints("def f( x ) = x\nval f = 1\n"), "error 2:5 `f` is already a function, and cannot also be a variable\n")

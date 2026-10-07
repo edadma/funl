@@ -3,11 +3,15 @@ module io.github.edadma.funl
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
 
-// Expressions: the `pratt` callbacks, and the prefix forms -- `if`, `every`, `not` -- that read as
-// far right as they can.
+// Expressions: the `pratt` callbacks, and the prefix forms -- `if`, `every`, `not`, `return`,
+// prefix `-` -- that read as far right as they can.
 //
 // **A token that cannot begin an expression is refused before `pratt` takes it**, so a missing
 // operand leaves the `)` or the end of the line where it was for the caller to find.
+//
+// **A lambda is read from the right of its arrow back**: `->` is an infix operator binding more
+// loosely than anything else, and what stood on its left becomes the parameters -- a name or a
+// pattern, a parenthesized list of them, and after a bare `|` a guard.
 
 // Deep enough for any program a person writes, shallow enough that the sysl stack holds it.
 private const MaxDepth: usize = 400
@@ -46,15 +50,36 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             if p.at_tok(LParen) then return call(p, n, t.span)
 
+            if p.accept(At)
+                val pat = parse_expr(p, JuxtPower)
+
+                return expr(AsE(n, pat), t.span.to(pat.span))
+
             expr(Ref(n), t.span)
         AtomLit(a) -> expr(AtomE(a), t.span)
-        IntLit(n) -> expr(IntE(n), t.span)
+        IntLit(n) -> number(p, n, t.span)
         StrLit(s) -> expr(StrE(s), t.span)
-        LParen ->
-            val inner = parse_expr(p, 0)
+        TrueW -> expr(BoolE(true), t.span)
+        FalseW -> expr(BoolE(false), t.span)
+        Otherwise -> expr(BoolE(true), t.span)
+        FailW -> expr(FailE, t.span)
+        ReturnW ->
+            val starts = p.peek_tok() match
+                Some(k) -> starts_expr(k)
+                None -> false
 
-            p.expect(RParen, "`)`")
-            inner
+            if !starts then return expr(ReturnE(None), t.span)
+
+            val e = parse_expr(p, ReturnPower)
+
+            expr(ReturnE(Some(e)), t.span.to(e.span))
+        Minus ->
+            val e = parse_expr(p, NegPower)
+
+            e.kind match
+                IntE(n) -> expr(IntE(-n), t.span.to(e.span))
+                _ -> expr(MinusE(e), t.span.to(e.span))
+        LParen -> paren(p, t.span)
         Not ->
             val e = parse_expr(p, NotPower)
 
@@ -64,22 +89,162 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         _ -> expr(BadE, t.span)
 end nud
 
+// A number literal, and juxtaposition: a literal immediately followed by a name or `(`, with no
+// space between, multiplies it -- `2n`, `3(x + 1)`.
+private number(p: *Parser, n: long, at: Span) -> &Expr
+    val lit = expr(IntE(n), at)
+
+    val next = p.toks.peek() match
+        Some(k) -> k
+        None -> return lit
+
+    if next.span.start != at.end then return lit
+
+    val touching = next.value match
+        Name(_) -> true
+        LParen -> true
+        _ -> false
+
+    if !touching then return lit
+
+    val operand = parse_expr(p, JuxtPower)
+
+    expr(BinE(Mul, lit, operand), at.to(operand.span))
+
 private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
+    t.value match
+        Arrow -> return lambda(p, left)
+        LParen ->
+            val args = arguments(p)
+
+            return expr(ApplyE(left, args), left.span.to(p.toks.previous()))
+        _ -> ()
+
+    // `(e op)`: the operator's right operand is the `)`, which makes this half of a section.
+    if sectionable(t.value) && p.at_tok(RParen) then return expr(SectionL(t.value, left), left.span.to(t.span))
+
     val right = parse_expr(p, power(t.value).right)
-    val span = left.span.to(right.span)
 
-    val kind = t.value match
-        Or -> Disj(left, right)
-        Bar -> Disj(left, right)
-        And -> Conj(left, right)
-        Amp -> Conj(left, right)
-        Tilde -> UnifyE(left, right)
-        EqEq -> EqualE(left, right)
-        BangEq -> DifferE(left, right)
-        _ -> BadE
-
-    expr(kind, span)
+    expr(infix(t.value, left, right), left.span.to(right.span))
 end led
+
+// What an infix operator makes of its operands.
+private infix(op: Tok, a: &Expr, b: &Expr) -> ExprKind
+    op match
+        Or -> OrE(a, b)
+        Bar -> Disj(a, b)
+        And -> AndE(a, b)
+        Amp -> Conj(a, b)
+        Tilde -> UnifyE(a, b)
+        EqEq -> EqualE(a, b)
+        BangEq -> DifferE(a, b)
+        _ ->
+            binop_of(op) match
+                Some(o) -> BinE(o, a, b)
+                None -> BadE
+
+// What follows `(`: `()`, a section or an operator as a function, a tuple, or a parenthesized
+// expression -- whose span takes in the parentheses, so a lambda can tell `(0 | 1) -> e`, whose
+// pattern is an alternation, from `n | n > 0 -> e`, whose pattern is guarded.
+private paren(p: *Parser, open: Span) -> &Expr
+    if p.accept(RParen) then return expr(TupleE(buf()), open.to(p.toks.previous()))
+
+    val look = p.look() match
+        Some(k) -> k
+        None ->
+            p.fail_here("an expression")
+            return expr(BadE, open)
+
+    // `(op)` and `(op e)`. A `-` is a section only as `(-)`: `(- 1)` is minus one.
+    if sectionable(look.value) && (!is_minus(look.value) || p.next_is(RParen))
+        p.take()
+
+        if p.accept(RParen)
+            return section(p, look.value, expr(Ref("$a"), look.span), expr(Ref("$b"), look.span), 2, open)
+
+        val operand = parse_expr(p, 0)
+
+        p.expect(RParen, "`)`")
+        return section(p, look.value, expr(Ref("$a"), look.span), operand, 1, open)
+
+    val first = parse_expr(p, 0)
+
+    first.kind match
+        SectionL(op, e) ->
+            p.expect(RParen, "`)`")
+            return section(p, op, e, expr(Ref("$b"), first.span), 1, open)
+        _ -> ()
+
+    if p.at_tok(Comma)
+        var items: Buf[&Expr] = buf()
+
+        items.push(first)
+
+        while p.accept(Comma)
+            items.push(parse_expr(p, 0))
+
+        if !p.expect(RParen, "`,` or `)`") then p.skip_to_close()
+
+        return expr(TupleE(items), open.to(p.toks.previous()))
+
+    p.expect(RParen, "`)`")
+    expr(first.kind, open.to(p.toks.previous()))
+end paren
+
+private is_minus(t: Tok) -> bool = t match
+    Minus -> true
+    _ -> false
+
+// A section as the lambda it is: `a op b` over the parameters the hidden names `$a` and `$b` stand
+// for -- `arity` of them, the first `$a` and then `$b` -- which no program can write.
+private section(p: *Parser, op: Tok, a: &Expr, b: &Expr, arity: usize, open: Span) -> &Expr
+    val at = open.to(p.toks.previous())
+    var params: Buf[&Expr] = buf()
+
+    if arity == 2 || is_ref(a, "$a") then params.push(expr(Ref("$a"), at))
+    if arity == 2 || is_ref(b, "$b") then params.push(expr(Ref("$b"), at))
+
+    val body = expr(infix(op, a, b), at)
+
+    one_clause_lambda(p, params, None, body, at)
+
+private is_ref(e: &Expr, name: string) -> bool = e.kind match
+    Ref(n) -> n == name
+    _ -> false
+
+// `params -> body`, the arrow already taken and `left` what stood before it.
+private lambda(p: *Parser, left: &Expr) -> &Expr
+    val body = if p.at_tok(Indent) then branch(p) else parse_expr(p, power(Arrow).right)
+
+    // A bare alternation on the left is a pattern and its guard.
+    var pat = left
+    var guard: Option[&Expr] = None
+
+    left.kind match
+        Disj(a, g) ->
+            if left.span.start == a.span.start
+                pat = a
+                guard = Some(g)
+        _ -> ()
+
+    var params: Buf[&Expr] = buf()
+
+    pat.kind match
+        TupleE(items) ->
+            for x in items.view()
+                params.push(x)
+        _ -> params.push(pat)
+
+    one_clause_lambda(p, params, guard, body, left.span.to(body.span))
+end lambda
+
+private one_clause_lambda(p: *Parser, params: Buf[&Expr], guard: Option[&Expr], body: &Expr, at: Span) -> &Expr
+    var guards: Buf[Guard] = buf()
+    var clauses: Buf[Clause] = buf()
+
+    guards.push(Guard(guard, body))
+    clauses.push(Clause("lambda", at, params, FunctionC(FnBody(guards, buf()))))
+    expr(LambdaE(p.lambda_id(), clauses), at)
 
 // `name(args)`, the name already read and the `(` next.
 private call(p: *Parser, name: string, name_span: Span) -> &Expr
@@ -107,16 +272,26 @@ arguments(p: *Parser) -> Buf[&Expr]
     args
 end arguments
 
-// `if c then t [else e]`, the `if` already read.
+// `if c then t [elif ...] [else e]`, the `if` already read. A condition followed by an indented
+// block needs no `then`.
 private if_expr(p: *Parser, at: Span) -> &Expr
     val cond = parse_expr(p, 0)
 
-    if !p.expect(Then, "`then`") then return expr(BadE, at.to(cond.span))
+    if !p.at_tok(Indent) && !p.expect(Then, "`then`") then return expr(BadE, at.to(cond.span))
 
     val yes = branch(p)
 
-    // An `else` may begin the line after a block that ended the `then` branch.
-    if p.at_tok(Newline) && p.next_is(Else) then p.take()
+    // An `elif` or an `else` may begin the line after a block that ended the branch before it.
+    if p.at_tok(Newline) && (p.next_is(Else) || p.next_is(Elif)) then p.take()
+
+    if p.at_tok(Elif)
+        val elif_at = p.toks.here()
+
+        p.take()
+
+        val no = if_expr(p, elif_at)
+
+        return expr(IfE(cond, yes, Some(no)), at.to(no.span))
 
     if !p.accept(Else) then return expr(IfE(cond, yes, None), at.to(yes.span))
 
@@ -135,8 +310,10 @@ private every_expr(p: *Parser, at: Span) -> &Expr
 
     expr(EveryE(gen, Some(body)), at.to(body.span))
 
-// What follows `then`, `else` or `do`: an expression on the same line, or an indented block.
-private branch(p: *Parser) -> &Expr
+// What follows `then`, `else`, `do`, `=` or `->`: an expression on the same line, or an indented
+// block. **A block whose every line is a lambda is a partial function literal**: one anonymous
+// function whose clauses are the lambdas, in order.
+branch(p: *Parser) -> &Expr
     if !p.at_tok(Indent) then return parse_expr(p, 0)
 
     val at = p.toks.here()
@@ -160,5 +337,29 @@ private branch(p: *Parser) -> &Expr
         p.accept(Dedent)
         break
 
-    expr(BlockE(stmts), at.to(p.toks.previous()))
+    val span = at.to(p.toks.previous())
+
+    partial_function(stmts, span) match
+        Some(f) -> f
+        None -> expr(BlockE(stmts), span)
 end branch
+
+// The lambdas of a block as one function, if every line is one.
+private partial_function(stmts: Buf[Stmt], span: Span) -> Option[&Expr]
+    var clauses: Buf[Clause] = buf()
+    var id: usize = 0
+
+    for i in 0..<stmts.len()
+        stmts.at(i) match
+            ExprS(e) ->
+                e.kind match
+                    LambdaE(k, cs) ->
+                        if i == 0 then id = k
+
+                        for c in cs.view()
+                            clauses.push(c)
+                    _ -> return None
+            _ -> return None
+
+    Some(expr(LambdaE(id, clauses), span))
+end partial_function

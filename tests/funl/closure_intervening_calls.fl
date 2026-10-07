@@ -1,0 +1,12 @@
+def f( x )
+  def h( a ) =
+    if (a == 0)
+      def g( n ) = x + n
+
+      g
+    else
+      h( a - 1 )
+
+  h( 5 )
+
+write( f(3)(4) )

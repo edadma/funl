@@ -122,7 +122,62 @@ enum Op
 
     // Pop `n` values and push a tuple of them, the deepest first.
     MakeTuple(n: usize)
+
+    // Pop `b`, pop `a`, push `a op b` -- or fail, for an ordering that does not hold.
+    Arith(o: BinOp)
+
+    // Replace the top with its negation.
+    Negate
+
+    // Fail when the top is `false`, leaving it otherwise: emitted after every condition, and nowhere
+    // else, so `false` fails a condition and is an ordinary value everywhere else.
+    FailIfFalse
+
+    Dup
+
+    // -- functions (`frame.sysl`) -------------------------------------------------------------------
+
+    // Push the running frame's `i`th argument.
+    LoadArg(i: usize)
+
+    // Pop into slot `slot` of the running frame.
+    StoreSlot(slot: usize)
+
+    // Push a function value over chunk `target`, made in the frame `up` static links up -- or, when
+    // `up` is `TopUp`, in the top level's frame.
+    MakeClosure(target: usize, up: usize)
+
+    // Call function chunk `target` with the top `argc` values, its frame's static link the frame
+    // `up` names as `MakeClosure` reads it.
+    CallFn(target: usize, argc: usize, up: usize)
+
+    // `CallFn` in tail position, reusing the running frame where it can. **Always followed by
+    // `Return`**, as `TailCall` is.
+    TailCallFn(target: usize, argc: usize, up: usize)
+
+    // Call the function value under the top `argc` values.
+    CallValue(argc: usize)
+
+    // `CallValue` in tail position. **Always followed by `Return`.**
+    TailCallValue(argc: usize)
+
+    // Pop a value; when it is a tuple of `n` items push them, the first on top, or fail.
+    MatchTuple(n: usize)
+
+    // Pop a value; when it is a `functor/n` term push its arguments, the first on top, or fail.
+    MatchCompound(functor: u32, n: usize)
+
+    // No clause of the running function matched its arguments: an error naming the function and
+    // what it was given.
+    NoMatch
 end Op
+
+// What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame.
+const TopUp: usize = 4294967295
+
+// What a chunk's `arity` is when no call into it is checked: the top level, and the relations,
+// whose calls the resolver has already counted.
+const AnyArity: usize = 4294967295
 
 // A unit of compiled code: its instructions and the constants they push.
 //
@@ -132,3 +187,6 @@ struct Chunk
     name: string
     code: Buf[Op]
     consts: Buf[Value]
+
+    // How many arguments a call must pass, or `AnyArity`.
+    arity: usize

@@ -1,0 +1,38 @@
+module io.github.edadma.funl
+
+// The general builtins: `error`, `abs`, `min` and `max`.
+
+install_predef(v: *Vm)
+    register(v, "error", 1, do_error)
+    register(v, "abs", 1, do_abs)
+    register(v, "min", Variadic, do_min)
+    register(v, "max", Variadic, do_max)
+
+// `error(message)`: stop the program with the message, which is not a failure -- nothing catches it.
+private do_error(base: usize, argc: usize) -> Result[Value, string] = Err(render(arg(base, 0)))
+
+private do_abs(base: usize, argc: usize) -> Result[Value, string]
+    val x = arg(base, 0)
+
+    deref(x) match
+        Int(n) -> if n < 0 then negate(x) else Ok(Int(n))
+        _ -> Err(s"'abs' wants a number and was given ${described(x)}")
+
+private do_min(base: usize, argc: usize) -> Result[Value, string] = extreme(base, argc, "min", Lt)
+
+private do_max(base: usize, argc: usize) -> Result[Value, string] = extreme(base, argc, "max", Gt)
+
+// The argument every other one is not `better` than: the least for `<`, the greatest for `>`.
+private extreme(base: usize, argc: usize, name: string, better: BinOp) -> Result[Value, string]
+    if argc == 0 then return Err(s"'$name' wants at least one argument")
+
+    var best = arg(base, 0)
+
+    for i in 1..<argc
+        val x = arg(base, i)
+
+        val wins = arith(better, x, best)?
+
+        if wins.is_some() then best = x
+
+    Ok(best)

@@ -1,0 +1,6 @@
+val a = 5
+val f = x -> x + a
+
+def g( fn, x ) = fn( x )
+
+write( g(f, 3) )

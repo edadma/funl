@@ -1,0 +1,316 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Reading one scope's code: each name looked up, declared or refused, each local function hoisted
+// and each lambda queued for its own scope.
+
+// Where the resolver is while it reads one scope.
+struct Walk
+    res: *Resolved
+    report: *Report
+
+    // Functions whose clauses wait to be resolved, as indices into `res.rels`.
+    pending: *Buf[usize]
+
+    // The scope being read, which is stored under `sid` once it is complete.
+    sc: *Scope
+    sid: usize
+
+    // Whether this is a relation clause, where an unknown name is a fresh logic variable.
+    relation: bool
+
+    // Whether this is a function's clause, where `return` means something.
+    function: bool
+
+    // What `name` means here: the scope being read first, then the complete ones above it.
+    meaning(self, name: string) -> Meaning
+        self.sc.slot(name) match
+            Some(k) -> return Local(0, k)
+            None -> ()
+
+        self.sc.fns.get(name) match
+            Some(r) -> return Function(r, if self.sid == self.res.top then TopUp else 0)
+            None -> ()
+
+        self.res.meaning_above(self.sc.parent, 1, name)
+end Walk
+
+// A statement's names.
+walk_stmt(w: *Walk, s: Stmt)
+    s match
+        FreeS(names) ->
+            for named in names.view()
+                if !refused_as_variable(w, named.value, named.span) then w.sc.note(named.value, named.span)
+        ExprS(e) -> walk(w, e)
+        ValS(pat, e) ->
+            walk(w, e)
+            declare_pattern(w, pat)
+
+        // Hoisted before the scope's names were read.
+        DefS(_) -> ()
+
+// At the top level and in a relation, a name a top-level definition or a builtin already has cannot
+// also be a variable; the refusal is reported, and the answer says whether there was one. A
+// function's own names may shadow them.
+private refused_as_variable(w: *Walk, n: string, at: Span) -> bool
+    if w.sid != w.res.top && !w.relation then return false
+
+    w.res.global(n) match
+        Relation(_) -> ()
+        Builtin(_) -> ()
+        Function(_, _) ->
+            w.report.add(error(at, s"`$n` is already a function, and cannot also be a variable"))
+            return true
+        _ -> return false
+
+    w.report.add(error(at, s"`$n` is already a relation or a builtin, and cannot also be a variable"))
+    true
+
+// A pattern's names, declared in the scope being read.
+declare_pattern(w: *Walk, p: &Expr)
+    p.kind match
+        Ref(n) -> if !refused_as_variable(w, n, p.span) then w.sc.note(n, p.span)
+        Anon -> ()
+        AtomE(_) -> ()
+        IntE(_) -> ()
+        StrE(_) -> ()
+        BoolE(_) -> ()
+        TupleE(items) ->
+            for x in items.view()
+                declare_pattern(w, x)
+        CallE(_, _, args) ->
+            for x in args.view()
+                declare_pattern(w, x)
+        Disj(a, b) ->
+            declare_pattern(w, a)
+            declare_pattern(w, b)
+        AsE(n, x) ->
+            w.sc.note(n, p.span)
+            declare_pattern(w, x)
+        BadE -> ()
+        _ ->
+            w.report.add(error(p.span, "this cannot be matched against anything")
+                .with_note("a pattern is a name, `_`, a constant, a tuple, a term, an alternation `p | q`, or `name@pattern`"))
+end declare_pattern
+
+// An expression's names.
+walk(w: *Walk, e: &Expr)
+    e.kind match
+        Ref(n) ->
+            w.meaning(n) match
+                Local(depth, _) -> if depth == 0 then w.sc.note(n, e.span)
+                Function(_, _) -> ()
+                Relation(_) -> called_not_used(w, n, e.span)
+                Builtin(_) -> called_not_used(w, n, e.span)
+                Unknown ->
+                    if w.relation
+                        w.sc.note(n, e.span)
+                    elif w.sid == w.res.top
+                        w.report.add(error(e.span, s"`$n` is not defined")
+                            .with_note(s"a logic variable is declared before it is used: `free $n`"))
+                    else
+                        w.report.add(error(e.span, s"`$n` is not defined")
+                            .with_note("a name is a parameter, a `val`, a function, or declared with `free`"))
+        CallE(n, at, args) ->
+            callable(w, n, at, args.len())
+
+            for a in args.view()
+                walk(w, a)
+        ApplyE(f, args) ->
+            walk(w, f)
+
+            for a in args.view()
+                walk(w, a)
+        TupleE(items) ->
+            for x in items.view()
+                walk(w, x)
+        Conj(a, b) -> walk_two(w, a, b)
+        Disj(a, b) -> walk_two(w, a, b)
+        AndE(a, b) -> walk_two(w, a, b)
+        OrE(a, b) -> walk_two(w, a, b)
+        UnifyE(a, b) -> walk_two(w, a, b)
+        EqualE(a, b) -> walk_two(w, a, b)
+        DifferE(a, b) -> walk_two(w, a, b)
+        BinE(_, a, b) -> walk_two(w, a, b)
+        Neg(x) -> walk(w, x)
+        MinusE(x) -> walk(w, x)
+        IfE(c, y, n) ->
+            walk_two(w, c, y)
+
+            n match
+                Some(x) -> walk(w, x)
+                None -> ()
+        EveryE(g, body) ->
+            walk(w, g)
+
+            body match
+                Some(x) -> walk(w, x)
+                None -> ()
+        BlockE(stmts) ->
+            for s in stmts.view()
+                walk_stmt(w, s)
+        LambdaE(id, clauses) -> queue_lambda(w, id, clauses, e.span)
+        ReturnE(x) ->
+            if !w.function
+                w.report.add(error(e.span, "`return` is written inside a function")
+                    .with_note("it leaves the function it is in, and the top level and a relation are not one"))
+
+            x match
+                Some(v) -> walk(w, v)
+                None -> ()
+        AsE(_, _) ->
+            w.report.add(error(e.span, "`name@pattern` is a pattern, and this is not where one is matched")
+                .with_note("it belongs in a parameter or on the left of a `val`"))
+        SectionL(_, _) ->
+            w.report.add(error(e.span, "this operator has no right operand")
+                .with_note("a section that fixes the left operand is written in parentheses: `(2 *)`"))
+        _ -> ()
+end walk
+
+private walk_two(w: *Walk, a: &Expr, b: &Expr)
+    walk(w, a)
+    walk(w, b)
+
+private called_not_used(w: *Walk, n: string, at: Span)
+    w.report.add(error(at, s"`$n` is a relation or a builtin, which is called rather than used as a value")
+        .with_label(s"called as `$n(...)`"))
+
+// A call names something callable, with as many arguments as it takes.
+private callable(w: *Walk, n: string, at: Span, argc: usize)
+    val arity = w.meaning(n) match
+        Local(depth, _) ->
+            if depth == 0 then w.sc.note(n, at)
+
+            return
+        Function(r, _) -> w.res.rels.at(r).arity
+        Relation(r) -> w.res.rels.at(r).arity
+        Builtin(id) -> current().natives.at(id).arity
+        Unknown ->
+            var d = error(at, s"`$n` is not defined").with_label("called here")
+
+            nearest_name(n, global_names(w.res)) match
+                Some(near) -> d = d.with_note(s"did you mean `$near`?")
+                None -> ()
+
+            w.report.add(d)
+            return
+
+    if arity != Variadic && argc != arity
+        w.report.add(error(at, s"`$n` takes ${counted(arity, "argument")}, and this call gives $argc"))
+end callable
+
+private global_names(r: *Resolved) -> Buf[string]
+    var names: Buf[string] = buf()
+
+    for rel in r.rels.view()
+        if rel.name != "lambda" then names.push(rel.name)
+
+    for nat in current().natives.view()
+        names.push(nat.name)
+
+    names
+
+// A lambda is a function of its own, defined in the scope being read and resolved once that scope is
+// complete.
+private queue_lambda(w: *Walk, id: usize, clauses: Buf[Clause], at: Span)
+    val arity = clauses.at(0).params.len()
+
+    for c in clauses.view()
+        if c.params.len() != arity
+            w.report.add(error(c.head, s"this clause of a function literal takes ${c.params.len()}, and its first clause ${counted(arity, "argument")}")
+                .with_note("every clause of a function takes the same number of arguments"))
+
+    w.res.lambdas.put(id, w.res.rels.len())
+    w.pending.push(w.res.rels.len())
+    w.res.rels.push(Rel("lambda", arity, clauses, reserve_chunk("lambda"), true, w.sid, buf()))
+
+// -- hoisting -------------------------------------------------------------------------------------
+
+// The `def`s among statements, and in every block inside them, join the scope being read.
+hoist_stmts(w: *Walk, stmts: Buf[Stmt])
+    for s in stmts.view()
+        s match
+            DefS(clauses) ->
+                for c in clauses.view()
+                    hoist_clause(w, c)
+            ExprS(e) -> hoist_expr(w, e)
+            ValS(_, e) -> hoist_expr(w, e)
+            FreeS(_) -> ()
+
+// The `def`s in the blocks of an expression -- but not inside a lambda, which is a scope of its own.
+hoist_expr(w: *Walk, e: &Expr)
+    e.kind match
+        BlockE(stmts) -> hoist_stmts(w, stmts)
+        IfE(c, y, n) ->
+            hoist_expr(w, c)
+            hoist_expr(w, y)
+
+            n match
+                Some(x) -> hoist_expr(w, x)
+                None -> ()
+        EveryE(g, body) ->
+            hoist_expr(w, g)
+
+            body match
+                Some(x) -> hoist_expr(w, x)
+                None -> ()
+        CallE(_, _, args) ->
+            for a in args.view()
+                hoist_expr(w, a)
+        ApplyE(f, args) ->
+            hoist_expr(w, f)
+
+            for a in args.view()
+                hoist_expr(w, a)
+        TupleE(items) ->
+            for x in items.view()
+                hoist_expr(w, x)
+        Conj(a, b) -> hoist_two(w, a, b)
+        Disj(a, b) -> hoist_two(w, a, b)
+        AndE(a, b) -> hoist_two(w, a, b)
+        OrE(a, b) -> hoist_two(w, a, b)
+        UnifyE(a, b) -> hoist_two(w, a, b)
+        EqualE(a, b) -> hoist_two(w, a, b)
+        DifferE(a, b) -> hoist_two(w, a, b)
+        BinE(_, a, b) -> hoist_two(w, a, b)
+        Neg(x) -> hoist_expr(w, x)
+        MinusE(x) -> hoist_expr(w, x)
+        ReturnE(x) ->
+            x match
+                Some(v) -> hoist_expr(w, v)
+                None -> ()
+        _ -> ()
+end hoist_expr
+
+private hoist_two(w: *Walk, a: &Expr, b: &Expr)
+    hoist_expr(w, a)
+    hoist_expr(w, b)
+
+// One clause of a local `def` joins the function of its name in the scope being read.
+private hoist_clause(w: *Walk, c: Clause)
+    if !is_function(c.kind)
+        w.report.add(error(c.head, s"`${c.name}` is a relation, and a relation is defined at the top level")
+            .with_note("a `def` inside a body or a `where` defines a function, with `=`, a guard or a block"))
+        return
+
+    w.sc.fns.get(c.name) match
+        Some(i) ->
+            var r = w.res.rels.at(i)
+
+            if c.params.len() != r.arity
+                w.report.add(error(c.head, s"`${c.name}` was defined with ${counted(r.arity, "argument")}, and this clause has ${c.params.len()}")
+                    .with_note("every clause of a definition takes the same number of arguments"))
+                return
+
+            r.clauses.push(c)
+            w.res.rels.set(i, r)
+        None ->
+            var cs: Buf[Clause] = buf()
+
+            cs.push(c)
+            w.sc.fns.put(c.name, w.res.rels.len())
+            w.pending.push(w.res.rels.len())
+            w.res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), true, w.sid, buf()))
+end hoist_clause

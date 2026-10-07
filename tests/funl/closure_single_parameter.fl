@@ -1,0 +1,6 @@
+def f( x )
+  def g( n ) = x + n
+
+  g( 5 ) + 1
+
+write( f(3) )

@@ -12,6 +12,9 @@ module io.github.edadma.funl
 
 type NativeGo = &Fn(usize, usize) -> Result[Value, string]
 
+// The arity of a builtin that takes any number of arguments.
+const Variadic: usize = 4294967295
+
 struct Native
     name: string
     arity: usize

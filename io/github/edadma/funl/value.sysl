@@ -37,6 +37,12 @@ enum Value
 
     // A logic variable, unbound or bound to another value.
     Var(p: *VarObj)
+
+    Bool(b: bool)
+
+    // A function value: compiled code and the frame it was made in. Two are equal, and unify,
+    // exactly when they are the same object.
+    Func(p: *ClosureObj)
 end Value
 
 // Follow bound variables until reaching something that is not one.

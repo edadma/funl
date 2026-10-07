@@ -1,5 +1,6 @@
 module io.github.edadma.funl
 
+import sh.sysl.parsing.counted
 import sysl.buf.{Buf, buf}
 
 // Calls and returns.
@@ -22,21 +23,48 @@ private pop_args(v: *Vm, argc: usize) -> Result[Buf[Value], string]
     v.stack.truncate(n - argc)
     Ok(args)
 
-private check_target(v: *Vm, target: usize) -> Result[unit, string]
+// A call of chunk `target` with `argc` arguments is one it can take: the chunk exists, and a
+// function's arity is met.
+private check_target(v: *Vm, target: usize, argc: usize) -> Result[unit, string]
     if target >= v.chunks.len() then return Err(s"a call names chunk $target, and there are ${v.chunks.len()}")
+
+    val c = v.chunks.at(target)
+
+    if c.arity != AnyArity && c.arity != argc
+        return Err(s"'${c.name}' takes ${counted(c.arity, "argument")} and was given $argc")
 
     Ok(())
 
 // Call chunk `target` with the top `argc` values, returning to `v.ip` (already past the call).
+call(v: *Vm, target: usize, argc: usize) -> Result[unit, string] = open_frame(v, target, argc, null)
+
+// Call function chunk `target`, whose static link is the frame `up` names (see `link`).
+call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, string] = open_frame(v, target, argc, link(v, up)?)
+
+// The frame a `MakeClosure` or a `CallFn` names: `up` static links above the running frame, or the
+// top level's frame for `TopUp`.
+link(v: *Vm, up: usize) -> Result[*FrameObj, string]
+    if up == TopUp then return Ok(v.globals)
+
+    frame_up(v, up)
+
+// Push a function value over `target`, made in the frame `up` names.
+make_closure(v: *Vm, target: usize, up: usize) -> Result[unit, string]
+    v.stack.push(new_closure(target, link(v, up)?)?)
+    Ok(())
+
+// A new frame for `target` over the top `argc` values, with static link `up`.
 //
 // **The frame is allocated before the arguments leave the stack**, so they are rooted while the
 // allocation runs -- and allocation never collects in any case.
-call(v: *Vm, target: usize, argc: usize) -> Result[unit, string]
-    check_target(v, target)?
+private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, string]
+    check_target(v, target, argc)?
 
     val f = new_frame(target)?
 
     f.args = pop_args(v, argc)?
+    f.base = v.stack.len()
+    f.up = up
     f.caller = v.frame
     f.return_ip = v.ip
     f.caller_mark = v.mark
@@ -52,21 +80,63 @@ call(v: *Vm, target: usize, argc: usize) -> Result[unit, string]
 // A call in tail position. When nothing resumable was made in the running frame, the frame is reused
 // for the callee and the caller's return point is kept; otherwise it is an ordinary call, whose value
 // comes back to the `Return` that always follows a `TailCall`.
-tail_call(v: *Vm, target: usize, argc: usize) -> Result[unit, string]
+tail_call(v: *Vm, target: usize, argc: usize) -> Result[unit, string] = tail_into(v, target, argc, null)
+
+tail_call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, string] = tail_into(v, target, argc, link(v, up)?)
+
+// **A frame is reused only when nothing can see it afterwards**: no entry above its own (nothing
+// resumable was made in it), no function value captured it, and the callee's static link is not
+// this very frame -- a function defined inside the running one reads the running one's slots.
+private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, string]
     val f = v.frame
 
-    if f == null || f.caller == null || v.control.len() != f.entry then return call(v, target, argc)
+    if f == null || f.caller == null || v.control.len() != f.entry || f.captured || up == f
+        return open_frame(v, target, argc, up)
 
-    check_target(v, target)?
+    check_target(v, target, argc)?
 
     f.args = pop_args(v, argc)?
     f.slots.clear()
     f.chunk = target
+    f.up = up
     f.cut = v.control.len()
 
     v.code = target
     v.ip = 0
     Ok(())
+
+// Call the function value beneath the top `argc` values, in tail position when `tail`.
+call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, string]
+    val n = v.stack.len()
+
+    if argc >= n then return Err(s"a call wants a function and $argc arguments and the operand stack holds $n")
+
+    val callee = deref(v.stack.at(n - argc - 1))
+
+    val c = callee match
+        Func(p) -> p
+        _ -> return Err(s"${described(callee)} is not a function, and cannot be called")
+
+    // The callee's cell goes, the arguments close up over it; the closure stays reachable through
+    // `c` for the frame being made, and nothing collects before the frame holds it.
+    for i in n - argc..<n
+        v.stack.set(i - 1, v.stack.at(i))
+
+    v.stack.truncate(n - 1)
+
+    if tail then tail_into(v, c.chunk, argc, c.up) else open_frame(v, c.chunk, argc, c.up)
+
+// No clause of the running function took its arguments.
+no_match(v: *Vm) -> Result[unit, string]
+    val f = v.frame
+    var shown = ""
+
+    for i in 0..<f.args.len()
+        if i > 0 then shown = shown + ", "
+
+        shown = shown + render(f.args.at(i))
+
+    Err(s"argument match not found: no clause of '${v.chunks.at(f.chunk).name}' matches ($shown)")
 
 // Return the top of the stack to the caller.
 //
@@ -94,13 +164,22 @@ ret(v: *Vm) -> Result[unit, string]
     v.stack.push(value)
     Ok(())
 
-// A deterministic exit: discard everything the frame made, then return.
+// A deterministic exit: discard everything the frame made, and any operands it left part-way
+// through an expression, then return.
 ret_commit(v: *Vm) -> Result[unit, string]
     val f = v.frame
 
     if f == null || f.caller == null then return Err("Return with no caller to return to")
 
+    val value = v.stack.pop() match
+        Some(x) -> x
+        None -> return Err("Return with nothing on the operand stack")
+
     cut_to(v, f.entry)
+
+    if v.stack.len() > f.base then v.stack.truncate(f.base)
+
+    v.stack.push(value)
     ret(v)
 
 // Size the running frame's slots to `n`, every one `Undefined`.

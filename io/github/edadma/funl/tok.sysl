@@ -4,9 +4,10 @@ import sh.sysl.parsing.*
 
 // The tokens, and how strongly each infix one binds.
 //
-// **The ladder, lowest first**: `or` · `and` · the operand of `not` · alternation `|` · conjunction
-// `&` · comparison `~`, `==`, `!=` · application. Comparison binds tighter than `&` and `|`, so a
-// rule body reads `a != b & f != m` as the two goals `logic.md` says it is.
+// **The ladder, lowest first**: the lambda arrow `->` (right) · `or` · `and` · the operand of `not` ·
+// alternation `|` · conjunction `&` · comparison `~`, `==`, `!=`, `<`, `<=`, `>`, `>=` · `+ -` ·
+// `* / \ % mod div` · `^` (right) · prefix `-` · application. Comparison binds tighter than `&` and
+// `|`, so a rule body reads `a != b & f != m` as the two goals `logic.md` says it is.
 
 enum Tok
     Name(text: string)
@@ -21,10 +22,20 @@ enum Tok
     Do
     If
     Then
+    Elif
     Else
     Not
     And
     Or
+    Val
+    Where
+    ReturnW
+    FailW
+    TrueW
+    FalseW
+    Otherwise
+    Mod
+    Div
 
     LParen
     RParen
@@ -36,6 +47,19 @@ enum Tok
     BangEq
     Equals
     Turnstile
+    Arrow
+    At
+    Plus
+    Minus
+    Star
+    Slash
+    Backslash
+    Percent
+    Caret
+    Less
+    LessEq
+    Greater
+    GreaterEq
 
     // Layout: the end of a line at the same depth, a deeper line, and each block a shallower line
     // closes.
@@ -51,30 +75,60 @@ describe(t: Tok) -> string
         AtomLit(s) -> s"`#$s`"
         IntLit(n) -> s"`$n`"
         StrLit(_) -> "a string"
-        Def -> "`def`"
-        Free -> "`free`"
-        Every -> "`every`"
-        Do -> "`do`"
-        If -> "`if`"
-        Then -> "`then`"
-        Else -> "`else`"
-        Not -> "`not`"
-        And -> "`and`"
-        Or -> "`or`"
-        LParen -> "`(`"
-        RParen -> "`)`"
-        Comma -> "`,`"
-        Amp -> "`&`"
-        Bar -> "`|`"
-        Tilde -> "`~`"
-        EqEq -> "`==`"
-        BangEq -> "`!=`"
-        Equals -> "`=`"
-        Turnstile -> "`:-`"
         Newline -> "the end of the line"
         Indent -> "an indented line"
         Dedent -> "the end of the block"
+        _ -> s"`${spelling(t)}`"
 end describe
+
+// How a word or a symbol is written.
+private spelling(t: Tok) -> string
+    t match
+        Def -> "def"
+        Free -> "free"
+        Every -> "every"
+        Do -> "do"
+        If -> "if"
+        Then -> "then"
+        Elif -> "elif"
+        Else -> "else"
+        Not -> "not"
+        And -> "and"
+        Or -> "or"
+        Val -> "val"
+        Where -> "where"
+        ReturnW -> "return"
+        FailW -> "fail"
+        TrueW -> "true"
+        FalseW -> "false"
+        Otherwise -> "otherwise"
+        Mod -> "mod"
+        Div -> "div"
+        LParen -> "("
+        RParen -> ")"
+        Comma -> ","
+        Amp -> "&"
+        Bar -> "|"
+        Tilde -> "~"
+        EqEq -> "=="
+        BangEq -> "!="
+        Equals -> "="
+        Turnstile -> ":-"
+        Arrow -> "->"
+        At -> "@"
+        Plus -> "+"
+        Minus -> "-"
+        Star -> "*"
+        Slash -> "/"
+        Backslash -> "\\"
+        Percent -> "%"
+        Caret -> "^"
+        Less -> "<"
+        LessEq -> "<="
+        Greater -> ">"
+        GreaterEq -> ">="
+        _ -> "?"
+end spelling
 
 // The word a name is, if it is one.
 keyword(s: string) -> Option[Tok]
@@ -84,10 +138,20 @@ keyword(s: string) -> Option[Tok]
     if s == "do" then return Some(Do)
     if s == "if" then return Some(If)
     if s == "then" then return Some(Then)
+    if s == "elif" then return Some(Elif)
     if s == "else" then return Some(Else)
     if s == "not" then return Some(Not)
     if s == "and" then return Some(And)
     if s == "or" then return Some(Or)
+    if s == "val" then return Some(Val)
+    if s == "where" then return Some(Where)
+    if s == "return" then return Some(ReturnW)
+    if s == "fail" then return Some(FailW)
+    if s == "true" then return Some(TrueW)
+    if s == "false" then return Some(FalseW)
+    if s == "otherwise" then return Some(Otherwise)
+    if s == "mod" then return Some(Mod)
+    if s == "div" then return Some(Div)
 
     None
 end keyword
@@ -96,6 +160,7 @@ end keyword
 // expression loop.
 power(t: Tok) -> Power
     t match
+        Arrow -> right_assoc(ArrowPower)
         Or -> left_assoc(10)
         And -> left_assoc(12)
         Bar -> left_assoc(20)
@@ -103,10 +168,67 @@ power(t: Tok) -> Power
         Tilde -> left_assoc(40)
         EqEq -> left_assoc(40)
         BangEq -> left_assoc(40)
+        Less -> left_assoc(40)
+        LessEq -> left_assoc(40)
+        Greater -> left_assoc(40)
+        GreaterEq -> left_assoc(40)
+        Plus -> left_assoc(50)
+        Minus -> left_assoc(50)
+        Star -> left_assoc(60)
+        Slash -> left_assoc(60)
+        Backslash -> left_assoc(60)
+        Percent -> left_assoc(60)
+        Mod -> left_assoc(60)
+        Div -> left_assoc(60)
+        Caret -> right_assoc(70)
+        LParen -> left_assoc(ApplyPower)
         _ -> left_assoc(0)
+
+// The arrow of a lambda: below everything, so a lambda's body reaches as far right as it can.
+const ArrowPower: u8 = 5
 
 // The level `not` reads its operand at: everything that binds tighter than `and`.
 const NotPower: u8 = 14
+
+// The level `return` reads its operand at: everything that binds tighter than `&`.
+const ReturnPower: u8 = 30
+
+// The level prefix `-` reads its operand at: `^` binds tighter, `*` does not, so `-2^2` is `-(2^2)`.
+const NegPower: u8 = 65
+
+// The level a number literal's touching operand is read at, `2n` or `3(x + 1)`: application binds
+// tighter, so `2f(x)` is `2 * f(x)`.
+const JuxtPower: u8 = 85
+
+// Application, `f(x)` on any expression: tighter than every operator.
+const ApplyPower: u8 = 90
+
+// Whether a section can be made of a token: `(+ 1)`, `(2 *)`, `(== 0)`.
+sectionable(t: Tok) -> bool
+    if binop_of(t).is_some() then return true
+
+    t match
+        EqEq -> true
+        BangEq -> true
+        _ -> false
+
+// The arithmetic or ordering operator a token is, if it is one.
+binop_of(t: Tok) -> Option[BinOp]
+    t match
+        Plus -> Some(Add)
+        Minus -> Some(Sub)
+        Star -> Some(Mul)
+        Slash -> Some(Quo)
+        Backslash -> Some(IntQuo)
+        Percent -> Some(Rem)
+        Mod -> Some(Modulo)
+        Div -> Some(Divides)
+        Caret -> Some(Pow)
+        Less -> Some(Lt)
+        LessEq -> Some(Le)
+        Greater -> Some(Gt)
+        GreaterEq -> Some(Ge)
+        _ -> None
 
 // Whether a token can begin an expression.
 starts_expr(t: Tok) -> bool
@@ -119,4 +241,10 @@ starts_expr(t: Tok) -> bool
         If -> true
         Not -> true
         LParen -> true
+        ReturnW -> true
+        FailW -> true
+        TrueW -> true
+        FalseW -> true
+        Otherwise -> true
+        Minus -> true
         _ -> false

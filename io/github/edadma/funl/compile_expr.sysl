@@ -1,6 +1,6 @@
 module io.github.edadma.funl
 
-import sysl.buf.Buf
+import sysl.buf.{Buf, buf}
 
 // Expressions and statements, compiled to the machine.
 //
@@ -11,8 +11,9 @@ import sysl.buf.Buf
 //
 //     a & b                  a; Pop; b
 //     a | b                  Choice(l); a; Branch(end); l: b; end:
-//     not e                  Mark(ok); e; Unmark; Fail; ok: PushUnit
-//     if c then t else e     Mark(no); c; Unmark; t; Branch(end); no: e; end:
+//     a and b                a; FailIfFalse; Pop; b; FailIfFalse
+//     not e                  Mark(ok); e; FailIfFalse; Unmark; Fail; ok: PushUnit
+//     if c then t else e     Mark(no); c; FailIfFalse; Unmark; t; Branch(end); no: e; end:
 //     every g do b           g; Pop; MarkThrough; b; Unmark; Fail
 //     a statement            Mark(next); e; Unmark; next:
 //
@@ -20,48 +21,57 @@ import sysl.buf.Buf
 // choice point made inside them. Everything else is left resumable, so a generator anywhere in an
 // expression is backtracked into by whatever fails after it.
 
-// What the compiler reads while it compiles one clause or the top level.
+// What the compiler reads while it compiles one scope's code.
 struct Ctx
     res: *Resolved
-    sc: *Scope
+
+    // The scope being compiled, by id.
+    sc: usize
 
 // Push `x`'s value.
 compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
-        Ref(n) -> e.op(LoadSlot(0, slot_of_name(c, n)?))
+        Ref(n) ->
+            c.res.meaning(c.sc, n) match
+                Local(depth, slot) -> e.op(LoadSlot(depth, slot))
+                Function(r, up) -> e.op(MakeClosure(c.res.rels.at(r).chunk, up))
+                _ -> return Err(s"'$n' was resolved and is not a value")
         Anon -> e.op(PushVar)
         AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
         IntE(n) -> e.op(PushInt(n))
         StrE(s) -> e.op(PushConst(e.constant(new_str(s)?)))
-        CallE(n, _, args) ->
+        BoolE(b) -> e.op(PushConst(e.constant(Bool(b))))
+        TupleE(items) ->
+            for a in items.view()
+                compile_value(e, c, a)?
+
+            e.op(if items.len() == 0 then PushUnit else MakeTuple(items.len()))
+        CallE(n, _, args) -> call_named(e, c, n, args, false)?
+        ApplyE(f, args) ->
+            compile_value(e, c, f)?
+
             for a in args.view()
                 compile_value(e, c, a)?
 
-            c.res.rel(n) match
-                Some(r) -> e.op(Call(r.chunk, args.len()))
-                None ->
-                    native_id(n) match
-                        Some(id) -> e.op(Native(id, args.len()))
-                        None -> return Err(s"'$n' was resolved and names nothing")
+            e.op(CallValue(args.len()))
         Conj(a, b) ->
             compile_value(e, c, a)?
             e.op(Pop)
             compile_value(e, c, b)?
-        Disj(a, b) ->
-            val other = e.label()
-            val end = e.label()
-
-            e.op(Choice(other))
+        Disj(a, b) -> alternation(e, c, a, b, false)?
+        AndE(a, b) ->
             compile_value(e, c, a)?
-            e.op(Branch(end))
-            e.place(other)
+            e.op(FailIfFalse)
+            e.op(Pop)
             compile_value(e, c, b)?
-            e.place(end)
+            e.op(FailIfFalse)
+        OrE(a, b) -> alternation(e, c, a, b, true)?
         Neg(g) ->
             val ok = e.label()
 
             e.op(Mark(ok))
             compile_value(e, c, g)?
+            e.op(FailIfFalse)
             e.op(Unmark)
             e.op(Fail)
             e.place(ok)
@@ -69,6 +79,10 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         UnifyE(a, b) -> binary(e, c, a, b, Unify)?
         EqualE(a, b) -> binary(e, c, a, b, TestEq)?
         DifferE(a, b) -> binary(e, c, a, b, TestNe)?
+        BinE(o, a, b) -> binary(e, c, a, b, Arith(o))?
+        MinusE(a) ->
+            compile_value(e, c, a)?
+            e.op(Negate)
         IfE(cond, yes, no) ->
             val other = e.label()
             val end = e.label()
@@ -96,23 +110,89 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
 
             e.op(Fail)
         BlockE(stmts) -> block(e, c, stmts)?
+        LambdaE(id, _) ->
+            c.res.lambdas.get(id) match
+                Some(r) -> e.op(MakeClosure(c.res.rels.at(r).chunk, 0))
+                None -> return Err(s"lambda $id was never resolved")
+        ReturnE(v) ->
+            v match
+                Some(a) -> compile_value(e, c, a)?
+                None -> e.op(PushUnit)
+
+            e.op(ReturnCommit)
+        FailE -> e.op(Fail)
+        AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
+        SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
 
     Ok(())
 end compile_value
 
-// `a op b`: both values, then the instruction that compares them.
+// `a | b`, or `a or b` when each side is a condition (`conditions`).
+private alternation(e: *Emit, c: Ctx, a: &Expr, b: &Expr, conditions: bool) -> Result[unit, string]
+    val other = e.label()
+    val end = e.label()
+
+    e.op(Choice(other))
+    compile_value(e, c, a)?
+
+    if conditions then e.op(FailIfFalse)
+
+    e.op(Branch(end))
+    e.place(other)
+    compile_value(e, c, b)?
+
+    if conditions then e.op(FailIfFalse)
+
+    e.place(end)
+    Ok(())
+
+// `name(args)`: a call of whatever the name means. In tail position (`tail`) a call that can reuse
+// the frame is a tail call, and every path ends in `Return`.
+call_named(e: *Emit, c: Ctx, n: string, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    val m = c.res.meaning(c.sc, n)
+
+    m match
+        Local(depth, slot) -> e.op(LoadSlot(depth, slot))
+        _ -> ()
+
+    for a in args.view()
+        compile_value(e, c, a)?
+
+    val argc = args.len()
+
+    m match
+        Local(_, _) -> e.op(if tail then TailCallValue(argc) else CallValue(argc))
+        Function(r, up) ->
+            val chunk = c.res.rels.at(r).chunk
+
+            e.op(if tail then TailCallFn(chunk, argc, up) else CallFn(chunk, argc, up))
+        Relation(r) ->
+            val chunk = c.res.rels.at(r).chunk
+
+            e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
+        Builtin(id) -> e.op(Native(id, argc))
+        Unknown -> return Err(s"'$n' was resolved and names nothing")
+
+    if tail then e.op(Return)
+
+    Ok(())
+end call_named
+
+// `a op b`: both values, then the instruction that compares or combines them.
 private binary(e: *Emit, c: Ctx, a: &Expr, b: &Expr, o: Op) -> Result[unit, string]
     compile_value(e, c, a)?
     compile_value(e, c, b)?
     e.op(o)
     Ok(())
 
-// A bounded condition: its first value or nothing, then on to what follows; to `other` if it fails.
-// Not `private`: a relation's tail position compiles `if` with it too.
+// A bounded condition: its first value or nothing, then on to what follows; to `other` if it fails
+// or its value is `false`. Not `private`: a relation's and a function's tail positions compile `if`
+// with it too.
 condition(e: *Emit, c: Ctx, cond: &Expr, other: usize) -> Result[unit, string]
     e.op(Mark(other))
     compile_value(e, c, cond)?
+    e.op(FailIfFalse)
     e.op(Unmark)
     Ok(())
 
@@ -127,14 +207,16 @@ private block(e: *Emit, c: Ctx, stmts: Buf[Stmt]) -> Result[unit, string]
 
         s match
             ExprS(x) -> compile_value(e, c, x)?
-            FreeS(_) ->
+            _ ->
                 compile_stmt(e, c, s)?
                 e.op(PushUnit)
 
     Ok(())
 end block
 
-// A statement: `free` makes its variables, and an expression runs bounded and is dropped.
+// A statement: `free` makes its variables, `val` matches its pattern against the first value of
+// its expression, a local `def` emits nothing -- its function is called directly -- and an
+// expression runs bounded and is dropped.
 compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
     s match
         FreeS(names) ->
@@ -147,9 +229,18 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
             compile_value(e, c, x)?
             e.op(Unmark)
             e.place(next)
+        ValS(pat, x) ->
+            val next = e.label()
+
+            e.op(Mark(next))
+            compile_value(e, c, x)?
+            match_fresh(e, c, pat)?
+            e.op(Unmark)
+            e.place(next)
+        DefS(_) -> ()
 
     Ok(())
 
-private slot_of_name(c: Ctx, n: string) -> Result[usize, string] = c.sc.slot(n) match
+slot_of_name(c: Ctx, n: string) -> Result[usize, string] = c.res.scopes.at(c.sc).slot(n) match
     Some(s) -> Ok(s)
     None -> Err(s"'$n' was resolved and has no slot")

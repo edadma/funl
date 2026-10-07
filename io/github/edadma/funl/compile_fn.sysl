@@ -1,0 +1,228 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// Functions: committed-choice clauses, patterns, guards, `where`, and bodies in tail position.
+//
+// **A clause is a mark**: failure while its parameters match, its `where` values are made or its
+// guards are tried reaches the mark and moves on to the next clause; once a guard holds, `Unmark`
+// commits, and failure in the body is the body's own.
+//
+//     c1:   Mark(c2); Frame(n); LoadArg(0); <pattern>; ...; <where>;
+//           Mark(g2); <guard>; FailIfFalse; Unmark; Unmark; <body>; Return
+//     g2:   MarkThrough; <last guard>; FailIfFalse; Unmark; Unmark; <body>; Return
+//     c2:   ...
+//           NoMatch
+//
+// **A body expression's values are returned with `Return`**, which leaves its choice points
+// resumable: a function whose body generates is a generator. `return e` is `ReturnCommit`, which
+// keeps only the first.
+//
+// **Patterns match one way.** A pattern inspects the value on top of the stack and binds its own
+// names; it never binds the value. A name written twice in one clause's parameters must see equal
+// values.
+
+// Compile every clause of function `r` into its reserved chunk.
+compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
+    var e = emit_function(r.name, r.arity)
+
+    for i in 0..<r.clauses.len()
+        val cl = r.clauses.at(i)
+        val sid = r.scopes.at(i)
+        val c = Ctx(res, sid)
+        val next = e.label()
+        var seen = unseen(res.scopes.at(sid).count())
+
+        e.op(Mark(next))
+        e.op(Frame(res.scopes.at(sid).count()))
+
+        for j in 0..<cl.params.len()
+            e.op(LoadArg(j))
+            pattern(&e, c, cl.params.at(j), &seen)?
+
+        cl.kind match
+            FunctionC(b) -> clause_body(&e, c, b)?
+            _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
+
+        e.place(next)
+
+    e.op(NoMatch)
+    install(e, r.chunk)
+end compile_function
+
+// A clause's `where` values, then its guards, each choosing a body.
+private clause_body(e: *Emit, c: Ctx, b: FnBody) -> Result[unit, string]
+    for s in b.wheres.view()
+        s match
+            ValS(pat, x) ->
+                e.op(MarkThrough)
+                compile_value(e, c, x)?
+                e.op(UnmarkKeep)
+                match_fresh(e, c, pat)?
+            _ -> ()
+
+    for i in 0..<b.guards.len()
+        val g = b.guards.at(i)
+        val other = e.label()
+
+        g.cond match
+            Some(cond) ->
+                // The last guard's failure is the clause's.
+                e.op(if i + 1 == b.guards.len() then MarkThrough else Mark(other))
+                compile_value(e, c, cond)?
+                e.op(FailIfFalse)
+                e.op(Unmark)
+            None -> ()
+
+        e.op(Unmark)
+        body_tail(e, c, g.body)?
+        e.place(other)
+
+    Ok(())
+end clause_body
+
+// A function body in tail position: every path through it ends in `Return`, a call there in a tail
+// call.
+body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    x.kind match
+        CallE(n, _, args) -> call_named(e, c, n, args, true)?
+        ApplyE(f, args) ->
+            compile_value(e, c, f)?
+
+            for a in args.view()
+                compile_value(e, c, a)?
+
+            e.op(TailCallValue(args.len()))
+            e.op(Return)
+        IfE(cond, yes, no) ->
+            val other = e.label()
+
+            condition(e, c, cond, other)?
+            body_tail(e, c, yes)?
+            e.place(other)
+
+            no match
+                Some(n) -> body_tail(e, c, n)?
+                None -> e.op(Fail)
+        Disj(a, b) ->
+            val other = e.label()
+
+            e.op(Choice(other))
+            body_tail(e, c, a)?
+            e.place(other)
+            body_tail(e, c, b)?
+        BlockE(stmts) ->
+            for i in 0..<stmts.len()
+                val s = stmts.at(i)
+
+                if i + 1 < stmts.len()
+                    compile_stmt(e, c, s)?
+                    continue
+
+                s match
+                    ExprS(last) -> body_tail(e, c, last)?
+                    _ ->
+                        compile_stmt(e, c, s)?
+                        e.op(PushUnit)
+                        e.op(Return)
+        ReturnE(_) -> compile_value(e, c, x)?
+        _ ->
+            compile_value(e, c, x)?
+            e.op(Return)
+
+    Ok(())
+end body_tail
+
+// -- patterns ---------------------------------------------------------------------------------------
+
+// A buffer saying, for each slot, whether a pattern has bound it yet.
+private unseen(n: usize) -> Buf[bool]
+    var seen: Buf[bool] = buf()
+
+    for _ in 0..<n
+        seen.push(false)
+
+    seen
+
+// Match the top of the stack against `p`, every name in it a new binding.
+match_fresh(e: *Emit, c: Ctx, p: &Expr) -> Result[unit, string]
+    var seen = unseen(c.res.scopes.at(c.sc).count())
+
+    pattern(e, c, p, &seen)
+
+// Match the top of the stack against `p`, popping it; fail when it does not match.
+private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool]) -> Result[unit, string]
+    p.kind match
+        Ref(n) -> bind_name(e, c, n, seen)?
+        Anon -> e.op(Pop)
+        AtomE(n) -> equal_to(e, atom(n))
+        IntE(n) -> equal_to(e, Int(n))
+        StrE(s) -> equal_to(e, new_str(s)?)
+        BoolE(b) -> equal_to(e, Bool(b))
+        TupleE(items) ->
+            if items.len() == 0
+                equal_to(e, Unit)
+            else
+                e.op(MatchTuple(items.len()))
+
+                for x in items.view()
+                    pattern(e, c, x, seen)?
+        CallE(n, _, args) ->
+            e.op(MatchCompound(intern(n), args.len()))
+
+            for x in args.view()
+                pattern(e, c, x, seen)?
+        Disj(a, b) ->
+            val other = e.label()
+            val end = e.label()
+            val before = copied(seen)
+
+            e.op(Choice(other))
+            pattern(e, c, a, seen)?
+            e.op(Branch(end))
+            e.place(other)
+
+            var also = before
+
+            pattern(e, c, b, &also)?
+
+            for i in 0..<also.len()
+                if also.at(i) then seen.set(i, true)
+
+            e.place(end)
+        AsE(n, x) ->
+            e.op(Dup)
+            bind_name(e, c, n, seen)?
+            pattern(e, c, x, seen)?
+        _ -> return Err("a pattern the resolver refused reached the compiler")
+
+    Ok(())
+end pattern
+
+// A name in a pattern: its first occurrence takes the value, a later one must equal it.
+private bind_name(e: *Emit, c: Ctx, n: string, seen: *Buf[bool]) -> Result[unit, string]
+    val s = slot_of_name(c, n)?
+
+    if seen.at(s)
+        e.op(LoadSlot(0, s))
+        e.op(TestEq)
+        e.op(Pop)
+    else
+        seen.set(s, true)
+        e.op(StoreSlot(s))
+
+    Ok(())
+
+// A constant in a pattern: the value must equal it.
+private equal_to(e: *Emit, x: Value)
+    e.op(PushConst(e.constant(x)))
+    e.op(TestEq)
+    e.op(Pop)
+
+private copied(seen: *Buf[bool]) -> Buf[bool]
+    var out: Buf[bool] = buf()
+
+    for b in seen.view()
+        out.push(b)
+
+    out

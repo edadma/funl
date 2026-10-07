@@ -8,8 +8,8 @@ import sysl.text.from_utf8_unchecked
 // **Indentation is structure.** A line deeper than the one before it emits `Indent`, a line at the
 // same depth `Newline`, and a shallower one a `Dedent` per block it closes and then a `Newline`;
 // the end of the input closes everything still open. Inside brackets a newline is whitespace,
-// except under a token that opens a block -- `then`, `else`, `do`, `=` and `:-` -- written at the end
-// of its line.
+// except under a token that opens a block -- `then`, `else`, `do`, `=`, `:-` and `->` -- written at
+// the end of its line.
 //
 // **Comments are `;;` to the end of the line and `/* ... */`, which nests.** A line holding nothing
 // but blanks and a comment is no line at all: it opens and closes nothing.
@@ -210,6 +210,31 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         out.push(Turnstile, Span(start, s.at))
 
         if ends_line(s) then lay.opens_block()
+    elif c == u8('-')
+        if s.accept(u8('>'))
+            out.push(Arrow, Span(start, s.at))
+
+            if ends_line(s) then lay.opens_block()
+        else
+            out.push(Minus, Span(start, s.at))
+    elif c == u8('<')
+        out.push(if s.accept(u8('=')) then LessEq else Less, Span(start, s.at))
+    elif c == u8('>')
+        out.push(if s.accept(u8('=')) then GreaterEq else Greater, Span(start, s.at))
+    elif c == u8('@')
+        out.push(At, Span(start, s.at))
+    elif c == u8('+')
+        out.push(Plus, Span(start, s.at))
+    elif c == u8('*')
+        out.push(Star, Span(start, s.at))
+    elif c == u8('/')
+        out.push(Slash, Span(start, s.at))
+    elif c == u8('\\')
+        out.push(Backslash, Span(start, s.at))
+    elif c == u8('%')
+        out.push(Percent, Span(start, s.at))
+    elif c == u8('^')
+        out.push(Caret, Span(start, s.at))
     else
         s.reset(start)
         return false

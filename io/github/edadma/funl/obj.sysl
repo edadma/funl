@@ -38,6 +38,12 @@ struct VarObj
     stamp: u64
     id: u64
 
+// A function value: the chunk of its code and the frame it was made in, which becomes the static
+// link of every frame a call of it makes.
+struct ClosureObj
+    chunk: usize
+    up: *FrameObj
+
 // A function's frame. **A heap object, not a region of the operand stack**: a choice point names the
 // frame its alternative runs in, and that frame has to outlive the return that left it behind.
 struct FrameObj
@@ -59,6 +65,14 @@ struct FrameObj
 
     // Control height a clause-level cut returns to.
     cut: usize
+
+    // Operand stack height when this frame was entered, its arguments gone: what `return` from the
+    // middle of an expression cuts the stack back to.
+    base: usize
+
+    // Whether a function value may still reach this frame through its static chain. A captured
+    // frame is never reused by a tail call, which would change what the function value sees.
+    captured: bool
 
     // The arguments as the call passed them, and the slots the body numbers its locals into.
     // **Two buffers and not one**: a relation's clauses each bind their own slots from the same
@@ -132,4 +146,22 @@ new_frame(chunk: usize) -> Result[*FrameObj, string]
     o.chunk = chunk
     o.up = null
     o.caller = null
+    o.captured = false
     Ok(o)
+
+// A function value over `chunk`, made in frame `up`. **`up` and every frame above it are marked
+// captured**, since the value can reach all of them; a frame above a captured one is captured
+// already, so the walk stops there.
+new_closure(chunk: usize, up: *FrameObj) -> Result[Value, string]
+    val o: *ClosureObj = ptr_cast(take(current(), sizeof(ClosureObj), &closure_kind)?)
+
+    o.chunk = chunk
+    o.up = up
+
+    var f = up
+
+    while f != null && !f.captured
+        f.captured = true
+        f = f.up
+
+    Ok(Func(o))

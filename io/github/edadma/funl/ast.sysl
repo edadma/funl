@@ -5,8 +5,11 @@ import sysl.buf.Buf
 
 // The tree the parser builds and the resolver and compiler read.
 //
-// **A name is kept as its spelling here**; what it means -- a slot, a relation, a builtin, a fresh
-// logic variable -- is the resolver's answer, asked by the compiler.
+// **A name is kept as its spelling here**; what it means -- a slot, a function, a relation, a
+// builtin, a fresh logic variable -- is the resolver's answer, asked by the compiler.
+//
+// **A pattern is an expression**: a parameter, the left of a `val` and a head argument are all read
+// as expressions, and the resolver refuses a form that cannot match anything.
 
 enum ExprKind
     // A name in value position.
@@ -18,19 +21,41 @@ enum ExprKind
     AtomE(name: string)
     IntE(n: long)
     StrE(s: string)
+    BoolE(b: bool)
 
-    // `name(args)`: a call, or in a head a compound term.
+    // `(a, b, ...)`; `()` is the tuple of nothing, which is the unit value.
+    TupleE(items: Buf[&Expr])
+
+    // `name(args)`: a call of what the name means, or in a head or a pattern a compound term.
     CallE(name: string, name_span: Span, args: Buf[&Expr])
+
+    // `f(args)` where `f` is any expression but a name: `curried(5)(6)`.
+    ApplyE(f: &Expr, args: Buf[&Expr])
 
     // `a & b`, `a | b`, `not e`.
     Conj(a: &Expr, b: &Expr)
     Disj(a: &Expr, b: &Expr)
     Neg(e: &Expr)
 
+    // `a and b`, `a or b`: the same as `&` and `|`, except that each operand is a condition, which
+    // `false` fails.
+    AndE(a: &Expr, b: &Expr)
+    OrE(a: &Expr, b: &Expr)
+
     // `a ~ b`, `a == b`, `a != b`: each produces `b` when it holds.
     UnifyE(a: &Expr, b: &Expr)
     EqualE(a: &Expr, b: &Expr)
     DifferE(a: &Expr, b: &Expr)
+
+    // Arithmetic and ordering. An ordering produces its right operand when it holds, so comparisons
+    // chain: `1 < x < 10`.
+    BinE(op: BinOp, a: &Expr, b: &Expr)
+
+    // Prefix `-`.
+    MinusE(e: &Expr)
+
+    // `name@pattern`: the whole value under a name, and its parts under the pattern's.
+    AsE(name: string, pat: &Expr)
 
     // `if c then t else e`; with no `else`, the `if` fails when `c` does.
     IfE(cond: &Expr, yes: &Expr, no: Option[&Expr])
@@ -40,6 +65,21 @@ enum ExprKind
 
     // An indented run of statements, each bounded but the last, whose value is the block's.
     BlockE(stmts: Buf[Stmt])
+
+    // A lambda, or a partial function literal -- an indented block of lambdas -- which is several
+    // clauses of one anonymous function. `id` is unique in the program; the resolver keys the
+    // function it makes by it.
+    LambdaE(id: usize, clauses: Buf[Clause])
+
+    // `(e op`, read just before a `)`: half of a left section, which the parenthesis around it
+    // completes. Anywhere else it is a mistake the resolver reports.
+    SectionL(op: Tok, e: &Expr)
+
+    // `return e`, or `return` alone, which returns `()`.
+    ReturnE(e: Option[&Expr])
+
+    // `fail`: fails.
+    FailE
 
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
@@ -51,10 +91,20 @@ struct Expr
 
 expr(kind: ExprKind, span: Span) -> &Expr = Expr(kind, span)
 
-// A statement: a declaration of logic variables, or an expression run bounded.
 enum Stmt
+    // `free x, y`: fresh logic variables.
     FreeS(names: Buf[Spanned[string]])
+
+    // An expression run bounded.
     ExprS(e: &Expr)
+
+    // `val pattern = e`, or `pattern = e`: the first value of `e`, matched against the pattern,
+    // whose names it declares.
+    ValS(pat: &Expr, e: &Expr)
+
+    // `def` inside a body or a `where`: functions local to the frame they are written in.
+    DefS(clauses: Buf[Clause])
+end Stmt
 
 // Which kind of definition a clause makes.
 enum ClauseKind
@@ -64,18 +114,33 @@ enum ClauseKind
     // `def name(args) :- body`: a rule.
     Rule(body: &Expr)
 
-    // `def name(args) = body`: a function clause.
-    FunctionC(body: &Expr)
+    // `def name(args) = body`, guarded alternatives, a block body: a function clause.
+    FunctionC(body: FnBody)
 
-// One clause of a definition. The head's arguments are expressions -- a variable, a constant or a
-// term -- and the resolver refuses anything else.
+// What a function clause does once its parameters have matched.
+struct FnBody
+    // Tried in order; the first whose condition succeeds is the clause's body. An unguarded clause
+    // has one, with no condition.
+    guards: Buf[Guard]
+
+    // `where`: values and functions the guards and bodies can see, made when the clause is entered.
+    wheres: Buf[Stmt]
+
+// `| cond = body`; `otherwise`, or no `|` at all, is no condition.
+struct Guard
+    cond: Option[&Expr]
+    body: &Expr
+
+// One clause of a definition. The head's arguments are expressions -- for a relation a variable, a
+// constant or a term, for a function any pattern -- and the resolver refuses anything else.
 struct Clause
     name: string
     head: Span
     params: Buf[&Expr]
     kind: ClauseKind
 
-// What a file holds, in order: its clauses, wherever they were written, and its statements.
+// What a file holds, in order: its top-level clauses, wherever they were written, and its
+// statements.
 struct Program
     clauses: Buf[Clause]
     stmts: Buf[Stmt]

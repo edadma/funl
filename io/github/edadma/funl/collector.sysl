@@ -18,6 +18,7 @@ mark_value(h: *gc.Heap, v: Value)
         Tuple(p) -> gc.mark(h, ptr_cast(p))
         Cons(p) -> gc.mark(h, ptr_cast(p))
         Var(p) -> gc.mark(h, ptr_cast(p))
+        Func(p) -> gc.mark(h, ptr_cast(p))
         _ -> ()
 
 private mark_values(h: *gc.Heap, vs: Buf[Value])
@@ -63,6 +64,12 @@ trace_var(p: *u8, h: *gc.Heap)
 
     mark_value(h, o.value)
 
+// A function value keeps alive the frame it was made in, and through it the static chain it reads.
+trace_closure(p: *u8, h: *gc.Heap)
+    val o: *ClosureObj = ptr_cast(p)
+
+    gc.mark(h, ptr_cast(o.up))
+
 // A frame keeps alive the frame it was defined in, the frame it returns to, and everything in its
 // arguments and slots -- which is how the running frame alone roots the whole dynamic chain.
 trace_frame(p: *u8, h: *gc.Heap)
@@ -98,6 +105,9 @@ var var_kind: gc.Kind = gc.Kind(&trace_var, null, null, null)
 // process-wide: a table of hook addresses, as above.
 var frame_kind: gc.Kind = gc.Kind(&trace_frame, &finalize_frame, null, null)
 
+// process-wide: a table of hook addresses, as above.
+var closure_kind: gc.Kind = gc.Kind(&trace_closure, null, null, null)
+
 // Everything the machine can still reach.
 //
 // **The dangerous rows are `saved`, the control entries and the trail**, because they look like
@@ -124,6 +134,9 @@ roots(h: *gc.Heap)
 
     // The code running now, and through it the static and dynamic chains.
     gc.mark(h, ptr_cast(v.frame))
+
+    // The top level's frame, the static link of every top-level function's frames.
+    gc.mark(h, ptr_cast(v.globals))
 
     // Every constant a chunk can push.
     for c in v.chunks.view()

@@ -1,0 +1,6 @@
+multiply = (n, m) -> (n * m)
+write( multiply(3, 4) )
+
+curryedMultiply = n -> m -> multiply( n, m )
+triple = curryedMultiply( 3 )
+write( triple(4) )

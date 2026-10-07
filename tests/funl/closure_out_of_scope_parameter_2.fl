@@ -1,0 +1,8 @@
+def f( x )
+  def g( n ) = x + n
+
+  g
+
+def h( x, y ) = x( y )
+
+write( h(f(3), 4) )

@@ -33,6 +33,9 @@ private identical(a: Value, b: Value) -> bool = a match
     Tuple(p) -> b match
         Tuple(q) -> p == q
         _ -> false
+    Func(p) -> b match
+        Func(q) -> p == q
+        _ -> false
     _ -> false
 
 // Unify `a` with `b`, binding variables. Answers false on a mismatch, leaving whatever bindings it
@@ -109,6 +112,12 @@ private step(x: Value, y: Value) -> bool
         Tuple(p) -> y match
             Tuple(q) -> unify_items(p, q)
             _ -> false
+        Bool(a) -> y match
+            Bool(b) -> a == b
+            _ -> false
+
+        // Function values unify by identity, which `identical` has already tested.
+        Func(_) -> false
         Var(_) -> false
 end step
 
@@ -249,6 +258,10 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, string]
                     work.push(q.tail)
                     true
                 _ -> false
+            Bool(a) -> y match
+                Bool(b) -> a == b
+                _ -> false
+            Func(_) -> false
             Var(_) -> false
 
         if !same then return Ok(false)

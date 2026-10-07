@@ -1,12 +1,20 @@
 module io.github.edadma.funl
 
+import sysl.text.str_builder
 
 // Output builtins.
 
 install_io(v: *Vm)
-    register(v, "write", 1, do_write)
+    register(v, "write", Variadic, do_write)
 
-// `write(x)`: print `x` as a line, answering `()`.
+// `write(a, b, ...)`: print the arguments as one line, separated by `, `, answering `()`.
 private do_write(base: usize, argc: usize) -> Result[Value, string]
-    current().output.push(render(arg(base, 0)))
+    var out = str_builder()
+
+    for i in 0..<argc
+        if i > 0 then out.push(", ")
+
+        out.push(render(arg(base, i)))
+
+    current().output.push(out.finish())
     Ok(Unit)

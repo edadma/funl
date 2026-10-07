@@ -1,0 +1,7 @@
+def
+  gcd( a, a )   = a
+  gcd( a, b )
+    | a > b     = gcd( a - b, b )
+    | otherwise = gcd( a, b - a )
+
+write( gcd(30, 12) )

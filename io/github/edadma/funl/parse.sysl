@@ -17,6 +17,14 @@ struct Parser
     // How deeply expressions are nested, which `parse_expr` bounds.
     depth: usize
 
+    // How many lambdas have been read: the next one's id.
+    lambdas: usize
+
+    // A fresh lambda id.
+    lambda_id(*self) -> usize
+        self.lambdas += 1
+        self.lambdas - 1
+
     // **Not `private`: the expression callbacks in `parse_expr.sysl` use these.**
 
     // The token at the cursor, if any.
@@ -148,11 +156,34 @@ tag(t: Tok) -> u8
         Newline -> 24
         Indent -> 25
         Dedent -> 26
+        Elif -> 27
+        Val -> 28
+        Where -> 29
+        ReturnW -> 30
+        FailW -> 31
+        TrueW -> 32
+        FalseW -> 33
+        Otherwise -> 34
+        Mod -> 35
+        Div -> 36
+        Arrow -> 37
+        At -> 38
+        Plus -> 39
+        Minus -> 40
+        Star -> 41
+        Slash -> 42
+        Backslash -> 43
+        Percent -> 44
+        Caret -> 45
+        Less -> 46
+        LessEq -> 47
+        Greater -> 48
+        GreaterEq -> 49
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
 parse(src: Source, report: *Report) -> Program
-    var p = Parser(lex(src, report), report, src, 0)
+    var p = Parser(lex(src, report), report, src, 0, 0)
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
 
@@ -189,9 +220,27 @@ parse(src: Source, report: *Report) -> Program
     Program(clauses, stmts)
 end parse
 
-// One statement: `free names`, or an expression.
+// One statement: `free names`, `def`, `val pattern = e`, `pattern = e`, or an expression.
 statement(p: *Parser) -> Stmt
-    if !p.accept(Free) then return ExprS(parse_expr(p, 0))
+    if p.accept(Def)
+        var clauses: Buf[Clause] = buf()
+
+        definition(p, &clauses)
+        return DefS(clauses)
+
+    if p.accept(Val)
+        val pat = parse_expr(p, 0)
+
+        if !p.expect(Equals, "`=`") then return ValS(pat, expr(BadE, pat.span))
+
+        return ValS(pat, body_expr(p))
+
+    if !p.accept(Free)
+        val e = parse_expr(p, 0)
+
+        if p.accept(Equals) then return ValS(e, body_expr(p))
+
+        return ExprS(e)
 
     var names: Buf[Spanned[string]] = buf()
 
@@ -214,78 +263,3 @@ statement(p: *Parser) -> Stmt
     FreeS(names)
 end statement
 
-// What follows `def`: one clause on the line, or an indented block of them.
-private definition(p: *Parser, clauses: *Buf[Clause])
-    if !p.accept(Indent)
-        clause(p, clauses)
-        return
-
-    loop
-        while p.accept(Newline)
-            ()
-
-        if p.accept(Dedent) || p.peek_tok().is_none() then return
-
-        clause(p, clauses)
-
-        if p.at_tok(Newline) || p.at_tok(Dedent) then continue
-
-        p.fail_here("the end of the clause")
-        p.skip_line()
-end definition
-
-// `name(args)`, then nothing for a fact, `:- body` for a rule, or `= body` for a function.
-private clause(p: *Parser, clauses: *Buf[Clause])
-    val first = p.toks.peek() match
-        Some(t) -> t
-        None ->
-            p.fail_here("the name being defined")
-            return
-
-    val name = first.value match
-        Name(n) -> n
-        _ ->
-            p.fail_here("the name being defined")
-            p.skip_line()
-            return
-
-    p.take()
-
-    val params = if p.accept(LParen) then arguments(p) else buf()
-    val head = first.span.to(p.toks.previous())
-
-    val kind = if p.accept(Turnstile)
-            Rule(rule_body(p))
-        elif p.accept(Equals)
-            FunctionC(parse_expr(p, 0))
-        else
-            Fact
-
-    clauses.push(Clause(name, head, params, kind))
-end clause
-
-// A rule's body: one goal on the line, or an indented block whose lines are its conjuncts.
-private rule_body(p: *Parser) -> &Expr
-    if !p.accept(Indent) then return parse_expr(p, 0)
-
-    var body = parse_expr(p, 0)
-
-    loop
-        if p.accept(Newline)
-            val next = parse_expr(p, 0)
-
-            body = expr(Conj(body, next), body.span.to(next.span))
-            continue
-
-        if p.accept(Dedent) then break
-
-        p.fail_here("the end of the line")
-        p.skip_line()
-
-        if p.at_tok(Newline) then continue
-
-        p.accept(Dedent)
-        break
-
-    body
-end rule_body

@@ -25,6 +25,10 @@ struct Vm
     stack: Buf[Value]
     frame: *FrameObj
 
+    // The top level's frame: the static link of every function defined at the top level, whatever
+    // frame calls it -- a relation's frames have no static chain to reach it by.
+    globals: *FrameObj
+
     // Marks, choice points and restore points, and the operand cells they saved, in step.
     control: Buf[Entry]
     saved: Buf[Value]
@@ -82,7 +86,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
     if block == null then panic("funl could not take a heap of the size this VM asked for")
 
     var v = Vm(
-        buf(), 0, 0, buf(), null, buf(), buf(), buf(), NoMark, 0, buf(), 0,
+        buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, buf(), 0,
         buf(), map(), buf(), buf(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0)
 
