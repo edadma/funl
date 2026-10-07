@@ -2,6 +2,8 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.path.{join, parent}
 
 // Relations, and the whole program.
 //
@@ -31,18 +33,95 @@ compile_program(src: Source, report: *Report) -> Option[usize]
 
     if report.has_errors() then return None
 
+    // The Prolog files are loaded first, so the resolver knows their predicates by name.
+    var loads: Buf[usize] = buf()
+
+    for i in prog.imports.view()
+        imported(src, i, report) match
+            Some(chunk) -> loads.push(chunk)
+            None -> ()
+
+    if report.has_errors() then return None
+
     var res = resolve(prog, report)
 
     if report.has_errors() then return None
 
-    compiled(&res) match
+    match_up(&res) match
+        Ok(_) -> ()
+        Err(e) ->
+            report.add(error(point(0), s"the compiler failed: $e"))
+            return None
+
+    compiled(&res, loads) match
         Ok(chunk) -> Some(chunk)
         Err(e) ->
             report.add(error(point(0), s"the compiler failed: $e"))
             None
 end compile_program
 
-private compiled(res: *Resolved) -> Result[usize, string]
+// `import "file.pl"`: the Prolog file, read relative to the directory of the program importing it,
+// loaded into the VM; the chunk that runs its directives, or `None` with the reason reported at the
+// import.
+private imported(src: Source, i: Spanned[string], report: *Report) -> Option[usize]
+    val file = parent(src.name) match
+        Some(dir) -> join(dir, i.value)
+        None -> i.value
+
+    val text = read_text(file) match
+        Ok(t) -> t
+        Err(e) ->
+            report.add(error(i.span, s"`$file` cannot be read: $e"))
+            return None
+
+    val pl = source_of(file, text)
+    var inner = full_report()
+
+    load_prolog(pl, &inner) match
+        Some(chunk) -> Some(chunk)
+        None ->
+            report.add(error(i.span, s"`$file` could not be loaded").with_note(inner.render(pl)))
+            None
+end imported
+
+// Make the program's top-level definitions predicates Prolog can call by name and arity: a relation
+// `r` of `n` arguments as `r/n`, a function `f` of `n` parameters as `f/(n+1)`, whose last argument
+// is unified with each value the function gives. A key Prolog has already defined is left to Prolog.
+private match_up(res: *Resolved) -> Result[unit, string]
+    for i in 0..<res.rels.len()
+        val r = res.rels.at(i)
+
+        val top = res.by_name.get(r.name) match
+            Some(j) -> j == i
+            None -> false
+
+        if !top then continue
+
+        var e = emit(r.name)
+
+        if r.function
+            for k in 0..<r.arity
+                e.op(LoadArg(k))
+
+            e.op(CallFn(r.chunk, r.arity, TopUp))
+            e.op(LoadArg(r.arity))
+            e.op(Unify)
+            e.op(Pop)
+            e.op(PushUnit)
+            e.op(Return)
+            offer_predicate(pred_key(r.name, r.arity + 1), e)?
+        else
+            for k in 0..<r.arity
+                e.op(LoadArg(k))
+
+            e.op(TailCall(r.chunk, r.arity))
+            e.op(Return)
+            offer_predicate(pred_key(r.name, r.arity), e)?
+
+    Ok(())
+end match_up
+
+private compiled(res: *Resolved, loads: Buf[usize]) -> Result[usize, string]
     for r in res.rels.view()
         if r.function then compile_function(res, r)? else compile_relation(res, r)?
 
@@ -51,6 +130,11 @@ private compiled(res: *Resolved) -> Result[usize, string]
     val c = context(res, res.top, &loops)
 
     e.op(Frame(res.scopes.at(res.top).count()))
+
+    // What each imported file's directives run, before the program's own statements.
+    for l in loads.view()
+        e.op(Call(l, 0))
+        e.op(Pop)
 
     for s in res.top_stmts.view()
         compile_stmt(&e, c, s)?
@@ -70,7 +154,7 @@ private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
     // points; otherwise each clause but the last is an alternative of its own.
     val index = indexed(r.clauses)
 
-    if index then first_arg_index(&e, r.clauses, starts)
+    if index then first_arg_index(&e, clause_keys(r.clauses), starts)
 
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
@@ -154,6 +238,7 @@ private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         CallE(n, at, args) ->
             c.meaning(n, at.start) match
                 Relation(_) -> call_named(e, c, n, at.start, args, true)?
+                Predicate(_) -> call_named(e, c, n, at.start, args, true)?
                 _ -> returning(e, c, x)?
         Conj(a, b) ->
             compile_value(e, c, a)?

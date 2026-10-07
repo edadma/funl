@@ -1,0 +1,119 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.{full_report, point, source_of}
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+
+// The meta-call, the soft cut and `consult`, as the instruction loop runs them.
+
+// The control-stack height slot `slot` of the running frame recorded with `SaveHeight`.
+saved_height(v: *Vm, slot: usize) -> Result[usize, string]
+    slot_of(v.frame, slot)? match
+        Int(n) -> Ok(usize(n))
+        _ -> Err(s"slot $slot holds no saved height")
+
+// `SoftCut`: the `Choice` at height `h` stops resuming, and everything above it stays. Once its
+// condition has succeeded, an `*->` has nowhere else to go but its condition's other solutions.
+soft_cut(v: *Vm, h: usize)
+    if h >= v.control.len() then return
+
+    var e = v.control.at(h)
+
+    e.kind = MarkThrough
+    v.control.set(h, e)
+
+// `CallGoal(extra)`: the goal under the top `extra` values, with them added as its last arguments,
+// called in a frame of its own -- so a cut inside it cuts no further than that frame.
+call_goal(v: *Vm, extra: usize) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if extra + 1 > top then return Err(s"call/${extra + 1} wants ${extra + 1} operands and the stack holds $top")
+
+    val base = top - extra - 1
+    val g = deref(v.stack.at(base))
+    var args: Buf[Value] = buf()
+
+    val f = g match
+        Atom(id) -> id
+        Compound(c) ->
+            for x in c.args.view()
+                args.push(x)
+
+            c.functor
+        Var(_) -> return Err("instantiation error: call/N was given an unbound variable as its goal")
+        _ -> return Err(s"type error: call/N wants a callable goal, an atom or a compound, and was given ${described(g)}")
+
+    for i in base + 1..<top
+        args.push(v.stack.at(i))
+
+    v.stack.truncate(base)
+
+    val name = atom_name(f)
+    val n = args.len()
+
+    if is_inline(name, n)
+        val chunk = query_chunk(f, args)?
+
+        return call(v, chunk, 0)
+
+    val chunk = v.preds.get(pred_key(name, n)) match
+        Some(p) -> if p.defined then p.chunk else return Err(s"unknown procedure $name/$n")
+        None ->
+            native_id(pred_key(name, n)) match
+                Some(_) -> predicate_chunk(name, n)
+                None -> return Err(s"unknown procedure $name/$n")
+
+    for x in args.view()
+        v.stack.push(x)
+
+    call(v, chunk, n)
+end call_goal
+
+// A goal built of control constructs, compiled into a chunk of its own: the constructs are read as
+// the compiler reads a clause body, and every argument that is not a goal is the value it stands for.
+private query_chunk(f: u32, args: Buf[Value]) -> Result[usize, string]
+    val t = goal_term(f, args)
+
+    compile_query("call/N", ReadClause(t, buf())) match
+        Ok(e) -> finish(e)
+        Err(p) -> Err(s"type error: ${p.message}")
+
+private goal_term(f: u32, args: Buf[Value]) -> &Term
+    val at = point(0)
+
+    if args.len() == 0 then return term(TAtom(f), at)
+
+    val goals = goal_args(atom_name(f), args.len())
+    var ts: Buf[&Term] = buf()
+
+    for x in args.view()
+        ts.push(if goals then value_goal(x) else term(TConst(x), at))
+
+    term(TComp(f, ts), at)
+
+private value_goal(x: Value) -> &Term
+    deref(x) match
+        Atom(id) -> goal_term(id, buf())
+        Compound(c) -> goal_term(c.functor, c.args)
+        _ -> term(TConst(x), point(0))
+
+// `Consult`: the file named on top, loaded, and what its directives run called.
+consult(v: *Vm) -> Result[unit, string]
+    val file = deref(v.stack.pop().unwrap_or(Undefined)) match
+        Str(p) -> p.s
+        Atom(id) -> atom_name(id)
+        x -> return Err(s"consult wants a file name, and was given ${described(x)}")
+
+    val text = read_text(file) match
+        Ok(t) -> t
+        Err(e) -> return Err(s"consult cannot read $file: $e")
+
+    val src = source_of(file, text)
+    var report = full_report()
+
+    val chunk = load_prolog(src, &report) match
+        Some(c) -> c
+        None -> return Err(s"consult could not load $file:\n${report.render(src)}")
+
+    call(v, chunk, 0)
+end consult

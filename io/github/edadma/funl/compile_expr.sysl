@@ -427,8 +427,14 @@ call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool
             val chunk = c.res.rels.at(r).chunk
 
             e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
+        Predicate(name) ->
+            val chunk = predicate_chunk(name, argc)
+
+            e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
         Builtin(id) ->
-            if is_generator(id)
+            if current().natives.at(id).name == "consult"
+                e.op(Consult)
+            elif is_generator(id)
                 e.op(PushInt(0))
                 e.op(NativeGen(id, argc))
             else

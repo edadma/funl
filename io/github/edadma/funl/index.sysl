@@ -33,27 +33,38 @@ clause_key(p: &Expr) -> Option[Key] = p.kind match
 // Whether a relation of these clauses is worth an index: more than one clause, and a first
 // argument some clause keys.
 indexed(clauses: Buf[Clause]) -> bool
-    if clauses.len() < 2 then return false
-
     for cl in clauses.view()
         if cl.params.len() == 0 then return false
 
-        clause_key(cl.params.at(0)) match
+    worth_indexing(clause_keys(clauses))
+
+// The key of each clause's first head argument.
+clause_keys(clauses: Buf[Clause]) -> Buf[Option[Key]]
+    var keys: Buf[Option[Key]] = buf()
+
+    for cl in clauses.view()
+        keys.push(clause_key(cl.params.at(0)))
+
+    keys
+
+// Whether clauses with these first-argument keys, one per clause, are worth an index: more than one
+// clause, and some clause keyed. A Prolog predicate's clauses are indexed by the same rule.
+worth_indexing(keys: Buf[Option[Key]]) -> bool
+    if keys.len() < 2 then return false
+
+    for k in keys.view()
+        k match
             Some(_) -> return true
             None -> ()
 
     false
 
-// Emit the index of `clauses`, the code of clause `i` beginning at label `starts.at(i)`.
-first_arg_index(e: *Emit, clauses: Buf[Clause], starts: Buf[usize])
-    var keys: Buf[Option[Key]] = buf()
+// Emit the index of clauses whose first arguments have `keys`, the code of clause `i` beginning at
+// label `starts.at(i)`.
+first_arg_index(e: *Emit, keys: Buf[Option[Key]], starts: Buf[usize])
     var distinct: Buf[Key] = buf()
 
-    for cl in clauses.view()
-        val k = clause_key(cl.params.at(0))
-
-        keys.push(k)
-
+    for k in keys.view()
         k match
             Some(x) -> if !holds_key(distinct, x) then distinct.push(x)
             None -> ()

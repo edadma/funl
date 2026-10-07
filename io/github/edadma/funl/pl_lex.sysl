@@ -1,0 +1,383 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.text.{Ascii, char_from_u32, from_utf8_unchecked, str_builder}
+
+// Prolog's tokens, as ISO writes them.
+//
+// **Tokens do not depend on the operator table**, so a whole file is cut into tokens before any of
+// it is read as terms; `op/3` changes what the reader makes of a name, never where a token ends.
+//
+// **A refused token has already been reported**: the lexer adds its diagnostic and leaves a
+// `PlBad` in the stream, which tells the reader to give up on the clause without saying more.
+
+enum PlTok
+    // An unquoted name: a lower-case word, a run of symbol characters, `!` or `;`.
+    PlName(text: string)
+
+    // A quoted atom, `'it''s'`.
+    PlQuoted(text: string)
+
+    PlVarT(name: string)
+    PlIntT(n: long)
+
+    // Double-quoted text.
+    PlStrT(text: string)
+
+    // `(` with layout or nothing before it, and `(` directly after a name -- the second is what makes
+    // `foo(a)` a compound and `- (1)` an operator applied to a bracketed term.
+    PlOpen
+    PlOpenCT
+
+    PlClose
+    PlLBracket
+    PlRBracket
+    PlLBrace
+    PlRBrace
+    PlComma
+    PlBar
+
+    // The `.` that ends a clause.
+    PlEnd
+
+    PlBad
+
+// The characters ISO runs together into a symbol atom.
+private is_symbol_char(c: u8) -> bool =
+    c == u8('+') || c == u8('-') || c == u8('*') || c == u8('/') || c == u8('\\') || c == u8('^') ||
+    c == u8('<') || c == u8('>') || c == u8('=') || c == u8('~') || c == u8(':') || c == u8('.') ||
+    c == u8('?') || c == u8('@') || c == u8('#') || c == u8('&') || c == u8('$')
+
+// Cut `src` into tokens, reporting each refusal.
+pl_lex(src: Source, report: *Report) -> Tokens[PlTok]
+    var s = scan(src)
+    var out: Buf[Spanned[PlTok]] = buf()
+
+    // Where the last name ended, so that a `(` touching it opens an argument list.
+    var name_end: usize = 0
+    var after_name = false
+
+    loop
+        val laid = skip_layout(&s, report)
+
+        if s.at_end() then break
+
+        val start = s.offset
+        val touching = after_name && !laid && start == name_end
+        val tok = token(&s, report, touching)
+
+        after_name = tok match
+            PlName(_) -> true
+            PlQuoted(_) -> true
+            _ -> false
+
+        name_end = s.offset
+        out.push(Spanned(tok, s.span_from(start)))
+    end loop
+
+    tokens_of(out)
+end pl_lex
+
+// The token at the cursor, which is not layout; `touching` says a name ends just before it.
+private token(s: *Scanner, report: *Report, touching: bool) -> PlTok
+    val start = s.offset
+    val c = s.peek().unwrap()
+
+    if is_lower(c)
+        s.accept_while(is_ident_cont)
+        return PlName(from_utf8_unchecked(s.text_from(start)))
+
+    if is_upper(c) || c == u8('_')
+        s.accept_while(is_ident_cont)
+        return PlVarT(from_utf8_unchecked(s.text_from(start)))
+
+    if is_digit(c) then return number(s, report)
+
+    if c == u8('\'')
+        return quoted(s, report, u8('\'')) match
+            Some(text) -> PlQuoted(text)
+            None -> PlBad
+
+    if c == u8('"')
+        return quoted(s, report, u8('"')) match
+            Some(text) -> PlStrT(text)
+            None -> PlBad
+
+    if c == u8('!') || c == u8(';')
+        s.bump()
+        return PlName(from_utf8_unchecked(s.text_from(start)))
+
+    if is_symbol_char(c)
+        s.accept_while(is_symbol_char)
+
+        val text = from_utf8_unchecked(s.text_from(start))
+
+        return if text == "." && ends_clause(*s) then PlEnd else PlName(text)
+
+    val punct = punct_of(c, touching)
+
+    punct match
+        PlBad ->
+            s.next_char()
+            report.add(error(s.span_from(start), "this character cannot begin a Prolog token"))
+        _ -> s.bump()
+
+    punct
+end token
+
+// The punctuation token byte `c` is, or `PlBad`.
+private punct_of(c: u8, touching: bool) -> PlTok
+    if c == u8('(') then return if touching then PlOpenCT else PlOpen
+    if c == u8(')') then return PlClose
+    if c == u8('[') then return PlLBracket
+    if c == u8(']') then return PlRBracket
+    if c == u8('{') then return PlLBrace
+    if c == u8('}') then return PlRBrace
+    if c == u8(',') then return PlComma
+    if c == u8('|') then return PlBar
+
+    PlBad
+
+// A `.` ends a clause when layout, a `%` comment or the end of the input follows it.
+private ends_clause(s: Scanner) -> bool = s.peek() match
+    None -> true
+    Some(c) -> is_space(c) || c == u8('%')
+
+// Skip blanks, newlines and both kinds of comment; whether anything was skipped.
+private skip_layout(s: *Scanner, report: *Report) -> bool
+    val from = s.offset
+
+    loop
+        s.skip_space()
+
+        if s.peek() == Some(u8('%'))
+            s.skip_to_line_end()
+            continue
+
+        s.skip_block_comment("/*".bytes, "*/".bytes, false) match
+            Ok(true) -> continue
+            Ok(false) -> break
+            Err(span) ->
+                report.add(error(span, "this comment is never closed").with_note("a block comment ends with `*/`"))
+                break
+
+    s.offset > from
+end skip_layout
+
+// A number: decimal, `0x1F`, `0o17`, `0b101`, or `0'c`, a character's code. A float is refused.
+private number(s: *Scanner, report: *Report) -> PlTok
+    val start = s.offset
+
+    if s.peek() == Some(u8('0')) && s.peek_at(1) == Some(u8('\''))
+        s.skip(2)
+        return char_code(s, report, start)
+
+    if s.peek() == Some(u8('0'))
+        val base = s.peek_at(1) match
+            Some(b) -> if b == u8('x') then 16 elif b == u8('o') then 8 elif b == u8('b') then 2 else 0
+            None -> 0
+
+        val digit_follows = s.peek_at(2) match
+            Some(d) -> base != 0 && d.digit_value(base).is_some()
+            None -> false
+
+        if digit_follows
+            s.skip(2)
+            return integer_of(s, report, start, base)
+
+    val n = integer_of(s, report, start, 10)
+
+    // `1.5` and `1.0e3` are floats, which this machine has no value for yet; `1e3` is refused the
+    // same way, since it is a float everywhere it is accepted at all.
+    val fraction = s.peek() == Some(u8('.')) && s.peek_at(1).map((d) -> is_digit(d)).unwrap_or(false)
+    val exponent = (s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))) && exponent_digits(s.peek_at(1), s.peek_at(2))
+
+    if fraction || exponent
+        if fraction
+            s.bump()
+            s.accept_while(is_digit)
+
+        if s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))
+            if exponent_digits(s.peek_at(1), s.peek_at(2))
+                s.bump()
+                s.accept_any("+-".bytes)
+                s.accept_while(is_digit)
+
+        report.add(error(s.span_from(start), "floats are not supported yet")
+            .with_note("FunL has no float value until its numeric tower lands; write an integer"))
+        return PlBad
+
+    n
+end number
+
+private exponent_digits(a: Option[u8], b: Option[u8]) -> bool = a match
+    Some(x) ->
+        if is_digit(x) then true
+        elif x == u8('+') || x == u8('-') then b.map((y) -> is_digit(y)).unwrap_or(false)
+        else false
+    None -> false
+
+// The digits of an integer in `base`, from where the scanner stands; `start` is the whole literal's.
+private integer_of(s: *Scanner, report: *Report, start: usize, base: int) -> PlTok
+    read_digits(s, base) match
+        Ok(n) ->
+            if n > 9223372036854775807
+                report.add(error(s.span_from(start), "this integer is too large to hold"))
+                return PlBad
+
+            PlIntT(long(n))
+        Err(e) ->
+            report.add(error(where(e), s"this number is malformed: $e"))
+            PlBad
+
+// `0'c`: the code of one character, which may be an escape, or `''` for the quote itself.
+private char_code(s: *Scanner, report: *Report, start: usize) -> PlTok
+    s.peek() match
+        None ->
+            report.add(error(s.span_from(start), "`0'` is followed by the character whose code it is"))
+            PlBad
+        Some(c) ->
+            if c == u8('\\')
+                escape(s, report) match
+                    Ok(Some(ch)) -> PlIntT(long(u32(ch)))
+                    Ok(None) ->
+                        report.add(error(s.span_from(start), "`0'` is followed by the character whose code it is"))
+                        PlBad
+                    Err(_) -> PlBad
+            else
+                // `0'''` is the quote's code, written doubled as it is inside a quoted atom; a lone
+                // `0''` is read the same way.
+                if c == u8('\'') && s.peek_at(1) == Some(u8('\''))
+                    s.skip(2)
+                    return PlIntT(39)
+
+                PlIntT(long(u32(s.next_char().unwrap())))
+end char_code
+
+// A quoted atom or string, the scanner on its opening quote: the text with its escapes decoded, or
+// `None` once the refusal is reported. The quote doubled stands for itself.
+private quoted(s: *Scanner, report: *Report, q: u8) -> Option[string]
+    val start = s.offset
+    var out = str_builder()
+
+    // A refused escape is reported and the text read on to its closing quote, so what follows the
+    // quote is not read as the start of another one.
+    var refused = false
+
+    s.bump()
+
+    loop
+        s.peek() match
+            None ->
+                report.add(error(s.span_from(start), if q == u8('"') then "this string is never closed" else "this quoted atom is never closed"))
+                return None
+            Some(c) ->
+                if c == q
+                    s.bump()
+
+                    if s.peek() != Some(q) then break
+
+                    s.bump()
+                    out.push_char(char_from_u32(u32(q)).unwrap())
+                elif c == u8('\\') && !refused
+                    escape(s, report) match
+                        Ok(Some(ch)) -> out.push_char(ch)
+                        Ok(None) -> ()
+                        Err(_) -> refused = true
+                else
+                    val ch = s.next_char().unwrap()
+
+                    if !refused then out.push_char(ch)
+
+    if refused then None else Some(out.finish())
+end quoted
+
+// An escape, the scanner on its backslash: the character, `None` for a backslash-newline (which
+// continues the text on the next line), or a reported refusal.
+private escape(s: *Scanner, report: *Report) -> Result[Option[char], unit]
+    val start = s.offset
+
+    s.bump()
+
+    val c = s.peek() match
+        Some(c) -> c
+        None ->
+            report.add(error(s.span_from(start), "an escape is cut off by the end of the input"))
+            return Err(())
+
+    val simple = simple_escape(c)
+
+    if simple != 0
+        s.bump()
+        return Ok(Some(char_from_u32(simple).unwrap()))
+
+    if c == u8('\n')
+        s.bump()
+        return Ok(None)
+
+    // `\x41\` and `\101\`: a code in hexadecimal or octal, closed by a backslash.
+    if c == u8('x')
+        s.bump()
+
+        val n = s.peek_while(is_hex_digit)
+
+        if n == 0
+            report.add(error(s.span_from(start), "`\\x` is followed by hexadecimal digits and a closing `\\`"))
+            return Err(())
+
+        val ch = read_hex_escape(s, int(n), start) match
+            Ok(ch) -> ch
+            Err(e) ->
+                report.add(error(where(e), "this escape does not name a character"))
+                return Err(())
+
+        return closed(s, report, start, ch)
+
+    if is_octal_digit(c)
+        var v: u32 = 0
+
+        while s.peek().map((d) -> is_octal_digit(d)).unwrap_or(false)
+            v = v * 8 + u32(s.peek().unwrap() - u8('0'))
+            s.bump()
+
+            if v > 1114111
+                report.add(error(s.span_from(start), "this escape does not name a character"))
+                return Err(())
+
+        val ch = char_from_u32(v) match
+            Some(ch) -> ch
+            None ->
+                report.add(error(s.span_from(start), "this escape does not name a character"))
+                return Err(())
+
+        return closed(s, report, start, ch)
+
+    s.next_char()
+    report.add(error(s.span_from(start), "this is not an escape Prolog knows")
+        .with_note("the escapes are `\\n` `\\t` `\\r` `\\a` `\\b` `\\f` `\\v` `\\\\` `\\'` `\\\"`, `\\xHH\\` and `\\NNN\\`"))
+    Err(())
+end escape
+
+// The character a one-letter escape `\c` stands for, or 0 when `c` is not one.
+private simple_escape(c: u8) -> u32
+    if c == u8('n') then return 10
+    if c == u8('t') then return 9
+    if c == u8('r') then return 13
+    if c == u8('a') then return 7
+    if c == u8('b') then return 8
+    if c == u8('f') then return 12
+    if c == u8('v') then return 11
+    if c == u8('e') then return 27
+    if c == u8('\\') || c == u8('\'') || c == u8('"') || c == u8('`') then return u32(c)
+
+    0
+
+// The backslash that closes a numeric escape.
+private closed(s: *Scanner, report: *Report, start: usize, ch: char) -> Result[Option[char], unit]
+    if !s.accept(u8('\\'))
+        report.add(error(s.span_from(start), "a numeric escape is closed by a `\\`")
+            .with_note("ISO writes the code between `\\x` and `\\`: `\\x41\\` is `A`"))
+        return Err(())
+
+    Ok(Some(ch))

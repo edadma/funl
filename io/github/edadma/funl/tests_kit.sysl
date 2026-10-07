@@ -142,6 +142,41 @@ rendered(text: string) -> string
     leave(was)
     out
 
+// -- Prolog source ------------------------------------------------------------------------------
+
+// Load Prolog `text` into the running VM as a whole program: its chunk, or every diagnostic rendered.
+prolog_text(text: string) -> Result[usize, string]
+    val src = source_of("test.pl", text)
+    var r = full_report()
+
+    prolog_program(src, &r) match
+        Some(chunk) -> Ok(chunk)
+        None -> Err(r.render(src))
+
+// The transcript of Prolog program `text` -- its directives and `initialization/1` goals run -- on
+// both heaps.
+ran_prolog(text: string) -> string = ran(() -> prolog_text(text))
+
+// What loading Prolog `text` reports, one diagnostic a line: `severity line:col message`.
+prolog_complaints(text: string) -> string
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val src = source_of("test.pl", text)
+    var r = full_report()
+    var out = str_builder()
+
+    prolog_program(src, &r)
+
+    for i in 0..<r.len()
+        val d = r.at(i)
+
+        out.push(s"${d.severity} ${src.locate(d.span.start)} ${d.message}\n")
+
+    dispose_vm(&v)
+    leave(was)
+    out.finish()
+end prolog_complaints
+
 // The id of builtin `name`, which the test is about to emit a call to.
 builtin(name: string) -> usize = native_id(name).unwrap()
 

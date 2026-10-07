@@ -2,9 +2,10 @@ module io.github.edadma.funl
 
 // What a value is.
 //
-// **One value model for both languages the machine runs.** Prolog code never makes a `Str`, a
-// `Tuple` or a `Unit`, and FunL code makes all of them; both share the terms -- atoms, integers,
+// **One value model for both languages the machine runs.** Both share the terms -- atoms, integers,
 // compounds, lists and variables -- so a FunL record unifies with a Prolog term and prints the same.
+// Prolog code makes a `Str` too, from double-quoted text, and a `Unit` as the value a predicate
+// returns, as a FunL relation does; it never makes a `Tuple`, which only FunL code does.
 //
 // **A `Value` holds no reference-counted sysl member.** It is copied on every push, pop and slot
 // read, and an ARC increment on each copy would be a cost on every instruction. Anything that owns

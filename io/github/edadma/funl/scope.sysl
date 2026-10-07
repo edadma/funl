@@ -208,6 +208,9 @@ enum Meaning
     Relation(rel: usize)
     Builtin(id: usize)
 
+    // A Prolog predicate the program imported: a relation, reached by its name and the call's arity.
+    Predicate(name: string)
+
     // A `data` constructor, `id` indexing `Vm.ctors`.
     Constructor(id: usize)
 
@@ -287,8 +290,10 @@ struct Resolved
             None -> ()
 
         native_id(name) match
-            Some(id) -> Builtin(id)
-            None -> Unknown
+            Some(id) -> return Builtin(id)
+            None -> ()
+
+        if pred_name_known(name) then Predicate(name) else Unknown
 end Resolved
 
 // Resolve `prog`, adding every refusal and warning to `report`.

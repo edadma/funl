@@ -1,0 +1,500 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.Span
+import sysl.buf.{Buf, buf}
+
+// Prolog clauses, compiled onto the instructions FunL relations use.
+//
+// **A predicate compiles exactly as a FunL relation does** (`compile_def.sysl`): a `Choice` before
+// every clause but the last -- or the first-argument index's chains -- then for each clause
+// `Frame(n)`, the head by two-way unification (`GetVar`, `GetValue`, `GetConst`, `GetCompound`,
+// `GetCons`, `GetNil`), and the body in tail position, every path ending in `Return` with `()`.
+//
+// **A clause's variables are its frame's first slots, numbered as the reader numbered them**; the
+// slots after them hold the control-stack heights an if-then-else or a negation records. A variable
+// written once is no slot's business: in a head it is skipped, in a body it is a fresh `PushVar`.
+//
+// The control constructs:
+//
+//     A, B              A; Pop; B
+//     A ; B             Choice(b); A; Branch(end); b: B; end:
+//     C -> T ; E        SaveHeight(s); Choice(e); C; Pop; CutSlot(s); T; Branch(end); e: E; end:
+//     C *-> T ; E       SaveHeight(s); Choice(e); C; Pop; SoftCut(s); T; Branch(end); e: E; end:
+//     \+ G              Mark(ok); G; Unmark; Fail; ok: PushUnit
+//     !                 CutClause -- to `frame.cut`, set when the frame was entered
+//     call(G, A...)     G; A...; CallGoal(n) -- a frame of its own, so a cut in `G` stays in it
+//
+// **A cut is transparent through `,`, `;` and the branches of `->`, and local to a condition and to
+// `\+`**: there it cuts to a height the construct saved in a slot of its own, never to `frame.cut`.
+
+// A clause the compiler refuses, and where.
+struct PlError
+    at: Span
+    message: string
+
+private refused(at: Span, message: string) -> PlError = PlError(at, message)
+
+// Where a `!` cuts to.
+enum CutTarget
+    // The clause's own barrier, `frame.cut`.
+    ToClause
+
+    // The height a condition or a negation saved in slot `slot`.
+    ToSlot(slot: usize)
+
+// What compiling one clause knows.
+struct ClauseCtx
+    // How many times each variable is written in the whole clause.
+    counts: Buf[usize]
+
+    // Which variables the head has given a slot a value.
+    seen: Buf[bool]
+
+    // Slots handed out so far: the variables first, then the saved heights.
+    slots: usize
+
+    new_slot(*self) -> usize
+        self.slots += 1
+        self.slots - 1
+end ClauseCtx
+
+private clause_ctx(nvars: usize, t: &Term) -> ClauseCtx
+    var counts: Buf[usize] = buf()
+    var seen: Buf[bool] = buf()
+
+    for _ in 0..<nvars
+        counts.push(0)
+        seen.push(false)
+
+    count_vars(t, &counts)
+    ClauseCtx(counts, seen, nvars)
+
+private count_vars(t: &Term, counts: *Buf[usize])
+    t.kind match
+        TVar(n) -> counts.set(n, counts.at(n) + 1)
+        TCons(h, tl) ->
+            count_vars(h, counts)
+            count_vars(tl, counts)
+        TComp(_, args) ->
+            for a in args.view()
+                count_vars(a, counts)
+        _ -> ()
+
+// A clause's head and body: `H :- B`, or a fact `H`.
+clause_parts(t: &Term) -> (&Term, Option[&Term])
+    t.kind match
+        TComp(f, args) ->
+            if args.len() == 2 && atom_name(f) == ":-" then return (args.at(0), Some(args.at(1)))
+        _ -> ()
+
+    (t, None)
+
+// What a first head argument is keyed by in the predicate's index.
+private term_key(t: &Term) -> Option[Key] = t.kind match
+    TAtom(id) -> Some(KAtom(id))
+    TInt(n) -> Some(KInt(n))
+    TComp(f, args) -> Some(KFunctor(f, args.len()))
+    TNil -> Some(KNil)
+    TCons(_, _) -> Some(KCons)
+    _ -> None
+
+// The code of predicate `name/arity` from its clauses, in order.
+compile_predicate(name: string, arity: usize, clauses: Buf[ReadClause]) -> Result[Emit, PlError]
+    var e = emit(pred_key(name, arity))
+    var starts: Buf[usize] = buf()
+    var keys: Buf[Option[Key]] = buf()
+
+    for c in clauses.view()
+        starts.push(e.label())
+
+        val (head, _) = clause_parts(c.t)
+
+        keys.push(if arity == 0 then None else first_arg_key(head))
+
+    val index = arity > 0 && worth_indexing(keys)
+
+    if index then first_arg_index(&e, keys, starts)
+
+    for i in 0..<clauses.len()
+        val c = clauses.at(i)
+        val last = index || i + 1 == clauses.len()
+        val next = e.label()
+
+        if !last then e.op(Choice(next))
+
+        e.place(starts.at(i))
+        clause_code(&e, c)?
+
+        if !last then e.place(next)
+
+    Ok(e)
+end compile_predicate
+
+private first_arg_key(head: &Term) -> Option[Key] = head.kind match
+    TComp(_, args) -> term_key(args.at(0))
+    _ -> None
+
+// One clause: its frame, its head, its body in tail position.
+private clause_code(e: *Emit, c: ReadClause) -> Result[unit, PlError]
+    var cx = clause_ctx(c.names.len(), c.t)
+    val (head, body) = clause_parts(c.t)
+    val frame_at = e.code.len()
+
+    e.op(Frame(0))
+
+    head.kind match
+        TComp(_, args) ->
+            for i in 0..<args.len()
+                head_arg(e, &cx, args.at(i), Arg(i))?
+        _ -> ()
+
+    fresh_vars(e, &cx)
+
+    body match
+        Some(b) -> goal(e, &cx, b, true, ToClause)?
+        None ->
+            e.op(PushUnit)
+            e.op(Return)
+
+    e.code.set(frame_at, Frame(cx.slots))
+    Ok(())
+end clause_code
+
+// A goal with no head -- a directive, or what `call/N` was handed -- as a chunk run in a frame of its
+// own: `Frame(n)`, the body in tail position.
+compile_query(name: string, c: ReadClause) -> Result[Emit, PlError]
+    var e = emit(name)
+    var cx = clause_ctx(c.names.len(), c.t)
+
+    e.op(Frame(0))
+    fresh_vars(&e, &cx)
+    goal(&e, &cx, c.t, true, ToClause)?
+    e.code.set(0, Frame(cx.slots))
+    Ok(e)
+
+// A fresh variable in the slot of every variable the head left unset and the body reads more than
+// once.
+private fresh_vars(e: *Emit, cx: *ClauseCtx)
+    for n in 0..<cx.counts.len()
+        if cx.counts.at(n) > 1 && !cx.seen.at(n) then e.op(NewVar(n))
+
+// One head argument, unified with what `src` reads.
+private head_arg(e: *Emit, cx: *ClauseCtx, t: &Term, src: Src) -> Result[unit, PlError]
+    t.kind match
+        TVar(n) ->
+            if cx.counts.at(n) == 1
+                src match
+                    Popped -> e.op(Pop)
+                    Arg(_) -> ()
+            elif cx.seen.at(n)
+                e.op(GetValue(n, src))
+            else
+                cx.seen.set(n, true)
+                e.op(GetVar(n, src))
+        TAtom(id) -> e.op(GetConst(e.constant(Atom(id)), src))
+        TInt(n) -> e.op(GetConst(e.constant(Int(n)), src))
+        TStr(s) -> e.op(GetConst(e.constant(made(new_str(s), t.span)?), src))
+        TNil -> e.op(GetNil(src))
+        TCons(h, tl) ->
+            e.op(GetCons(src))
+            head_arg(e, cx, h, Popped)?
+            head_arg(e, cx, tl, Popped)?
+        TComp(f, args) ->
+            e.op(GetCompound(f, args.len(), src))
+
+            for a in args.view()
+                head_arg(e, cx, a, Popped)?
+        TConst(x) -> e.op(GetConst(e.constant(x), src))
+
+    Ok(())
+end head_arg
+
+private made(x: Result[Value, string], at: Span) -> Result[Value, PlError] = x match
+    Ok(v) -> Ok(v)
+    Err(m) -> Err(refused(at, m))
+
+// Push the term `t` builds, its variables read from their slots.
+private build(e: *Emit, cx: *ClauseCtx, t: &Term) -> Result[unit, PlError]
+    t.kind match
+        TVar(n) -> e.op(if cx.counts.at(n) == 1 then PushVar else LoadSlot(0, n))
+        TAtom(id) -> e.op(PushConst(e.constant(Atom(id))))
+        TInt(n) -> e.op(PushInt(n))
+        TStr(s) -> e.op(PushConst(e.constant(made(new_str(s), t.span)?)))
+        TNil -> e.op(PushNil)
+        TCons(h, tl) ->
+            build(e, cx, h)?
+            build(e, cx, tl)?
+            e.op(MakeCons)
+        TComp(f, args) ->
+            for a in args.view()
+                build(e, cx, a)?
+
+            e.op(MakeCompound(f, args.len()))
+        TConst(x) -> e.op(PushConst(e.constant(x)))
+
+    Ok(())
+end build
+
+// The goal's value is `()`; in tail position it is returned.
+private unit(e: *Emit, tail: bool)
+    e.op(PushUnit)
+
+    if tail then e.op(Return)
+
+// A goal whose instruction leaves some value: in tail position, `()` is returned instead.
+private settle(e: *Emit, tail: bool)
+    if !tail then return
+
+    e.op(Pop)
+    e.op(PushUnit)
+    e.op(Return)
+
+// Whether `name/arity` is a construct this compiler builds into the clause itself rather than a call:
+// `call/N` compiles a goal of one of these into a chunk of its own instead of looking it up.
+is_inline(name: string, arity: usize) -> bool
+    if arity == 0 then return name == "true" || name == "fail" || name == "false" || name == "!"
+
+    if name == "call" then return true
+
+    if arity == 1
+        return name == "\\+" || name == "not" || name == "once" || name == "ignore" || name == "consult"
+
+    if arity == 2
+        return name == "," || name == ";" || name == "->" || name == "*->" || name == "=" ||
+            name == "\\=" || name == "forall"
+
+    false
+
+// Whether the arguments of `name/arity` are goals, which a goal handed to `call/N` keeps as goals.
+goal_args(name: string, arity: usize) -> bool
+    if arity == 1 then return name == "\\+" || name == "not" || name == "once" || name == "ignore"
+
+    if arity == 2 then return name == "," || name == ";" || name == "->" || name == "*->" || name == "forall"
+
+    false
+
+// A goal. In tail position every path through it ends in `Return`; otherwise it leaves one value.
+goal(e: *Emit, cx: *ClauseCtx, t: &Term, tail: bool, cut: CutTarget) -> Result[unit, PlError]
+    val (f, args) = t.kind match
+        TAtom(id) -> (id, buf())
+        TComp(id, xs) -> (id, xs)
+        TVar(_) ->
+            build(e, cx, t)?
+            return meta_call(e, 0, tail)
+        TConst(_) ->
+            build(e, cx, t)?
+            return meta_call(e, 0, tail)
+        _ -> return Err(refused(t.span, "this is not a goal: a goal is an atom, a compound or a variable"))
+
+    val name = atom_name(f)
+    val n = args.len()
+
+    if is_inline(name, n) then return control(e, cx, t, name, args, tail, cut)
+
+    val k = pred_key(name, n)
+
+    native_id(k) match
+        Some(id) ->
+            for a in args.view()
+                build(e, cx, a)?
+
+            if is_generator(id)
+                e.op(PushInt(0))
+                e.op(NativeGen(id, n))
+            else
+                e.op(Native(id, n))
+
+            settle(e, tail)
+            return Ok(())
+        None -> ()
+
+    val chunk = predicate_chunk(name, n)
+
+    for a in args.view()
+        build(e, cx, a)?
+
+    if tail
+        e.op(TailCall(chunk, n))
+        e.op(Return)
+    else
+        e.op(Call(chunk, n))
+
+    Ok(())
+end goal
+
+// `call(G)`: the goal on top of the stack, and `extra` arguments above it, run in a frame of its own.
+private meta_call(e: *Emit, extra: usize, tail: bool) -> Result[unit, PlError]
+    e.op(CallGoal(extra))
+
+    if tail then e.op(Return)
+
+    Ok(())
+
+private control(e: *Emit, cx: *ClauseCtx, t: &Term, name: string, args: Buf[&Term], tail: bool, cut: CutTarget) -> Result[unit, PlError]
+    val n = args.len()
+
+    if name == "true"
+        unit(e, tail)
+    elif name == "fail" || name == "false"
+        e.op(Fail)
+    elif name == "!"
+        cut match
+            ToClause -> e.op(CutClause)
+            ToSlot(s) -> e.op(CutSlot(s))
+
+        unit(e, tail)
+    elif name == ","
+        goal(e, cx, args.at(0), false, cut)?
+        e.op(Pop)
+        goal(e, cx, args.at(1), tail, cut)?
+    elif name == ";"
+        disjunction(e, cx, args.at(0), args.at(1), tail, cut)?
+    elif name == "->"
+        if_then(e, cx, args.at(0), args.at(1), None, false, tail, cut)?
+    elif name == "*->"
+        if_then(e, cx, args.at(0), args.at(1), None, true, tail, cut)?
+    elif name == "\\+" || name == "not"
+        negation(e, cx, args.at(0), tail)?
+    elif name == "once"
+        if_then(e, cx, args.at(0), atom_term("true", t.span), None, false, tail, cut)?
+    elif name == "ignore"
+        val yes = atom_term("true", t.span)
+
+        if_then(e, cx, args.at(0), yes, Some(yes), false, tail, cut)?
+    elif name == "forall"
+        // `forall(C, A)` is `\+ (C, \+ A)`: no solution of `C` for which `A` fails.
+        val inner = compound_term("\\+", one_term(args.at(1)), t.span)
+        var both: Buf[&Term] = buf()
+
+        both.push(args.at(0))
+        both.push(inner)
+        negation(e, cx, compound_term(",", both, t.span), tail)?
+    elif name == "="
+        build(e, cx, args.at(0))?
+        build(e, cx, args.at(1))?
+        e.op(Unify)
+        settle(e, tail)
+    elif name == "\\="
+        // `A \= B` is `\+ A = B`: the unification is tried inside a mark and undone either way.
+        var both: Buf[&Term] = buf()
+
+        both.push(args.at(0))
+        both.push(args.at(1))
+        negation(e, cx, compound_term("=", both, t.span), tail)?
+    elif name == "call"
+        for a in args.view()
+            build(e, cx, a)?
+
+        meta_call(e, n - 1, tail)?
+    elif name == "consult"
+        build(e, cx, args.at(0))?
+        e.op(Consult)
+        settle(e, tail)
+
+    Ok(())
+end control
+
+private atom_term(name: string, at: Span) -> &Term = term(TAtom(intern(name)), at)
+
+private compound_term(name: string, args: Buf[&Term], at: Span) -> &Term = term(TComp(intern(name), args), at)
+
+private one_term(t: &Term) -> Buf[&Term]
+    var b: Buf[&Term] = buf()
+
+    b.push(t)
+    b
+
+// `A ; B`, which is an if-then-else when `A` is `C -> T` or `C *-> T`.
+private disjunction(e: *Emit, cx: *ClauseCtx, a: &Term, b: &Term, tail: bool, cut: CutTarget) -> Result[unit, PlError]
+    a.kind match
+        TComp(f, xs) ->
+            if xs.len() == 2 && atom_name(f) == "->" then return if_then(e, cx, xs.at(0), xs.at(1), Some(b), false, tail, cut)
+            if xs.len() == 2 && atom_name(f) == "*->" then return if_then(e, cx, xs.at(0), xs.at(1), Some(b), true, tail, cut)
+        _ -> ()
+
+    val other = e.label()
+    val end = e.label()
+
+    e.op(Choice(other))
+    goal(e, cx, a, tail, cut)?
+
+    if !tail then e.op(Branch(end))
+
+    e.place(other)
+    goal(e, cx, b, tail, cut)?
+
+    if !tail then e.place(end)
+
+    Ok(())
+end disjunction
+
+// `C -> T ; E` (`soft`: `C *-> T ; E`), and with no `E` the plain `C -> T`.
+//
+// The height before the `Choice` is saved in a slot of this construct's own, so a nested `->`
+// cannot disturb it; `C` succeeding cuts back to it, which discards `E`'s alternative and every
+// choice point `C` left -- or, `soft`, only disarms the alternative, turning it into a `MarkThrough`,
+// so `C`'s other solutions survive and `E` can no longer run.
+private if_then(e: *Emit, cx: *ClauseCtx, c: &Term, t: &Term, els: Option[&Term], soft: bool, tail: bool, cut: CutTarget) -> Result[unit, PlError]
+    val s = cx.new_slot()
+    val other = e.label()
+    val end = e.label()
+
+    e.op(SaveHeight(s))
+
+    if els.is_some() then e.op(Choice(other))
+
+    goal(e, cx, c, false, local_cut(e, cx, c))?
+    e.op(Pop)
+
+    if !soft then e.op(CutSlot(s)) elif els.is_some() then e.op(SoftCut(s))
+
+    goal(e, cx, t, tail, cut)?
+
+    els match
+        Some(x) ->
+            if !tail then e.op(Branch(end))
+
+            e.place(other)
+            goal(e, cx, x, tail, cut)?
+
+            if !tail then e.place(end)
+        None -> ()
+
+    Ok(())
+end if_then
+
+// `\+ G`: succeed, binding nothing, exactly when `G` has no solution.
+private negation(e: *Emit, cx: *ClauseCtx, g: &Term, tail: bool) -> Result[unit, PlError]
+    val ok = e.label()
+
+    e.op(Mark(ok))
+    goal(e, cx, g, false, local_cut(e, cx, g))?
+    e.op(Unmark)
+    e.op(Fail)
+    e.place(ok)
+    unit(e, tail)
+    Ok(())
+
+// The target of a cut inside a condition or a negation: the height where it begins, saved in a slot
+// of its own -- emitted only when the goal has a cut of its own.
+private local_cut(e: *Emit, cx: *ClauseCtx, g: &Term) -> CutTarget
+    if !has_cut(g) then return ToClause
+
+    val s = cx.new_slot()
+
+    e.op(SaveHeight(s))
+    ToSlot(s)
+
+// Whether `g` has a `!` that cuts where `g` stands: through `,`, `;`, `->` and `*->`, not into a
+// negation or a meta-call, which have barriers of their own.
+private has_cut(g: &Term) -> bool
+    g.kind match
+        TAtom(id) -> atom_name(id) == "!"
+        TComp(f, args) ->
+            val n = atom_name(f)
+
+            if args.len() == 2 && (n == "," || n == ";" || n == "->" || n == "*->")
+                return has_cut(args.at(0)) || has_cut(args.at(1))
+
+            false
+        _ -> false

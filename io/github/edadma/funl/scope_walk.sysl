@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.text.Search
 
 // Reading one scope's code: each name looked up, declared or refused, each local function hoisted
 // and each lambda queued for its own scope.
@@ -151,6 +152,7 @@ refused_as_variable(w: *Walk, n: string, at: Span) -> bool
     w.res.global(n) match
         Relation(_) -> ()
         Builtin(_) -> ()
+        Predicate(_) -> ()
         Function(_, _) ->
             w.report.add(error(at, s"`$n` is already a function, and cannot also be a variable"))
             return true
@@ -206,6 +208,7 @@ walk(w: *Walk, e: &Expr)
                 Constructor(_) -> ()
                 Gone -> ()
                 Relation(_) -> called_not_used(w, n, e.span)
+                Predicate(_) -> called_not_used(w, n, e.span)
                 Builtin(id) -> if !is_constant(id) then called_not_used(w, n, e.span)
                 Unknown ->
                     if w.relation
@@ -443,6 +446,12 @@ private callable(w: *Walk, n: string, at: Span, argc: usize)
                 return
 
             current().natives.at(id).arity
+        Predicate(_) ->
+            if !pred_defined(pred_key(n, argc))
+                w.report.add(error(at, s"the Prolog predicate `$n` has no clauses of ${counted(argc, "argument")}")
+                    .with_label("called here"))
+
+            return
         Constructor(id) ->
             val fields = current().ctors.at(id).fields.len()
 
@@ -470,8 +479,9 @@ private global_names(r: *Resolved) -> Buf[string]
     for rel in r.rels.view()
         if rel.name != "lambda" then names.push(rel.name)
 
+    // A Prolog builtin's key holds a `/`, and is no name a FunL program can write.
     for nat in current().natives.view()
-        names.push(nat.name)
+        if nat.name.index_of("/").is_none() then names.push(nat.name)
 
     names
 

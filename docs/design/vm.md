@@ -303,15 +303,18 @@ atomic group and lookaround commit, how Prolog's `!` commits to a clause, and ho
 condition's first solution.
 
 ```
-Barrier(slot)       slot = control.len
-CutTo(slot)         control.truncate(slot), saved likewise; the trail is NOT unwound
+SaveHeight(slot)    slot = control.len
+CutSlot(slot)       control.truncate(slot), saved likewise; the trail is NOT unwound
 CutClause           control.truncate(frame.cut)
 ```
+
+A regex's atomic group and lookaround keep the height in an operand cell instead (`Barrier`, `CutTo`),
+which is just as private to the construct: nothing else can reach a cell a regex pushed.
 
 **The height lives in a frame slot or in the frame itself, never in a machine register.** The 2019
 Prolog engine kept its cut and mark points in global registers, so a cut inside a called predicate
 leaked into the caller and a nested `->` overwrote the outer one's point. A height saved where the
-construct that needs it can find it — a slot for `Barrier`, `frame.cut` for a clause — cannot be
+construct that needs it can find it — a slot for `SaveHeight`, `frame.cut` for a clause — cannot be
 overwritten by anybody else. The old FunL machine already did the right thing for regex, pushing
 the height as a `Cut(size)` value onto the operand stack.
 

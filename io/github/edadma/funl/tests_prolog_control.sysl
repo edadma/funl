@@ -1,0 +1,164 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.read_text
+import sysl.text.Search
+
+// Prolog's control constructs, compiled onto the machine's own instructions: conjunction and
+// disjunction, the cut and where it reaches, if-then-else and the soft cut, negation, and the
+// meta-call with its own barrier.
+
+// Three solutions, and a way to print every solution of a one-argument goal.
+private const Three: string = "p(1). p(2). p(3).\n"
+
+// Every solution `X` of `goal`, one a line.
+private every(defs: string, goal: string) -> string =
+    ran_prolog(Three + defs + s":- forall($goal, (write(X), nl)).\n")
+
+@test
+THE_FAMILY_TREE_IN_PROLOG_PRINTS_WHAT_THE_FUNL_ONE_PRINTS()
+    val pl = read_text("examples/family_tree.pl") match
+        Ok(t) -> t
+        Err(e) -> panic(s"cannot read examples/family_tree.pl (run the suite from the project root): $e")
+
+    val fl = read_text("examples/family_tree.fl") match
+        Ok(t) -> t
+        Err(e) -> panic(s"cannot read examples/family_tree.fl (run the suite from the project root): $e")
+
+    val want = "don\ndon\nliam\nliam\nlogan\nlogan\n" +
+        "liam\nolivia\nemma\nlogan\n" +
+        "aiden\naiden\n" +
+        "liam\nsucceeded"
+
+    assert_eq(ran_prolog(pl), want)
+    assert_eq(ran_prolog(pl), ran_funl(fl))
+
+@test
+A_DISJUNCTION_GIVES_THE_SOLUTIONS_OF_BOTH_SIDES_IN_ORDER()
+    assert_eq(every("q(X) :- X = a ; p(X).\n", "q(X)"), "a\n1\n2\n3\nsucceeded")
+
+@test
+A_CUT_COMMITS_TO_THE_CLAUSE_AND_TO_THE_SOLUTIONS_BEFORE_IT()
+    assert_eq(every("q(X) :- p(X), !.\nq(9).\n", "q(X)"), "1\nsucceeded")
+    assert_eq(every("q(X) :- p(X), X \\= 1, !.\nq(9).\n", "q(X)"), "2\nsucceeded")
+    assert_eq(every("q(X) :- p(X).\nq(9) :- !.\nq(10).\n", "q(X)"), "1\n2\n3\n9\nsucceeded")
+
+@test
+A_CUT_INSIDE_A_DISJUNCTION_CUTS_THE_WHOLE_CLAUSE()
+    assert_eq(every("q(X) :- ( X = 1, ! ; X = 2 ).\nq(3).\n", "q(X)"), "1\nsucceeded")
+    assert_eq(every("q(X) :- ( X = 1 ; X = 2, ! ; X = 3 ).\nq(4).\n", "q(X)"), "1\n2\nsucceeded")
+
+@test
+IF_THEN_ELSE_COMMITS_TO_THE_CONDITIONS_FIRST_SOLUTION_AND_BACKTRACKS_INTO_THE_BRANCH()
+    assert_eq(every("q(X) :- ( p(X) -> true ; X = none ).\n", "q(X)"), "1\nsucceeded")
+    assert_eq(every("q(X) :- ( true -> p(X) ; X = none ).\n", "q(X)"), "1\n2\n3\nsucceeded")
+    assert_eq(every("q(X) :- ( fail -> X = yes ; X = none ).\n", "q(X)"), "none\nsucceeded")
+    assert_eq(every("q(X) :- ( p(X) -> true ).\n", "q(X)"), "1\nsucceeded")
+    assert_eq(every("q(X) :- ( fail -> true ).\nq(after).\n", "q(X)"), "after\nsucceeded")
+
+@test
+A_CUT_IN_A_BRANCH_OF_IF_THEN_ELSE_CUTS_THE_CLAUSE()
+    assert_eq(every("q(X) :- ( true -> p(X), ! ; true ).\nq(9).\n", "q(X)"), "1\nsucceeded")
+    assert_eq(every("q(X) :- ( fail -> true ; p(X), ! ).\nq(9).\n", "q(X)"), "1\nsucceeded")
+
+@test
+A_CUT_IN_THE_CONDITION_OF_IF_THEN_ELSE_IS_LOCAL_TO_THE_CONDITION()
+    assert_eq(every("q(X) :- ( p(X), ! -> true ; true ).\nq(9).\n", "q(X)"), "1\n9\nsucceeded")
+    assert_eq(every("q(X) :- ( (p(X), !, fail) -> true ; X = else ).\nq(9).\n", "q(X)"), "else\n9\nsucceeded")
+
+@test
+A_NESTED_IF_THEN_ELSE_KEEPS_ITS_OWN_BARRIER()
+    assert_eq(every("q(X-Y) :- ( p(X) -> ( p(Y), Y = 5 -> true ; Y = none ) ; true ).\n", "q(X)"), "-(1, none)\nsucceeded")
+    assert_eq(every("q(X-Y) :- ( p(X) -> ( p(Y), Y = 2 -> true ; Y = none ) ; X = none ).\nq(last).\n", "q(X)"),
+        "-(1, 2)\nlast\nsucceeded")
+
+@test
+THE_SOFT_CUT_KEEPS_EVERY_SOLUTION_OF_ITS_CONDITION_AND_DROPS_THE_ELSE()
+    assert_eq(every("q(X) :- ( p(X) *-> true ; X = none ).\n", "q(X)"), "1\n2\n3\nsucceeded")
+    assert_eq(every("q(X) :- ( fail *-> X = yes ; X = none ).\n", "q(X)"), "none\nsucceeded")
+    assert_eq(every("q(X) :- ( p(X) *-> true ).\n", "q(X)"), "1\n2\n3\nsucceeded")
+    assert_eq(every("q(X-Y) :- ( p(X) *-> Y = then ; Y = else ).\n", "q(X)"), "-(1, then)\n-(2, then)\n-(3, then)\nsucceeded")
+
+@test
+NEGATION_SUCCEEDS_EXACTLY_WHEN_ITS_GOAL_FAILS_AND_LEAVES_NO_BINDINGS()
+    assert_eq(ran_prolog(Three + ":- \\+ p(4), write(yes), nl.\n"), "yes\nsucceeded")
+    assert_eq(ran_prolog(Three + ":- \\+ p(1), write(wrong), nl.\n"), "Warning: directive failed: \\+ p(1), write(wrong), nl\nsucceeded")
+    assert_eq(ran_prolog(":- \\+ \\+ X = 1, X = 2, write(X), nl.\n"), "2\nsucceeded")
+    assert_eq(ran_prolog(":- \\+ X = 1, write(wrong), nl.\n:- X = 2, write(X), nl.\n"),
+        "Warning: directive failed: \\+ X = 1, write(wrong), nl\n2\nsucceeded")
+
+@test
+A_CUT_INSIDE_A_NEGATION_IS_LOCAL_TO_IT()
+    assert_eq(every("q(X) :- p(X), \\+ (p(Y), !, Y = 2).\n", "q(X)"), "1\n2\n3\nsucceeded")
+
+@test
+UNIFICATION_AND_ITS_NEGATION_ARE_GOALS()
+    assert_eq(ran_prolog(":- f(X, b) = f(a, Y), write(X-Y), nl.\n"), "-(a, b)\nsucceeded")
+    assert_eq(ran_prolog(":- a \\= b, write(yes), nl.\n"), "yes\nsucceeded")
+    assert_eq(ran_prolog(":- X \\= a, write(wrong), nl.\n"), "Warning: directive failed: X \\= a, write(wrong), nl\nsucceeded")
+
+@test
+IDENTITY_AND_THE_STANDARD_ORDER_BIND_NOTHING()
+    assert_eq(ran_prolog(":- X == X, f(a) == f(a), X \\== Y, a @< b, 1 @< a, write(yes), nl.\n"), "yes\nsucceeded")
+    assert_eq(ran_prolog(":- X == a, write(wrong), nl.\n"), "Warning: directive failed: X == a, write(wrong), nl\nsucceeded")
+
+@test
+CALL_RUNS_A_GOAL_BUILT_AT_RUN_TIME_AND_KEEPS_EVERY_SOLUTION()
+    assert_eq(every("q(X) :- call(p(X)).\n", "q(X)"), "1\n2\n3\nsucceeded")
+    assert_eq(every("q(X) :- G = p(X), call(G).\n", "q(X)"), "1\n2\n3\nsucceeded")
+    assert_eq(every("q(X) :- call(p, X).\n", "q(X)"), "1\n2\n3\nsucceeded")
+    assert_eq(every("q(X) :- G = p, call(G, X).\n", "q(X)"), "1\n2\n3\nsucceeded")
+    assert_eq(every("q(X) :- call((X = a ; p(X))).\n", "q(X)"), "a\n1\n2\n3\nsucceeded")
+    assert_eq(every("q(X) :- G = (p(X), X \\= 1), call(G).\n", "q(X)"), "2\n3\nsucceeded")
+    assert_eq(every("q(X) :- G = (p(X) -> true ; true), call(G).\n", "q(X)"), "1\nsucceeded")
+    assert_eq(every("q(X) :- call(\\+ p(4)), X = none.\n", "q(X)"), "none\nsucceeded")
+
+@test
+A_VARIABLE_AS_A_GOAL_IS_CALLED()
+    assert_eq(every("q(X) :- G = p(X), G.\n", "q(X)"), "1\n2\n3\nsucceeded")
+
+@test
+A_CUT_DOES_NOT_LEAK_OUT_OF_CALL()
+    assert_eq(every("q(X) :- call((p(X), !)).\nq(9).\n", "q(X)"), "1\n9\nsucceeded")
+    assert_eq(every("q(X) :- call(!), p(X).\nq(9).\n", "q(X)"), "1\n2\n3\n9\nsucceeded")
+    assert_eq(every("q(X) :- G = !, (p(X), G).\nq(9).\n", "q(X)"), "1\n2\n3\n9\nsucceeded")
+
+@test
+ONCE_IGNORE_AND_FORALL_ARE_THE_CONSTRUCTS_THEY_ABBREVIATE()
+    assert_eq(every("q(X) :- once(p(X)).\n", "q(X)"), "1\nsucceeded")
+    assert_eq(every("q(X) :- ignore(fail), X = done.\n", "q(X)"), "done\nsucceeded")
+    assert_eq(ran_prolog(Three + ":- forall(p(X), X \\= 4), write(all), nl.\n"), "all\nsucceeded")
+    assert_eq(ran_prolog(Three + ":- forall(p(X), X \\= 2), write(wrong), nl.\n").index_of("Warning").is_some(), true)
+
+@test
+CALLING_A_PREDICATE_NOTHING_DEFINES_IS_AN_ERROR_NAMING_IT()
+    assert_eq(unplaced(ran_prolog(":- nope(1).\n")), "fault: nope/1: unknown procedure nope/1")
+    assert_eq(unplaced(ran_prolog(":- G = nope(1), call(G).\n")).index_of("unknown procedure nope/1").is_some(), true)
+
+@test
+CALLING_AN_UNBOUND_VARIABLE_IS_AN_INSTANTIATION_ERROR()
+    assert_eq(unplaced(ran_prolog(":- call(G).\n")).index_of("instantiation error").is_some(), true)
+    assert_eq(unplaced(ran_prolog(":- call(3).\n")).index_of("type error").is_some(), true)
+
+@test
+A_PREDICATE_CALLED_BEFORE_ITS_CLAUSES_ARE_READ_REACHES_THEM()
+    assert_eq(ran_prolog("a :- b.\nb :- write(b), nl.\n:- a.\n"), "b\nsucceeded")
+
+@test
+DIRECTIVES_RUN_IN_ORDER_AND_INITIALIZATION_GOALS_AFTER_THEM()
+    val text = ":- initialization((write(init), nl)).\n" +
+        ":- write(one), nl.\n" +
+        ":- fail.\n" +
+        ":- write(two), nl.\n"
+
+    assert_eq(ran_prolog(text), "one\nWarning: directive failed: fail\ntwo\ninit\nsucceeded")
+
+@test
+A_RECURSIVE_PREDICATE_INDEXED_ON_A_LIST_WALKS_IT()
+    val text = "len([], 0).\n" +
+        "len([_|T], N) :- len(T, M), N = s(M).\n" +
+        "last([X], X).\n" +
+        "last([_|T], X) :- last(T, X).\n" +
+        ":- last([a, b, c, d, e], X), write(X), nl.\n"
+
+    assert_eq(ran_prolog(text), "e\nsucceeded")

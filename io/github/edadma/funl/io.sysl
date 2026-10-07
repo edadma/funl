@@ -7,14 +7,26 @@ import sysl.text.str_builder
 install_io(v: *Vm)
     register(v, "write", Variadic, do_write)
 
-// `write(a, b, ...)`: print the arguments as one line, separated by `, `, answering `()`.
+// `write(a, b, ...)`: print the arguments as one line, separated by `, `, answering `()`. A line
+// Prolog's `write/1` has begun is its start.
 private do_write(base: usize, argc: usize) -> Result[Value, string]
+    val v = current()
     var out = str_builder()
+
+    out.push(v.line)
+    v.line = ""
 
     for i in 0..<argc
         if i > 0 then out.push(", ")
 
         out.push(render(arg(base, i)))
 
-    current().output.push(out.finish())
+    v.output.push(out.finish())
     Ok(Unit)
+
+// End the line Prolog's `write/1` has begun, if it has.
+end_line(v: *Vm)
+    if v.line.bytes.len == 0 then return
+
+    v.output.push(v.line)
+    v.line = ""

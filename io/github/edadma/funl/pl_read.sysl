@@ -1,0 +1,362 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// The Prolog reader: tokens to terms, by operator precedence over the run-time table.
+//
+// **`pratt`'s stream is the reader itself**, so the callbacks reach the clause's variable table and
+// the report, and `lbp` asks the operator table in force at the moment the token is looked at: a
+// directive `:- op(700, xfx, ===>).` read before a clause changes how that clause is read.
+//
+// **Every term carries a priority**, ISO's, as well as its span. `pratt` keeps an operator of too
+// loose a priority out of a right-hand side by its binding power alone; what it cannot see is the
+// left-hand side, so `led` checks it -- `a = b = c` is refused there, `=` being `xfx`.
+
+// Deep enough for any term a person writes, shallow enough that the sysl stack holds it.
+private const MaxNesting: usize = 400
+
+struct PlReader
+    toks: Tokens[PlTok]
+    report: *Report
+
+    // The clause's variables, by name, in the order they were first written; `_` once for each
+    // anonymous one.
+    names: Buf[string]
+
+    // The highest priority the term `pratt` is about to read may have: what `nud` checks a prefix
+    // operator against, set by `term_at` just before it starts the loop.
+    max: u16
+
+    // Whether the clause being read has been refused: one diagnostic a clause, then the rest of it is
+    // skipped.
+    failed: bool
+
+    depth: usize
+end PlReader
+
+impl TokenStream for PlReader
+    type Token = Spanned[PlTok]
+
+    look(self) -> Option[Spanned[PlTok]] = self.toks.peek()
+    take(*self) -> Option[Spanned[PlTok]] = self.toks.advance()
+
+// A term as read so far, and its priority.
+struct Rd
+    t: &Term
+    pri: u16
+
+// What reading the next clause came to.
+enum Read
+    // A clause or a directive, read whole.
+    Clause(c: ReadClause)
+
+    // A clause that was refused and skipped, its diagnostic reported.
+    Skipped
+
+    // The end of the input.
+    Done
+
+pl_reader(src: Source, report: *Report) -> PlReader = PlReader(pl_lex(src, report), report, buf(), 1200, false, 0)
+
+// Read the next clause, up to and including its `.`.
+next_clause(r: *PlReader) -> Read
+    if r.toks.at_end() then return Done
+
+    r.names = buf()
+    r.failed = false
+
+    val t = term_at(r, 1200)
+
+    if !r.failed
+        r.look() match
+            Some(x) ->
+                x.value match
+                    PlEnd -> r.take()
+                    _ -> refuse(r, x.span, "an operator or the `.` that ends the clause was expected here")
+            None -> refuse(r, r.toks.here(), "this clause is not ended by a `.`")
+
+    if r.failed
+        skip_clause(r)
+        return Skipped
+
+    Clause(ReadClause(t, r.names))
+end next_clause
+
+// After a refusal: everything up to and including the next `.`.
+private skip_clause(r: *PlReader)
+    loop
+        val t = r.take() match
+            Some(t) -> t
+            None -> return
+
+        t.value match
+            PlEnd -> return
+            _ -> ()
+
+private refuse(r: *PlReader, at: Span, message: string)
+    if r.failed then return
+
+    r.failed = true
+    r.report.add(error(at, message))
+
+private bad(at: Span) -> &Term = term(TNil, at)
+
+// Whether `t` can begin a term; one that cannot is refused before `pratt` would take it, so a `.` or
+// a `)` stays where it is for the caller to find.
+private starts_term(t: PlTok) -> bool = t match
+    PlEnd -> false
+    PlClose -> false
+    PlRBracket -> false
+    PlRBrace -> false
+    PlComma -> false
+    PlBar -> false
+    _ -> true
+
+// A term of at most priority `max`.
+term_at(r: *PlReader, max: u16) -> &Term
+    val t = r.look() match
+        Some(t) -> t
+        None ->
+            refuse(r, r.toks.here(), "a term was expected, and the input ended")
+            return bad(r.toks.here())
+
+    if !starts_term(t.value)
+        refuse(r, t.span, "a term was expected here")
+        return bad(t.span)
+
+    if r.depth >= MaxNesting
+        refuse(r, t.span, "this term is nested too deeply to read")
+        return bad(t.span)
+
+    r.depth += 1
+    r.max = max
+
+    val out = pratt(r, level_of(max), nud, led, lbp).unwrap()
+
+    r.depth -= 1
+    out.t
+end term_at
+
+private lbp(t: Spanned[PlTok]) -> u16
+    t.value match
+        PlComma -> power_of(1000)
+        PlBar -> power_of(1100)
+        PlName(n) -> named_lbp(n)
+        PlQuoted(n) -> named_lbp(n)
+        _ -> 0
+
+private named_lbp(n: string) -> u16
+    infix_op(n) match
+        Some(o) -> return infix_power(o).left
+        None -> ()
+
+    postfix_op(n) match
+        Some(o) -> power_of(o.priority)
+        None -> 0
+
+private nud(t: Spanned[PlTok], r: *PlReader) -> Rd
+    val max = r.max
+
+    t.value match
+        PlIntT(n) -> Rd(term(TInt(n), t.span), 0)
+        PlVarT(name) -> Rd(term(TVar(variable(r, name)), t.span), 0)
+        PlStrT(s) -> Rd(term(TStr(s), t.span), 0)
+        PlOpen -> bracketed(r, t.span)
+        PlOpenCT -> bracketed(r, t.span)
+        PlLBracket -> list(r, t.span)
+        PlLBrace ->
+            if accept(r, PlRBrace) then return Rd(term(TAtom(intern("{}")), t.span.to(r.toks.previous())), 0)
+
+            val inner = term_at(r, 1200)
+
+            expect(r, PlRBrace, "`}`")
+            Rd(term(TComp(intern("{}"), one(inner)), t.span.to(r.toks.previous())), 0)
+        PlName(n) -> named(r, n, t.span, max, false)
+        PlQuoted(n) -> named(r, n, t.span, max, true)
+        PlBad ->
+            // Already reported by the lexer.
+            r.failed = true
+            Rd(bad(t.span), 0)
+        _ ->
+            refuse(r, t.span, "a term was expected here")
+            Rd(bad(t.span), 0)
+end nud
+
+private one(t: &Term) -> Buf[&Term]
+    var b: Buf[&Term] = buf()
+
+    b.push(t)
+    b
+
+// `( term )`.
+private bracketed(r: *PlReader, open: Span) -> Rd
+    val inner = term_at(r, 1200)
+
+    expect(r, PlClose, "`)`")
+    Rd(term(inner.kind, open.to(r.toks.previous())), 0)
+
+// `[a, b | t]`, or `[]`.
+private list(r: *PlReader, open: Span) -> Rd
+    if accept(r, PlRBracket) then return Rd(term(TNil, open.to(r.toks.previous())), 0)
+
+    var items: Buf[&Term] = buf()
+
+    items.push(term_at(r, 999))
+
+    while accept(r, PlComma)
+        items.push(term_at(r, 999))
+
+    var tail = if accept(r, PlBar) then term_at(r, 999) else term(TNil, r.toks.here())
+
+    expect(r, PlRBracket, "`,`, `|` or `]`")
+
+    val whole = open.to(r.toks.previous())
+    var i = items.len()
+
+    while i > 0
+        i -= 1
+        tail = term(TCons(items.at(i), tail), items.at(i).span.to(whole))
+
+    Rd(term(tail.kind, whole), 0)
+end list
+
+// A name in prefix position: a compound `name(args)`, a negative number, a prefix operator applied
+// to its operand, or an atom.
+private named(r: *PlReader, n: string, at: Span, max: u16, quoted: bool) -> Rd
+    val next = r.look()
+
+    next match
+        Some(x) ->
+            x.value match
+                PlOpenCT ->
+                    r.take()
+
+                    var args: Buf[&Term] = buf()
+
+                    args.push(term_at(r, 999))
+
+                    while accept(r, PlComma)
+                        args.push(term_at(r, 999))
+
+                    expect(r, PlClose, "`,` or `)`")
+                    return Rd(term(TComp(intern(n), args), at.to(r.toks.previous())), 0)
+                PlIntT(k) ->
+                    // `-1` is a number and `- 1` is `-(1)`: the minus has to touch the digits.
+                    if n == "-" && !quoted && x.span.start == at.end
+                        r.take()
+                        return Rd(term(TInt(-k), at.to(x.span)), 0)
+                _ -> ()
+        None -> ()
+
+    val op = prefix_op(n) match
+        Some(o) -> o
+        None -> return Rd(term(TAtom(intern(n)), at), 0)
+
+    // An operator with nothing it could apply to -- before a `)`, a `,`, an infix operator -- is the
+    // atom it names: `[-]`, `X = (-)`, `- = x`.
+    val stands_alone = next match
+        None -> true
+        Some(x) -> x.value match
+            PlName(m) -> infix_op(m).is_some() && prefix_op(m).is_none() && !opens_args(r)
+            PlQuoted(_) -> false
+            _ -> !starts_term(x.value)
+
+    if stands_alone then return Rd(term(TAtom(intern(n)), at), 0)
+
+    if op.priority > max
+        refuse(r, at, s"`$n` is a prefix operator of priority ${op.priority}, too loose to stand here (at most $max)")
+        return Rd(bad(at), 0)
+
+    val operand = term_at(r, operand_max(op))
+
+    Rd(term(TComp(intern(n), one(operand)), at.to(operand.span)), op.priority)
+end named
+
+// Whether the token after the next one is a `(` touching it: the next name is a functor, not an
+// operator.
+private opens_args(r: *PlReader) -> bool = kind_at(r.toks, r.toks.mark() + 1) match
+    Some(PlOpenCT) -> true
+    _ -> false
+
+private led(left: Rd, t: Spanned[PlTok], r: *PlReader) -> Rd
+    val name = t.value match
+        PlComma -> ","
+        PlBar -> ";"
+        PlName(n) -> n
+        PlQuoted(n) -> n
+        _ -> ""
+
+    val infix = t.value match
+        PlComma -> Some(PlOp(1000, Xfy))
+        PlBar -> Some(PlOp(1100, Xfy))
+        _ -> infix_op(name)
+
+    infix match
+        Some(o) ->
+            if left.pri > left_max(o) then return clash(r, t.span, name, left)
+
+            val right = term_at(r, if o.kind == Xfy then o.priority else o.priority - 1)
+            var args: Buf[&Term] = buf()
+
+            args.push(left.t)
+            args.push(right)
+            Rd(term(TComp(intern(name), args), left.t.span.to(right.span)), o.priority)
+        None ->
+            val o = postfix_op(name).unwrap()
+
+            if left.pri > left_max(o) then return clash(r, t.span, name, left)
+
+            Rd(term(TComp(intern(name), one(left.t)), left.t.span.to(t.span)), o.priority)
+end led
+
+private clash(r: *PlReader, at: Span, name: string, left: Rd) -> Rd
+    refuse(r, at, s"operator priority clash: `$name` cannot take a term of priority ${left.pri} on its left")
+    left
+
+// The index of variable `name` in the clause, a new one for its first occurrence and for every `_`.
+private variable(r: *PlReader, name: string) -> usize
+    if name != "_"
+        for i in 0..<r.names.len()
+            if r.names.at(i) == name then return i
+
+    r.names.push(name)
+    r.names.len() - 1
+
+private pl_tag(t: PlTok) -> int = t match
+    PlName(_) -> 0
+    PlQuoted(_) -> 1
+    PlVarT(_) -> 2
+    PlIntT(_) -> 3
+    PlStrT(_) -> 4
+    PlOpen -> 5
+    PlOpenCT -> 6
+    PlClose -> 7
+    PlLBracket -> 8
+    PlRBracket -> 9
+    PlLBrace -> 10
+    PlRBrace -> 11
+    PlComma -> 12
+    PlBar -> 13
+    PlEnd -> 14
+    PlBad -> 15
+
+// Take the next token when it is of `want`'s kind.
+private accept(r: *PlReader, want: PlTok) -> bool
+    r.look() match
+        Some(x) ->
+            if pl_tag(x.value) != pl_tag(want) then return false
+
+            r.take()
+            true
+        None -> false
+
+private expect(r: *PlReader, want: PlTok, what: string)
+    if accept(r, want) then return
+
+    r.look() match
+        Some(x) ->
+            x.value match
+                PlBad -> r.failed = true
+                _ -> refuse(r, x.span, s"$what was expected here")
+        None -> refuse(r, r.toks.here(), s"$what was expected, and the input ended")

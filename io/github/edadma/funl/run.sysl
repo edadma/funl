@@ -23,8 +23,15 @@ private enum Flow
     Fails
     Halts
 
-// Run chunk `chunk` as the top level, from its first instruction.
+// Run chunk `chunk` as the top level, from its first instruction. A line Prolog's `write/1` began
+// and nothing ended is written out when the run ends, however it ends.
 run(v: *Vm, chunk: usize) -> Outcome
+    val outcome = run_loop(v, chunk)
+
+    end_line(v)
+    outcome
+
+private run_loop(v: *Vm, chunk: usize) -> Outcome
     if chunk >= v.chunks.len() then return Faulted(s"there is no chunk $chunk to run")
 
     v.frame = new_frame(chunk) match
@@ -51,7 +58,7 @@ run(v: *Vm, chunk: usize) -> Outcome
             Ok(Fails) -> if !fail(v) then return Failed
             Ok(Halts) -> return Succeeded
             Err(e) -> return Faulted(s"${v.chunks.at(v.code).name}@$at: $e")
-end run
+end run_loop
 
 private fails_if(ok: bool) -> Flow = if ok then Next else Fails
 
@@ -455,6 +462,25 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             collect_copy(v)?
             Ok(Next)
         Gathered(how) -> Ok(fails_if(gathered(v, how)?))
+        CutClause ->
+            cut_to(v, v.frame.cut, false)
+            Ok(Next)
+        SaveHeight(slot) ->
+            set_slot(v.frame, slot, Int(long(v.control.len())))?
+            Ok(Next)
+        CutSlot(slot) ->
+            cut_to(v, saved_height(v, slot)?, false)
+            Ok(Next)
+        SoftCut(slot) ->
+            soft_cut(v, saved_height(v, slot)?)
+            Ok(Next)
+        CallGoal(extra) ->
+            call_goal(v, extra)?
+            Ok(Next)
+        Consult ->
+            consult(v)?
+            Ok(Next)
+        NoProcedure -> Err(s"unknown procedure ${v.chunks.at(v.code).name}")
 end execute
 
 // Push a tuple's items or a term's arguments, the last first, so the first is on top for the

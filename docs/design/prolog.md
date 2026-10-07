@@ -74,8 +74,8 @@ constructs map onto the machine's own instructions:
 |---|---|
 | `A, B` | `A; Pop; B` |
 | `A ; B` | `Choice(b); A; Branch(end); b: B; end:` |
-| `C -> T ; E` | `Barrier(s); Choice(e); C; CutTo(s); T; Branch(end); e: E; end:` |
-| `C *-> T ; E` | as `->`, but instead of `CutTo(s)` the `Choice(e)` entry is disarmed — turned into a `MarkThrough` — so `C`'s other solutions survive and `E` can no longer run |
+| `C -> T ; E` | `SaveHeight(s); Choice(e); C; CutSlot(s); T; Branch(end); e: E; end:` |
+| `C *-> T ; E` | as `->`, but instead of `CutSlot(s)` a `SoftCut(s)` disarms the `Choice(e)` entry — turns it into a `MarkThrough` — so `C`'s other solutions survive and `E` can no longer run |
 | `\+ G` | `Mark(ok); G; Unmark; Fail; ok:` |
 | `!` | `CutClause` — back to `frame.cut` |
 | `call(G)`, `call(G, A…)` | a new frame for `G`, so a cut inside `G` is local to it |

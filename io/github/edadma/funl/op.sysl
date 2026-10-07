@@ -7,10 +7,12 @@ import sysl.buf.{Buf, buf}
 // A jump target (`Mark`, `Choice`, `Branch`, `ChangeMark`) is an instruction index within the same chunk. A call
 // target is a chunk index into `Vm.chunks`.
 //
-// **One instruction set for both languages the machine runs, dispatched by one match.** A Prolog
-// front end emits only the instructions logic needs -- the control instructions, calls, unification
-// and the `Get` family -- and never `PushUnit` or `MakeTuple`, which only FunL emits. Nothing in the
-// machine asks which language a chunk came from.
+// **One instruction set for both languages the machine runs, dispatched by one match.** The Prolog
+// front end emits the instructions logic needs -- the control instructions, calls, unification and
+// the `Get` family -- plus a few of its own (`CutClause`, `SaveHeight`, `CutSlot`, `SoftCut`,
+// `CallGoal`), and never `MakeTuple` or the generators, which only FunL emits. A predicate returns
+// `()` with `PushUnit` exactly as a FunL relation does, which the Prolog side never sees. Nothing in
+// the machine asks which language a chunk came from.
 
 // Where a head-unification instruction takes the value it unifies.
 //
@@ -389,6 +391,34 @@ enum Op
 
     // Replace the collected list on top, newest first, with what `how` makes of it.
     Gathered(how: Gathering)
+
+    // -- Prolog's control (`pl_compile.sysl`, `pl_call.sysl`) ---------------------------------------
+
+    // `!`: discard every entry above the running frame's `cut`, the height when it was entered --
+    // the other clauses and every choice point the clause's body has made so far.
+    CutClause
+
+    // Record the height of the control stack in slot `slot` of the running frame: where an
+    // if-then-else's condition or a negation begins.
+    SaveHeight(slot: usize)
+
+    // Discard every entry from the height slot `slot` recorded up, without failing.
+    CutSlot(slot: usize)
+
+    // `*->`: the `Choice` pushed at the height slot `slot` recorded no longer resumes -- it becomes a
+    // `MarkThrough` -- while the entries above it stay resumable.
+    SoftCut(slot: usize)
+
+    // `call/N`: pop `extra` arguments and the goal beneath them, add the arguments to the goal, and
+    // call it in a frame of its own -- the predicate its name and arity name, or, for a control
+    // construct, a chunk compiled from it on the spot.
+    CallGoal(extra: usize)
+
+    // Pop a file name; read, compile and load the Prolog file, then call what its directives run.
+    Consult
+
+    // The body of a predicate that has been called and never defined.
+    NoProcedure
 end Op
 
 // What a first argument is keyed by in a relation's index. A head argument of any other kind, and

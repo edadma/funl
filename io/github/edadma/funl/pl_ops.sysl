@@ -1,0 +1,131 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.{Power, left_assoc, right_assoc}
+
+// The operator table the Prolog reader consults, which `op/3` changes while a program is read.
+//
+// **ISO's priorities run the other way from binding powers**: priority 1200 is the loosest, where a
+// binding power of 0 stops the loop. A priority `p` is the power `1201 - p`, so every priority from
+// 1 to 1200 has a power of its own and the room between them is the room `pratt` needs for a
+// right-associative operator's right side, one level looser than its own.
+
+enum OpType
+    Xfx
+    Xfy
+    Yfx
+    Fy
+    Fx
+    Xf
+    Yf
+
+struct PlOp
+    priority: u16
+    kind: OpType
+
+// The binding power of priority `p`.
+power_of(p: u16) -> u16 = 1201 - p
+
+// The `pratt` level a term of at most priority `p` is read at: an operator of priority `p` or below
+// binds more tightly than it, and one above it stops the loop.
+level_of(p: u16) -> u16 = 1200 - p
+
+// An infix or postfix operator's powers: `left` is what `lbp` answers, `right` the level its right
+// side is read at.
+infix_power(o: PlOp) -> Power = o.kind match
+    Xfy -> right_assoc(power_of(o.priority))
+    _ -> left_assoc(power_of(o.priority))
+
+// The highest priority the operand on an operator's left may have.
+left_max(o: PlOp) -> u16 = o.kind match
+    Yfx -> o.priority
+    Yf -> o.priority
+    _ -> o.priority - 1
+
+// The highest priority a prefix operator's operand may have.
+operand_max(o: PlOp) -> u16 = if o.kind == Fy then o.priority else o.priority - 1
+
+private is_prefix(t: OpType) -> bool = t == Fy || t == Fx
+
+private is_postfix(t: OpType) -> bool = t == Xf || t == Yf
+
+prefix_op(name: string) -> Option[PlOp] = current().prefix_ops.get(name)
+infix_op(name: string) -> Option[PlOp] = current().infix_ops.get(name)
+postfix_op(name: string) -> Option[PlOp] = current().postfix_ops.get(name)
+
+// Whether `name` is an operator of any kind, which a reader uses to decide whether it stands alone.
+is_op(name: string) -> bool =
+    prefix_op(name).is_some() || infix_op(name).is_some() || postfix_op(name).is_some()
+
+op_type_named(name: string) -> Option[OpType]
+    if name == "xfx" then return Some(Xfx)
+    if name == "xfy" then return Some(Xfy)
+    if name == "yfx" then return Some(Yfx)
+    if name == "fy" then return Some(Fy)
+    if name == "fx" then return Some(Fx)
+    if name == "xf" then return Some(Xf)
+    if name == "yf" then return Some(Yf)
+
+    None
+
+// `op(p, type, name)`: define `name`, or with priority 0 remove it. The refusal is the message an
+// `op/3` directive or call reports.
+set_op(p: long, type_name: string, name: string) -> Result[unit, string]
+    if p < 0 || p > 1200 then return Err(s"an operator's priority is from 0 to 1200, and this one is $p")
+
+    val kind = op_type_named(type_name) match
+        Some(k) -> k
+        None -> return Err(s"`$type_name` is not an operator type; the types are xfx, xfy, yfx, fy, fx, xf and yf")
+
+    if name == "," then return Err("`,` is not an operator a program may change")
+
+    val v = current()
+    val table = if is_prefix(kind) then &v.prefix_ops elif is_postfix(kind) then &v.postfix_ops else &v.infix_ops
+
+    if p == 0
+        table.remove(name)
+    else
+        table.put(name, PlOp(u16(p), kind))
+
+    Ok(())
+end set_op
+
+// The operators every Prolog program starts with: ISO's, and the ones SWI-Prolog programs expect.
+install_ops(v: *Vm)
+    val was = enter(v)
+
+    for n in [":-", "-->"]
+        set_op(1200, "xfx", n).unwrap()
+
+    for n in [":-", "?-"]
+        set_op(1200, "fx", n).unwrap()
+
+    for n in ["dynamic", "discontiguous", "initialization", "multifile", "public", "table"]
+        set_op(1150, "fx", n).unwrap()
+
+    set_op(1100, "xfy", ";").unwrap()
+    set_op(1100, "xfy", "|").unwrap()
+
+    for n in ["->", "*->"]
+        set_op(1050, "xfy", n).unwrap()
+
+    set_op(900, "fy", "\\+").unwrap()
+
+    for n in ["=", "\\=", "==", "\\==", "@<", "@>", "@=<", "@>=", "=..", "is", "=:=", "=\\=", "<", ">", "=<", ">="]
+        set_op(700, "xfx", n).unwrap()
+
+    set_op(600, "xfy", ":").unwrap()
+
+    for n in ["+", "-", "/\\", "\\/", "xor"]
+        set_op(500, "yfx", n).unwrap()
+
+    for n in ["*", "/", "//", "rem", "mod", "div", "<<", ">>"]
+        set_op(400, "yfx", n).unwrap()
+
+    set_op(200, "xfx", "**").unwrap()
+    set_op(200, "xfy", "^").unwrap()
+
+    for n in ["-", "+", "\\"]
+        set_op(200, "fy", n).unwrap()
+
+    leave(was)
+end install_ops

@@ -227,6 +227,7 @@ parse(src: Source, report: *Report) -> Program
     var p = Parser(lex(src, report), report, src, 0, 0, 0)
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
+    var imports: Buf[Spanned[string]] = buf()
 
     loop
         while p.accept(Newline)
@@ -248,6 +249,14 @@ parse(src: Source, report: *Report) -> Program
 
         if p.accept(Def)
             definition(&p, &clauses)
+        elif at_import(&p)
+            p.take()
+
+            val file = p.take().unwrap()
+
+            file.value match
+                StrLit(s) -> imports.push(Spanned(s, file.span))
+                _ -> ()
         else
             stmts.push(statement(&p))
 
@@ -258,8 +267,25 @@ parse(src: Source, report: *Report) -> Program
         p.skip_line()
     end loop
 
-    Program(clauses, stmts)
+    Program(clauses, stmts, imports)
 end parse
+
+// `import "file.pl"` at the top level: the word is a keyword only there, and only before a string,
+// so `import` stays a name a program may use for anything else.
+private at_import(p: *Parser) -> bool
+    val word = p.toks.peek() match
+        Some(t) -> t.value match
+            Name(n) -> n == "import"
+            _ -> false
+        None -> false
+
+    if !word then return false
+
+    p.toks.peek_at(1) match
+        Some(t) -> t.value match
+            StrLit(_) -> true
+            _ -> false
+        None -> false
 
 // One statement: `free names`, `def`, `val pattern = e`, `var name [= e]`, an assignment --
 // `name = e`, `name op= e`, `name <- e`, `\name = e`, `/name = e`, `a, b = e1, e2` -- `pattern = e`,

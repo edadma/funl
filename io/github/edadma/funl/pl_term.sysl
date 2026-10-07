@@ -1,0 +1,58 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.Span
+import sysl.buf.{Buf, buf}
+
+// A Prolog term as the reader hands it to the clause compiler.
+//
+// **Not a machine value.** A clause read from a file is ordinary reference-counted sysl data with a
+// span on every node, so the compiler can point at the part of a clause it refuses and the reader
+// never allocates on the collected heap. A variable is a number: its index in the clause's own
+// variable table, which is also the frame slot the clause keeps it in.
+//
+// The one exception is `TConst`, a value the machine already holds: a goal handed to `call/N` at run
+// time is compiled from the term it is, and its arguments -- variables included -- are pushed as they
+// stand, so a binding the goal makes is a binding of the caller's variable.
+
+struct Term
+    kind: TermKind
+    span: Span
+
+enum TermKind
+    // Variable `n` of the clause.
+    TVar(n: usize)
+
+    TAtom(id: u32)
+    TInt(n: long)
+
+    // Double-quoted text, read as a string.
+    TStr(s: string)
+
+    // `[]`.
+    TNil
+
+    // `[H|T]`.
+    TCons(h: &Term, t: &Term)
+
+    // `name(args)`, an operator applied, `{T}`.
+    TComp(functor: u32, args: Buf[&Term])
+
+    // A value the machine made, standing in a goal `call/N` compiles.
+    TConst(x: Value)
+
+term(kind: TermKind, span: Span) -> &Term = Term(kind, span)
+
+// The name and arity a goal or a head calls, when it is callable.
+callable_key(t: &Term) -> Option[(u32, usize)] = t.kind match
+    TAtom(id) -> Some((id, 0))
+    TComp(f, args) -> Some((f, args.len()))
+    _ -> None
+
+// `name/arity`, the key a predicate is filed under.
+pred_key(name: string, arity: usize) -> string = s"$name/$arity"
+
+// One clause or directive as read: the term, and the names of its variables by index -- `_` for an
+// anonymous one, which is a variable of its own wherever it is written.
+struct ReadClause
+    t: &Term
+    names: Buf[string]

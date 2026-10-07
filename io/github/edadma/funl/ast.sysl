@@ -281,3 +281,6 @@ struct Clause
 struct Program
     clauses: Buf[Clause]
     stmts: Buf[Stmt]
+
+    // `import "file.pl"`: the Prolog files the program loads, each with where its name is written.
+    imports: Buf[Spanned[string]]

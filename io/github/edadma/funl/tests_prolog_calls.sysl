@@ -1,0 +1,72 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Calls across the line: a Prolog predicate calling a FunL relation and a FunL function, a FunL
+// relation and ordinary FunL code calling a Prolog predicate, and loading Prolog from FunL at compile
+// time (`import`) and at run time (`consult`).
+
+private const Imports: string = "import \"tests/prolog/interop.pl\"\n" +
+    "def par(#a, #b)\n" +
+    "def par(#b, #c)\n" +
+    "def par(#b, #d)\n" +
+    "def double(n) = 2 * n\n"
+
+@test
+AN_IMPORTED_FILES_DIRECTIVES_RUN_BEFORE_THE_PROGRAMS_OWN_STATEMENTS()
+    assert_eq(ran_funl(Imports + "write(#after)\n"), "loaded\nafter\nsucceeded")
+
+@test
+A_PROLOG_PREDICATE_CALLS_A_FUNL_RELATION()
+    assert_eq(ran_funl(Imports + "free z\nevery grand(#a, z) do write(z)\n"), "loaded\nc\nd\nsucceeded")
+
+@test
+A_PROLOG_PREDICATE_CALLS_A_FUNL_FUNCTION_AS_A_PREDICATE_ONE_ARGUMENT_LONGER()
+    assert_eq(ran_funl(Imports + "free y\nif twice_of(21, y) then write(y)\n"), "loaded\n42\nsucceeded")
+    assert_eq(ran_funl(Imports + "if twice_of(21, 42) then write(#yes)\nif twice_of(21, 41) then write(#no) else write(#right)\n"),
+        "loaded\nyes\nright\nsucceeded")
+
+@test
+A_FUNL_RELATION_CALLS_A_PROLOG_PREDICATE()
+    val text = Imports + "def r(x) :- either(x)\ndef s(x) :- grand(#a, x) & x != #c\nfree z\nevery r(z) do write(z)\nevery s(z) do write(z)\n"
+
+    assert_eq(ran_funl(text), "loaded\nleft\nright\nd\nsucceeded")
+
+@test
+ORDINARY_FUNL_CODE_CALLS_A_PROLOG_PREDICATE_AS_A_RELATION()
+    // After the `if`, `z` keeps the binding its first solution made, so `findall` is over `w`.
+    assert_eq(ran_funl(Imports + "free z, w\nif either(z) then write(z)\nwrite(findall(w, either(w)))\nwrite(z)\n"),
+        "loaded\nleft\n[left, right]\nleft\nsucceeded")
+
+@test
+A_CUT_IN_A_PREDICATE_FUNL_CALLS_COMMITS_THAT_PREDICATE_AND_NOTHING_OF_THE_CALLERS()
+    assert_eq(ran_funl(Imports + "free z\nevery (#a | #b) & first(z) do write(z)\n"), "loaded\nleft\nleft\nsucceeded")
+
+@test
+A_PROLOG_RECURSION_THE_INDEX_MAKES_DETERMINISTIC_RUNS_IN_CONSTANT_CONTROL_SPACE()
+    val text = Imports + "free r\nif walk(1..100000, r) then write(r)\n"
+    val said = roomy(() -> compiled_text(text))
+
+    assert_eq(said.text, "loaded\ndone\nsucceeded")
+    assert_eq(said.control_peak < 10, true)
+
+@test
+A_PROLOG_PREDICATE_CALLED_WITH_THE_WRONG_ARITY_FROM_FUNL_IS_REFUSED()
+    assert_eq(complaints(Imports + "free z\nif either(z, z) then write(z)\n"),
+        "error 7:4 the Prolog predicate `either` has no clauses of 2 arguments\n")
+
+@test
+AN_IMPORT_OF_A_MISSING_FILE_IS_REFUSED_AT_THE_IMPORT()
+    assert_eq(complaints("import \"tests/prolog/missing.pl\"\nwrite(1)\n").index_of("error 1:8 `tests/prolog/missing.pl` cannot be read").is_some(), true)
+
+@test
+CONSULT_LOADS_A_FILE_WHILE_THE_PROGRAM_RUNS_AND_RUNS_ITS_DIRECTIVES()
+    assert_eq(ran_funl("write(#before)\nconsult(\"tests/prolog/hello.pl\")\nwrite(#after)\n"), "before\nhello\nworld\nafter\nsucceeded")
+
+@test
+A_CONSULTED_FILES_PREDICATES_ARE_CALLABLE_FROM_PROLOG_LOADED_LATER()
+    val text = ":- consult(\"tests/prolog/hello.pl\").\n" +
+        ":- greeting(X), write(X), nl.\n"
+
+    assert_eq(ran_prolog(text), "hello\nworld\nhello\nsucceeded")

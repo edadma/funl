@@ -2,8 +2,10 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.{full_report, source_of}
 import sysl.fs.read_text
+import sysl.text.Search
 
-// The driver: `funl <program.fl>` compiles the program, runs it, and prints what it wrote.
+// The driver: `funl <program.fl>` compiles the program, runs it, and prints what it wrote. A file
+// named `.pl` is a Prolog program: it is loaded, its directives and `initialization/1` goals run.
 //
 // **The status says which of three things happened**: 0 for a program that ran, 1 for one that was
 // refused or faulted -- the diagnostics are on standard error -- and 2 when `funl` could not work out
@@ -22,7 +24,7 @@ main(args: []string)
         return
 
     if args.len != 2
-        eprints("usage: funl <program.fl>\n")
+        eprints("usage: funl <program.fl | program.pl>\n")
         exit(2)
 
     val file = args[1]
@@ -44,7 +46,7 @@ private run_file(file: string, text: string) -> int
     var report = full_report()
     var status = 0
 
-    val chunk = compile_program(src, &report)
+    val chunk = if file.ends_with(".pl") then prolog_program(src, &report) else compile_program(src, &report)
 
     if !report.is_empty() then eprints(report.render(src))
 

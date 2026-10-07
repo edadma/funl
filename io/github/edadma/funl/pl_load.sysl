@@ -1,0 +1,333 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+import sysl.text.from_utf8_unchecked
+
+// Loading Prolog: the predicate table, and a file's clauses and directives compiled into the VM.
+//
+// **Every predicate has one chunk for the life of the VM**, reserved the first time anything names
+// it -- a call compiled before the definition is read, a FunL program importing the file -- and
+// filled when its clauses are compiled. A call compiled before the definition therefore reaches it,
+// and one to a predicate never defined runs `NoProcedure`.
+//
+// **A file's directives run when what loading it made is called** (`prolog.md` § "Loading Prolog"):
+// loading answers a chunk that runs each directive in turn, then each `initialization/1` goal, and
+// returns `()`. `op/3` is the exception, carried out the moment the directive is read, because it
+// changes how the rest of the file reads.
+
+// A predicate a call can reach, and whether anything has defined it yet.
+struct PredInfo
+    chunk: usize
+    defined: bool
+
+// The chunk of predicate `name/arity`: its own, a builtin's, or one reserved for it.
+predicate_chunk(name: string, arity: usize) -> usize
+    val v = current()
+    val key = pred_key(name, arity)
+
+    v.preds.get(key) match
+        Some(p) -> return p.chunk
+        None -> ()
+
+    native_id(key) match
+        Some(id) ->
+            val at = finish(native_predicate(key, id, arity)).unwrap()
+
+            v.preds.put(key, PredInfo(at, true))
+            at
+        None ->
+            var e = emit(key)
+
+            e.op(NoProcedure)
+
+            val at = finish(e).unwrap()
+
+            v.preds.put(key, PredInfo(at, false))
+            at
+end predicate_chunk
+
+// A builtin as a predicate, for `call/N` to reach: its arguments, the builtin, and `()`.
+private native_predicate(key: string, id: usize, arity: usize) -> Emit
+    var e = emit(key)
+
+    for i in 0..<arity
+        e.op(LoadArg(i))
+
+    if is_generator(id)
+        e.op(PushInt(0))
+        e.op(NativeGen(id, arity))
+    else
+        e.op(Native(id, arity))
+
+    e.op(Pop)
+    e.op(PushUnit)
+    e.op(Return)
+    e
+
+// Whether `name/arity` has been defined by anything: Prolog clauses, a FunL definition, a builtin.
+pred_defined(key: string) -> bool = current().preds.get(key) match
+    Some(p) -> p.defined
+    None -> false
+
+// Make `e` the code of predicate `key`, in the chunk calls to it already name.
+define_predicate(key: string, e: Emit) -> Result[unit, string]
+    val v = current()
+
+    v.preds.get(key) match
+        Some(p) ->
+            install(e, p.chunk)?
+            v.preds.put(key, PredInfo(p.chunk, true))
+        None ->
+            val at = finish(e)?
+
+            v.preds.put(key, PredInfo(at, true))
+
+    Ok(())
+
+// Make `e` the code of predicate `key` unless something has already defined it: how a FunL
+// definition becomes visible to Prolog by name and arity. Answers whether it did.
+offer_predicate(key: string, e: Emit) -> Result[bool, string]
+    if pred_defined(key) then return Ok(false)
+
+    define_predicate(key, e)?
+    Ok(true)
+
+// Whether `name` has a Prolog predicate -- of any arity -- defined in the table; what a FunL program
+// calls by name.
+pred_name_known(name: string) -> bool
+    var walk = current().preds.walk()
+
+    loop
+        walk.next() match
+            Some((k, p)) ->
+                if p.defined && key_name(k) == name then return true
+            None -> return false
+
+// The name part of key `name/arity`.
+private key_name(k: string) -> string
+    var i = k.bytes.len
+
+    while i > 0
+        i -= 1
+
+        if k.bytes[i] == u8('/') then return from_utf8_unchecked(k.bytes[0..<i])
+
+    k
+
+// The clauses a file gives one predicate, in the order they were read.
+private struct Group
+    name: string
+    arity: usize
+    clauses: Buf[ReadClause]
+
+// Read and compile the Prolog program in `src` into the running VM: the chunk that runs its
+// directives, or `None` with the reasons in `report`.
+load_prolog(src: Source, report: *Report) -> Option[usize]
+    var r = pl_reader(src, report)
+    var groups: Buf[Group] = buf()
+    var by_key: Map[string, usize] = map()
+    var goals: Buf[ReadClause] = buf()
+    var inits: Buf[ReadClause] = buf()
+
+    loop
+        val c = next_clause(&r) match
+            Done -> break
+            Skipped -> continue
+            Clause(c) -> c
+
+        directive_goal(c.t) match
+            Some(g) ->
+                directive(src, report, ReadClause(g, c.names), &goals, &inits)
+                continue
+            None -> ()
+
+        val (head, _) = clause_parts(c.t)
+
+        val (f, n) = callable_key(head) match
+            Some(k) -> k
+            None ->
+                report.add(error(head.span, "a clause's head is an atom or a compound term"))
+                continue
+
+        val name = atom_name(f)
+
+        if is_inline(name, n)
+            report.add(error(head.span, s"`$name/$n` is a control construct, and a program cannot define it"))
+            continue
+
+        val key = pred_key(name, n)
+
+        by_key.get(key) match
+            Some(i) ->
+                var g = groups.at(i)
+
+                g.clauses.push(c)
+                groups.set(i, g)
+            None ->
+                var cs: Buf[ReadClause] = buf()
+
+                cs.push(c)
+                by_key.put(key, groups.len())
+                groups.push(Group(name, n, cs))
+    end loop
+
+    if report.has_errors() then return None
+
+    var codes: Buf[Emit] = buf()
+
+    for g in groups.view()
+        compile_predicate(g.name, g.arity, g.clauses) match
+            Ok(e) -> codes.push(e)
+            Err(p) -> report.add(error(p.at, p.message))
+
+    if report.has_errors() then return None
+
+    for i in 0..<groups.len()
+        val g = groups.at(i)
+
+        define_predicate(pred_key(g.name, g.arity), codes.at(i)).unwrap()
+
+    var load = emit(s"load ${src.name}")
+
+    for g in goals.view()
+        run_directive(&load, src, report, g, "directive")?
+
+    for g in inits.view()
+        run_directive(&load, src, report, g, "initialization goal")?
+
+    load.op(PushUnit)
+    load.op(Return)
+
+    finish(load) match
+        Ok(at) -> Some(at)
+        Err(e) ->
+            report.add(error(point(0), s"the Prolog compiler failed: $e"))
+            None
+end load_prolog
+
+// The goal of a directive `:- G` (or `?- G`).
+private directive_goal(t: &Term) -> Option[&Term]
+    t.kind match
+        TComp(f, args) ->
+            val n = atom_name(f)
+
+            if args.len() == 1 && (n == ":-" || n == "?-") then return Some(args.at(0))
+        _ -> ()
+
+    None
+
+// A directive as it is read: `op/3` carried out now, `initialization/1` kept for after the rest,
+// anything else kept to run in order.
+private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[ReadClause], inits: *Buf[ReadClause])
+    val t = c.t
+
+    t.kind match
+        TComp(f, args) ->
+            val n = atom_name(f)
+
+            if n == "op" && args.len() == 3
+                op_directive(report, t, args)
+                return
+
+            if n == "initialization" && (args.len() == 1 || args.len() == 2)
+                inits.push(ReadClause(args.at(0), c.names))
+                return
+        _ -> ()
+
+    goals.push(c)
+
+// `:- op(P, T, Names)`, where `Names` is a name or a list of them.
+private op_directive(report: *Report, t: &Term, args: Buf[&Term])
+    val p = args.at(0).kind match
+        TInt(n) -> n
+        _ ->
+            report.add(error(args.at(0).span, "an operator's priority is an integer from 0 to 1200"))
+            return
+
+    val kind = args.at(1).kind match
+        TAtom(id) -> atom_name(id)
+        _ ->
+            report.add(error(args.at(1).span, "an operator's type is an atom: xfx, xfy, yfx, fy, fx, xf or yf"))
+            return
+
+    var names: Buf[&Term] = buf()
+    var at = args.at(2)
+
+    loop
+        at.kind match
+            TCons(h, tl) ->
+                names.push(h)
+                at = tl
+            TNil -> break
+            _ ->
+                names.push(at)
+                break
+
+    for x in names.view()
+        val name = x.kind match
+            TAtom(id) -> atom_name(id)
+            _ ->
+                report.add(error(x.span, "an operator is named by an atom"))
+                continue
+
+        set_op(p, kind, name) match
+            Ok(_) -> ()
+            Err(m) -> report.add(error(t.span, m))
+end op_directive
+
+// Emit the running of one directive: a chunk of its own called inside a mark, and a warning naming
+// it where it fails.
+private run_directive(load: *Emit, src: Source, report: *Report, g: ReadClause, what: string) -> Option[unit]
+    val e = compile_query(s"$what in ${src.name}", g) match
+        Ok(e) -> e
+        Err(p) ->
+            report.add(error(p.at, p.message))
+            return None
+
+    val chunk = finish(e) match
+        Ok(c) -> c
+        Err(m) ->
+            report.add(error(g.t.span, m))
+            return None
+
+    val failed = load.label()
+    val next = load.label()
+    val text = from_utf8_unchecked(src.text(g.t.span))
+
+    load.op(Mark(failed))
+    load.op(Call(chunk, 0))
+    load.op(Unmark)
+    load.op(Branch(next))
+    load.place(failed)
+
+    val warning = new_str(s"Warning: $what failed: $text") match
+        Ok(w) -> w
+        Err(m) ->
+            report.add(error(g.t.span, m))
+            return None
+
+    load.op(PushConst(load.constant(warning)))
+    load.op(Native(native_id("write").unwrap(), 1))
+    load.op(Pop)
+    load.place(next)
+    Some(())
+end run_directive
+
+// A whole Prolog program, `funl file.pl`: load it, which runs its directives and its
+// `initialization/1` goals, and halt.
+prolog_program(src: Source, report: *Report) -> Option[usize]
+    val load = load_prolog(src, report)?
+    var e = emit("main")
+
+    e.op(Frame(0))
+    e.op(Call(load, 0))
+    e.op(Pop)
+    e.op(Halt)
+
+    finish(e) match
+        Ok(at) -> Some(at)
+        Err(m) ->
+            report.add(error(point(0), s"the Prolog compiler failed: $m"))
+            None
