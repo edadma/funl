@@ -22,10 +22,13 @@ enum Compiled
 // included: a refusal of the document is rendered against it, and the program's diagnostics are moved
 // by the columns its tangle took off.
 compile_file(file: string) -> Compiled
-    val text = read_text(file) match
-        Ok(t) -> t
-        Err(e) -> return CannotRead(s"$e")
+    read_text(file) match
+        Ok(text) -> compile_text(file, text)
+        Err(e) -> CannotRead(s"$e")
 
+// Compile `text` as the contents of a file named `file`, exactly as `compile_file` would once it had
+// read it: the name alone decides how the text is read, and names the file in every diagnostic.
+compile_text(file: string, text: string) -> Compiled
     val doc = source_of(file, text)
 
     val src = funl_source(doc) match
@@ -39,4 +42,4 @@ compile_file(file: string) -> Compiled
     chunk match
         Some(at) -> Ready(at, said)
         None -> Refused(said)
-end compile_file
+end compile_text
