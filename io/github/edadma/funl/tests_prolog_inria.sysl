@@ -1,0 +1,457 @@
+module io.github.edadma.funl
+@tests
+
+import sh.sysl.parsing.{full_report, source_of}
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.text.{Search, split, str_builder}
+
+// The INRIA ISO conformance suite under `tests/prolog/inria/`: every entry `[Goal, Expected]` of every
+// file the suite's own driver lists, run and checked against what the standard says it comes to.
+//
+// **Each file runs in one VM, an entry at a time, in the order written**, as the suite intends: an
+// entry may depend on what an earlier one in its file asserted. Each entry is loaded as a source of
+// its own when its turn comes, so a flag or an operator an earlier entry set is in force when it is
+// read, and an entry the reader refuses (a float, which FunL does not have yet) is that entry's
+// outcome rather than the file's.
+//
+// **The checking is done in Prolog**, by the runner below: it collects every answer to the goal, or
+// the error it raised, and compares that with the expected outcome -- `success`, `failure`, an ISO
+// error term, or a list of substitutions, each answer compared up to variable renaming and the
+// answers in any order.
+//
+// **Every entry not met is listed in `reasons.txt`** with why. An entry not met and not listed fails
+// the test, and so does a listed entry that is now met or that is not an entry at all, so the list
+// cannot outlive what it excuses. Each file runs on both heaps, and the two must agree.
+
+private const Dir: string = "tests/prolog/inria/"
+
+// The files the suite's driver runs, in its order. `file_manip` and `halt` are left out by the
+// driver itself: the first is unwritten, the second ends the run.
+private const Files: string =
+    "fail abolish and arg arith_diff arith_eq arith_gt arith_gt= arith_lt arith_lt= asserta assertz " +
+    "atom atom_chars atom_codes atom_concat atom_length atomic bagof call catch-and-throw char_code " +
+    "clause compound copy_term current_input current_output current_predicate current_prolog_flag " +
+    "cut findall float functor if-then if-then-else integer is nonvar not_provable not_unify number " +
+    "number_chars number_codes once or repeat retract set_prolog_flag setof sub_atom term_diff " +
+    "term_eq term_gt term_gt= term_lt term_lt= true unify"
+
+private struct Excused
+    file: string
+    line: usize
+    used: bool
+
+// One entry of a data file: the line it starts on, its text without the closing `.`, and the named
+// variables written in it -- those an answer reports, `_` being nobody's business.
+private struct Entry
+    line: usize
+    text: string
+    names: Buf[string]
+
+private inria_data(name: string) -> string = read_text(Dir + name) match
+    Ok(t) -> t
+    Err(e) -> panic(s"cannot read $Dir$name (run the suite from the project root): $e")
+
+// A reasons file's text: `file<TAB>line<TAB>reason`, `#` starting a comment line.
+private reasons(text: string) -> Buf[Excused]
+    var out: Buf[Excused] = buf()
+
+    for row in split(text, "\n")
+        if row.bytes.len == 0 || row.bytes[0] == u8('#') then continue
+
+        val cols = split(row, "\t")
+
+        if cols.len < 3 || cols[2].bytes.len == 0 then panic(s"reasons.txt: `$row` is not `file<TAB>line<TAB>reason`")
+
+        out.push(Excused(cols[0], line_number(cols[1]), false))
+
+    out
+
+private line_number(s: string) -> usize
+    var n: usize = 0
+
+    for b in s.bytes
+        if b < u8('0') || b > u8('9') then panic(s"reasons.txt: `$s` is not a line number")
+
+        n = n * 10 + usize(b - u8('0'))
+
+    n
+
+// -- Splitting a data file into its entries --------------------------------------------------------
+
+private is_layout(b: u8) -> bool = b == u8(' ') || b == u8('\t') || b == u8('\n') || b == u8('\r')
+
+private is_alnum(b: u8) -> bool =
+    (b >= u8('a') && b <= u8('z')) || (b >= u8('A') && b <= u8('Z')) || (b >= u8('0') && b <= u8('9')) || b == u8('_')
+
+// The entries of `text`: each ends at a `.` followed by layout, a `%` or the end, outside comments,
+// quoted atoms, strings and `0'c` character codes.
+private entries(text: string) -> Buf[Entry]
+    val s = text.bytes
+    val n = s.len
+    var out: Buf[Entry] = buf()
+    var i: usize = 0
+    var line: usize = 1
+    var start: usize = 0
+    var start_line: usize = 0
+    var names: Buf[string] = buf()
+
+    while i < n
+        val b = s[i]
+
+        if b == u8('\n')
+            line += 1
+            i += 1
+        elif b == u8('%')
+            while i < n && s[i] != u8('\n')
+                i += 1
+        elif b == u8('/') && i + 1 < n && s[i + 1] == u8('*')
+            i += 2
+
+            while i + 1 < n && !(s[i] == u8('*') && s[i + 1] == u8('/'))
+                if s[i] == u8('\n') then line += 1
+
+                i += 1
+
+            i += 2
+        elif is_layout(b)
+            i += 1
+        else
+            if start_line == 0
+                start = i
+                start_line = line
+
+            if b == u8('\'') || b == u8('"')
+                i = quoted_end(s, i + 1, b)
+            elif b == u8('0') && i + 1 < n && s[i + 1] == u8('\'') && (i == 0 || !is_alnum(s[i - 1]))
+                i = char_code_end(s, i + 2)
+            elif b == u8('.') && (i + 1 == n || is_layout(s[i + 1]) || s[i + 1] == u8('%'))
+                out.push(Entry(start_line, text.slice(start, i), names))
+                start_line = 0
+                names = buf()
+                i += 1
+            elif is_alnum(b)
+                var j = i + 1
+
+                while j < n && is_alnum(s[j])
+                    j += 1
+
+                val word = text.slice(i, j)
+                val named = (b >= u8('A') && b <= u8('Z')) || (b == u8('_') && j > i + 1)
+
+                if named && !holds(&names, word) then names.push(word)
+
+                i = j
+            else
+                i += 1
+
+    out
+end entries
+
+private holds(names: *Buf[string], word: string) -> bool
+    for n in names.view()
+        if n == word then return true
+
+    false
+
+// The named variables as a Prolog list, `[X, Y]`.
+private name_list(names: Buf[string]) -> string
+    var out = str_builder()
+
+    out.push("[")
+
+    for i in 0..<names.len()
+        if i > 0 then out.push(", ")
+
+        out.push(names.at(i))
+
+    out.push("]")
+    out.finish()
+
+// Past an escape that starts at `i`, just after a `\`: `\xHH\`, `\NNN\`, or one character.
+private escape_end(s: []const u8, i: usize) -> usize
+    if i < s.len && (s[i] == u8('x') || (s[i] >= u8('0') && s[i] <= u8('7')))
+        var j = i + 1
+
+        while j < s.len && s[j] != u8('\\')
+            j += 1
+
+        return j + 1
+
+    i + 1
+
+// Past the quoted item whose body starts at `i`, closed by `q` (doubled, it stands for itself).
+private quoted_end(s: []const u8, at: usize, q: u8) -> usize
+    var i = at
+
+    while i < s.len
+        if s[i] == u8('\\')
+            i = escape_end(s, i + 1)
+        elif s[i] == q
+            if i + 1 < s.len && s[i + 1] == q then i += 2 else return i + 1
+        else
+            i += 1
+
+    i
+
+// Past the character of a `0'c` code whose character starts at `i`.
+private char_code_end(s: []const u8, i: usize) -> usize
+    if i >= s.len then return i
+
+    if s[i] == u8('\\') then return escape_end(s, i + 1)
+
+    if s[i] == u8('\'') && i + 1 < s.len && s[i + 1] == u8('\'') then return i + 2
+
+    i + 1
+
+// -- Running a file ----------------------------------------------------------------------------------
+
+// What every entry of data file `name` came to, one line each: `<line> met`, or `<line> ` and what it
+// came to instead. The file runs in one VM with this heap.
+private inria_run(name: string, heap: usize, floor: usize, growth: usize) -> string
+    var v = new_vm(heap, floor, growth)
+    val was = enter(&v)
+    var out = str_builder()
+    var seen: usize = 0
+
+    val driver = source_of("inria runner", runner_text())
+    var dr = full_report()
+
+    prolog_program(driver, &dr) match
+        Some(chunk) ->
+            run(&v, chunk) match
+                Succeeded -> ()
+                o -> panic(s"the INRIA runner did not load: ${outcome_text(o)}")
+        None -> panic(s"the INRIA runner was refused:\n${dr.render(driver)}")
+
+    seen = v.output.len()
+
+    for e in entries(inria_data(name)).view()
+        val src = source_of(s"$name:${e.line}", s":- inria_case(${e.line}, ${name_list(e.names)}, ${e.text}).\n")
+        var r = full_report()
+
+        prolog_program(src, &r) match
+            Some(chunk) ->
+                val o = run(&v, chunk)
+                var reported = false
+
+                while seen < v.output.len()
+                    val l = v.output.at(seen)
+
+                    seen += 1
+
+                    if l.bytes.starts_with("inria ".bytes)
+                        out.push(l.slice(6, l.bytes.len))
+                        out.push("\n")
+                        reported = true
+
+                if !reported then out.push(s"${e.line} no verdict: ${outcome_text(o)}\n")
+            None ->
+                val why = if r.len() > 0 then r.at(0).message else "refused"
+
+                out.push(s"${e.line} unreadable: $why\n")
+
+    dispose_vm(&v)
+    leave(was)
+    out.finish()
+end inria_run
+
+// The verdicts for data file `name`, which must be the same on both heaps.
+private inria_verdicts(name: string) -> string
+    val calm = inria_run(name, RoomyHeap, RoomyFloor, 2)
+    val tight = inria_run(name, TightHeap, 0, 0)
+
+    assert_eq(tight, calm, s"$name: the suite said something different on a heap collected at every step")
+    calm
+
+// Every entry of the data files `files` (named by spaces) met or excused by `reasons_text`, and
+// every excuse used: the failures, one a line.
+private inria_failures(files: string, reasons_text: string) -> string
+    var excused = reasons(reasons_text)
+    var failures = str_builder()
+
+    for name in split(files, " ")
+        for row in split(inria_verdicts(name), "\n")
+            if row.bytes.len == 0 then continue
+
+            val sp = row.index_of(" ").unwrap()
+            val line = line_number(row.slice(0, sp))
+            val verdict = row.slice(sp + 1, row.bytes.len)
+            var excuse = false
+
+            for i in 0..<excused.len()
+                val x = excused.at(i)
+
+                if x.file == name && x.line == line
+                    excuse = true
+                    excused.set(i, Excused(x.file, x.line, true))
+
+            if verdict == "met"
+                if excuse then failures.push(s"stale: $name:$line is listed in reasons.txt and is met\n")
+            elif !excuse
+                failures.push(s"$name:$line $verdict\n")
+
+    for x in excused.view()
+        if !x.used then failures.push(s"stale: reasons.txt names ${x.file}:${x.line}, which is not an entry of the suite\n")
+
+    failures.finish()
+end inria_failures
+
+@test
+INRIA_SUITE()
+    assert_eq(inria_failures(Files, inria_data("reasons.txt")), "")
+
+// The checks on the reasons themselves: an entry not met and not listed, a listed entry that is met,
+// and a listed line that is no entry are each a failure.
+@test
+AN_UNMET_ENTRY_NOT_LISTED_FAILS()
+    assert_eq(inria_failures("arith_eq", ""), "arith_eq:4 unreadable: floats are not supported yet\n" +
+        "arith_eq:8 unreadable: floats are not supported yet\n")
+
+@test
+A_LISTED_ENTRY_THAT_IS_MET_IS_STALE()
+    assert_eq(inria_failures("true", "true\t4\tno reason\n"), "stale: true:4 is listed in reasons.txt and is met\n")
+
+@test
+A_LISTED_LINE_THAT_IS_NO_ENTRY_IS_STALE()
+    assert_eq(inria_failures("true", "true\t5\tno reason\n"),
+        "stale: reasons.txt names true:5, which is not an entry of the suite\n")
+
+@test
+AN_ENTRY_NOT_MET_SAYS_WHAT_IT_GOT()
+    assert_eq(inria_failures("sub_atom", "sub_atom\t25\tatomic text\n"), "sub_atom:15 got " +
+        "answers([[0,0,2,''],[0,1,1,a],[0,2,0,ab],[1,0,1,''],[1,1,0,b],[2,0,0,'']]) want " +
+        "answers([[1,0,A,''],[1,1,B,a],[1,2,C,ab],[2,0,D,''],[2,1,E,b],[3,0,F,'']])\n")
+
+// -- The runner ------------------------------------------------------------------------------------
+
+// `inria_case(Line, Named, [Goal, Expected])` writes `inria <Line> met`, or `inria <Line> got <G> want
+// <W>`. `Named` is the entry's named variables; those the goal holds are the ones an answer reports.
+private runner_text() -> string = raw"""
+    :- op(20, xfx, <--).
+
+    inria_case(Line, Named, Entry) :-
+        catch(set_prolog_flag(unknown, error), _, true),
+        (   Entry = [Goal, Expected]
+        ->  term_variables(Goal, GoalVars),
+            inria_held(Named, GoalVars, Vars),
+            inria_outcome(Goal, Vars, Got),
+            (   inria_expected(Expected, Vars, Want)
+            ->  true
+            ;   Want = unknown_expectation(Expected)
+            ),
+            (   inria_agrees(Got, Want)
+            ->  nl, write(inria), write(' '), write(Line), write(' met'), nl
+            ;   inria_named(Got, G),
+                inria_named(Want, W),
+                nl, write(inria), write(' '), write(Line), write(' got '),
+                write_term(G, [quoted(true), numbervars(true)]),
+                write(' want '),
+                write_term(W, [quoted(true), numbervars(true)]), nl
+            )
+        ;   nl, write(inria), write(' '), write(Line), write(' not an entry'), nl
+        ).
+
+    inria_held([], _, []).
+    inria_held([V|Vs], GoalVars, Held) :-
+        (   inria_among(V, GoalVars)
+        ->  Held = [V|Rest]
+        ;   Held = Rest
+        ),
+        inria_held(Vs, GoalVars, Rest).
+
+    inria_among(V, [W|Ws]) :-
+        (   V == W
+        ->  true
+        ;   inria_among(V, Ws)
+        ).
+
+    % Every answer to Goal, as the values of its variables, or the ball it threw.
+    inria_outcome(Goal, Vars, Got) :-
+        findall(A, catch((call(Goal), A = answer(Vars)), Ball, A = ball(Ball)), As),
+        inria_summary(As, Got).
+
+    inria_summary([], failure) :- !.
+    inria_summary(As, Got) :-
+        member(ball(B), As), !,
+        inria_ball(B, Got).
+    inria_summary(As, answers(Vss)) :-
+        inria_answers(As, Vss).
+
+    inria_answers([], []).
+    inria_answers([answer(Vs)|As], [Vs|Vss]) :-
+        inria_answers(As, Vss).
+
+    inria_ball(error(E, _), error(E)) :- !.
+    inria_ball(B, unexpected_ball(B)).
+
+    % The expected outcome in the form inria_outcome gives.
+    inria_expected(failure, _, failure) :- !.
+    inria_expected(success, Vars, answers([Vars])) :- !.
+    inria_expected([S|Ss], Vars, answers(Vss)) :- !,
+        inria_substituted([S|Ss], Vars, Vss).
+    inria_expected(E, _, error(E)) :-
+        callable(E),
+        functor(E, N, _),
+        inria_error_type(N).
+
+    inria_substituted([], _, []).
+    inria_substituted([S|Ss], Vars, [Vs|Vss]) :-
+        copy_term(Vars-S, Vs-S1),
+        inria_bind(S1),
+        inria_substituted(Ss, Vars, Vss).
+
+    inria_bind([]).
+    inria_bind([X <-- T|Bs]) :-
+        X = T,
+        inria_bind(Bs).
+
+    inria_error_type(instantiation_error).
+    inria_error_type(type_error).
+    inria_error_type(domain_error).
+    inria_error_type(existence_error).
+    inria_error_type(permission_error).
+    inria_error_type(representation_error).
+    inria_error_type(evaluation_error).
+    inria_error_type(resource_error).
+    inria_error_type(syntax_error).
+    inria_error_type(system_error).
+
+    % An error agrees when it unifies with the one expected, so `syntax_error(_)` takes any;
+    % answers agree when each is a variant of one expected, in any order.
+    inria_agrees(failure, failure).
+    inria_agrees(error(G), error(W)) :-
+        \+ \+ G = W.
+    inria_agrees(answers(G), answers(W)) :-
+        inria_same_answers(G, W).
+
+    inria_same_answers([], []).
+    inria_same_answers([A|As], Ws) :-
+        inria_take_variant(A, Ws, Rest), !,
+        inria_same_answers(As, Rest).
+
+    inria_take_variant(A, [W|Ws], Ws) :-
+        A =@= W, !.
+    inria_take_variant(A, [W|Ws], [W|Rest]) :-
+        inria_take_variant(A, Ws, Rest).
+
+    % A copy of T with its variables written as A, B, ...
+    inria_named(T, C) :-
+        copy_term(T, C),
+        term_variables(C, Vs),
+        inria_number(Vs, 0).
+
+    inria_number([], _).
+    inria_number(['$VAR'(N)|Vs], N) :-
+        N1 is N + 1,
+        inria_number(Vs, N1).
+
+    % exists(Name/Arity): the suite's test that a builtin is there, by calling it.
+    exists(P/I) :-
+        functor(G, P, I),
+        catch((G ; true), E, true),
+        (   nonvar(E), E = error(existence_error(procedure, P/I), _)
+        ->  fail
+        ;   true
+        ).
+    """

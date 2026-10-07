@@ -1,0 +1,118 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// Prolog's flags: `set_prolog_flag/2`, and what `current_prolog_flag/2` (in the library) enumerates.
+//
+// **Three flags can be changed**, and each changes something: `unknown` decides what a call of a
+// predicate nothing defines does (`error`, `fail`, or `warning`, which fails after saying so on
+// standard error); `double_quotes` decides what the reader makes of `"text"` from then on (`string`,
+// the default, or ISO's `codes`, `chars` and `atom`); `debug` is `off`, and `on` is accepted and
+// recorded, there being no debugger for it to start. **The rest describe the machine and cannot be
+// changed**: integers are 64 bits and division rounds toward zero, and a compound holds at most
+// `max_arity` arguments.
+
+struct PlFlags
+    unknown: string
+    double_quotes: string
+    debug: string
+
+pl_flags() -> PlFlags = PlFlags("error", "string", "off")
+
+private const MaxInteger: long = 9223372036854775807
+
+install_prolog_flags(v: *Vm)
+    register(v, "set_prolog_flag/2", 2, (b, n) -> set_flag(arg(b, 0), arg(b, 1)))
+    register_generator(v, "$prolog_flags/1", 1, (b, n, c) -> unified(arg(b, 0), flag_list()?))
+
+// Every flag and its value, as a list of `Flag-Value` pairs.
+private flag_list() -> Result[Value, Fault]
+    val f = current().flags
+    var items: Buf[Value] = buf()
+
+    items.push(pair("bounded", atom("true"))?)
+    items.push(pair("max_integer", Int(MaxInteger))?)
+    items.push(pair("min_integer", Int(-MaxInteger - 1))?)
+    items.push(pair("integer_rounding_function", atom("toward_zero"))?)
+    items.push(pair("max_arity", Int(MaxArity))?)
+    items.push(pair("debug", atom(f.debug))?)
+    items.push(pair("unknown", atom(f.unknown))?)
+    items.push(pair("double_quotes", atom(f.double_quotes))?)
+
+    Ok(list_of(&items, Nil)?)
+
+private pair(name: string, x: Value) -> Result[Value, Fault]
+    var args: Buf[Value] = buf()
+
+    args.push(atom(name))
+    args.push(x)
+    build_compound(intern("-"), args)
+
+// Whether `name` is a flag that describes the machine, which no program changes.
+private read_only(name: string) -> bool =
+    name == "bounded" || name == "max_integer" || name == "min_integer" || name == "integer_rounding_function" ||
+        name == "max_arity"
+
+// The values flag `name` takes, when it is one a program can change.
+private settable(name: string, value: string) -> bool
+    if name == "unknown" then return value == "error" || value == "fail" || value == "warning"
+
+    if name == "double_quotes" then return value == "codes" || value == "chars" || value == "atom" || value == "string"
+
+    if name == "debug" then return value == "on" || value == "off"
+
+    false
+
+// `set_prolog_flag(Flag, Value)`, as a goal or as a directive while a file loads.
+set_flag(flag: Value, value: Value) -> Result[Value, Fault]
+    val f = deref(flag)
+    val x = deref(value)
+    val who = "set_prolog_flag/2"
+
+    if is_unbound(f) || is_unbound(x) then return Err(instantiation_error(s"instantiation error: $who wants a flag and a value"))
+
+    val name = f match
+        Atom(id) -> atom_name(id)
+        _ -> return Err(type_error("atom", f, s"type error: $who wants a flag's name, an atom, and was given ${described(f)}"))
+
+    val known = read_only(name) || name == "unknown" || name == "double_quotes" || name == "debug"
+
+    if !known then return Err(domain_error("prolog_flag", f, s"$who: there is no flag $name"))
+
+    val text = x match
+        Atom(id) -> atom_name(id)
+        _ -> ""
+
+    if read_only(name)
+        return Err(permission_error("modify", "flag", f, s"$who: flag $name describes the machine and cannot be changed"))
+
+    if !settable(name, text)
+        var args: Buf[Value] = buf()
+
+        args.push(f)
+        args.push(x)
+
+        return Err(domain_error("flag_value", build_compound(intern("+"), args)?, s"$who: flag $name cannot be ${render(x)}"))
+
+    val v = current()
+
+    if name == "unknown"
+        v.flags.unknown = text
+    elif name == "double_quotes"
+        v.flags.double_quotes = text
+    else
+        v.flags.debug = text
+
+    Ok(Unit)
+end set_flag
+
+// What a call of `name/arity`, which nothing defines, comes to under the `unknown` flag: the
+// existence error, or `None` to fail -- after a warning on standard error, under `warning`.
+unknown_call(name: string, arity: usize) -> Option[Fault]
+    val how = current().flags.unknown
+
+    if how == "error" then return Some(unknown_procedure(name, arity))
+
+    if how == "warning" then eprints(s"Warning: unknown procedure $name/$arity\n")
+
+    None

@@ -472,7 +472,7 @@ private directive_goal(t: &Term) -> Option[&Term]
 
     None
 
-// A directive as it is read: `op/3` and `import/1` carried out now, `initialization/1` kept for
+// A directive as it is read: `op/3`, `set_prolog_flag/2` and `import/1` carried out now, `initialization/1` kept for
 // after the rest, anything else kept to run in order. Answers why the load is refused, given `why`
 // so far.
 private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadStep], inits: *Buf[ReadClause], why: Refusal) -> Refusal
@@ -491,6 +491,23 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
                 return why
 
             if n == "import" && args.len() == 1 then return import_directive(src, report, args.at(0), goals, why)
+
+            // `set_prolog_flag/2` is carried out now, so `double_quotes` governs the clauses after it.
+            if n == "set_prolog_flag" && args.len() == 2
+                var vars: Buf[Value] = buf()
+
+                val flag = term_value(args.at(0), &vars)
+                val value = term_value(args.at(1), &vars)
+
+                if flag.is_err() || value.is_err()
+                    report.add(error(t.span, "set_prolog_flag/2 could not be read as a flag and a value"))
+                    return why
+
+                set_flag(flag.unwrap(), value.unwrap()) match
+                    Ok(_) -> ()
+                    Err(f) -> report.add(error(t.span, fault_text(f)))
+
+                return why
 
             // `dynamic/1` is carried out now too: the file's own clauses for the predicates it
             // names are added to the database rather than compiled as static code.

@@ -105,6 +105,9 @@ struct Vm
     funl_files: Buf[string]
     funl_tops: Buf[*FrameObj]
 
+    // The Prolog flags a program can change (`pl_flags.sysl`).
+    flags: PlFlags
+
     // -- the heap (`collector.sysl`) ------------------------------------------------------------------
 
     block: *u8
@@ -150,7 +153,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
 
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
-        buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(),
+        buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0)
 
     install_natives(&v)

@@ -255,6 +255,8 @@ private indicated(x: Value, who: string) -> Result[(string, usize), Fault]
         Int(k) ->
             if k < 0 then return Err(domain_error("not_less_than_zero", a, s"$who wants an arity of 0 or more, and was given $k"))
 
+            if k > MaxArity then return Err(representation_error("max_arity", s"$who was given arity $k, and no predicate has more than $MaxArity arguments"))
+
             usize(k)
         Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given a predicate indicator with an unbound arity"))
         _ -> return Err(type_error("integer", a, s"type error: $who wants an arity that is an integer, and was given ${described(a)}"))

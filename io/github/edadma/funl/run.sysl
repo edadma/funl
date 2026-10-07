@@ -493,7 +493,9 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Consult ->
             consult(v)?
             Ok(Next)
-        NoProcedure -> Err(no_procedure(v.chunks.at(v.code).name))
+        NoProcedure -> no_procedure(v.chunks.at(v.code).name) match
+            Some(f) -> Err(f)
+            None -> Ok(Fails)
         TryDynamic(p) -> Ok(fails_if(try_dynamic(v, p)?))
         PushCatch(to) ->
             push_catch(v, to)
@@ -503,8 +505,9 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             Ok(Next)
 end execute
 
-// The error a call of a predicate never defined raises; `key` is its `name/arity`.
-private no_procedure(key: string) -> Fault
+// The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it
+// fails; `key` is its `name/arity`.
+private no_procedure(key: string) -> Option[Fault]
     var cut = key.bytes.len
     var arity: usize = 0
     var scale: usize = 1
@@ -514,9 +517,9 @@ private no_procedure(key: string) -> Fault
         arity += usize(key.bytes[cut] - u8('0')) * scale
         scale *= 10
 
-    if cut < 2 || cut == key.bytes.len || key.bytes[cut - 1] != u8('/') then return Broken(s"unknown procedure $key")
+    if cut < 2 || cut == key.bytes.len || key.bytes[cut - 1] != u8('/') then return Some(Broken(s"unknown procedure $key"))
 
-    unknown_procedure(from_utf8_unchecked(key.bytes[0..<cut - 1]), arity)
+    unknown_call(from_utf8_unchecked(key.bytes[0..<cut - 1]), arity)
 
 // Push a tuple's items or a term's arguments, the last first, so the first is on top for the
 // pattern that matches it.

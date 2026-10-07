@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.text.{chars_of, str_builder}
 
 // The Prolog reader: tokens to terms, by operator precedence over the run-time table.
 //
@@ -155,13 +156,42 @@ private named_lbp(n: string) -> u16
         Some(o) -> power_of(o.priority)
         None -> 0
 
+// `"text"` as the `double_quotes` flag reads it: a string, a list of codes or of one-character atoms,
+// or an atom.
+private quoted_text(s: string, at: Span) -> &Term
+    val how = current().flags.double_quotes
+
+    if how == "atom" then return term(TAtom(intern(s)), at)
+
+    if how != "codes" && how != "chars" then return term(TStr(s), at)
+
+    var items: Buf[&Term] = buf()
+
+    for c in chars_of(s.bytes)
+        if how == "codes"
+            items.push(term(TInt(long(u32(c))), at))
+        else
+            var b = str_builder()
+
+            b.push_char(c)
+            items.push(term(TAtom(intern(b.finish())), at))
+
+    var list = term(TNil, at)
+    var i = items.len()
+
+    while i > 0
+        i -= 1
+        list = term(TCons(items.at(i), list), at)
+
+    list
+
 private nud(t: Spanned[PlTok], r: *PlReader) -> Rd
     val max = r.max
 
     t.value match
         PlIntT(n) -> Rd(term(TInt(n), t.span), 0)
         PlVarT(name) -> Rd(term(TVar(variable(r, name)), t.span), 0)
-        PlStrT(s) -> Rd(term(TStr(s), t.span), 0)
+        PlStrT(s) -> Rd(quoted_text(s, t.span), 0)
         PlOpen -> bracketed(r, t.span)
         PlOpenCT -> bracketed(r, t.span)
         PlLBracket -> list(r, t.span)

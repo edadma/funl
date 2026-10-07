@@ -43,6 +43,9 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
         Var(_) -> return Err(instantiation_error("instantiation error: call/N was given an unbound variable as its goal"))
         _ -> return Err(type_error("callable", g, s"type error: call/N wants a callable goal, an atom or a compound, and was given ${described(g)}"))
 
+    if extra == 0 && !body_callable(g)
+        return Err(type_error("callable", g, s"type error: call/1 was given ${render(g)}, a goal with a part that is not callable"))
+
     for i in base + 1..<top
         args.push(v.stack.at(i))
 
@@ -60,10 +63,14 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
 
     val key = pred_key(name, n)
 
+    // Under an `unknown` flag other than `error`, a predicate nothing defines is called all the same:
+    // its chunk runs `NoProcedure`, which fails as the flag says.
+    val lenient = v.flags.unknown != "error"
+
     val chunk = v.preds.get(key) match
-        Some(p) -> if p.defined then p.chunk else return Err(unknown_procedure(name, n))
+        Some(p) -> if p.defined || lenient then p.chunk else return Err(unknown_procedure(name, n))
         None ->
-            if key == "catch/3" || native_id(key).is_some()
+            if key == "catch/3" || native_id(key).is_some() || lenient
                 predicate_chunk(name, n)
             else
                 return Err(unknown_procedure(name, n))
@@ -73,6 +80,21 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
 
     call(v, chunk, n)
 end call_goal
+
+// Whether `x` is a goal through and through: ISO turns a term into a goal before running any of it,
+// so a conjunction, disjunction or if-then with a number anywhere in it is a type error as a whole,
+// raised before its first part runs. A variable is a goal, `call(X)`.
+private body_callable(x: Value) -> bool = deref(x) match
+    Var(_) -> true
+    Atom(_) -> true
+    Compound(c) ->
+        val n = atom_name(c.functor)
+
+        if c.args.len() == 2 && (n == "," || n == ";" || n == "->" || n == "*->")
+            body_callable(c.args.at(0)) && body_callable(c.args.at(1))
+        else
+            true
+    _ -> false
 
 // A goal built of control constructs, compiled into a chunk of its own: the constructs are read as
 // the compiler reads a clause body, and every argument that is not a goal is the value it stands for.

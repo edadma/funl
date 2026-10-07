@@ -1,0 +1,57 @@
+# Every INRIA entry FunL does not meet, with why: file<TAB>line<TAB>reason.
+# The test fails on an entry not met and not here, and on a line here that is met or is no entry.
+
+# -- Floats: FunL has none until its numeric package lands, and the reader refuses them. -----------
+arith_diff	4	floats
+arith_eq	4	floats
+arith_eq	8	floats
+arith_gt	4	floats
+arith_gt=	4	floats
+arith_lt	4	floats
+arith_lt=	4	floats
+atom	9	floats
+atom_length	9	floats
+atomic	8	floats
+compound	3	floats
+compound	4	floats
+float	3	floats
+float	4	floats
+functor	19	floats
+functor	31	floats
+integer	5	floats
+is	3	floats
+is	9	floats
+nonvar	3	floats
+not_unify	9	floats
+number	4	floats
+number_chars	6	floats
+number_chars	7	floats
+number_chars	8	floats
+number_chars	14	floats
+number_chars	15	floats
+number_codes	6	floats
+number_codes	7	floats
+number_codes	12	floats
+number_codes	13	floats
+term_gt	3	floats
+term_gt=	3	floats
+term_lt	3	floats
+term_lt=	3	floats
+unify	8	floats
+
+# -- Not built: there are no streams. ------------------------------------------------------------
+current_input	3	no streams: current_input/1 does not exist
+current_output	3	no streams: current_output/1 does not exist
+
+# -- Semantic choices (prolog.md). -----------------------------------------------------------------
+atom_codes	13	characters are Unicode, so 1000 is a code ('Ϩ'); the suite assumes 8-bit characters
+number_codes	18	characters are Unicode, so 1000 is a character, and "12Ϩ" is a syntax error rather than a bad code
+functor	21	a list cell is '[|]'/2, as in SWI-Prolog 7, not '.'/2
+sub_atom	25	any atomic Sub is taken as its text, as SWI-Prolog does, so 2 is the text "2" rather than a type error
+bagof	19	^/2 is a goal (it calls its right side), as in SWI-Prolog; the suite has calling it be an unknown procedure
+setof	22	^/2 is a goal (it calls its right side), as in SWI-Prolog; the suite has calling it be an unknown procedure
+
+# -- The data, or the suite's own driver. ----------------------------------------------------------
+sub_atom	15	the data counts Before from 1; ISO counts from 0, and the answers are otherwise those expected
+catch-and-throw	8	an uncaught non-error ball is reported as the ball itself; system_error is what the suite's top level made of it
+current_predicate	7	asks for run_tests/1, a predicate of the suite's own driver, which this runner does not have

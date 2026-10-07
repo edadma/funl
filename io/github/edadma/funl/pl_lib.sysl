@@ -264,6 +264,25 @@ private library_text() -> string = raw"""
         '$user_predicates'(L),
         member(PI, L).
 
+    % -- Control and flags ----------------------------------------------------------------------
+
+    repeat.
+    repeat :-
+        repeat.
+
+    % current_prolog_flag/2: each flag and its value (pl_flags.sysl), or the one named.
+    current_prolog_flag(F, V) :-
+        '$prolog_flags'(Fs),
+        (   var(F)
+        ->  member(F-V, Fs)
+        ;   atom(F)
+        ->  (   memberchk(F-V0, Fs)
+            ->  V = V0
+            ;   throw(error(domain_error(prolog_flag, F), current_prolog_flag/2))
+            )
+        ;   throw(error(type_error(atom, F), current_prolog_flag/2))
+        ).
+
     % -- Lists ----------------------------------------------------------------------------------
 
     append([], L, L).

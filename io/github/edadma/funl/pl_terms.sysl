@@ -110,7 +110,7 @@ private atomic_name(x: Value) -> Option[u32] = deref(x) match
 // -- functor/3, arg/3, =../2 --------------------------------------------------------------------
 
 // The most arguments `functor/3` and `=../2` will build a term with.
-private const MaxArity: long = 1048576
+const MaxArity: long = 1048576
 
 private pl_functor(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val t = arg(base, 0)
@@ -173,6 +173,8 @@ private pl_arg(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
             if is_unbound(t) then return Err(instantiation_error("instantiation error: arg/3 was given an unbound variable as its term"))
 
             return Err(type_error("compound", t, s"arg/3 wants a compound term, and was given ${described(t)}"))
+
+    if n < 0 then return Err(domain_error("not_less_than_zero", nth, s"arg/3 wants a position of 0 or more, and was given $n"))
 
     if n < 1 || n > long(args.len()) then return Ok(Refuses)
 

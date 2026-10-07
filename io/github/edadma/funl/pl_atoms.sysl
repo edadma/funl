@@ -4,7 +4,8 @@ import sysl.buf.{Buf, buf}
 import sysl.text.{char_from_u32, chars_of, from_utf8_unchecked, str_builder}
 
 // Prolog's builtins over the text of atoms: `atom_codes/2`, `atom_chars/2`, `char_code/2`,
-// `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `number_codes/2` and `atom_number/2`.
+// `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `number_codes/2`, `number_chars/2` and
+// `atom_number/2`.
 //
 // **Where an atom is wanted, any atomic value gives its text**, as SWI-Prolog takes it: a number its
 // digits, a string its characters, `[]` the two characters it is written with. ISO asks for an atom;
@@ -18,7 +19,8 @@ install_prolog_atoms(v: *Vm)
     register_generator(v, "atom_length/2", 2, pl_atom_length)
     register_generator(v, "atom_concat/3", 3, pl_atom_concat)
     register_generator(v, "sub_atom/5", 5, pl_sub_atom)
-    register_generator(v, "number_codes/2", 2, pl_number_codes)
+    register_generator(v, "number_codes/2", 2, (b, n, c) -> number_and_list(b, "number_codes/2", false))
+    register_generator(v, "number_chars/2", 2, (b, n, c) -> number_and_list(b, "number_chars/2", true))
     register_generator(v, "atom_number/2", 2, pl_atom_number)
 
 // The text of atomic `x`, `None` when it is unbound; a compound is `type_error(atom, X)`.
@@ -382,9 +384,9 @@ private digit_value(c: u8) -> long
 
     99
 
-// `number_codes(N, L)`: a whole code list is read as a number, which `N` must then be.
-private pl_number_codes(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
-    val who = "number_codes/2"
+// `number_codes(N, L)` and `number_chars(N, L)`: a whole list is read as a number, which `N` must then
+// be.
+private number_and_list(base: usize, who: string, chars: bool) -> Result[Answer, Fault]
     val n = deref(arg(base, 0))
 
     n match
@@ -392,7 +394,7 @@ private pl_number_codes(base: usize, argc: usize, cursor: long) -> Result[Answer
         Var(_) -> ()
         _ -> return Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))
 
-    list_text(arg(base, 1), who, false)? match
+    list_text(arg(base, 1), who, chars)? match
         Some(text) ->
             parse_integer(text)? match
                 Some(k) -> return unified(n, Int(k))
@@ -400,7 +402,7 @@ private pl_number_codes(base: usize, argc: usize, cursor: long) -> Result[Answer
         None -> ()
 
     n match
-        Int(k) -> unified(arg(base, 1), text_list(s"$k", false)?)
+        Int(k) -> unified(arg(base, 1), text_list(s"$k", chars)?)
         _ -> Err(unbound_list(who))
 
 // `atom_number(A, N)`: `A` read as a number, failing when it is none -- as SWI-Prolog does; ISO has no
