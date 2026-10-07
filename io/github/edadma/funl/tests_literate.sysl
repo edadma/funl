@@ -76,6 +76,30 @@ AN_ERROR_IN_A_LITERATE_PROGRAM_NAMES_THE_DOCUMENTS_LINE_AND_COLUMN()
     assert_eq(p[1], "4")
     assert_eq(parse_int(l[2]).unwrap(), parse_int(p[2]).unwrap() + 4)
 
+// The lines of a rendered report after its `-->` line: the quoted line and the caret's line.
+private excerpt(said: string) -> string
+    var out = ""
+    var seen = false
+
+    for line in split(said, "\n")
+        if seen && line.contains("|") then out = out + line + "\n"
+        if line.trim().starts_with("--> ") then seen = true
+
+    out
+end excerpt
+
+@test
+AN_ERROR_IN_A_LITERATE_PROGRAM_QUOTES_THE_DOCUMENTS_OWN_LINE_WITH_THE_CARET_UNDER_ITS_COLUMN()
+    val d = scratch()
+    defer scrap(d)
+
+    val literate = ran_file(d, "mistake.lfunl", "Prose.\n\n    write( 1 )\n    write( 1 + )\n")
+    val plain = ran_file(d, "mistake.funl", "\n\nwrite( 1 )\nwrite( 1 + )\n")
+    // The quoted line is the document's, indent included; the caret is under the column the `-->` line
+    // names (column 12, the `1`), which is four further in than the plain file's.
+    assert_eq(excerpt(literate), "  |\n4 |     write( 1 + )\n  |            ^^^\n  |\n", literate)
+    assert_eq(excerpt(plain), "  |\n4 | write( 1 + )\n  |        ^^^\n  |\n", plain)
+
 @test
 A_LITERATE_DOCUMENT_THE_TANGLE_REFUSES_IS_REPORTED_AT_THE_FENCE()
     val d = scratch()

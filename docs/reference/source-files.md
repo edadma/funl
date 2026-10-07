@@ -69,11 +69,15 @@ Some prose.
     write( y )
 ````
 
-the undefined `y` is reported at line 6, column 12, where it stands in the file:
+the undefined `y` is reported at line 6, column 12, where it stands in the file. The line quoted is the
+file's own line, indent included, and the caret is under the column named:
 
 ```error
 error: `y` is not defined
  --> mistake.lfunl:6:12
+  |
+6 |     write( y )
+  |            ^
 ```
 
 A tab in the indentation is refused:
