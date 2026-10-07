@@ -169,17 +169,16 @@ dcg_body(b: &Term, s0: &Term, s: &Term, fresh: *usize) -> Result[&Term, DcgFault
             if n == 1 && name == "{}"
                 val g = args.at(0)
 
-                // A goal that is not yet known to be callable is called through `call/1`, so one
-                // that turns out not to be is the error named by itself, not by the conjunction the
-                // rule became.
+                // A variable, or a value handed to `phrase/2-3` that is not callable, is called through
+                // `call/1`, so the error names it rather than the conjunction the body became. One
+                // written in a rule is the compiler's to refuse where it is written.
                 val direct = g.kind match
-                    TAtom(_) -> true
-                    TComp(_, _) -> true
+                    TVar(_) -> false
                     TConst(x) -> deref(x) match
                         Atom(_) -> true
                         Compound(_) -> true
                         _ -> false
-                    _ -> false
+                    _ -> true
 
                 val goal = if direct then g else dcg_compound("call", one_goal(g), g.span)
 
