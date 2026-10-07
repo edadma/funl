@@ -24,10 +24,10 @@ soft_cut(v: *Vm, h: usize)
 
 // `CallGoal(extra)`: the goal under the top `extra` values, with them added as its last arguments,
 // called in a frame of its own -- so a cut inside it cuts no further than that frame.
-call_goal(v: *Vm, extra: usize) -> Result[unit, string]
+call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
     val top = v.stack.len()
 
-    if extra + 1 > top then return Err(s"call/${extra + 1} wants ${extra + 1} operands and the stack holds $top")
+    if extra + 1 > top then return Err(Broken(s"call/${extra + 1} wants ${extra + 1} operands and the stack holds $top"))
 
     val base = top - extra - 1
     val g = deref(v.stack.at(base))
@@ -40,8 +40,8 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, string]
                 args.push(x)
 
             c.functor
-        Var(_) -> return Err("instantiation error: call/N was given an unbound variable as its goal")
-        _ -> return Err(s"type error: call/N wants a callable goal, an atom or a compound, and was given ${described(g)}")
+        Var(_) -> return Err(instantiation_error("instantiation error: call/N was given an unbound variable as its goal"))
+        _ -> return Err(type_error("callable", g, s"type error: call/N wants a callable goal, an atom or a compound, and was given ${described(g)}"))
 
     for i in base + 1..<top
         args.push(v.stack.at(i))
@@ -52,16 +52,21 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, string]
     val n = args.len()
 
     if is_inline(name, n)
-        val chunk = query_chunk(f, args)?
+        val chunk = query_chunk(f, args) match
+            Ok(c) -> c
+            Err(m) -> return Err(type_error("callable", g, s"type error: $m"))
 
         return call(v, chunk, 0)
 
-    val chunk = v.preds.get(pred_key(name, n)) match
-        Some(p) -> if p.defined then p.chunk else return Err(s"unknown procedure $name/$n")
+    val key = pred_key(name, n)
+
+    val chunk = v.preds.get(key) match
+        Some(p) -> if p.defined then p.chunk else return Err(unknown_procedure(name, n))
         None ->
-            native_id(pred_key(name, n)) match
-                Some(_) -> predicate_chunk(name, n)
-                None -> return Err(s"unknown procedure $name/$n")
+            if key == "catch/3" || native_id(key).is_some()
+                predicate_chunk(name, n)
+            else
+                return Err(unknown_procedure(name, n))
 
     for x in args.view()
         v.stack.push(x)
@@ -76,7 +81,7 @@ private query_chunk(f: u32, args: Buf[Value]) -> Result[usize, string]
 
     compile_query("call/N", ReadClause(t, buf())) match
         Ok(e) -> finish(e)
-        Err(p) -> Err(s"type error: ${p.message}")
+        Err(p) -> Err(p.message)
 
 private goal_term(f: u32, args: Buf[Value]) -> &Term
     val at = point(0)
@@ -98,22 +103,28 @@ private value_goal(x: Value) -> &Term
         _ -> term(TConst(x), point(0))
 
 // `Consult`: the file named on top, loaded, and what its directives run called.
-consult(v: *Vm) -> Result[unit, string]
-    val file = deref(v.stack.pop().unwrap_or(Undefined)) match
+//
+// A file that cannot be read is `existence_error(source_sink, File)`, and one whose text is refused
+// `syntax_error(File)`, the diagnostics in the message.
+consult(v: *Vm) -> Result[unit, Fault]
+    val named = deref(v.stack.pop().unwrap_or(Undefined))
+
+    val file = named match
         Str(p) -> p.s
         Atom(id) -> atom_name(id)
-        x -> return Err(s"consult wants a file name, and was given ${described(x)}")
+        Var(_) -> return Err(instantiation_error("instantiation error: consult was given an unbound variable as its file"))
+        x -> return Err(domain_error("source_sink", x, s"consult wants a file name, and was given ${described(x)}"))
 
     val text = read_text(file) match
         Ok(t) -> t
-        Err(e) -> return Err(s"consult cannot read $file: $e")
+        Err(e) -> return Err(existence_error("source_sink", named, s"consult cannot read $file: $e"))
 
     val src = source_of(file, text)
     var report = full_report()
 
     val chunk = load_prolog(src, &report) match
         Some(c) -> c
-        None -> return Err(s"consult could not load $file:\n${report.render(src)}")
+        None -> return Err(syntax_error(file, s"consult could not load $file:\n${report.render(src)}"))
 
     call(v, chunk, 0)
 end consult

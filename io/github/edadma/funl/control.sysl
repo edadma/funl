@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 
-// The control stack: marks, choice points and restore points, how failure walks it, and how a
-// bounded expression or a cut commits.
+// The control stack: marks, choice points, restore points and catches, how failure walks it, and how
+// a bounded expression or a cut commits.
 
 enum EntryKind
     // The start of a bounded expression with somewhere to go if it fails: restore, jump to `ip`.
@@ -15,6 +15,10 @@ enum EntryKind
 
     // A call that returned leaving entries behind: put the caller's operand cells back, keep failing.
     Restore
+
+    // A `catch/3` whose goal is running, in the frame of the `catch`: failure passes it by, and a
+    // throw that unifies with its catcher resumes at `ip` (`catch.sysl`).
+    Catch
 
 struct Entry
     kind: EntryKind
@@ -71,21 +75,26 @@ fail(v: *Vm) -> bool
             Some(e) -> e
             None -> return false
 
-        undo_trail_to(v, e.trail)
-        v.stack.truncate(e.floor)
-
-        for i in e.saved_at..<v.saved.len()
-            v.stack.push(v.saved.at(i))
-
-        v.saved.truncate(e.saved_at)
-        v.frame = e.frame
-        v.code = e.code
-        v.mark = e.mark
+        restore(v, e)
 
         if e.kind == Mark || e.kind == Choice
             v.ip = e.ip
             return true
 end fail
+
+// Put back what entry `e`, just popped, saved: the trail undone to its height, its operand cells,
+// its frame, chunk and mark. Failure and a throw restore an entry alike.
+restore(v: *Vm, e: Entry)
+    undo_trail_to(v, e.trail)
+    v.stack.truncate(e.floor)
+
+    for i in e.saved_at..<v.saved.len()
+        v.stack.push(v.saved.at(i))
+
+    v.saved.truncate(e.saved_at)
+    v.frame = e.frame
+    v.code = e.code
+    v.mark = e.mark
 
 // Discard every entry from height `h` up without failing: a commit. The trail is filtered, not
 // unwound (`commit_trail`); `ends` says whether the commit ends a bounded expression, which makes

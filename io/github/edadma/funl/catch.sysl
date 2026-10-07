@@ -1,0 +1,97 @@
+module io.github.edadma.funl
+
+// `catch/3` and `throw/1`.
+//
+// **`catch(G, C, R)` is a predicate with a chunk of its own**, so it runs in a frame of its own:
+//
+//     Frame(1); SaveHeight(0); PushCatch(r); LoadArg(0); CallGoal(0); ExitCatch(0); Return
+//     r: LoadArg(2); CallGoal(0); Return
+//
+// `PushCatch` leaves a `Catch` entry naming that frame and the recovery's address. The goal is called
+// as `call/1` calls it, so a cut inside it is local to it. When the goal succeeds with nothing left to
+// resume, `ExitCatch` takes the entry off; when it leaves choice points, the entry stays beneath them
+// so that backtracking into the goal finds the catch still there.
+//
+// **A catch is active exactly while its frame is one the throw is running inside**: on the chain of
+// callers from the throwing frame. That is how ISO's "the catch/3 call is still being executed" reads
+// on this machine -- a goal that has succeeded has returned from the `catch` frame, so a throw after
+// it does not see the catch even while the entry stands, and backtracking into the goal reinstates
+// frames whose callers lead back through it. **The frame cannot have been reused** by a tail call
+// while its entry stands, since a frame with entries above its own is never reused.
+//
+// **A throw copies the ball, then unwinds** the control stack entry by entry, restoring each exactly
+// as failure does -- the trail undone, the operand cells, frame, chunk and mark put back -- until an
+// active `Catch` whose catcher unifies with a fresh copy of the ball. The recovery then runs in the
+// catch's frame. A copy for each catcher, because a catcher that unifies part of the ball and then
+// fails leaves bindings no entry may undo, and the next catcher must see the ball as thrown.
+
+// The chunk of `catch/3`.
+catch_chunk() -> usize
+    var e = emit("catch/3")
+    val r = e.label()
+
+    e.op(Frame(1))
+    e.op(SaveHeight(0))
+    e.op(PushCatch(r))
+    e.op(LoadArg(0))
+    e.op(CallGoal(0))
+    e.op(ExitCatch(0))
+    e.op(Return)
+    e.place(r)
+    e.op(LoadArg(2))
+    e.op(CallGoal(0))
+    e.op(Return)
+    finish(e).unwrap()
+
+// `PushCatch(to)`: a `Catch` entry in the running frame, which saves no operand cells.
+push_catch(v: *Vm, to: usize)
+    push_entry(v, Catch, to, v.stack.len())
+
+// `ExitCatch(slot)`: the catch's goal succeeded; its entry goes when nothing stands above it.
+exit_catch(v: *Vm, slot: usize) -> Result[unit, string]
+    val h = saved_height(v, slot)?
+
+    if v.control.len() == h + 1 && v.control.at(h).kind == Catch then cut_to(v, h, false)
+
+    Ok(())
+
+// Unwind to the innermost active catch whose catcher unifies with `thrown`, and resume at its
+// recovery: true. False when none does, the control stack then empty.
+throw_ball(v: *Vm, thrown: Value) -> Result[bool, string]
+    val ball = copy_term(thrown)?
+    val inside = v.frame
+
+    loop
+        val e = v.control.pop() match
+            Some(e) -> e
+            None -> return Ok(false)
+
+        restore(v, e)
+
+        if e.kind == Catch && encloses(inside, e.frame)
+            if e.frame.args.len() == 3 && unify(e.frame.args.at(1), copy_term(ball)?)
+                v.ip = e.ip
+                return Ok(true)
+end throw_ball
+
+// Whether frame `f` is `from` or one of its callers.
+private encloses(from: *FrameObj, f: *FrameObj) -> bool
+    var at = from
+
+    while at != null
+        if at == f then return true
+
+        at = at.caller
+
+    false
+
+// `throw(Ball)`: the ball, which must be bound.
+private pl_throw(base: usize, argc: usize) -> Result[Value, Fault]
+    val ball = deref(arg(base, 0))
+
+    ball match
+        Var(_) -> Err(instantiation_error("throw/1 was given an unbound variable as its ball"))
+        _ -> Err(Thrown(ball))
+
+install_catch(v: *Vm)
+    register(v, "throw/1", 1, pl_throw)

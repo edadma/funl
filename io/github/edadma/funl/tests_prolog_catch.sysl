@@ -1,0 +1,126 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `catch/3` and `throw/1`: catching by unification, a ball passing a catcher it does not unify with,
+// the bindings undone back to the catch, the cut inside a caught goal, a catch that is over once its
+// goal has succeeded and active again when backtracking re-enters it, and the ISO error terms the
+// Prolog side raises.
+
+private const Three: string = "p(1). p(2). p(3).\n"
+
+// Every solution `X` of `goal`, one a line.
+private every(defs: string, goal: string) -> string =
+    ran_prolog(Three + defs + s":- forall($goal, (write(X), nl)).\n")
+
+// What a directive running `goal` and writing the formal term of the error it raises writes.
+private formal(defs: string, goal: string) -> string =
+    ran_prolog(defs + s":- catch(($goal, F = none), error(F, _), true), write(F), nl.\n")
+
+@test
+A_THROWN_BALL_IS_CAUGHT_BY_UNIFYING_WITH_THE_CATCHER()
+    assert_eq(ran_prolog(":- catch(throw(foo(1)), foo(X), (write(caught(X)), nl)).\n"), "caught(1)\nsucceeded")
+    assert_eq(ran_prolog(":- catch(throw(foo), Any, (write(Any), nl)).\n"), "foo\nsucceeded")
+
+@test
+A_GOAL_THAT_THROWS_NOTHING_IS_CAUGHT_BY_NOTHING()
+    assert_eq(ran_prolog(":- catch(write(plain), _, write(wrong)), nl.\n"), "plain\nsucceeded")
+    assert_eq(ran_prolog(":- catch(fail, _, write(wrong)) ; write(failed), nl.\n"), "failed\nsucceeded")
+
+@test
+A_BALL_PASSES_A_CATCHER_IT_DOES_NOT_UNIFY_WITH_TO_THE_NEXT_ONE_OUT()
+    val text = ":- catch(catch(throw(b), a, write(inner)), b, write(outer)), nl.\n"
+
+    assert_eq(ran_prolog(text), "outer\nsucceeded")
+
+@test
+A_CATCHER_THAT_UNIFIES_PART_OF_THE_BALL_AND_FAILS_LEAVES_THE_BALL_AS_IT_WAS_THROWN()
+    val text = ":- catch(catch(throw(g(X, b)), g(a, c), true), g(Y, Z), (write(Y-Z), nl)).\n"
+
+    assert_eq(ran_prolog(text).index_of("-(_G").is_some(), true)
+
+@test
+A_RETHROW_FROM_THE_RECOVERY_GOES_TO_THE_NEXT_CATCH_OUT()
+    val text = ":- catch(catch(throw(first), first, throw(second)), E, (write(E), nl)).\n"
+
+    assert_eq(ran_prolog(text), "second\nsucceeded")
+
+@test
+THE_BINDINGS_MADE_INSIDE_THE_CAUGHT_GOAL_ARE_UNDONE_BACK_TO_THE_CATCH()
+    assert_eq(ran_prolog(":- catch((X = 1, throw(t)), t, true), X = 2, write(X), nl.\n"), "2\nsucceeded")
+
+@test
+THE_BALL_KEEPS_THE_BINDINGS_IT_WAS_THROWN_WITH()
+    assert_eq(ran_prolog(":- catch((X = 1, throw(got(X))), got(Y), (write(Y), nl)).\n"), "1\nsucceeded")
+
+@test
+A_CUT_INSIDE_THE_CAUGHT_GOAL_IS_LOCAL_TO_IT()
+    assert_eq(every("", "catch((p(X), !), _, true)"), "1\nsucceeded")
+    assert_eq(every("r(X) :- catch((p(X), !), _, true).\nr(9).\n", "r(X)"), "1\n9\nsucceeded")
+
+@test
+A_CATCH_IS_TRANSPARENT_TO_BACKTRACKING_INTO_ITS_GOAL()
+    assert_eq(every("q(X) :- catch(p(X), _, true).\nq(4).\n", "q(X)"), "1\n2\n3\n4\nsucceeded")
+
+@test
+A_CATCH_WHOSE_GOAL_HAS_SUCCEEDED_NO_LONGER_CATCHES()
+    val text = ":- catch((catch(p(X), E, (write(inner(E)), nl)), X = 2, throw(after)), O, (write(outer(O)), nl)).\n"
+
+    assert_eq(ran_prolog(Three + text), "outer(after)\nsucceeded")
+    assert_eq(unplaced(ran_prolog(":- catch(true, _, write(wrong)), throw(late).\n")).index_of("uncaught exception: late").is_some(), true)
+
+@test
+BACKTRACKING_INTO_THE_GOAL_PUTS_THE_CATCH_BACK_IN_FORCE()
+    val text = "t(1).\nt(2) :- throw(two).\n" +
+        ":- catch(t(X), E, (write(caught(E)), nl, X = none)), write(X), nl, X == none.\n"
+
+    assert_eq(ran_prolog(text), "1\ncaught(two)\nnone\nsucceeded")
+
+@test
+A_DETERMINISTIC_CATCH_LEAVES_NOTHING_ON_THE_CONTROL_STACK()
+    val said = roomy(() -> prolog_text(":- catch(throw(x), x, true), catch(throw(y), y, true), write(done), nl.\n"))
+
+    assert_eq(said.text, "done\nsucceeded")
+    assert_eq(said.control_peak < 6, true)
+
+@test
+THROWING_AN_UNBOUND_VARIABLE_IS_AN_INSTANTIATION_ERROR()
+    assert_eq(formal("", "throw(_)"), "instantiation_error\nsucceeded")
+
+@test
+CALLING_A_PREDICATE_NOTHING_DEFINES_IS_AN_EXISTENCE_ERROR()
+    assert_eq(formal("", "nope(1)"), "existence_error(procedure, /(nope, 1))\nsucceeded")
+    assert_eq(formal("", "call(nope, 1, 2)"), "existence_error(procedure, /(nope, 2))\nsucceeded")
+    assert_eq(formal("", "G = nope, call(G)"), "existence_error(procedure, /(nope, 0))\nsucceeded")
+
+@test
+CALL_OF_AN_UNBOUND_GOAL_OR_A_NUMBER_IS_AN_INSTANTIATION_OR_A_TYPE_ERROR()
+    assert_eq(formal("", "call(_)"), "instantiation_error\nsucceeded")
+    assert_eq(formal("", "call(1)"), "type_error(callable, 1)\nsucceeded")
+
+    // The catch's own goal is called inside it, so the catch catches what calling it raises.
+    assert_eq(ran_prolog(":- catch(_, error(E, _), (write(E), nl)).\n"), "instantiation_error\nsucceeded")
+
+@test
+OP_RUN_AS_A_GOAL_RAISES_THE_ISO_ERRORS()
+    assert_eq(formal("", "op(1201, xfx, foo)"), "domain_error(operator_priority, 1201)\nsucceeded")
+    assert_eq(formal("", "op(700, abc, foo)"), "domain_error(operator_specifier, abc)\nsucceeded")
+    assert_eq(formal("", "op(700, xfx, ',')"), "permission_error(modify, operator, ,)\nsucceeded")
+    assert_eq(formal("", "op(high, xfx, foo)"), "type_error(integer, high)\nsucceeded")
+    assert_eq(formal("", "op(_, xfx, foo)"), "instantiation_error\nsucceeded")
+
+@test
+CONSULTING_A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR()
+    assert_eq(formal("", "consult(\"tests/prolog/missing.pl\")"),
+        "existence_error(source_sink, \"tests/prolog/missing.pl\")\nsucceeded")
+
+@test
+AN_ERROR_NOTHING_CATCHES_PRINTS_ITS_MESSAGE()
+    assert_eq(unplaced(ran_prolog(":- nope.\n")).index_of("unknown procedure nope/0").is_some(), true)
+    assert_eq(unplaced(ran_prolog(":- throw(error(my_error, here)).\n")).index_of("uncaught exception: error(my_error, here)").is_some(), true)
+
+@test
+CATCH_AND_THROW_ARE_REACHED_THROUGH_CALL()
+    assert_eq(ran_prolog(":- G = catch(throw(a), a, (write(yes), nl)), call(G).\n"), "yes\nsucceeded")
+    assert_eq(ran_prolog(":- catch(call(throw, b), b, (write(yes), nl)).\n"), "yes\nsucceeded")

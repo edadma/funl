@@ -9,10 +9,10 @@ module io.github.edadma.funl
 // scan's own; the subject's cursor makes stepping through it in order cheap.
 
 // The string a regex matches against.
-private rx_subject(v: *Vm) -> Result[*StrObj, string]
+private rx_subject(v: *Vm) -> Result[*StrObj, Fault]
     v.subject match
         Str(p) -> Ok(p)
-        _ -> Err("a regex matches the subject of a scan `s ? e`, and no scan is running")
+        _ -> Err(existence_error("scan", atom("regex"), "a regex matches the subject of a scan `s ? e`, and no scan is running"))
 
 // The character at position `at` of `p`, if `at` is not the end.
 private char_here(p: *StrObj, at: usize) -> Option[char] = if at >= 1 && at <= p.chars then Some(char_at(p, at - 1)) else None
@@ -30,7 +30,7 @@ private char_next(p: *StrObj, at: usize, back: bool) -> Option[char] = if back t
 // Step over `n` characters, forward or -- `back` -- back.
 private advance(v: *Vm, n: usize, back: bool) = set_scan(v, v.subject, if back then v.pos - n else v.pos + n)
 
-rx_char(v: *Vm, c: char, fold: bool, back: bool) -> Result[bool, string]
+rx_char(v: *Vm, c: char, fold: bool, back: bool) -> Result[bool, Fault]
     val p = rx_subject(v)?
 
     char_next(p, v.pos, back) match
@@ -41,10 +41,10 @@ rx_char(v: *Vm, c: char, fold: bool, back: bool) -> Result[bool, string]
             Ok(true)
         None -> Ok(false)
 
-rx_class(v: *Vm, k: usize, back: bool) -> Result[bool, string]
+rx_class(v: *Vm, k: usize, back: bool) -> Result[bool, Fault]
     val p = rx_subject(v)?
 
-    if k >= v.classes.len() then return Err(s"there is no character class $k")
+    if k >= v.classes.len() then return Err(Broken(s"there is no character class $k"))
 
     char_next(p, v.pos, back) match
         Some(x) ->
@@ -55,7 +55,7 @@ rx_class(v: *Vm, k: usize, back: bool) -> Result[bool, string]
         None -> Ok(false)
 
 // `ccls(c)`: the character at the position is in cset `c`, or is a character of string `c`.
-rx_class_of(v: *Vm, set: Value, back: bool) -> Result[bool, string]
+rx_class_of(v: *Vm, set: Value, back: bool) -> Result[bool, Fault]
     val p = rx_subject(v)?
 
     val x = char_next(p, v.pos, back) match
@@ -65,14 +65,14 @@ rx_class_of(v: *Vm, set: Value, back: bool) -> Result[bool, string]
     val holds = deref(set) match
         CSet(k) -> k.set.has(x)
         Str(s) -> char_set(s.s).has(x)
-        other -> return Err(s"`ccls` matches a character of a cset or a string, and was given ${described(other)}")
+        other -> return Err(kind_error(other, "cset", s"`ccls` matches a character of a cset or a string, and was given ${described(other)}"))
 
     if !holds then return Ok(false)
 
     advance(v, 1, back)
     Ok(true)
 
-rx_any(v: *Vm, dotall: bool, back: bool) -> Result[bool, string]
+rx_any(v: *Vm, dotall: bool, back: bool) -> Result[bool, Fault]
     val p = rx_subject(v)?
 
     char_next(p, v.pos, back) match
@@ -84,23 +84,23 @@ rx_any(v: *Vm, dotall: bool, back: bool) -> Result[bool, string]
         None -> Ok(false)
 
 // `string(s)`: the subject continues with `s` at the position -- or, `back`, ends with it there.
-rx_lit_of(v: *Vm, s: Value, back: bool) -> Result[bool, string]
+rx_lit_of(v: *Vm, s: Value, back: bool) -> Result[bool, Fault]
     val p = rx_subject(v)?
 
     val text = deref(s) match
         Str(t) -> t
-        other -> return Err(s"`string` matches a string, and was given ${described(other)}")
+        other -> return Err(kind_error(other, "string", s"`string` matches a string, and was given ${described(other)}"))
 
     val n = text.chars
 
     if back
         if v.pos <= n then return Ok(false)
 
-        return compared(v, p, text, 1, n, v.pos - n, false, true)
+        return Ok(compared(v, p, text, 1, n, v.pos - n, false, true)?)
 
-    compared(v, p, text, 1, n, v.pos, false, false)
+    Ok(compared(v, p, text, 1, n, v.pos, false, false)?)
 
-rx_backref(v: *Vm, n: usize, fold: bool, back: bool) -> Result[bool, string]
+rx_backref(v: *Vm, n: usize, fold: bool, back: bool) -> Result[bool, Fault]
     val p = rx_subject(v)?
 
     if n >= v.captures.len() then return Ok(false)
@@ -121,7 +121,7 @@ rx_backref(v: *Vm, n: usize, fold: bool, back: bool) -> Result[bool, string]
 // Whether the `len` characters of `text` from position `from` stand in the subject `p` from position
 // `at`; if they do, the position moves past them -- to `at` going forward, or, `back`, to `at`, the
 // start of the run it stepped back over.
-private compared(v: *Vm, p: *StrObj, text: *StrObj, from: usize, len: usize, at: usize, fold: bool, back: bool) -> Result[bool, string]
+private compared(v: *Vm, p: *StrObj, text: *StrObj, from: usize, len: usize, at: usize, fold: bool, back: bool) -> Result[bool, Fault]
     for k in 0..<len
         val want = char_at(text, from - 1 + k)
 
@@ -132,7 +132,7 @@ private compared(v: *Vm, p: *StrObj, text: *StrObj, from: usize, len: usize, at:
     set_scan(v, v.subject, if back then at else at + len)
     Ok(true)
 
-rx_assert(v: *Vm, a: Anchor) -> Result[bool, string]
+rx_assert(v: *Vm, a: Anchor) -> Result[bool, Fault]
     val p = rx_subject(v)?
     val at = v.pos
     val end = p.chars + 1
@@ -196,9 +196,11 @@ rx_begin(v: *Vm, groups: usize)
 
 // The regex that began at `start` has matched up to the position: group 0 is that span, and the
 // value is its text.
-rx_end(v: *Vm, start: usize) -> Result[Value, string]
+rx_end(v: *Vm, start: usize) -> Result[Value, Fault]
     val p = rx_subject(v)?
 
     set_capture(v, 0, GroupSpan(start, v.pos))
 
-    if start <= v.pos then new_str(chars_between(p, start - 1, v.pos - 1)) else new_str(chars_between(p, v.pos - 1, start - 1))
+    val text = if start <= v.pos then chars_between(p, start - 1, v.pos - 1) else chars_between(p, v.pos - 1, start - 1)
+
+    Ok(new_str(text)?)

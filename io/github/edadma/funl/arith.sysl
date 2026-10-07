@@ -6,7 +6,8 @@ import sysl.math.{checked_add, checked_mul, checked_sub}
 // `+` and `-` on a set or a map are `combined` and `removed` (`data.sysl`).
 //
 // **Numbers are 64-bit integers here, and a result that is not one is refused, never rounded or
-// wrapped**: an overflow, or a division that does not come out whole, faults naming the operation.
+// wrapped**: an overflow, or a division that does not come out whole, raises an error naming the
+// operation.
 // The numeric tower, where those results are a bigger integer or a rational, replaces exactly
 // those refusals.
 
@@ -56,7 +57,7 @@ op_text(o: BinOp) -> string
 
 // `a op b`: the value, `None` when the operation fails (an ordering that does not hold, a `div`
 // that does not divide), or an error.
-arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], string]
+arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], Fault]
     val x = deref(a)
     val y = deref(b)
 
@@ -84,7 +85,7 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], string]
         Quo ->
             nonzero(o, n, m)?
 
-            if n % m != 0 then return Err(s"$n / $m is not a whole number, and only integers are built")
+            if n % m != 0 then return Err(not_whole(s"$n / $m"))
 
             fits(o, n, m, if n == -9223372036854775807 - 1 && m == -1 then None else Some(n / m))?
         IntQuo ->
@@ -105,29 +106,42 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], string]
 
             return Ok(None)
         Pow -> power(n, m)?
-        _ -> return Err(s"'${op_text(o)}' reached integer arithmetic")
+        _ -> return Err(Broken(s"'${op_text(o)}' reached integer arithmetic"))
 
     Ok(Some(Int(r)))
 end arith
 
 // Prefix `-`.
-negate(a: Value) -> Result[Value, string]
+negate(a: Value) -> Result[Value, Fault]
     deref(a) match
         Int(n) ->
-            if n == -9223372036854775807 - 1 then return Err(s"-($n) does not fit in 64 bits, and only integers are built")
+            if n == -9223372036854775807 - 1 then return Err(overflow(s"-($n)"))
 
             Ok(Int(-n))
-        x -> Err(s"'-' wants a number and was given ${described(x)}")
+        Var(_) -> Err(instantiation_error("instantiation error: '-' was given an unbound variable"))
+        x -> Err(type_error("number", x, s"'-' wants a number and was given ${described(x)}"))
 
 private is_str(x: Value) -> bool = x match
     Str(_) -> true
     _ -> false
 
-private int_operand(o: BinOp, x: Value) -> Result[long, string]
+private int_operand(o: BinOp, x: Value) -> Result[long, Fault]
     x match
         Int(n) -> Ok(n)
-        Var(_) -> Err(s"instantiation error: '${op_text(o)}' was given an unbound variable")
-        _ -> Err(s"'${op_text(o)}' wants numbers and was given ${described(x)}")
+        Var(_) -> Err(unbound_operand(o))
+        _ -> Err(type_error("number", x, s"'${op_text(o)}' wants numbers and was given ${described(x)}"))
+
+private unbound_operand(o: BinOp) -> Fault =
+    instantiation_error(s"instantiation error: '${op_text(o)}' was given an unbound variable")
+
+// A result past 64 bits: `evaluation_error(int_overflow)`.
+private overflow(what: string) -> Fault =
+    evaluation_error("int_overflow", s"$what does not fit in 64 bits, and only integers are built")
+
+// A result that is not a whole number, which the machine has no way to hold until it has rationals:
+// `representation_error(rational)`.
+private not_whole(what: string) -> Fault =
+    representation_error("rational", s"$what is not a whole number, and only integers are built")
 
 // A value as a message names it: its kind, and what it prints as.
 described(x: Value) -> string
@@ -141,13 +155,13 @@ described(x: Value) -> string
         Var(_) -> "an unbound variable"
         y -> render(y)
 
-private fits(o: BinOp, n: long, m: long, r: Option[long]) -> Result[long, string]
+private fits(o: BinOp, n: long, m: long, r: Option[long]) -> Result[long, Fault]
     r match
         Some(x) -> Ok(x)
-        None -> Err(s"$n ${op_text(o)} $m does not fit in 64 bits, and only integers are built")
+        None -> Err(overflow(s"$n ${op_text(o)} $m"))
 
-private nonzero(o: BinOp, n: long, m: long) -> Result[unit, string]
-    if m == 0 then return Err(s"$n ${op_text(o)} 0 divides by zero")
+private nonzero(o: BinOp, n: long, m: long) -> Result[unit, Fault]
+    if m == 0 then return Err(evaluation_error("zero_divisor", s"$n ${op_text(o)} 0 divides by zero"))
 
     Ok(())
 
@@ -164,8 +178,8 @@ private floor_mod(n: long, m: long) -> long
     if r != 0 && (r < 0) != (m < 0) then r + m else r
 
 // `n ^ m` by squaring, refusing a negative exponent and a result past 64 bits.
-private power(n: long, m: long) -> Result[long, string]
-    if m < 0 then return Err(s"$n ^ $m is not a whole number, and only integers are built")
+private power(n: long, m: long) -> Result[long, Fault]
+    if m < 0 then return Err(not_whole(s"$n ^ $m"))
 
     var result: long = 1
     var base = n
@@ -175,7 +189,7 @@ private power(n: long, m: long) -> Result[long, string]
         if e % 2 == 1
             result = checked_mul(result, base) match
                 Some(r) -> r
-                None -> return Err(s"$n ^ $m does not fit in 64 bits, and only integers are built")
+                None -> return Err(overflow(s"$n ^ $m"))
 
         e = e / 2
 
@@ -183,7 +197,7 @@ private power(n: long, m: long) -> Result[long, string]
 
         base = checked_mul(base, base) match
             Some(r) -> r
-            None -> return Err(s"$n ^ $m does not fit in 64 bits, and only integers are built")
+            None -> return Err(overflow(s"$n ^ $m"))
 
     Ok(result)
 end power
@@ -197,20 +211,22 @@ private holds(o: BinOp, c: int) -> bool
         _ -> c >= 0
 
 // An ordering: integers by value, strings by their bytes.
-private ordered(o: BinOp, x: Value, y: Value) -> Result[Option[Value], string]
+private ordered(o: BinOp, x: Value, y: Value) -> Result[Option[Value], Fault]
     val c: int = x match
         Int(n) -> y match
             Int(m) -> if n < m then -1 elif n > m then 1 else 0
-            _ -> return Err(mismatch(o, x, y))
+            _ -> return Err(mismatch(o, x, y, "integer", y))
         Str(p) -> y match
             Str(q) -> if p.s < q.s then -1 elif p.s > q.s then 1 else 0
-            _ -> return Err(mismatch(o, x, y))
-        Var(_) -> return Err(s"instantiation error: '${op_text(o)}' was given an unbound variable")
-        _ -> return Err(mismatch(o, x, y))
+            _ -> return Err(mismatch(o, x, y, "string", y))
+        Var(_) -> return Err(unbound_operand(o))
+        _ -> return Err(mismatch(o, x, y, "number", x))
 
     Ok(if holds(o, c) then Some(y) else None)
 
-private mismatch(o: BinOp, x: Value, y: Value) -> string =
+// Two values an ordering cannot compare: `type_error(Kind, Culprit)`, the culprit the operand that is
+// not the kind the other one, or an ordering, wants.
+private mismatch(o: BinOp, x: Value, y: Value, kind: string, culprit: Value) -> Fault =
     y match
-        Var(_) -> s"instantiation error: '${op_text(o)}' was given an unbound variable"
-        _ -> s"'${op_text(o)}' cannot compare ${described(x)} with ${described(y)}"
+        Var(_) -> unbound_operand(o)
+        _ -> type_error(kind, culprit, s"'${op_text(o)}' cannot compare ${described(x)} with ${described(y)}")

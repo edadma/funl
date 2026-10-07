@@ -200,14 +200,15 @@ end switch_first
 // **A function never binds its caller's variables and never fails silently on one**
 // (`logic.md` § "A function called from a relation"), so an unbound variable here is an error that
 // says which function was called too early and with which argument.
-instantiated(v: *Vm, param: usize) -> Result[unit, string]
+instantiated(v: *Vm, param: usize) -> Result[unit, Fault]
     val top = v.stack.len()
 
-    if top == 0 then return Err("the operand stack is empty")
+    if top == 0 then return Err(Broken("the operand stack is empty"))
 
     deref(v.stack.at(top - 1)) match
         Var(_) ->
             val name = v.chunks.at(v.code).name
+            val msg = s"instantiation error: `$name` was given an unbound variable as argument ${param + 1}, which its pattern has to look inside"
 
-            Err(s"instantiation error: `$name` was given an unbound variable as argument ${param + 1}, which its pattern has to look inside")
+            Err(instantiation_error(msg))
         _ -> Ok(())

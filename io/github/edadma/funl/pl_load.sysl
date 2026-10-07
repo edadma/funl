@@ -31,6 +31,12 @@ predicate_chunk(name: string, arity: usize) -> usize
         Some(p) -> return p.chunk
         None -> ()
 
+    if key == "catch/3"
+        val at = catch_chunk()
+
+        v.preds.put(key, PredInfo(at, true))
+        return at
+
     native_id(key) match
         Some(id) ->
             val at = finish(native_predicate(key, id, arity)).unwrap()
@@ -274,7 +280,7 @@ private op_directive(report: *Report, t: &Term, args: Buf[&Term])
 
         set_op(p, kind, name) match
             Ok(_) -> ()
-            Err(m) -> report.add(error(t.span, m))
+            Err(f) -> report.add(error(t.span, fault_text(f)))
 end op_directive
 
 // Emit the running of one directive: a chunk of its own called inside a mark, and a warning naming

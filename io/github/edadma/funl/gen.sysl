@@ -21,10 +21,10 @@ import sysl.text.{from_utf8_unchecked, is_char_boundary}
 // itself staying put. A map produces its entries as pairs `(key, value)`.
 
 // `GenStart`: the collection on top becomes its first cursor.
-gen_start(v: *Vm) -> Result[unit, string]
+gen_start(v: *Vm) -> Result[unit, Fault]
     val top = v.stack.len()
 
-    if top == 0 then return Err("the operand stack is empty")
+    if top == 0 then return Err(Broken("the operand stack is empty"))
 
     val c = deref(v.stack.at(top - 1))
 
@@ -42,22 +42,25 @@ gen_start(v: *Vm) -> Result[unit, string]
         Map(_) -> ()
         MutMap(_) -> ()
         Range(r) -> first = r.from
-        Var(_) -> return Err("instantiation error: `!` was given an unbound variable")
-        _ -> return Err(s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map or a string, and was given ${described(c)}")
+        Var(_) -> return Err(instantiation_error("instantiation error: `!` was given an unbound variable"))
+        _ ->
+            val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map or a string, and was given ${described(c)}"
+
+            return Err(type_error("collection", c, msg))
 
     v.stack.set(top - 1, c)
     v.stack.push(Int(first))
     Ok(())
 
 // `GenNext`: the next element of the cursor on top, or failure when there is none.
-gen_next(v: *Vm) -> Result[bool, string]
+gen_next(v: *Vm) -> Result[bool, Fault]
     val top = v.stack.len()
 
-    if top < 2 then return Err("a cursor is two cells and the operand stack holds fewer")
+    if top < 2 then return Err(Broken("a cursor is two cells and the operand stack holds fewer"))
 
     val at = v.stack.at(top - 1) match
         Int(n) -> n
-        _ -> return Err("a cursor's position is not an integer")
+        _ -> return Err(Broken("a cursor's position is not an integer"))
 
     // The element, and the cursor after it -- `rest` at `next` -- with whether that one is spent.
     var elem = Undefined
@@ -173,8 +176,8 @@ gen_next(v: *Vm) -> Result[bool, string]
             rest = v.stack.at(top - 2)
             next = long(end)
             spent = end == n
-        Var(_) -> return Err("instantiation error: `!` reached an unbound tail of a list")
-        x -> return Err(s"`!` reached the end of a list that ends in ${described(x)} rather than `[]`")
+        Var(_) -> return Err(instantiation_error("instantiation error: `!` reached an unbound tail of a list"))
+        x -> return Err(type_error("list", x, s"`!` reached the end of a list that ends in ${described(x)} rather than `[]`"))
 
     if !spent
         v.stack.set(top - 2, rest)
@@ -188,17 +191,18 @@ end gen_next
 
 // `GenRange`: the next integer of `i to j by k` (`inclusive`) or `i until j by k`, the three cells
 // on top, or failure once the range is spent.
-gen_range(v: *Vm, inclusive: bool) -> Result[bool, string]
+gen_range(v: *Vm, inclusive: bool) -> Result[bool, Fault]
     val top = v.stack.len()
 
-    if top < 3 then return Err("a range's cursor is three cells and the operand stack holds fewer")
+    if top < 3 then return Err(Broken("a range's cursor is three cells and the operand stack holds fewer"))
 
     val word = if inclusive then "to" else "until"
     val cur = bound(v.stack.at(top - 3), word)?
     val last = bound(v.stack.at(top - 2), word)?
     val step = bound(v.stack.at(top - 1), word)?
 
-    if step == 0 then return Err(s"`$word ... by 0` would produce $cur for ever: a step cannot be zero")
+    if step == 0
+        return Err(domain_error("non_zero", Int(0), s"`$word ... by 0` would produce $cur for ever: a step cannot be zero"))
 
     if past(cur, last, step, inclusive)
         v.stack.truncate(top - 3)
@@ -227,11 +231,11 @@ private entry(m: *MapObj, i: usize) -> Result[Value, string]
     Ok(Tuple(t))
 
 // A range's bound or step, which must be an integer.
-private bound(x: Value, word: string) -> Result[long, string]
+private bound(x: Value, word: string) -> Result[long, Fault]
     deref(x) match
         Int(n) -> Ok(n)
-        Var(_) -> Err(s"instantiation error: `$word` was given an unbound variable")
-        y -> Err(s"`$word` counts with integers and was given ${described(y)}")
+        Var(_) -> Err(instantiation_error(s"instantiation error: `$word` was given an unbound variable"))
+        y -> Err(type_error("integer", y, s"`$word` counts with integers and was given ${described(y)}"))
 
 // Whether `n` is beyond where a range stepping by `step` towards `last` stops.
 private past(n: long, last: long, step: long, inclusive: bool) -> bool

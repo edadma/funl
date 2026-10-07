@@ -1,6 +1,7 @@
 module io.github.edadma.funl
 
 import sysl.buf.Buf
+import sysl.text.from_utf8_unchecked
 
 // The instruction loop.
 //
@@ -15,7 +16,8 @@ enum Outcome
     // Failure emptied the control stack: nothing was left to resume.
     Failed
 
-    // An instruction could not be carried out; the message says which and why.
+    // An instruction could not be carried out, or raised an error nothing caught; the message says
+    // which instruction and why.
     Faulted(msg: string)
 
 private enum Flow
@@ -57,7 +59,15 @@ private run_loop(v: *Vm, chunk: usize) -> Outcome
             Ok(Next) -> ()
             Ok(Fails) -> if !fail(v) then return Failed
             Ok(Halts) -> return Succeeded
-            Err(e) -> return Faulted(s"${v.chunks.at(v.code).name}@$at: $e")
+            Err(Broken(e)) -> return Faulted(s"${v.chunks.at(v.code).name}@$at: $e")
+            Err(Thrown(ball)) ->
+                // Read before unwinding, which undoes the bindings the ball was made with.
+                val said = s"${v.chunks.at(v.code).name}@$at: ${uncaught_text(ball)}"
+
+                throw_ball(v, ball) match
+                    Ok(true) -> ()
+                    Ok(false) -> return Faulted(said)
+                    Err(e) -> return Faulted(e)
 end run_loop
 
 private fails_if(ok: bool) -> Flow = if ok then Next else Fails
@@ -78,7 +88,7 @@ private pop_into(v: *Vm, c: *CompoundObj, n: usize) -> Result[unit, string]
     v.stack.truncate(top - n)
     Ok(())
 
-private execute(v: *Vm, op: Op) -> Result[Flow, string]
+private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
     op match
         Halt -> Ok(Halts)
         Mark(to) ->
@@ -115,7 +125,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         PushConst(k) ->
             val consts = v.chunks.at(v.code).consts
 
-            if k >= consts.len() then return Err(s"constant $k of a chunk with ${consts.len()}")
+            if k >= consts.len() then return Err(Broken(s"constant $k of a chunk with ${consts.len()}"))
 
             v.stack.push(consts.at(k))
             Ok(Next)
@@ -185,7 +195,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             val t = new_tuple(n)?
             val top = v.stack.len()
 
-            if n > top then return Err(s"wants $n operands and the stack holds $top")
+            if n > top then return Err(Broken(s"wants $n operands and the stack holds $top"))
 
             for i in 0..<n
                 t.items.set(i, v.stack.at(top - n + i))
@@ -210,7 +220,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         FailIfFalse ->
             val top = v.stack.len()
 
-            if top == 0 then return Err("the operand stack is empty")
+            if top == 0 then return Err(Broken("the operand stack is empty"))
 
             deref(v.stack.at(top - 1)) match
                 Bool(b) -> Ok(fails_if(b))
@@ -218,14 +228,14 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         Dup ->
             val top = v.stack.len()
 
-            if top == 0 then return Err("the operand stack is empty")
+            if top == 0 then return Err(Broken("the operand stack is empty"))
 
             v.stack.push(v.stack.at(top - 1))
             Ok(Next)
         LoadArg(i) ->
             val args = v.frame.args
 
-            if i >= args.len() then return Err(s"argument $i of a call that passed ${args.len()}")
+            if i >= args.len() then return Err(Broken(s"argument $i of a call that passed ${args.len()}"))
 
             v.stack.push(args.at(i))
             Ok(Next)
@@ -256,7 +266,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
 
                     push_parts(v, t.items)
                     Ok(Next)
-                Var(_) -> Err("instantiation error: a tuple pattern was given an unbound variable")
+                Var(_) -> Err(instantiation_error("instantiation error: a tuple pattern was given an unbound variable"))
                 _ -> Ok(Fails)
         MatchCompound(functor, n) ->
             deref(pop(v)?) match
@@ -265,7 +275,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
 
                     push_parts(v, c.args)
                     Ok(Next)
-                Var(_) -> Err(s"instantiation error: a pattern '${atom_name(functor)}(...)' was given an unbound variable")
+                Var(_) -> Err(instantiation_error(s"instantiation error: a pattern '${atom_name(functor)}(...)' was given an unbound variable"))
                 _ -> Ok(Fails)
         NoMatch ->
             no_match(v)?
@@ -316,7 +326,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         TestDefined(defined) ->
             val top = v.stack.len()
 
-            if top == 0 then return Err("the operand stack is empty")
+            if top == 0 then return Err(Broken("the operand stack is empty"))
 
             val undefined = deref(v.stack.at(top - 1)) match
                 Undefined -> true
@@ -454,7 +464,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         SwitchFirst(unbound, other, cases) ->
             switch_first(v, unbound, other, cases)?
             Ok(Next)
-        Case(_, _) -> Err("a `Case` was run as an instruction rather than searched by its `SwitchFirst`")
+        Case(_, _) -> Err(Broken("a `Case` was run as an instruction rather than searched by its `SwitchFirst`"))
         Instantiated(param) ->
             instantiated(v, param)?
             Ok(Next)
@@ -480,8 +490,29 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         Consult ->
             consult(v)?
             Ok(Next)
-        NoProcedure -> Err(s"unknown procedure ${v.chunks.at(v.code).name}")
+        NoProcedure -> Err(no_procedure(v.chunks.at(v.code).name))
+        PushCatch(to) ->
+            push_catch(v, to)
+            Ok(Next)
+        ExitCatch(slot) ->
+            exit_catch(v, slot)?
+            Ok(Next)
 end execute
+
+// The error a call of a predicate never defined raises; `key` is its `name/arity`.
+private no_procedure(key: string) -> Fault
+    var cut = key.bytes.len
+    var arity: usize = 0
+    var scale: usize = 1
+
+    while cut > 0 && key.bytes[cut - 1] >= u8('0') && key.bytes[cut - 1] <= u8('9')
+        cut -= 1
+        arity += usize(key.bytes[cut] - u8('0')) * scale
+        scale *= 10
+
+    if cut < 2 || cut == key.bytes.len || key.bytes[cut - 1] != u8('/') then return Broken(s"unknown procedure $key")
+
+    unknown_procedure(from_utf8_unchecked(key.bytes[0..<cut - 1]), arity)
 
 // Push a tuple's items or a term's arguments, the last first, so the first is on top for the
 // pattern that matches it.
@@ -493,7 +524,7 @@ private push_parts(v: *Vm, parts: Buf[Value])
         v.stack.push(parts.at(i))
 
 // `TestEq` and `TestNe`: pop `b` and `a`, and push `b` when their equality is `want`.
-private compare(v: *Vm, want: bool, op: string) -> Result[Flow, string]
+private compare(v: *Vm, want: bool, op: string) -> Result[Flow, Fault]
     val b = pop(v)?
     val a = pop(v)?
 
@@ -502,8 +533,9 @@ private compare(v: *Vm, want: bool, op: string) -> Result[Flow, string]
     v.stack.push(b)
     Ok(Next)
 
-// Run builtin `id` over the top `argc` values, which stand on the stack until it answers.
-private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, string]
+// Builtin `id`, checked against a call of it with `argc` arguments and `extra` cells above them.
+// The compiler checks a builtin's arity, so a mismatch here is the machine's own fault.
+private native_called(v: *Vm, id: usize, argc: usize, extra: usize) -> Result[Native, string]
     if id >= v.natives.len() then return Err(s"builtin $id is not registered")
 
     val n = v.natives.at(id)
@@ -511,12 +543,19 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, string]
 
     if n.arity != Variadic && argc != n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
 
-    if argc > top then return Err(s"'${n.name}' wants $argc operands and the stack holds $top")
+    if argc + extra > top then return Err(s"'${n.name}' wants ${argc + extra} operands and the stack holds $top")
+
+    Ok(n)
+
+// Run builtin `id` over the top `argc` values, which stand on the stack until it answers.
+private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, Fault]
+    val n = native_called(v, id, argc, 0)?
+    val top = v.stack.len()
 
     val go = n.how match
         Plain(g) -> g
         Constant(g) -> g
-        Generating(_) -> return Err(s"'${n.name}' may fail or generate, and is run by `NativeGen`")
+        Generating(_) -> return Err(Broken(s"'${n.name}' may fail or generate, and is run by `NativeGen`"))
 
     val base = top - argc
     val answer = go(base, argc)?
@@ -529,23 +568,17 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, string]
 // more to give, the cursor cell takes where to resume from and a choice point re-runs this
 // instruction with it, the arguments still standing: so the builtin resumes as `!c` does, with the
 // scan state failure put back.
-private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, string]
-    if id >= v.natives.len() then return Err(s"builtin $id is not registered")
-
-    val n = v.natives.at(id)
+private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
+    val n = native_called(v, id, argc, 1)?
     val top = v.stack.len()
-
-    if n.arity != Variadic && argc != n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
-
-    if argc + 1 > top then return Err(s"'${n.name}' wants ${argc + 1} operands and the stack holds $top")
 
     val go = n.how match
         Generating(g) -> g
-        _ -> return Err(s"'${n.name}' is not run by `NativeGen`")
+        _ -> return Err(Broken(s"'${n.name}' is not run by `NativeGen`"))
 
     val cursor = v.stack.at(top - 1) match
         Int(k) -> k
-        _ -> return Err(s"'${n.name}' was run without a cursor above its arguments")
+        _ -> return Err(Broken(s"'${n.name}' was run without a cursor above its arguments"))
 
     val base = top - 1 - argc
 
@@ -564,12 +597,13 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, string]
 
 // `ScanBegin`: pop the string to scan; save the scan state it replaces on `scans`; begin at position 1
 // of the string.
-private scan_begin(v: *Vm) -> Result[unit, string]
+private scan_begin(v: *Vm) -> Result[unit, Fault]
     val s = deref(pop(v)?)
 
     s match
         Str(_) -> ()
-        x -> return Err(s"`?` scans a string, and was given ${described(x)}")
+        Var(_) -> return Err(instantiation_error("instantiation error: `?` was given an unbound variable to scan"))
+        x -> return Err(type_error("string", x, s"`?` scans a string, and was given ${described(x)}"))
 
     open_scan(v, s)
     Ok(())

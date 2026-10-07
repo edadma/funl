@@ -14,12 +14,12 @@ install_data(v: *Vm)
 
 // `array(n)`: an array of `n` elements, each `undefined` until something is stored. `array(c)`: an
 // array of the elements of `c`.
-private do_array(base: usize, argc: usize) -> Result[Value, string]
+private do_array(base: usize, argc: usize) -> Result[Value, Fault]
     val x = deref(arg(base, 0))
 
     x match
         Int(n) ->
-            if n < 0 then return Err(s"an array cannot have $n elements")
+            if n < 0 then return Err(domain_error("not_less_than_zero", x, s"an array cannot have $n elements"))
 
             return Ok(Array(new_array(usize(n))?))
         _ -> ()
@@ -27,8 +27,8 @@ private do_array(base: usize, argc: usize) -> Result[Value, string]
     Ok(Array(filled(x, "'array'")?))
 
 // `buffer()`: an empty buffer. `buffer(c)`: a buffer of the elements of `c`.
-private do_buffer(base: usize, argc: usize) -> Result[Value, string]
-    if argc > 1 then return Err(s"'buffer' takes no argument or one collection, and was given $argc")
+private do_buffer(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc > 1 then return Err(at_most_one("buffer", argc))
 
     if argc == 0 then return Ok(Buffer(new_array(0)?))
 
@@ -36,8 +36,8 @@ private do_buffer(base: usize, argc: usize) -> Result[Value, string]
 
 // `map()`: an empty mutable map. `map(m)`: a mutable map of the entries of map `m`, or of the pairs
 // `(key, value)` a collection holds.
-private do_map(base: usize, argc: usize) -> Result[Value, string]
-    if argc > 1 then return Err(s"'map' takes no argument or one collection, and was given $argc")
+private do_map(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc > 1 then return Err(at_most_one("map", argc))
 
     val m = new_map()?
 
@@ -56,17 +56,17 @@ private do_map(base: usize, argc: usize) -> Result[Value, string]
             for e in items.view()
                 deref(e) match
                     Tuple(t) ->
-                        if t.items.len() != 2 then return Err(s"'map' makes an entry of a pair `(key, value)`, and was given ${described(e)}")
+                        if t.items.len() != 2 then return Err(not_a_pair(e))
 
                         map_put(m, t.items.at(0), t.items.at(1))?
-                    _ -> return Err(s"'map' makes an entry of a pair `(key, value)`, and was given ${described(e)}")
+                    _ -> return Err(not_a_pair(e))
 
     Ok(MutMap(m))
 
 // `set()`: an empty mutable set. `set(c)`: a mutable set of the elements of collection `c`, each
 // once, in the order they first appear.
-private do_set(base: usize, argc: usize) -> Result[Value, string]
-    if argc > 1 then return Err(s"'set' takes no argument or one collection, and was given $argc")
+private do_set(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc > 1 then return Err(at_most_one("set", argc))
 
     val s = new_set()?
 
@@ -81,16 +81,23 @@ private do_set(base: usize, argc: usize) -> Result[Value, string]
 
     Ok(MutSet(s))
 
-private copy_entries(m: *MapObj, p: *MapObj) -> Result[unit, string]
+private copy_entries(m: *MapObj, p: *MapObj) -> Result[unit, Fault]
     for i in 0..<p.keys.len()
         map_put(m, p.keys.at(i), p.vals.at(i))?
 
     Ok(())
 
+// A builtin that takes no argument or one, given `argc`.
+private at_most_one(name: string, argc: usize) -> Fault =
+    wrong_count(name, argc, s"'$name' takes no argument or one collection, and was given $argc")
+
+private not_a_pair(e: Value) -> Fault =
+    type_error("pair", e, s"'map' makes an entry of a pair `(key, value)`, and was given ${described(e)}")
+
 // `seq(c)`: the elements of `c` as they are now, in a tuple that nothing changes -- a snapshot of an
 // array or a buffer. `seq()` is `()`.
-private do_seq(base: usize, argc: usize) -> Result[Value, string]
-    if argc > 1 then return Err(s"'seq' takes no argument or one collection, and was given $argc")
+private do_seq(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc > 1 then return Err(at_most_one("seq", argc))
 
     if argc == 0 then return Ok(Unit)
 
@@ -108,7 +115,7 @@ private do_seq(base: usize, argc: usize) -> Result[Value, string]
     Ok(Tuple(t))
 
 // A new array object holding the elements of collection `x`.
-private filled(x: Value, what: string) -> Result[*ArrayObj, string]
+private filled(x: Value, what: string) -> Result[*ArrayObj, Fault]
     var items: Buf[Value] = buf()
 
     elements(x, what, &items)?

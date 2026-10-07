@@ -10,11 +10,14 @@ module io.github.edadma.funl
 // are cut off once it answers. The stack is a root, so a builtin that allocates cannot lose them --
 // but it may not keep a `Value` it read in a sysl local across anything that could run FunL code.
 
-type NativeGo = &Fn(usize, usize) -> Result[Value, string]
+//
+// **A builtin answers a `Fault` when it cannot go on**: an error term for anything the program asked
+// that cannot be done (`errors.sysl`), which `catch/3` can catch.
+type NativeGo = &Fn(usize, usize) -> Result[Value, Fault]
 
 // A builtin that may fail and may produce more than one value: called with its arguments and a
 // cursor, 0 the first time and afterwards whatever its last answer said to resume from.
-type GeneratorGo = &Fn(usize, usize, long) -> Result[Answer, string]
+type GeneratorGo = &Fn(usize, usize, long) -> Result[Answer, Fault]
 
 // What a generating builtin answers.
 enum Answer

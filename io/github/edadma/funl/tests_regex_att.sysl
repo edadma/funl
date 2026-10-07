@@ -89,12 +89,12 @@ private search_chunk(pattern: string, subject: string) -> Result[usize, string]
     finish(e)
 
 // Write groups 0 to the argument's span as the data writes them.
-private write_spans(base: usize, argc: usize) -> Result[Value, string]
+private write_spans(base: usize, argc: usize) -> Result[Value, Fault]
     val v = current()
 
     val groups = arg(base, 0) match
         Int(n) -> usize(n)
-        _ -> return Err("spans wants a group count")
+        _ -> return Err(Broken("spans wants a group count"))
 
     var out = str_builder()
 

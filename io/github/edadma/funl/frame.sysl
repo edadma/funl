@@ -25,21 +25,21 @@ private pop_args(v: *Vm, argc: usize) -> Result[Buf[Value], string]
 
 // A call of chunk `target` with `argc` arguments is one it can take: the chunk exists, and a
 // function's arity is met.
-private check_target(v: *Vm, target: usize, argc: usize) -> Result[unit, string]
-    if target >= v.chunks.len() then return Err(s"a call names chunk $target, and there are ${v.chunks.len()}")
+private check_target(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault]
+    if target >= v.chunks.len() then return Err(Broken(s"a call names chunk $target, and there are ${v.chunks.len()}"))
 
     val c = v.chunks.at(target)
 
     if c.arity != AnyArity && c.arity != argc
-        return Err(s"'${c.name}' takes ${counted(c.arity, "argument")} and was given $argc")
+        return Err(wrong_count(c.name, argc, s"'${c.name}' takes ${counted(c.arity, "argument")} and was given $argc"))
 
     Ok(())
 
 // Call chunk `target` with the top `argc` values, returning to `v.ip` (already past the call).
-call(v: *Vm, target: usize, argc: usize) -> Result[unit, string] = open_frame(v, target, argc, null)
+call(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault] = open_frame(v, target, argc, null)
 
 // Call function chunk `target`, whose static link is the frame `up` names (see `link`).
-call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, string] = open_frame(v, target, argc, link(v, up)?)
+call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] = open_frame(v, target, argc, link(v, up)?)
 
 // The frame a `MakeClosure` or a `CallFn` names: `up` static links above the running frame, or the
 // top level's frame for `TopUp`.
@@ -57,7 +57,7 @@ make_closure(v: *Vm, target: usize, up: usize) -> Result[unit, string]
 //
 // **The frame is allocated before the arguments leave the stack**, so they are rooted while the
 // allocation runs -- and allocation never collects in any case.
-private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, string]
+private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, Fault]
     check_target(v, target, argc)?
 
     val f = new_frame(target)?
@@ -80,14 +80,14 @@ private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[
 // A call in tail position. When nothing resumable was made in the running frame, the frame is reused
 // for the callee and the caller's return point is kept; otherwise it is an ordinary call, whose value
 // comes back to the `Return` that always follows a `TailCall`.
-tail_call(v: *Vm, target: usize, argc: usize) -> Result[unit, string] = tail_into(v, target, argc, null)
+tail_call(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault] = tail_into(v, target, argc, null)
 
-tail_call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, string] = tail_into(v, target, argc, link(v, up)?)
+tail_call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] = tail_into(v, target, argc, link(v, up)?)
 
 // **A frame is reused only when nothing can see it afterwards**: no entry above its own (nothing
 // resumable was made in it), no function value captured it, and the callee's static link is not
 // this very frame -- a function defined inside the running one reads the running one's slots.
-private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, string]
+private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, Fault]
     val f = v.frame
 
     if f == null || f.caller == null || v.control.len() != f.entry || f.captured || up == f
@@ -106,10 +106,10 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
     Ok(())
 
 // Call the function value beneath the top `argc` values, in tail position when `tail`.
-call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, string]
+call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, Fault]
     val n = v.stack.len()
 
-    if argc >= n then return Err(s"a call wants a function and $argc arguments and the operand stack holds $n")
+    if argc >= n then return Err(Broken(s"a call wants a function and $argc arguments and the operand stack holds $n"))
 
     val callee = deref(v.stack.at(n - argc - 1))
 
@@ -124,10 +124,16 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, string]
             v.stack.truncate(n - 1)
             return make_record(v, usize(id), argc)
         _ ->
-            if !indexable(callee) then return Err(s"${described(callee)} is not a function, and cannot be called")
+            callee match
+                Var(_) -> return Err(instantiation_error("instantiation error: an unbound variable was called"))
+                _ -> ()
+
+            if !indexable(callee)
+                return Err(type_error("callable", callee, s"${described(callee)} is not a function, and cannot be called"))
 
             // `c(i)`: an element, which a tail call's `Return` then returns like any value.
-            if argc != 1 then return Err(s"${described(callee)} is indexed by one key, and was given $argc arguments")
+            if argc != 1
+                return Err(domain_error("one_key", callee, s"${described(callee)} is indexed by one key, and was given $argc arguments"))
 
             val x = element_get(callee, v.stack.at(n - 1), false)?
 
@@ -160,8 +166,12 @@ private indexable(x: Value) -> bool = x match
     _ -> false
 
 // No clause of the running function took its arguments.
-no_match(v: *Vm) -> Result[unit, string]
+//
+// **`existence_error(matching_clause, Name/Arity)`**: the function exists, and no clause of it is
+// there for these arguments. The message shows the arguments.
+no_match(v: *Vm) -> Result[unit, Fault]
     val f = v.frame
+    val name = v.chunks.at(f.chunk).name
     var shown = ""
 
     for i in 0..<f.args.len()
@@ -169,7 +179,9 @@ no_match(v: *Vm) -> Result[unit, string]
 
         shown = shown + render(f.args.at(i))
 
-    Err(s"argument match not found: no clause of '${v.chunks.at(f.chunk).name}' matches ($shown)")
+    val p = indicator(name, f.args.len())?
+
+    Err(existence_error("matching_clause", p, s"argument match not found: no clause of '$name' matches ($shown)"))
 
 // Return the top of the stack to the caller.
 //

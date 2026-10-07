@@ -419,6 +419,13 @@ enum Op
 
     // The body of a predicate that has been called and never defined.
     NoProcedure
+
+    // `catch/3` begins: push a `Catch` entry in the running frame, whose recovery starts at `to`.
+    PushCatch(to: usize)
+
+    // `catch/3`'s goal has succeeded: when the `Catch` at the height slot `slot` recorded is the top
+    // entry -- the goal left nothing to resume -- it goes, and the catch is over.
+    ExitCatch(slot: usize)
 end Op
 
 // What a first argument is keyed by in a relation's index. A head argument of any other kind, and

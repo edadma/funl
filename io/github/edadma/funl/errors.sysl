@@ -1,0 +1,144 @@
+module io.github.edadma.funl
+
+// What an instruction that cannot go on answers, and the ISO error terms a program error is raised as.
+//
+// **A program error and a `throw/1` are one thing**: a term, the ball, which `catch/3` catches by
+// unifying it with its catcher (`catch.sysl`). Every error an operation raises is an ISO error term,
+// `error(Formal, context(_, Message))`, whichever language the operation was written in -- so a
+// Prolog `catch` around a call into FunL catches a FunL type error, and the formal term says which
+// kind of error it was. The message is the sentence the run prints when nothing catches the ball;
+// it lives inside the term, so a ball caught and thrown again still prints it.
+//
+// **Only the machine's own faults are not terms**: an instruction run over an empty operand stack,
+// a slot past the end of a frame, a heap with no room left for the term an error would be. No
+// program asked for those, and none can catch them.
+
+enum Fault
+    // The machine cannot carry out an instruction, whatever the program does. The run ends with the
+    // message.
+    Broken(msg: string)
+
+    // A term thrown, by `throw/1` or by an operation that cannot be done.
+    Thrown(ball: Value)
+
+// A plain message is the machine's own fault, so every helper that answers one composes with `?`
+// into code that raises terms.
+impl From[string] for Fault
+    from(msg: string) -> Fault = Broken(msg)
+
+// The sentence a fault reads as: the message of an error term, or the ball itself.
+fault_text(f: Fault) -> string = f match
+    Broken(m) -> m
+    Thrown(ball) -> uncaught_text(ball)
+
+// What the run prints for a ball nothing caught: an error's message where the term carries one, and
+// otherwise the term.
+uncaught_text(ball: Value) -> string
+    deref(ball) match
+        Compound(e) ->
+            if atom_name(e.functor) == "error" && e.args.len() == 2
+                deref(e.args.at(1)) match
+                    Compound(c) ->
+                        if atom_name(c.functor) == "context" && c.args.len() == 2
+                            deref(c.args.at(1)) match
+                                Str(m) -> return m.s
+                                _ -> ()
+                    _ -> ()
+        _ -> ()
+
+    s"uncaught exception: ${render(ball)}"
+
+// -- The terms ----------------------------------------------------------------------------------
+
+private term1(name: string, a: Value) -> Result[Value, string]
+    val c = new_compound(intern(name), 1)?
+
+    c.args.set(0, a)
+    Ok(Compound(c))
+
+private term2(name: string, a: Value, b: Value) -> Result[Value, string]
+    val c = new_compound(intern(name), 2)?
+
+    c.args.set(0, a)
+    c.args.set(1, b)
+    Ok(Compound(c))
+
+private term3(name: string, a: Value, b: Value, c: Value) -> Result[Value, string]
+    val t = new_compound(intern(name), 3)?
+
+    t.args.set(0, a)
+    t.args.set(1, b)
+    t.args.set(2, c)
+    Ok(Compound(t))
+
+// `Name/Arity`, the way a predicate or a function is named in an error.
+indicator(name: string, arity: usize) -> Result[Value, string] = term2("/", atom(name), Int(long(arity)))
+
+// `error(Formal, context(_, Message))`, thrown. A heap with no room for the term is the machine's
+// fault, and says so.
+private raised(formal: Result[Value, string], msg: string) -> Fault
+    val f = formal match
+        Ok(x) -> x
+        Err(e) -> return Broken(e)
+
+    error_term(f, msg) match
+        Ok(ball) -> Thrown(ball)
+        Err(e) -> Broken(e)
+
+private error_term(formal: Value, msg: string) -> Result[Value, string]
+    val m = new_str(msg)?
+    val ctx = term2("context", Var(new_var()?), m)?
+
+    term2("error", formal, ctx)
+
+// An operation needed a value and was given an unbound variable.
+instantiation_error(msg: string) -> Fault = raised(Ok(atom("instantiation_error")), msg)
+
+// An argument of the wrong kind: `type_error(Kind, Culprit)`.
+type_error(kind: string, culprit: Value, msg: string) -> Fault = raised(term2("type_error", atom(kind), culprit), msg)
+
+// An argument `x` that is not of kind `kind`: an instantiation error when it is unbound, and a type
+// error otherwise. `msg` reads for both.
+kind_error(x: Value, kind: string, msg: string) -> Fault = deref(x) match
+    Var(_) -> instantiation_error(msg)
+    y -> type_error(kind, y, msg)
+
+// An argument of the right kind outside the values the operation takes: `domain_error(Domain, Culprit)`.
+domain_error(domain: string, culprit: Value, msg: string) -> Fault = raised(term2("domain_error", atom(domain), culprit), msg)
+
+// Something named that does not exist: `existence_error(Kind, Culprit)`.
+existence_error(kind: string, culprit: Value, msg: string) -> Fault =
+    raised(term2("existence_error", atom(kind), culprit), msg)
+
+// A call of `name/arity`, which nothing defines.
+unknown_procedure(name: string, arity: usize) -> Fault
+    val p = indicator(name, arity) match
+        Ok(x) -> x
+        Err(e) -> return Broken(e)
+
+    existence_error("procedure", p, s"unknown procedure $name/$arity")
+
+// A function or a builtin called with a number of arguments it does not take: there is no
+// `name/argc` to call, `existence_error(procedure, Name/Argc)`.
+wrong_count(name: string, argc: usize, msg: string) -> Fault
+    val p = indicator(name, argc) match
+        Ok(x) -> x
+        Err(e) -> return Broken(e)
+
+    existence_error("procedure", p, msg)
+
+// Arithmetic with no answer: `evaluation_error(What)` -- `zero_divisor`, `int_overflow`, `undefined`.
+evaluation_error(what: string, msg: string) -> Fault = raised(term1("evaluation_error", atom(what)), msg)
+
+// An answer the machine has no way to hold: `representation_error(What)`.
+representation_error(what: string, msg: string) -> Fault = raised(term1("representation_error", atom(what)), msg)
+
+// An operation the culprit does not allow: `permission_error(Action, Type, Culprit)`.
+permission_error(action: string, kind: string, culprit: Value, msg: string) -> Fault =
+    raised(term3("permission_error", atom(action), atom(kind), culprit), msg)
+
+// Text that does not read: `syntax_error(What)`.
+syntax_error(what: string, msg: string) -> Fault = raised(term1("syntax_error", atom(what)), msg)
+
+// A program's own error, raised by FunL's `error(x)`: `user_error(X)`.
+user_error(x: Value, msg: string) -> Fault = raised(term1("user_error", x), msg)

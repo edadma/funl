@@ -8,23 +8,28 @@ install_predef(v: *Vm)
     register(v, "min", Variadic, do_min)
     register(v, "max", Variadic, do_max)
 
-// `error(message)`: stop the program with the message, which is not a failure -- nothing catches it.
-private do_error(base: usize, argc: usize) -> Result[Value, string] = Err(render(arg(base, 0)))
+// `error(x)`: raise `error(user_error(x), _)`, whose message is `x` as it prints. It is an error, not a
+// failure: only a `catch` stops it.
+private do_error(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = arg(base, 0)
 
-private do_abs(base: usize, argc: usize) -> Result[Value, string]
+    Err(user_error(x, render(x)))
+
+private do_abs(base: usize, argc: usize) -> Result[Value, Fault]
     val x = arg(base, 0)
 
     deref(x) match
         Int(n) -> if n < 0 then negate(x) else Ok(Int(n))
-        _ -> Err(s"'abs' wants a number and was given ${described(x)}")
+        Var(_) -> Err(instantiation_error("instantiation error: 'abs' was given an unbound variable"))
+        y -> Err(type_error("number", y, s"'abs' wants a number and was given ${described(x)}"))
 
-private do_min(base: usize, argc: usize) -> Result[Value, string] = extreme(base, argc, "min", Lt)
+private do_min(base: usize, argc: usize) -> Result[Value, Fault] = extreme(base, argc, "min", Lt)
 
-private do_max(base: usize, argc: usize) -> Result[Value, string] = extreme(base, argc, "max", Gt)
+private do_max(base: usize, argc: usize) -> Result[Value, Fault] = extreme(base, argc, "max", Gt)
 
 // The argument every other one is not `better` than: the least for `<`, the greatest for `>`.
-private extreme(base: usize, argc: usize, name: string, better: BinOp) -> Result[Value, string]
-    if argc == 0 then return Err(s"'$name' wants at least one argument")
+private extreme(base: usize, argc: usize, name: string, better: BinOp) -> Result[Value, Fault]
+    if argc == 0 then return Err(wrong_count(name, 0, s"'$name' wants at least one argument"))
 
     var best = arg(base, 0)
 

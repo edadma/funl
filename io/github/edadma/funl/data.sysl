@@ -39,13 +39,14 @@ declare_ctor(name: string, fields: Buf[string]) -> usize
 
 // `MakeRecord`: the record constructor `id` makes of the top `n` values, the first deepest. A
 // constructor with no fields makes its atom.
-make_record(v: *Vm, id: usize, n: usize) -> Result[unit, string]
-    if id >= v.ctors.len() then return Err(s"there is no constructor $id")
+make_record(v: *Vm, id: usize, n: usize) -> Result[unit, Fault]
+    if id >= v.ctors.len() then return Err(Broken(s"there is no constructor $id"))
 
     val d = v.ctors.at(id)
     val name = atom_name(d.functor)
 
-    if n != d.fields.len() then return Err(s"the constructor '$name' takes ${counted(d.fields.len(), "field")}, and was given $n")
+    if n != d.fields.len()
+        return Err(wrong_count(name, n, s"the constructor '$name' takes ${counted(d.fields.len(), "field")}, and was given $n"))
 
     if n == 0
         v.stack.push(Atom(d.functor))
@@ -53,7 +54,7 @@ make_record(v: *Vm, id: usize, n: usize) -> Result[unit, string]
 
     val top = v.stack.len()
 
-    if n > top then return Err(s"'$name' wants $n operands and the stack holds $top")
+    if n > top then return Err(Broken(s"'$name' wants $n operands and the stack holds $top"))
 
     val c = new_compound(d.functor, n)?
 
@@ -69,10 +70,10 @@ end make_record
 
 // `MakeMap`: the top `2n` values, each key under its value, become an immutable map. A key written
 // twice keeps its place and takes the later value.
-make_map(v: *Vm, n: usize) -> Result[unit, string]
+make_map(v: *Vm, n: usize) -> Result[unit, Fault]
     val top = v.stack.len()
 
-    if 2 * n > top then return Err(s"a map of $n entries wants ${2 * n} operands and the stack holds $top")
+    if 2 * n > top then return Err(Broken(s"a map of $n entries wants ${2 * n} operands and the stack holds $top"))
 
     val m = new_map()?
     val base = top - 2 * n
@@ -85,10 +86,10 @@ make_map(v: *Vm, n: usize) -> Result[unit, string]
     Ok(())
 
 // `MakeSet`: the top `n` values become a set, each kept once.
-make_set(v: *Vm, n: usize) -> Result[unit, string]
+make_set(v: *Vm, n: usize) -> Result[unit, Fault]
     val top = v.stack.len()
 
-    if n > top then return Err(s"a set of $n wants $n operands and the stack holds $top")
+    if n > top then return Err(Broken(s"a set of $n wants $n operands and the stack holds $top"))
 
     val s = new_set()?
 
@@ -102,7 +103,7 @@ make_set(v: *Vm, n: usize) -> Result[unit, string]
 // -- maps ----------------------------------------------------------------------------------------------
 
 // Where key `k` is in map `m`.
-map_find(m: *MapObj, k: Value) -> Result[Option[usize], string]
+map_find(m: *MapObj, k: Value) -> Result[Option[usize], Fault]
     for i in 0..<m.keys.len()
         if equal_values(k, m.keys.at(i), "a map key")? then return Ok(Some(i))
 
@@ -118,7 +119,7 @@ private text_key(m: *MapObj, s: string) -> Option[usize]
     None
 
 // `x` under key `k`, the key added at the end when it is new.
-map_put(m: *MapObj, k: Value, x: Value) -> Result[unit, string]
+map_put(m: *MapObj, k: Value, x: Value) -> Result[unit, Fault]
     map_find(m, k)? match
         Some(i) -> m.vals.set(i, x)
         None ->
@@ -140,7 +141,7 @@ private copy_map(m: *MapObj) -> Result[*MapObj, string]
     Ok(o)
 
 // Whether two immutable maps hold the same keys under equal values, in whatever order.
-same_map(p: *MapObj, q: *MapObj) -> Result[bool, string]
+same_map(p: *MapObj, q: *MapObj) -> Result[bool, Fault]
     if p.keys.len() != q.keys.len() then return Ok(false)
 
     for i in 0..<p.keys.len()
@@ -155,7 +156,7 @@ same_map(p: *MapObj, q: *MapObj) -> Result[bool, string]
 // The element key `key` names in `c`: `c(key)`, or `c[key]` when `bracket`. An array, a buffer, a list,
 // a range, a tuple, a string or a record is indexed by an integer, and a record also by its field's
 // name; a map is looked up by its key.
-element_get(c: Value, key: Value, bracket: bool) -> Result[Value, string]
+element_get(c: Value, key: Value, bracket: bool) -> Result[Value, Fault]
     val x = deref(c)
 
     x match
@@ -166,7 +167,7 @@ element_get(c: Value, key: Value, bracket: bool) -> Result[Value, string]
                 Str(s) ->
                     return field_index(p, intern(s.s)) match
                         Some(i) -> Ok(p.args.at(i))
-                        None -> Err(s"${described(x)} has no field '${s.s}'")
+                        None -> Err(existence_error("field", Atom(intern(s.s)), s"${described(x)} has no field '${s.s}'"))
                 _ -> ()
         _ -> ()
 
@@ -182,30 +183,34 @@ element_get(c: Value, key: Value, bracket: bool) -> Result[Value, string]
 end element_get
 
 // What map `m` holds under `key`; `x` is the map, for the refusal when it holds nothing there.
-private value_under(m: *MapObj, key: Value, x: Value) -> Result[Value, string]
+private value_under(m: *MapObj, key: Value, x: Value) -> Result[Value, Fault]
     map_find(m, key)? match
         Some(i) -> Ok(m.vals.at(i))
-        None -> Err(s"${described(x)} has no key ${quoted(key)}")
+        None -> Err(no_key(key, s"${described(x)} has no key ${quoted(key)}"))
+
+// A key a map does not hold: `existence_error(key, Key)`.
+private no_key(key: Value, msg: string) -> Fault = existence_error("key", key, msg)
 
 // A key as a message quotes it: a string in double quotes, anything else as it prints.
 private quoted(k: Value) -> string = deref(k) match
     Str(p) -> s"\"${p.s}\""
     y -> render(y)
 
-private integer(key: Value) -> Result[long, string] = deref(key) match
+private integer(key: Value) -> Result[long, Fault] = deref(key) match
     Int(n) -> Ok(n)
-    Var(_) -> Err("instantiation error: an index is an unbound variable")
-    y -> Err(s"an index is an integer, and this one is ${described(y)}")
+    Var(_) -> Err(instantiation_error("instantiation error: an index is an unbound variable"))
+    y -> Err(type_error("integer", y, s"an index is an integer, and this one is ${described(y)}"))
 
 // Index `i`, counting from 0, checked against a collection of `n` elements.
-private in_range(x: Value, i: long, n: usize) -> Result[usize, string]
-    if i < 0 || i >= long(n) then return Err(s"index $i is out of range for ${described(x)}, which has ${counted(n, "element")}")
+private in_range(x: Value, i: long, n: usize) -> Result[usize, Fault]
+    if i < 0 || i >= long(n)
+        return Err(existence_error("index", Int(i), s"index $i is out of range for ${described(x)}, which has ${counted(n, "element")}"))
 
     Ok(usize(i))
 
 // Where position `i` of `x` is, counting from 0: `[i]` counts from 1, and from -1 at the end, so
 // position 0 is no element at all.
-private position(x: Value, i: long) -> Result[long, string]
+private position(x: Value, i: long) -> Result[long, Fault]
     val endless = x match
         Range(r) -> r.endless
         _ -> false
@@ -218,7 +223,9 @@ private position(x: Value, i: long) -> Result[long, string]
 
     if i <= -1 && i >= -n then return Ok(n + i)
 
-    Err(s"position $i is out of range for ${described(x)}, which has ${counted(usize(n), "element")}: `[i]` counts from 1, and from -1 at the end")
+    val msg = s"position $i is out of range for ${described(x)}, which has ${counted(usize(n), "element")}: `[i]` counts from 1, and from -1 at the end"
+
+    Err(existence_error("index", Int(i), msg))
 
 // Which of a record's fields is called `name`.
 private field_index(c: *CompoundObj, name: u32) -> Option[usize]
@@ -234,7 +241,7 @@ private field_index(c: *CompoundObj, name: u32) -> Option[usize]
 // `x.name` for the kinds whose fields are their own: a record's field, a map's string key, and a
 // buffer's `removeLast`, which takes its last element off and produces it. `None` where `x` has no
 // such field, for `field_of` to answer the fields every collection has.
-data_field(x: Value, name: u32) -> Result[Option[Value], string]
+data_field(x: Value, name: u32) -> Result[Option[Value], Fault]
     val y = deref(x)
     val n = atom_name(name)
 
@@ -249,27 +256,27 @@ data_field(x: Value, name: u32) -> Result[Option[Value], string]
             if n == "removeLast"
                 return b.items.pop() match
                     Some(e) -> Ok(Some(e))
-                    None -> Err("'removeLast' was asked of an empty buffer")
+                    None -> Err(domain_error("non_empty", y, "'removeLast' was asked of an empty buffer"))
         _ -> ()
 
     Ok(None)
 end data_field
 
 // `m.name`: what the map holds under the string `name` -- or, holding nothing there, its `length`.
-private named_key(m: *MapObj, y: Value, n: string) -> Result[Option[Value], string]
+private named_key(m: *MapObj, y: Value, n: string) -> Result[Option[Value], Fault]
     text_key(m, n) match
         Some(i) -> return Ok(Some(m.vals.at(i)))
         None -> ()
 
     if n == "length" then return Ok(None)
 
-    Err(s"${described(y)} has no key \"$n\"")
+    Err(no_key(new_str(n)?, s"${described(y)} has no key \"$n\""))
 
 // -- writing an element --------------------------------------------------------------------------------
 
 // Write `x` into the element `key` names in `c` -- `c(key) = x`, or `c[key] = x` when `bracket` --
 // recording what it held on the trail when `back`, for failure to put back.
-element_set(c: Value, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, string]
+element_set(c: Value, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, Fault]
     val col = deref(c)
 
     col match
@@ -289,13 +296,19 @@ element_set(c: Value, key: Value, bracket: bool, x: Value, back: bool) -> Result
                     current().allocated += 2 * sizeof(Value)
 
             Ok(())
-        Map(_) -> Err(s"${described(col)} is an immutable map, and nothing can be stored in it: `map(m)` makes a mutable copy")
-        Compound(_) -> Err(s"${described(col)} is a record, and its fields cannot be assigned")
-        Var(_) -> Err("instantiation error: an element was stored into an unbound variable")
-        _ -> Err(s"${described(col)} cannot be changed: only an array, a buffer and a mutable map have elements that can be assigned")
+        Map(_) ->
+            val msg = s"${described(col)} is an immutable map, and nothing can be stored in it: `map(m)` makes a mutable copy"
+
+            Err(permission_error("modify", "immutable_map", col, msg))
+        Compound(_) -> Err(permission_error("modify", "record", col, s"${described(col)} is a record, and its fields cannot be assigned"))
+        Var(_) -> Err(instantiation_error("instantiation error: an element was stored into an unbound variable"))
+        _ ->
+            val msg = s"${described(col)} cannot be changed: only an array, a buffer and a mutable map have elements that can be assigned"
+
+            Err(type_error("mutable_collection", col, msg))
 end element_set
 
-private set_item(col: Value, a: *ArrayObj, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, string]
+private set_item(col: Value, a: *ArrayObj, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, Fault]
     var i = integer(key)?
 
     if bracket then i = position(col, i)?
@@ -339,10 +352,10 @@ private put_item_back(a: *ArrayObj, key: Value, old: Value)
 
 // `SwapElems`: the two elements named by the top four cells -- a collection and a key, twice --
 // exchanged.
-swap_elements(v: *Vm, first: bool, second: bool) -> Result[unit, string]
+swap_elements(v: *Vm, first: bool, second: bool) -> Result[unit, Fault]
     val top = v.stack.len()
 
-    if top < 4 then return Err("a swap wants two collections and two keys, and the stack holds fewer")
+    if top < 4 then return Err(Broken("a swap wants two collections and two keys, and the stack holds fewer"))
 
     val c1 = v.stack.at(top - 4)
     val k1 = v.stack.at(top - 3)
@@ -360,7 +373,7 @@ swap_elements(v: *Vm, first: bool, second: bool) -> Result[unit, string]
 // `held op= x` where `held` changes in place: `b += x` adds `x` to the end of buffer `b`, `s += x`
 // adds to mutable set `s` -- each element of a set `x`, as `+` does -- and `s -= x` takes out of it.
 // False for anything else, which `op=` updates as it would a number.
-changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, string]
+changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, Fault]
     deref(held) match
         Buffer(b) ->
             if o != Add then return Ok(false)
@@ -379,16 +392,19 @@ changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, string]
 
 // `InPlace`: `b += x` or `s -= x` where the name is a `val`, which nothing can assign -- so it has to
 // hold a collection that changes in place.
-in_place(o: BinOp, held: Value, x: Value) -> Result[Value, string]
+in_place(o: BinOp, held: Value, x: Value) -> Result[Value, Fault]
     if changes_in_place(o, held, x)? then return Ok(held)
 
-    if o == Add then return Err(s"`+=` on a `val` adds to the buffer or the mutable set it holds, and this one holds ${described(held)}")
+    if o == Add
+        val msg = s"`+=` on a `val` adds to the buffer or the mutable set it holds, and this one holds ${described(held)}"
 
-    Err(s"`${op_text(o)}=` on a `val` takes out of the mutable set it holds, and this one holds ${described(held)}")
+        return Err(type_error("mutable_collection", held, msg))
+
+    Err(type_error("mutable_set", held, s"`${op_text(o)}=` on a `val` takes out of the mutable set it holds, and this one holds ${described(held)}"))
 
 // `UpdateElem`: `c(key) op= x`, the element read, combined with `x`, and written back; `None` when
 // the operation fails. An element holding a buffer or a mutable set is changed in place.
-update_element(c: Value, key: Value, bracket: bool, o: BinOp, x: Value) -> Result[Option[Value], string]
+update_element(c: Value, key: Value, bracket: bool, o: BinOp, x: Value) -> Result[Option[Value], Fault]
     val held = element_get(c, key, bracket)?
 
     if changes_in_place(o, held, x)? then return Ok(Some(held))
@@ -400,7 +416,7 @@ update_element(c: Value, key: Value, bracket: bool, o: BinOp, x: Value) -> Resul
         None -> Ok(None)
 
 // `x`, or each element of `x` when it is a set, added to `s`.
-private add_into(s: *SetObj, x: Value) -> Result[unit, string]
+private add_into(s: *SetObj, x: Value) -> Result[unit, Fault]
     deref(x) match
         Set(t) ->
             for e in t.items.view()
@@ -413,7 +429,7 @@ private add_into(s: *SetObj, x: Value) -> Result[unit, string]
     Ok(())
 
 // `x`, or each element of `x` when it is a set, taken out of `s`.
-private take_out_of(s: *SetObj, x: Value) -> Result[unit, string]
+private take_out_of(s: *SetObj, x: Value) -> Result[unit, Fault]
     val other = deref(x)
     var kept: Buf[Value] = buf()
 
@@ -425,13 +441,13 @@ private take_out_of(s: *SetObj, x: Value) -> Result[unit, string]
     Ok(())
 
 // Whether `-` takes `e` out of a set: `e` is `other`, or one of its elements when it is a set.
-private gone(e: Value, other: Value) -> Result[bool, string]
+private gone(e: Value, other: Value) -> Result[bool, Fault]
     other match
         Set(t) -> within_set(e, t)
         MutSet(t) -> within_set(e, t)
         _ -> equal_values(e, other, "-")
 
-private within_set(e: Value, t: *SetObj) -> Result[bool, string]
+private within_set(e: Value, t: *SetObj) -> Result[bool, Fault]
     for u in t.items.view()
         if equal_values(e, u, "-")? then return Ok(true)
 
@@ -447,7 +463,7 @@ combines(x: Value) -> bool = x match
 
 // `x + y`: a set with `y`'s elements -- or `y` itself -- added; a map with `y`'s entries -- or the
 // pair `(key, value)` -- added, a key already there taking the new value.
-combined(x: Value, y: Value) -> Result[Value, string]
+combined(x: Value, y: Value) -> Result[Value, Fault]
     val other = deref(y)
 
     x match
@@ -463,18 +479,21 @@ combined(x: Value, y: Value) -> Result[Value, string]
                 Map(t) -> put_all(o, t)?
                 MutMap(t) -> put_all(o, t)?
                 Tuple(t) ->
-                    if t.items.len() != 2 then return Err(s"'+' adds a map or a pair `(key, value)` to a map, and was given ${described(other)}")
+                    if t.items.len() != 2 then return Err(not_an_entry(other))
 
                     map_put(o, t.items.at(0), t.items.at(1))?
-                _ -> return Err(s"'+' adds a map or a pair `(key, value)` to a map, and was given ${described(other)}")
+                _ -> return Err(not_an_entry(other))
 
             Ok(Map(o))
-        _ -> Err(s"'+' cannot combine ${described(x)}")
+        _ -> Err(Broken(s"'+' cannot combine ${described(x)}"))
 end combined
+
+private not_an_entry(other: Value) -> Fault =
+    type_error("pair", other, s"'+' adds a map or a pair `(key, value)` to a map, and was given ${described(other)}")
 
 // `x - y`: a set without `y`'s elements -- or without `y` -- and a map without the keys in `y`, a set
 // of keys, or without the key `y`.
-removed(x: Value, y: Value) -> Result[Value, string]
+removed(x: Value, y: Value) -> Result[Value, Fault]
     val other = deref(y)
 
     x match
@@ -497,7 +516,7 @@ removed(x: Value, y: Value) -> Result[Value, string]
                 _ -> drop_key(o, other)?
 
             Ok(Map(o))
-        _ -> Err(s"'-' cannot take anything out of ${described(x)}")
+        _ -> Err(Broken(s"'-' cannot take anything out of ${described(x)}"))
 end removed
 
 private copy_set(s: *SetObj) -> Result[*SetObj, string]
@@ -509,13 +528,13 @@ private copy_set(s: *SetObj) -> Result[*SetObj, string]
     current().allocated += s.items.len() * sizeof(Value)
     Ok(o)
 
-private put_all(o: *MapObj, t: *MapObj) -> Result[unit, string]
+private put_all(o: *MapObj, t: *MapObj) -> Result[unit, Fault]
     for i in 0..<t.keys.len()
         map_put(o, t.keys.at(i), t.vals.at(i))?
 
     Ok(())
 
-private drop_key(m: *MapObj, k: Value) -> Result[unit, string]
+private drop_key(m: *MapObj, k: Value) -> Result[unit, Fault]
     map_find(m, k)? match
         Some(i) ->
             m.keys.remove(i)

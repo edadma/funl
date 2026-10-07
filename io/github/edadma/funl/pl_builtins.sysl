@@ -21,44 +21,49 @@ install_prolog(v: *Vm)
 
     // FunL's `consult(file)`, which the compiler turns into the `Consult` instruction: registered so
     // the name resolves and its arity is checked, and never run as a builtin.
-    register(v, "consult", 1, (b, n) -> Err("consult is run by its own instruction"))
+    register(v, "consult", 1, (b, n) -> Err(Broken("consult is run by its own instruction")))
 
 // `write/1`: the term, continuing the line `nl/0` will end.
-private pl_write(base: usize, argc: usize) -> Result[Value, string]
+private pl_write(base: usize, argc: usize) -> Result[Value, Fault]
     val v = current()
 
     v.line = v.line + render(arg(base, 0))
     Ok(Unit)
 
-private pl_nl(base: usize, argc: usize) -> Result[Value, string]
+private pl_nl(base: usize, argc: usize) -> Result[Value, Fault]
     val v = current()
 
     v.output.push(v.line)
     v.line = ""
     Ok(Unit)
 
-private pl_writeln(base: usize, argc: usize) -> Result[Value, string]
+private pl_writeln(base: usize, argc: usize) -> Result[Value, Fault]
     pl_write(base, argc)?
     pl_nl(base, 0)
 
 // `op(P, T, Name)` run as a goal: the table changes for whatever is read after it.
-private pl_op(base: usize, argc: usize) -> Result[Value, string]
+private pl_op(base: usize, argc: usize) -> Result[Value, Fault]
     val p = deref(arg(base, 0)) match
         Int(n) -> n
-        x -> return Err(s"op/3 wants an integer priority, and was given ${described(x)}")
+        x -> return Err(op_argument(x, "integer", "an integer priority"))
 
     val kind = deref(arg(base, 1)) match
         Atom(id) -> atom_name(id)
-        x -> return Err(s"op/3 wants an operator type, and was given ${described(x)}")
+        x -> return Err(op_argument(x, "atom", "an operator type"))
 
     val name = deref(arg(base, 2)) match
         Atom(id) -> atom_name(id)
-        x -> return Err(s"op/3 wants an operator's name, and was given ${described(x)}")
+        x -> return Err(op_argument(x, "atom", "an operator's name"))
 
     set_op(p, kind, name)?
     Ok(Unit)
 
+// An argument of `op/3` that is unbound, or not the kind it has to be.
+private op_argument(x: Value, kind: string, what: string) -> Fault = x match
+    Var(_) -> instantiation_error(s"instantiation error: op/3 wants $what, and was given an unbound variable")
+    _ -> type_error(kind, x, s"op/3 wants $what, and was given ${described(x)}")
+
 // The comparisons of the standard order of terms: succeed when `holds` says the order of the two
 // arguments is right, binding nothing.
-private ordered_if(base: usize, holds: int -> bool) -> Result[Answer, string] =
+private ordered_if(base: usize, holds: int -> bool) -> Result[Answer, Fault] =
     Ok(if holds(compare_terms(arg(base, 0), arg(base, 1))) then Gives(Unit) else Refuses)

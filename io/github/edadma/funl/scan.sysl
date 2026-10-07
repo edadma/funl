@@ -31,10 +31,12 @@ install_scan(v: *Vm)
     register_constant(v, "alphanum", make_alphanum)
 
 // The string being scanned.
-private subject(name: string) -> Result[*StrObj, string]
+//
+// With no scan running there is none: `existence_error(scan, Name)`.
+private subject(name: string) -> Result[*StrObj, Fault]
     current().subject match
         Str(p) -> Ok(p)
-        _ -> Err(s"'$name' works on the subject of a scan `s ? e`, and no scan is running")
+        _ -> Err(existence_error("scan", atom(name), s"'$name' works on the subject of a scan `s ? e`, and no scan is running"))
 
 // Position `i` as an argument writes it -- 0 the end, negative counting back from it -- as a position
 // from 1 in a string of `n` characters; `None` when it is outside the string.
@@ -44,28 +46,28 @@ private position(i: long, n: usize) -> Option[usize]
 
     if k < 1 || k > end then None else Some(usize(k))
 
-private int_arg(base: usize, i: usize, name: string) -> Result[long, string]
+private int_arg(base: usize, i: usize, name: string) -> Result[long, Fault]
     val x = deref(arg(base, i))
 
     x match
         Int(n) -> Ok(n)
-        _ -> Err(s"'$name' wants an integer and was given ${described(x)}")
+        _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
 
-private str_arg(base: usize, i: usize, name: string) -> Result[*StrObj, string]
+private str_arg(base: usize, i: usize, name: string) -> Result[*StrObj, Fault]
     val x = deref(arg(base, i))
 
     x match
         Str(p) -> Ok(p)
-        _ -> Err(s"'$name' wants a string and was given ${described(x)}")
+        _ -> Err(kind_error(x, "string", s"'$name' wants a string and was given ${described(x)}"))
 
 // A cset argument: a cset, or a string standing for the set of its characters.
-private set_arg(base: usize, i: usize, name: string) -> Result[CharSet, string]
+private set_arg(base: usize, i: usize, name: string) -> Result[CharSet, Fault]
     val x = deref(arg(base, i))
 
     x match
         CSet(p) -> Ok(p.set)
         Str(p) -> Ok(char_set(p.s))
-        _ -> Err(s"'$name' wants a cset or a string and was given ${described(x)}")
+        _ -> Err(kind_error(x, "cset", s"'$name' wants a cset or a string and was given ${described(x)}"))
 
 // The text between two positions of `p`, whichever comes first.
 private passed(p: *StrObj, a: usize, b: usize) -> Result[Value, string]
@@ -77,8 +79,8 @@ private struct Searched
     p: *StrObj
     from: usize
 
-private searched(base: usize, argc: usize, cursor: long, name: string) -> Result[Searched, string]
-    if argc != 1 && argc != 2 then return Err(s"'$name' takes 1 or 2 arguments, and was given $argc")
+private searched(base: usize, argc: usize, cursor: long, name: string) -> Result[Searched, Fault]
+    if argc != 1 && argc != 2 then return Err(wrong_count(name, argc, s"'$name' takes 1 or 2 arguments, and was given $argc"))
 
     val p = if argc == 2 then str_arg(base, 1, name)? else subject(name)?
     val from = if cursor > 0 then usize(cursor) elif argc == 2 then 1 else current().pos
@@ -86,7 +88,7 @@ private searched(base: usize, argc: usize, cursor: long, name: string) -> Result
     Ok(Searched(p, from))
 
 // `tab(i)`: move to position `i` and produce the text passed over.
-private do_tab(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_tab(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val p = subject("tab")?
     val v = current()
 
@@ -100,7 +102,7 @@ private do_tab(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
     Ok(Gives(passed(p, from, to)?))
 
 // `move(n)`: move `n` characters, back when `n` is negative, and produce the text passed over.
-private do_move(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_move(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val p = subject("move")?
     val v = current()
     val to = long(v.pos) + int_arg(base, 0, "move")?
@@ -113,7 +115,7 @@ private do_move(base: usize, argc: usize, cursor: long) -> Result[Answer, string
     Ok(Gives(passed(p, from, usize(to))?))
 
 // `pos(i)`: the scan position, if it is `i`.
-private do_pos(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_pos(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val p = subject("pos")?
     val v = current()
 
@@ -123,7 +125,7 @@ private do_pos(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
 
 // `upto(c)`: each position, from the scan position on, before a character in cset `c`. `upto(c, s)`
 // searches string `s` from its start instead.
-private do_upto(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_upto(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val at = searched(base, argc, cursor, "upto")?
     val set = set_arg(base, 0, "upto")?
     val p = at.p
@@ -139,7 +141,7 @@ private do_upto(base: usize, argc: usize, cursor: long) -> Result[Answer, string
 
 // `find(s)`: each position, from the scan position on, at which `s` begins. `find(s, t)` searches
 // string `t` from its start instead.
-private do_find(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_find(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val at = searched(base, argc, cursor, "find")?
     val needle = str_arg(base, 0, "find")?
     val p = at.p
@@ -157,7 +159,7 @@ private do_find(base: usize, argc: usize, cursor: long) -> Result[Answer, string
     Ok(Refuses)
 
 // `many(c)`: the position after the longest run, at least one long, of characters in cset `c`.
-private do_many(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_many(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val p = subject("many")?
     val set = set_arg(base, 0, "many")?
     val from = current().pos
@@ -169,7 +171,7 @@ private do_many(base: usize, argc: usize, cursor: long) -> Result[Answer, string
     Ok(if k == from then Refuses else Gives(Int(long(k))))
 
 // `any(c)`: the position after the next character, if it is in cset `c`.
-private do_any(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_any(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val p = subject("any")?
     val set = set_arg(base, 0, "any")?
     val k = current().pos
@@ -177,7 +179,7 @@ private do_any(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
     Ok(if k <= p.chars && set.has(char_at(p, k - 1)) then Gives(Int(long(k + 1))) else Refuses)
 
 // `match(s)`: the position after `s`, if the subject goes on with it from the scan position.
-private do_match(base: usize, argc: usize, cursor: long) -> Result[Answer, string]
+private do_match(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val p = subject("match")?
     val s = str_arg(base, 0, "match")?
     val k = current().pos
@@ -185,20 +187,20 @@ private do_match(base: usize, argc: usize, cursor: long) -> Result[Answer, strin
     Ok(if bytes_at(p.s.bytes, byte_at(p, k - 1), s.s.bytes) then Gives(Int(long(k + s.chars))) else Refuses)
 
 // `cset(s)`: the set of the characters of string `s`.
-private do_cset(base: usize, argc: usize) -> Result[Value, string]
+private do_cset(base: usize, argc: usize) -> Result[Value, Fault]
     val x = deref(arg(base, 0))
 
     x match
         CSet(_) -> Ok(x)
-        Str(p) -> new_cset(char_set(p.s))
-        _ -> Err(s"'cset' wants a string and was given ${described(x)}")
+        Str(p) -> Ok(new_cset(char_set(p.s))?)
+        _ -> Err(kind_error(x, "string", s"'cset' wants a string and was given ${described(x)}"))
 
 // `right(s, n)`: `s` in a field `n` characters wide, padded with spaces on the left, or cut to its
 // last `n` characters when it is longer. A value that is not a string is written as `write` would.
-private do_right(base: usize, argc: usize) -> Result[Value, string]
+private do_right(base: usize, argc: usize) -> Result[Value, Fault]
     val n = int_arg(base, 1, "right")?
 
-    if n < 0 then return Err(s"'right' makes a field of $n characters")
+    if n < 0 then return Err(domain_error("not_less_than_zero", Int(n), s"'right' makes a field of $n characters"))
 
     val width = usize(n)
 
@@ -210,9 +212,9 @@ private do_right(base: usize, argc: usize) -> Result[Value, string]
 
     val p = made match
         Str(q) -> q
-        _ -> return Err("a new string is not a string")
+        _ -> return Err(Broken("a new string is not a string"))
 
-    if p.chars >= width then return new_str(chars_between(p, p.chars - width, p.chars))
+    if p.chars >= width then return Ok(new_str(chars_between(p, p.chars - width, p.chars))?)
 
     var out = str_builder()
 
@@ -220,7 +222,7 @@ private do_right(base: usize, argc: usize) -> Result[Value, string]
         out.push(" ")
 
     out.push(text)
-    new_str(out.finish())
+    Ok(new_str(out.finish())?)
 
 private letters_set() -> CharSet
     var set = char_set("")
@@ -233,14 +235,14 @@ private letters_set() -> CharSet
 
 private digits_set() -> CharSet = char_set("0123456789")
 
-private make_letters(base: usize, argc: usize) -> Result[Value, string] = new_cset(letters_set())
+private make_letters(base: usize, argc: usize) -> Result[Value, Fault] = Ok(new_cset(letters_set())?)
 
-private make_digits(base: usize, argc: usize) -> Result[Value, string] = new_cset(digits_set())
+private make_digits(base: usize, argc: usize) -> Result[Value, Fault] = Ok(new_cset(digits_set())?)
 
-private make_alphanum(base: usize, argc: usize) -> Result[Value, string]
+private make_alphanum(base: usize, argc: usize) -> Result[Value, Fault]
     var set = letters_set()
 
     for c in "0123456789".chars
         set.add(c)
 
-    new_cset(set)
+    Ok(new_cset(set)?)

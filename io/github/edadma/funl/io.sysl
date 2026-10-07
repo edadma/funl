@@ -9,7 +9,7 @@ install_io(v: *Vm)
 
 // `write(a, b, ...)`: print the arguments as one line, separated by `, `, answering `()`. A line
 // Prolog's `write/1` has begun is its start.
-private do_write(base: usize, argc: usize) -> Result[Value, string]
+private do_write(base: usize, argc: usize) -> Result[Value, Fault]
     val v = current()
     var out = str_builder()
 

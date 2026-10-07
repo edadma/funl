@@ -47,28 +47,29 @@ range_rest(r: *RangeObj) -> Result[Value, string]
 
 // `MakeRange`: the step, the end unless `endless`, and the start on the stack become the range;
 // when `counted` the end is a count of the range's span from its start.
-make_range(v: *Vm, inclusive: bool, endless: bool, counted: bool) -> Result[unit, string]
+make_range(v: *Vm, inclusive: bool, endless: bool, counted: bool) -> Result[unit, Fault]
     val step = range_bound(pop_value(v)?, "step")?
     val end = if endless then 0 else range_bound(pop_value(v)?, if counted then "count" else "end")?
     val from = range_bound(pop_value(v)?, "start")?
 
-    if step == 0 then return Err(s"a range from $from by 0 would never move: a step cannot be zero")
+    if step == 0
+        return Err(domain_error("non_zero", Int(0), s"a range from $from by 0 would never move: a step cannot be zero"))
 
     var last = end
 
     if counted
         last = checked_add(from, end) match
             Some(n) -> n
-            None -> return Err(s"a range from $from counting $end does not end in 64 bits")
+            None -> return Err(evaluation_error("int_overflow", s"a range from $from counting $end does not end in 64 bits"))
 
     v.stack.push(new_range(from, last, step, inclusive, endless)?)
     Ok(())
 
-private range_bound(x: Value, what: string) -> Result[long, string]
+private range_bound(x: Value, what: string) -> Result[long, Fault]
     deref(x) match
         Int(n) -> Ok(n)
-        Var(_) -> Err(s"instantiation error: a range's $what is an unbound variable")
-        y -> Err(s"a range counts with integers, and its $what is ${described(y)}")
+        Var(_) -> Err(instantiation_error(s"instantiation error: a range's $what is an unbound variable"))
+        y -> Err(type_error("integer", y, s"a range counts with integers, and its $what is ${described(y)}"))
 
 private pop_value(v: *Vm) -> Result[Value, string] = v.stack.pop() match
     Some(x) -> Ok(x)
@@ -86,7 +87,7 @@ is_seq(x: Value) -> bool = deref(x) match
 // Every element of `x` -- a proper list, a range with an end, a tuple, a set, an array or a buffer --
 // pushed onto `out`, in order;
 // `what` names the operation for a refusal.
-elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, string]
+elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
     var at = deref(x)
 
     loop
@@ -96,7 +97,7 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, string]
                 out.push(p.head)
                 at = deref(p.tail)
             Range(r) ->
-                if r.endless then return Err(s"$what was given the endless range ${render(at)}, which has no last element")
+                if r.endless then return Err(endless(at, s"$what was given the endless range ${render(at)}, which has no last element"))
 
                 val n = range_count(r)
                 var k = r.from
@@ -121,8 +122,11 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, string]
             Buffer(a) ->
                 out.extend(a.items.view())
                 return Ok(())
-            Var(_) -> return Err(s"instantiation error: $what reached an unbound tail of a list")
-            y -> return Err(s"$what wants a list and reached ${described(y)}")
+            Var(_) -> return Err(instantiation_error(s"instantiation error: $what reached an unbound tail of a list"))
+            y -> return Err(type_error("list", y, s"$what wants a list and reached ${described(y)}"))
+
+// An endless range where an operation needs the last element: `domain_error(finite, Range)`.
+endless(r: Value, msg: string) -> Fault = domain_error("finite", r, msg)
 
 // The list of `items` in order, ending in `tail`.
 list_of(items: *Buf[Value], tail: Value) -> Result[Value, string]
@@ -136,35 +140,35 @@ list_of(items: *Buf[Value], tail: Value) -> Result[Value, string]
     Ok(out)
 
 // `x` as a list: a list as it is, a range with an end made into one.
-as_list(x: Value) -> Result[Value, string]
+as_list(x: Value) -> Result[Value, Fault]
     deref(x) match
         Range(_) ->
             var items: Buf[Value] = buf()
 
             elements(x, "a list", &items)?
-            list_of(&items, Nil)
+            Ok(list_of(&items, Nil)?)
         y -> Ok(y)
 
 // `x + y` where `x` is a list or a range: `y`'s elements after `x`'s when `y` is one too, and `y`
 // itself after them otherwise -- so `[] + [1]` is `[1]` and `l += x` adds `x` to the end of `l`.
 // The result is a new list sharing `y` where `y` is a list.
-list_add(x: Value, y: Value) -> Result[Value, string]
+list_add(x: Value, y: Value) -> Result[Value, Fault]
     var items: Buf[Value] = buf()
 
     elements(x, "'+'", &items)?
 
     val tail = if is_seq(y) then as_list(y)? else new_cons(y, Nil)?
 
-    list_of(&items, tail)
+    Ok(list_of(&items, tail)?)
 
 // `MakeCons` reads a range as the list it is, so `0:1..3` is `[0, 1, 2, 3]`.
-cons_tail(t: Value) -> Result[Value, string]
+cons_tail(t: Value) -> Result[Value, Fault]
     deref(t) match
         Range(r) -> if r.endless then Ok(t) else as_list(t)
         _ -> Ok(t)
 
 // `MatchCons`: a non-empty list or range on top becomes its rest and then its first element.
-match_cons(v: *Vm) -> Result[bool, string]
+match_cons(v: *Vm) -> Result[bool, Fault]
     deref(pop_value(v)?) match
         Cons(p) ->
             v.stack.push(p.tail)
@@ -176,21 +180,21 @@ match_cons(v: *Vm) -> Result[bool, string]
             v.stack.push(range_rest(r)?)
             v.stack.push(Int(r.from))
             Ok(true)
-        Var(_) -> Err("instantiation error: a pattern `h:t` was given an unbound variable")
+        Var(_) -> Err(instantiation_error("instantiation error: a pattern `h:t` was given an unbound variable"))
         _ -> Ok(false)
 
 // `MatchNil`: whether the value on top, popped, is an empty list or range.
-match_nil(v: *Vm) -> Result[bool, string]
+match_nil(v: *Vm) -> Result[bool, Fault]
     deref(pop_value(v)?) match
         Nil -> Ok(true)
         Range(r) -> Ok(range_empty(r))
-        Var(_) -> Err("instantiation error: a pattern `[]` was given an unbound variable")
+        Var(_) -> Err(instantiation_error("instantiation error: a pattern `[]` was given an unbound variable"))
         _ -> Ok(false)
 
 // -- membership, indexing and fields -------------------------------------------------------------------
 
 // Whether collection `c` holds `x`.
-member(x: Value, c: Value) -> Result[bool, string]
+member(x: Value, c: Value) -> Result[bool, Fault]
     var at = deref(c)
 
     loop
@@ -203,7 +207,7 @@ member(x: Value, c: Value) -> Result[bool, string]
             Range(r) ->
                 val n = deref(x) match
                     Int(n) -> n
-                    Var(_) -> return Err("instantiation error: 'in' was given an unbound variable")
+                    Var(_) -> return Err(instantiation_error("instantiation error: 'in' was given an unbound variable"))
                     _ -> return Ok(false)
 
                 if range_past(r, n) then return Ok(false)
@@ -220,21 +224,24 @@ member(x: Value, c: Value) -> Result[bool, string]
             Buffer(a) -> return within(x, a.items)
             Map(m) -> return Ok(map_find(m, x)?.is_some())
             MutMap(m) -> return Ok(map_find(m, x)?.is_some())
-            Var(_) -> return Err("instantiation error: 'in' was given an unbound variable to look in")
-            y -> return Err(s"'in' looks in a list, a range, a tuple, a set, an array, a buffer or a map's keys, and was given ${described(y)}")
+            Var(_) -> return Err(instantiation_error("instantiation error: 'in' was given an unbound variable to look in"))
+            y ->
+                val msg = s"'in' looks in a list, a range, a tuple, a set, an array, a buffer or a map's keys, and was given ${described(y)}"
 
-private within(x: Value, items: Buf[Value]) -> Result[bool, string]
+                return Err(type_error("collection", y, msg))
+
+private within(x: Value, items: Buf[Value]) -> Result[bool, Fault]
     for y in items.view()
         if equal_values(x, y, "in")? then return Ok(true)
 
     Ok(false)
 
 // `c(i)`: element `i` of a list, a range, a tuple or a string, counting from 0.
-element_at(c: Value, index: Value) -> Result[Value, string]
+element_at(c: Value, index: Value) -> Result[Value, Fault]
     val i = deref(index) match
         Int(n) -> n
-        Var(_) -> return Err("instantiation error: an index is an unbound variable")
-        y -> return Err(s"an index is an integer, and this one is ${described(y)}")
+        Var(_) -> return Err(instantiation_error("instantiation error: an index is an unbound variable"))
+        y -> return Err(type_error("integer", y, s"an index is an integer, and this one is ${described(y)}"))
 
     val x = deref(c)
 
@@ -244,7 +251,10 @@ element_at(c: Value, index: Value) -> Result[Value, string]
 
     val n = if endless then i + 1 else length_of(x)?
 
-    if i < 0 || i >= n then return Err(s"index $i is out of range for ${described(x)}, which has ${counted(usize(n), "element")}")
+    if i < 0 || i >= n
+        val msg = s"index $i is out of range for ${described(x)}, which has ${counted(usize(n), "element")}"
+
+        return Err(existence_error("index", Int(i), msg))
 
     x match
         Cons(_) ->
@@ -258,22 +268,23 @@ element_at(c: Value, index: Value) -> Result[Value, string]
 
                         k += 1
                         at = deref(p.tail)
-                    _ -> return Err("a list ended before its own length")
+                    _ -> return Err(Broken("a list ended before its own length"))
         Range(r) ->
-            checked_mul(i, r.step) match
-                Some(off) ->
-                    checked_add(r.from, off) match
-                        Some(e) -> Ok(Int(e))
-                        None -> Err(s"element $i of ${render(x)} does not fit in 64 bits")
-                None -> Err(s"element $i of ${render(x)} does not fit in 64 bits")
+            val e = checked_mul(i, r.step) match
+                Some(off) -> checked_add(r.from, off)
+                None -> None
+
+            e match
+                Some(n) -> Ok(Int(n))
+                None -> Err(evaluation_error("int_overflow", s"element $i of ${render(x)} does not fit in 64 bits"))
         Tuple(t) -> Ok(t.items.at(usize(i)))
-        Str(p) -> new_str(chars_between(p, usize(i), usize(i) + 1))
-        _ -> Err(s"${described(x)} cannot be indexed")
+        Str(p) -> Ok(new_str(chars_between(p, usize(i), usize(i) + 1))?)
+        _ -> Err(type_error("indexable", x, s"${described(x)} cannot be indexed"))
 end element_at
 
 // How many elements a list, a range with an end, a tuple, a set, an array, a buffer, a map, a term or
 // a string -- in characters -- has.
-length_of(x: Value) -> Result[long, string]
+length_of(x: Value) -> Result[long, Fault]
     val c = deref(x)
 
     c match
@@ -288,10 +299,10 @@ length_of(x: Value) -> Result[long, string]
                         n += 1
                         at = deref(p.tail)
                     Nil -> return Ok(n)
-                    Var(_) -> return Err("instantiation error: a list's length reached an unbound tail")
-                    y -> return Err(s"a list's length reached a tail that is ${described(y)} rather than `[]`")
+                    Var(_) -> return Err(instantiation_error("instantiation error: a list's length reached an unbound tail"))
+                    y -> return Err(type_error("list", c, s"a list's length reached a tail that is ${described(y)} rather than `[]`"))
         Range(r) ->
-            if r.endless then return Err(s"the range ${render(c)} has no end, and no length")
+            if r.endless then return Err(endless(c, s"the range ${render(c)} has no end, and no length"))
 
             Ok(range_count(r))
         Tuple(t) -> Ok(long(t.items.len()))
@@ -303,12 +314,12 @@ length_of(x: Value) -> Result[long, string]
         MutMap(m) -> Ok(long(m.keys.len()))
         Compound(p) -> Ok(long(p.args.len()))
         Str(p) -> Ok(long(p.chars))
-        Var(_) -> Err("instantiation error: a length was asked of an unbound variable")
-        y -> Err(s"${described(y)} has no length")
+        Var(_) -> Err(instantiation_error("instantiation error: a length was asked of an unbound variable"))
+        y -> Err(type_error("collection", y, s"${described(y)} has no length"))
 end length_of
 
 // `x.name`: a record's field, a map's key, a buffer's `removeLast`, or any collection's `length`.
-field_of(x: Value, name: u32) -> Result[Value, string]
+field_of(x: Value, name: u32) -> Result[Value, Fault]
     data_field(x, name)? match
         Some(y) -> return Ok(y)
         None -> ()
@@ -317,7 +328,7 @@ field_of(x: Value, name: u32) -> Result[Value, string]
 
     if n == "length" then return Ok(Int(length_of(x)?))
 
-    Err(s"${described(x)} has no field '$n'")
+    Err(existence_error("field", Atom(name), s"${described(x)} has no field '$n'"))
 
 // -- comprehensions ------------------------------------------------------------------------------------
 
@@ -334,7 +345,7 @@ collect(v: *Vm, slot: usize) -> Result[unit, string]
 // **The list is reversed in place.** Its cells were made by `Collect` and are reachable only through
 // the slot -- no choice point saved them, a slot not being an operand cell -- so turning them round
 // costs no allocation, and a comprehension's result never needs twice its size in the heap.
-collected(v: *Vm, slot: usize, set: bool) -> Result[unit, string]
+collected(v: *Vm, slot: usize, set: bool) -> Result[unit, Fault]
     var at = slot_of(v.frame, slot)?
     var out = Nil
 
@@ -366,7 +377,7 @@ collected(v: *Vm, slot: usize, set: bool) -> Result[unit, string]
     Ok(())
 
 // Add `x` to set `s` unless it holds an equal value already.
-set_add(s: *SetObj, x: Value) -> Result[unit, string]
+set_add(s: *SetObj, x: Value) -> Result[unit, Fault]
     if within(x, s.items)? then return Ok(())
 
     s.items.push(x)
@@ -374,7 +385,7 @@ set_add(s: *SetObj, x: Value) -> Result[unit, string]
     Ok(())
 
 // Whether two sets hold the same values.
-same_set(p: *SetObj, q: *SetObj) -> Result[bool, string]
+same_set(p: *SetObj, q: *SetObj) -> Result[bool, Fault]
     if p.items.len() != q.items.len() then return Ok(false)
 
     for x in p.items.view()
@@ -395,7 +406,7 @@ same_range(p: *RangeObj, q: *RangeObj) -> bool
     n == range_count(q) && (n == 1 || p.step == q.step)
 
 // Whether range `r` has the elements of list `l`, in order.
-range_equals_list(r: *RangeObj, l: Value) -> Result[bool, string]
+range_equals_list(r: *RangeObj, l: Value) -> Result[bool, Fault]
     var at = deref(l)
     var k = r.from
 
@@ -406,7 +417,7 @@ range_equals_list(r: *RangeObj, l: Value) -> Result[bool, string]
             Cons(p) ->
                 deref(p.head) match
                     Int(m) -> if m != k then return Ok(false)
-                    Var(_) -> return Err("instantiation error: '==' was given an unbound variable")
+                    Var(_) -> return Err(instantiation_error("instantiation error: '==' was given an unbound variable"))
                     _ -> return Ok(false)
 
                 at = deref(p.tail)

@@ -67,16 +67,20 @@ op_type_named(name: string) -> Option[OpType]
 
     None
 
-// `op(p, type, name)`: define `name`, or with priority 0 remove it. The refusal is the message an
-// `op/3` directive or call reports.
-set_op(p: long, type_name: string, name: string) -> Result[unit, string]
-    if p < 0 || p > 1200 then return Err(s"an operator's priority is from 0 to 1200, and this one is $p")
+// `op(p, type, name)`: define `name`, or with priority 0 remove it. The refusal is the error an `op/3`
+// call raises, and its message what an `op/3` directive reports.
+set_op(p: long, type_name: string, name: string) -> Result[unit, Fault]
+    if p < 0 || p > 1200
+        return Err(domain_error("operator_priority", Int(p), s"an operator's priority is from 0 to 1200, and this one is $p"))
 
     val kind = op_type_named(type_name) match
         Some(k) -> k
-        None -> return Err(s"`$type_name` is not an operator type; the types are xfx, xfy, yfx, fy, fx, xf and yf")
+        None ->
+            val msg = s"`$type_name` is not an operator type; the types are xfx, xfy, yfx, fy, fx, xf and yf"
 
-    if name == "," then return Err("`,` is not an operator a program may change")
+            return Err(domain_error("operator_specifier", atom(type_name), msg))
+
+    if name == "," then return Err(permission_error("modify", "operator", atom(name), "`,` is not an operator a program may change"))
 
     val v = current()
     val table = if is_prefix(kind) then &v.prefix_ops elif is_postfix(kind) then &v.postfix_ops else &v.infix_ops
