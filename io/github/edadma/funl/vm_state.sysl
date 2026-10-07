@@ -1,0 +1,116 @@
+module io.github.edadma.funl
+
+import sh.sysl.gc
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+
+// The machine's state, and the one way to reach it.
+//
+// **Every per-VM thing the runtime owns is a field of `Vm`**, reached through `current()`, and the
+// census in `tests_vm_state.sysl` refuses a module-level `var` that is not `the_vm` or marked
+// process-wide with a reason. A second VM in the same process is then a second `Vm` and an `enter`.
+
+// The innermost-mark register's value when no mark is open.
+const NoMark: usize = 4294967295
+
+struct Vm
+    // -- the machine (`vm.md`) ------------------------------------------------------------------------
+
+    chunks: Buf[Chunk]
+
+    // The running chunk, and the next instruction in it.
+    code: usize
+    ip: usize
+
+    stack: Buf[Value]
+    frame: *FrameObj
+
+    // Marks, choice points and restore points, and the operand cells they saved, in step.
+    control: Buf[Entry]
+    saved: Buf[Value]
+
+    // What failure has to put back that the control entries do not already save.
+    trail: Buf[Undo]
+
+    // Index in `control` of the innermost mark, or `NoMark`.
+    mark: usize
+
+    // Bumped by every entry pushed; dates logic variables against the control stack.
+    stamp: u64
+
+    // Unification's work list, empty between instructions.
+    work: Buf[Value]
+
+    // How many variables have been made, which is what the next one prints as.
+    var_count: u64
+
+    // -- names and builtins -----------------------------------------------------------------------------
+
+    atom_names: Buf[string]
+    atom_ids: Map[string, u32]
+    natives: Buf[Native]
+
+    // What `write` printed, a line per call.
+    output: Buf[string]
+
+    // -- the heap (`collector.sysl`) ------------------------------------------------------------------
+
+    block: *u8
+    heap: gc.Heap
+
+    // Bytes allocated since the last collection, and the figure that triggers the next one.
+    allocated: usize
+    threshold: usize
+
+    // The lowest the threshold may fall, and what it is raised to as a multiple of what survived.
+    floor: usize
+    growth: usize
+
+    collections: usize
+end Vm
+
+extern malloc(bytes: usize) -> *u8
+extern free(block: *u8)
+
+// A machine with nothing in it but its builtins, over a heap of `heap_bytes` of its own.
+//
+// `floor` and `growth` schedule the collector (see `maybe_collect`). A floor of 0 and a growth of 0
+// collect before every instruction, which is the suite's stress setting.
+new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
+    val block = malloc(heap_bytes)
+
+    if block == null then panic("funl could not take a heap of the size this VM asked for")
+
+    var v = Vm(
+        buf(), 0, 0, buf(), null, buf(), buf(), buf(), NoMark, 0, buf(), 0,
+        buf(), map(), buf(), buf(),
+        block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0)
+
+    install_natives(&v)
+    v
+end new_vm
+
+// Give a VM's heap back, running every finalizer still outstanding.
+dispose_vm(v: *Vm)
+    gc.dispose(&v.heap)
+    free(v.block)
+    v.block = null
+
+// The one module-level `var` the runtime keeps: a POINTER to the VM in charge.
+private var the_vm: *Vm = null
+
+// The VM in charge. **A pointer, so a caller writes through it.**
+current() -> *Vm
+    if the_vm == null then panic("funl: no VM has been entered")
+
+    the_vm
+
+// Run what follows on `v`, and answer the VM that was in charge, for `leave`.
+enter(v: *Vm) -> *Vm
+    val was = the_vm
+
+    the_vm = v
+    was
+
+leave(was: *Vm)
+    the_vm = was

@@ -1,0 +1,84 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.str_builder
+
+// The harness: assemble a program into a fresh VM, run it, and answer what it said.
+//
+// **Every program is run twice** -- on a roomy heap and on one collected before every
+// instruction -- and the two transcripts must agree. A root missing from `roots`, or a
+// value held only in a sysl local across a collection, makes the second disagree with the first
+// rather than waiting for a user's program to find it.
+//
+// Nothing here is `private`: the `tests_*` files are the callers.
+
+const RoomyHeap: usize = 4194304
+const RoomyFloor: usize = 65536
+
+// Small enough that a program's garbage is collected constantly, large enough for its live data.
+const TightHeap: usize = 65536
+
+// What one run came to.
+struct Said
+    // Each line `write` printed, then the outcome: `succeeded`, `failed` or `fault: <message>`.
+    text: string
+    collections: usize
+    trail: usize
+
+outcome_text(o: Outcome) -> string = o match
+    Succeeded -> "succeeded"
+    Failed -> "failed"
+    Faulted(m) -> s"fault: $m"
+
+// Run what `build` makes on a VM with this heap and schedule.
+run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, string]) -> Said
+    var v = new_vm(heap, floor, growth)
+    val was = enter(&v)
+    var out = str_builder()
+
+    val outcome = build() match
+        Ok(chunk) -> outcome_text(run(&v, chunk))
+        Err(e) -> s"assembly: $e"
+
+    for line in v.output.view()
+        out.push(line)
+        out.push("\n")
+
+    out.push(outcome)
+
+    val said = Said(out.finish(), v.collections, v.trail.len())
+
+    dispose_vm(&v)
+    leave(was)
+    said
+end run_on
+
+roomy(build: () -> Result[usize, string]) -> Said = run_on(RoomyHeap, RoomyFloor, 2, build)
+
+// Collect before every instruction.
+stressed(build: () -> Result[usize, string]) -> Said = run_on(TightHeap, 0, 0, build)
+
+// The transcript of `build`, which must be the same on both heaps.
+ran(build: () -> Result[usize, string]) -> string
+    val calm = roomy(build)
+    val tight = stressed(build)
+
+    assert_eq(tight.text, calm.text, "the program said something different on a heap collected at every step")
+    calm.text
+
+// The id of builtin `name`, which the test is about to emit a call to.
+builtin(name: string) -> usize = native_id(name).unwrap()
+
+// Emit `write` of the top of the stack, dropping its answer.
+say(e: *Emit)
+    e.op(Native(builtin("write"), 1))
+    e.op(Pop)
+
+// Emit `write` of slot `slot`.
+say_slot(e: *Emit, slot: usize)
+    e.op(LoadSlot(0, slot))
+    say(e)
+
+// Emit a push of atom `name`.
+push_atom(e: *Emit, name: string)
+    e.op(PushConst(e.constant(atom(name))))

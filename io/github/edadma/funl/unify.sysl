@@ -1,0 +1,194 @@
+module io.github.edadma.funl
+
+// Unification, and the head-unification instructions built on it.
+//
+// **Iterative, with an explicit work list**, so a deep term cannot overflow the sysl stack. The list
+// is `Vm.work`, used as a stack of pairs and empty between instructions; nothing here allocates, so
+// no collection can run while a value sits in it.
+
+// Push a pair for the running unification to visit. Not `private`: an extension kind whose values
+// have parts unifies them through this.
+unify_later(a: Value, b: Value)
+    val v = current()
+
+    v.work.push(a)
+    v.work.push(b)
+
+// Whether two values are the same variable, the same heap object, or the same atomic value.
+private identical(a: Value, b: Value) -> bool = a match
+    Var(p) -> b match
+        Var(q) -> p == q
+        _ -> false
+    Compound(p) -> b match
+        Compound(q) -> p == q
+        _ -> false
+    Cons(p) -> b match
+        Cons(q) -> p == q
+        _ -> false
+    Str(p) -> b match
+        Str(q) -> p == q
+        _ -> false
+    Tuple(p) -> b match
+        Tuple(q) -> p == q
+        _ -> false
+    _ -> false
+
+// Unify `a` with `b`, binding variables. Answers false on a mismatch, leaving whatever bindings it
+// made on the trail for the failure that follows to undo.
+//
+// **A variable met with itself succeeds at once** -- the identity test comes first -- so `X ~ X`
+// cannot loop. **Kinds are compared before values. When two unbound variables meet, the younger is
+// bound to the older** -- by `id`, which is creation order exactly where two stamps can be equal --
+// so the binding usually needs no trail entry. There is no occurs check.
+unify(a: Value, b: Value) -> bool
+    val v = current()
+    val base = v.work.len()
+
+    unify_later(a, b)
+
+    while v.work.len() > base
+        val y = deref(v.work.pop().unwrap())
+        val x = deref(v.work.pop().unwrap())
+
+        if !step(x, y)
+            v.work.truncate(base)
+            return false
+
+    true
+end unify
+
+// One pair, both dereferenced.
+private step(x: Value, y: Value) -> bool
+    if identical(x, y) then return true
+
+    x match
+        Var(p) ->
+            y match
+                Var(q) -> if p.id < q.id then bind(q, x) else bind(p, y)
+                _ -> bind(p, y)
+
+            return true
+        _ -> ()
+
+    y match
+        Var(q) ->
+            bind(q, x)
+            return true
+        _ -> ()
+
+    x match
+        Undefined -> y match
+            Undefined -> true
+            _ -> false
+        Nil -> y match
+            Nil -> true
+            _ -> false
+        Int(n) -> y match
+            Int(m) -> n == m
+            _ -> false
+        Atom(i) -> y match
+            Atom(j) -> i == j
+            _ -> false
+        Compound(p) -> y match
+            Compound(q) -> unify_args(p, q)
+            _ -> false
+        Cons(p) -> y match
+            Cons(q) ->
+                unify_later(p.head, q.head)
+                unify_later(p.tail, q.tail)
+                true
+            _ -> false
+        Unit -> y match
+            Unit -> true
+            _ -> false
+        Str(p) -> y match
+            Str(q) -> p.s == q.s
+            _ -> false
+        Tuple(p) -> y match
+            Tuple(q) -> unify_items(p, q)
+            _ -> false
+        Var(_) -> false
+end step
+
+private unify_args(p: *CompoundObj, q: *CompoundObj) -> bool
+    if p.functor != q.functor || p.args.len() != q.args.len() then return false
+
+    for i in 0..<p.args.len()
+        unify_later(p.args.at(i), q.args.at(i))
+
+    true
+
+private unify_items(p: *TupleObj, q: *TupleObj) -> bool
+    if p.items.len() != q.items.len() then return false
+
+    for i in 0..<p.items.len()
+        unify_later(p.items.at(i), q.items.at(i))
+
+    true
+
+// -- head unification ----------------------------------------------------------------------------
+
+// The value a head instruction reads.
+private source(v: *Vm, src: Src) -> Result[Value, string]
+    src match
+        Arg(i) ->
+            val args = v.frame.args
+
+            if i >= args.len() then return Err(s"argument $i of a call that passed ${args.len()}")
+
+            Ok(args.at(i))
+        Popped ->
+            v.stack.pop() match
+                Some(x) -> Ok(x)
+                None -> Err("a head instruction found the operand stack empty")
+
+// First occurrence of a head variable: the slot shares the caller's variable, or holds the value.
+get_var(v: *Vm, slot: usize, src: Src) -> Result[bool, string]
+    set_slot(v.frame, slot, source(v, src)?)?
+    Ok(true)
+
+get_value(v: *Vm, slot: usize, src: Src) -> Result[bool, string]
+    val x = source(v, src)?
+
+    Ok(unify(slot_of(v.frame, slot)?, x))
+
+// A constant in the head binds an unbound argument to it and compares a bound one -- which is
+// exactly unification with the constant.
+get_const(v: *Vm, k: usize, src: Src) -> Result[bool, string]
+    val x = source(v, src)?
+    val consts = v.chunks.at(v.code).consts
+
+    if k >= consts.len() then return Err(s"constant $k of a chunk with ${consts.len()}")
+
+    Ok(unify(consts.at(k), x))
+
+// A compound in the head. **This is the half of head unification a function's parameters never
+// have**: an unbound argument is bound to a term built here, so the caller learns the shape.
+get_compound(v: *Vm, functor: u32, n: usize, src: Src) -> Result[bool, string]
+    val x = deref(source(v, src)?)
+
+    x match
+        Var(p) ->
+            val c = new_compound(functor, n)?
+
+            for i in 0..<n
+                c.args.set(i, Var(new_var()?))
+
+            bind(p, Compound(c))
+            push_args(v, c)
+            Ok(true)
+        Compound(c) ->
+            if c.functor != functor || c.args.len() != n then return Ok(false)
+
+            push_args(v, c)
+            Ok(true)
+        _ -> Ok(false)
+end get_compound
+
+// Push a compound's arguments, the last first, so the first is on top for the next `Popped`.
+private push_args(v: *Vm, c: *CompoundObj)
+    var i = c.args.len()
+
+    while i > 0
+        i -= 1
+        v.stack.push(c.args.at(i))

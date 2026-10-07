@@ -1,0 +1,208 @@
+module io.github.edadma.funl
+@tests
+
+// Marks, choice points, the trail, and returns that leave choice points behind.
+
+// `X` is made, then a choice point; inside a bounded expression `X ~ #a`, which `Unmark` commits.
+// `X` is written, then the run fails back into the choice point, which must find `X` unbound.
+private undone_through_unmark() -> Result[usize, string]
+    var e = emit("main")
+    val alt = e.label()
+    val unused = e.label()
+
+    e.op(Frame(1))
+    e.op(NewVar(0))
+    e.op(Choice(alt))
+    e.op(Mark(unused))
+    e.op(LoadSlot(0, 0))
+    push_atom(&e, "a")
+    e.op(Unify)
+    e.op(Unmark)
+    say_slot(&e, 0)
+    e.op(Fail)
+    e.place(alt)
+    say_slot(&e, 0)
+    e.op(Halt)
+    e.place(unused)
+    e.op(Halt)
+    finish(e)
+
+@test
+A_BINDING_MADE_AFTER_A_CHOICE_POINT_IS_UNDONE_WHEN_IT_RESUMES_THROUGH_AN_UNMARK_IN_BETWEEN()
+    assert_eq(ran(undone_through_unmark), "a\n_G0\nsucceeded")
+
+// The same binding with no choice point under the mark: `Unmark` makes it permanent, nothing is
+// left that could resume, and the trail is emptied.
+private committed_for_good() -> Result[usize, string]
+    var e = emit("main")
+    val unused = e.label()
+
+    e.op(Frame(1))
+    e.op(NewVar(0))
+    e.op(Mark(unused))
+    e.op(MarkThrough)
+    e.op(LoadSlot(0, 0))
+    push_atom(&e, "a")
+    e.op(Unify)
+    e.op(Unmark)
+    e.op(Unmark)
+    say_slot(&e, 0)
+    e.op(Halt)
+    e.place(unused)
+    e.op(Halt)
+    finish(e)
+
+@test
+A_BINDING_COMMITTED_WITH_NOTHING_OLDER_TO_RESUME_STAYS_AND_LEAVES_NO_TRAIL()
+    val said = roomy(committed_for_good)
+
+    assert_eq(said.text, "a\nsucceeded")
+    assert_eq(said.trail, 0, "the trail is emptied once the control stack is")
+    assert_eq(stressed(committed_for_good).text, said.text)
+
+// `pick(x)` binds its argument to `#a` with a choice point for `#b`, and commits with
+// `ReturnCommit` -- a cut past the binding. The caller's own older choice point must still find
+// `X` unbound when it resumes: the cut filtered the trail rather than truncating it.
+private cut_past_a_binding() -> Result[usize, string]
+    val pick = reserve_chunk("pick")
+    var p = emit("pick")
+    val second = p.label()
+
+    p.op(Choice(second))
+    p.op(GetConst(p.constant(atom("a")), Arg(0)))
+    p.op(PushUnit)
+    p.op(ReturnCommit)
+    p.place(second)
+    p.op(GetConst(p.constant(atom("b")), Arg(0)))
+    p.op(PushUnit)
+    p.op(ReturnCommit)
+    install(p, pick)?
+
+    var e = emit("main")
+    val alt = e.label()
+
+    e.op(Frame(1))
+    e.op(NewVar(0))
+    e.op(Choice(alt))
+    e.op(LoadSlot(0, 0))
+    e.op(Call(pick, 1))
+    e.op(Pop)
+    say_slot(&e, 0)
+    e.op(Fail)
+    e.place(alt)
+    say_slot(&e, 0)
+    e.op(Halt)
+    finish(e)
+end cut_past_a_binding
+
+@test
+A_CUT_PAST_A_BINDING_LEAVES_IT_FOR_AN_OLDER_CHOICE_POINT_TO_UNDO()
+    assert_eq(ran(cut_past_a_binding), "a\n_G0\nsucceeded")
+
+// `gen()` opens a bounded expression of its own, then answers 1 and, on backtracking, 2 -- leaving
+// its mark and choice point behind when it returns. The caller has `box(100)` on the stack below the
+// call and pops it with the answer into `pair(box(100), n)`. Only the `Restore` entry the return
+// pushed can put the box back before the generator resumes -- and between the `Pop` and the `Fail`
+// that entry's saved cell is the box's only reference, so on the stressed heap this also proves
+// `saved` is a root.
+private returns_into_operands() -> Result[usize, string]
+    val gen = reserve_chunk("gen")
+    var g = emit("gen")
+    val second = g.label()
+
+    g.op(MarkThrough)
+    g.op(Choice(second))
+    g.op(PushInt(1))
+    g.op(Return)
+    g.place(second)
+    g.op(PushInt(2))
+    g.op(Return)
+    install(g, gen)?
+
+    var e = emit("main")
+    val done = e.label()
+
+    e.op(Mark(done))
+    e.op(PushInt(100))
+    e.op(MakeCompound(intern("box"), 1))
+    e.op(Call(gen, 0))
+    e.op(MakeCompound(intern("pair"), 2))
+    say(&e)
+    e.op(Fail)
+    e.place(done)
+    push_atom(&e, "exhausted")
+    say(&e)
+    e.op(Halt)
+    finish(e)
+end returns_into_operands
+
+@test
+A_GENERATOR_RETURNING_INTO_A_CALLER_WITH_OPERANDS_BELOW_ITS_MARKS_RESUMES_WITH_THEM_RESTORED()
+    assert_eq(ran(returns_into_operands), "pair(box(100), 1)\npair(box(100), 2)\nexhausted\nsucceeded")
+
+// -- what the machine refuses ----------------------------------------------------------------------
+
+private unmark_with_none() -> Result[usize, string]
+    var e = emit("main")
+
+    e.op(Unmark)
+    e.op(Halt)
+    finish(e)
+
+@test
+AN_UNMARK_WITH_NO_MARK_OPEN_IS_A_FAULT_NAMING_THE_INSTRUCTION()
+    assert_eq(ran(unmark_with_none), "fault: main@0: Unmark with no mark open")
+
+private return_from_top() -> Result[usize, string]
+    var e = emit("main")
+
+    e.op(PushInt(1))
+    e.op(Return)
+    finish(e)
+
+@test
+A_RETURN_FROM_THE_TOP_LEVEL_IS_A_FAULT()
+    assert_eq(ran(return_from_top), "fault: main@1: Return with no caller to return to")
+
+private call_nowhere() -> Result[usize, string]
+    var e = emit("main")
+
+    e.op(Call(7, 0))
+    e.op(Halt)
+    finish(e)
+
+@test
+A_CALL_TO_A_CHUNK_THAT_DOES_NOT_EXIST_IS_A_FAULT()
+    assert_eq(ran(call_nowhere), "fault: main@0: a call names chunk 7, and there are 1")
+
+private pop_nothing() -> Result[usize, string]
+    var e = emit("main")
+
+    e.op(Pop)
+    e.op(Halt)
+    finish(e)
+
+@test
+POPPING_AN_EMPTY_OPERAND_STACK_IS_A_FAULT()
+    assert_eq(ran(pop_nothing), "fault: main@0: the operand stack is empty")
+
+private unplaced() -> Result[usize, string]
+    var e = emit("main")
+    val never = e.label()
+
+    e.op(Branch(never))
+    finish(e)
+
+@test
+A_JUMP_TO_A_LABEL_NEVER_PLACED_IS_REFUSED_WHEN_THE_CHUNK_IS_INSTALLED()
+    assert_eq(ran(unplaced), "assembly: 'main' jumps to label 0, which was never placed")
+
+private off_the_end() -> Result[usize, string]
+    var e = emit("main")
+
+    e.op(PushInt(1))
+    finish(e)
+
+@test
+RUNNING_OFF_THE_END_OF_A_CHUNK_IS_A_FAULT()
+    assert_eq(ran(off_the_end), "fault: ran off the end of chunk 'main'")

@@ -1,0 +1,76 @@
+module io.github.edadma.funl
+
+import sysl.text.{StrBuilder, str_builder}
+
+// How a term is printed.
+//
+// **A term may be cyclic**, unification having no occurs check, so the walk stops at `MaxDepth`
+// and writes `...` rather than recursing for ever.
+private const MaxDepth: usize = 1000
+
+render(v: Value) -> string
+    var out = str_builder()
+
+    write_value(&out, v, 0)
+    out.finish()
+
+private write_value(out: *StrBuilder, v: Value, depth: usize)
+    if depth > MaxDepth
+        out.push("...")
+        return
+
+    deref(v) match
+        Undefined -> out.push("undefined")
+        Nil -> out.push("[]")
+        Int(n) -> out.push_int(n)
+        Atom(id) -> out.push(atom_name(id))
+        Compound(p) ->
+            out.push(atom_name(p.functor))
+            write_items(out, p.args.view(), depth, "(", ")")
+        Cons(p) -> write_list(out, p, depth)
+        Var(p) ->
+            out.push("_G")
+            out.push_uint(p.id)
+        Unit -> out.push("()")
+        Str(p) -> out.push(p.s)
+        Tuple(p) -> write_items(out, p.items.view(), depth, "(", ")")
+end write_value
+
+private write_items(out: *StrBuilder, items: []Value, depth: usize, open: string, close: string)
+    out.push(open)
+
+    for i in 0..<items.len
+        if i > 0 then out.push(", ")
+
+        write_value(out, items[i], depth + 1)
+
+    out.push(close)
+
+// `[a, b, c]` for a proper list and `[a, b | t]` for one whose tail is not `[]`.
+private write_list(out: *StrBuilder, first: *ConsObj, depth: usize)
+    out.push("[")
+    write_value(out, first.head, depth + 1)
+
+    var tail = deref(first.tail)
+    var steps: usize = 0
+
+    loop
+        tail match
+            Cons(p) ->
+                steps += 1
+
+                if steps > MaxDepth
+                    out.push(", ...")
+                    break
+
+                out.push(", ")
+                write_value(out, p.head, depth + 1)
+                tail = deref(p.tail)
+            Nil -> break
+            _ ->
+                out.push(" | ")
+                write_value(out, tail, depth + 1)
+                break
+
+    out.push("]")
+end write_list

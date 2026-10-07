@@ -1,0 +1,6 @@
+module io.github.edadma.funl
+
+// Which builtins a VM is built with: an index of the `install_` calls, one per file that implements
+// some. Each file registers its own.
+install_natives(v: *Vm)
+    install_io(v)

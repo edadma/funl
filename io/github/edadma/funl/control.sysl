@@ -1,0 +1,110 @@
+module io.github.edadma.funl
+
+// The control stack: marks, choice points and restore points, how failure walks it, and how a
+// bounded expression or a cut commits.
+
+enum EntryKind
+    // The start of a bounded expression with somewhere to go if it fails: restore, jump to `ip`.
+    Mark
+
+    // A bounded expression whose failure is its enclosing context's business: restore, keep failing.
+    MarkThrough
+
+    // Something that can produce another result: restore, resume at `ip`.
+    Choice
+
+    // A call that returned leaving entries behind: put the caller's operand cells back, keep failing.
+    Restore
+
+struct Entry
+    kind: EntryKind
+
+    // Where to resume, for `Mark` and `Choice`, in chunk `code` and frame `frame`.
+    ip: usize
+    code: usize
+    frame: *FrameObj
+
+    // The enclosing mark, put back on failure.
+    mark: usize
+
+    // Operand stack height this entry restores to, and where its saved cells start in `saved`.
+    floor: usize
+    saved_at: usize
+
+    // Trail height when it was pushed, and the machine stamp it was pushed under.
+    trail: usize
+    stamp: u64
+
+// The operand height the innermost mark guards: cells below it cannot change while the mark stands.
+floor_of(v: *Vm, mark: usize) -> usize = if mark == NoMark then 0 else v.control.at(mark).floor
+
+// Push an entry, saving the operand cells from `floor` to the top.
+//
+// **The stamp is bumped before it is recorded**, so a variable made before this entry has a stamp
+// strictly below the entry's and one made after it has the entry's own.
+push_entry(v: *Vm, kind: EntryKind, ip: usize, floor: usize)
+    val saved_at = v.saved.len()
+
+    for i in floor..<v.stack.len()
+        v.saved.push(v.stack.at(i))
+
+    v.stamp += 1
+    v.control.push(Entry(kind, ip, v.code, v.frame, v.mark, floor, saved_at, v.trail.len(), v.stamp))
+
+// Begin a bounded expression: a mark saves nothing, the cells above its floor being its own.
+push_mark(v: *Vm, kind: EntryKind, on_fail: usize)
+    push_entry(v, kind, on_fail, v.stack.len())
+    v.mark = v.control.len() - 1
+
+// A choice point saves the bounded expression's cells -- those above the innermost mark's floor --
+// because the instructions after it may pop cells below the height it was pushed at.
+push_choice(v: *Vm, alt: usize)
+    push_entry(v, Choice, alt, floor_of(v, v.mark))
+
+// Fail: pop entries, restoring each, until one resumes. Answers false when the control stack runs
+// out, which is the whole run failing.
+fail(v: *Vm) -> bool
+    loop
+        val e = v.control.pop() match
+            Some(e) -> e
+            None -> return false
+
+        undo_trail_to(v, e.trail)
+        v.stack.truncate(e.floor)
+
+        for i in e.saved_at..<v.saved.len()
+            v.stack.push(v.saved.at(i))
+
+        v.saved.truncate(e.saved_at)
+        v.frame = e.frame
+        v.code = e.code
+        v.mark = e.mark
+
+        if e.kind == Mark || e.kind == Choice
+            v.ip = e.ip
+            return true
+end fail
+
+// Discard every entry from height `h` up without failing: a commit. The trail is filtered, not
+// unwound (`commit_trail`).
+cut_to(v: *Vm, h: usize)
+    if v.control.len() <= h then return
+
+    val first = v.control.at(h)
+
+    v.saved.truncate(first.saved_at)
+    v.control.truncate(h)
+    commit_trail(v, first.trail)
+
+// End the innermost bounded expression: every entry above and including its mark goes, so nothing
+// that ran inside it can be resumed, and the expression's cells go with them.
+unmark(v: *Vm) -> Result[unit, string]
+    if v.mark == NoMark then return Err("Unmark with no mark open")
+
+    val at = v.mark
+    val m = v.control.at(at)
+
+    cut_to(v, at)
+    v.stack.truncate(m.floor)
+    v.mark = m.mark
+    Ok(())

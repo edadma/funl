@@ -1,0 +1,247 @@
+module io.github.edadma.funl
+@tests
+
+// Relations, assembled by hand the way `logic.md` § "How a relation is compiled" lays them out: a
+// `Choice` per clause but the last, the head unified with the `Get` instructions, and `Return` so a
+// relation's choice points survive into its caller.
+//
+//     parent(#don, #randy).
+//     parent(#randy, #liam).
+//     grandparent(x, z) :- parent(x, y) & parent(y, z)
+//     ancestor(x, y) :- parent(x, y)
+//     ancestor(x, y) :- parent(x, p) & ancestor(p, y)
+//     owns(#don, car(#red)).
+//     wrap(x, y) :- parent(x, y)
+
+// The chunk index of each relation, once `relations` has installed them.
+private struct Family
+    parent: usize
+    grandparent: usize
+    ancestor: usize
+    owns: usize
+    wrap: usize
+
+// What a relation answers when it succeeds; a goal's value is dropped by its caller.
+private succeed(e: *Emit)
+    push_atom(e, "true")
+    e.op(Return)
+
+// A fact `parent(a, b)` clause.
+private fact(e: *Emit, a: string, b: string)
+    e.op(Frame(0))
+    e.op(GetConst(e.constant(atom(a)), Arg(0)))
+    e.op(GetConst(e.constant(atom(b)), Arg(1)))
+    succeed(e)
+
+private relations() -> Result[Family, string]
+    val parent = reserve_chunk("parent")
+    val grandparent = reserve_chunk("grandparent")
+    val ancestor = reserve_chunk("ancestor")
+    val owns = reserve_chunk("owns")
+    val wrap = reserve_chunk("wrap")
+
+    var p = emit("parent")
+    val p2 = p.label()
+
+    p.op(Choice(p2))
+    fact(&p, "don", "randy")
+    p.place(p2)
+    fact(&p, "randy", "liam")
+    install(p, parent)?
+
+    // One rule: slots x, z, y.
+    var g = emit("grandparent")
+
+    g.op(Frame(3))
+    g.op(GetVar(0, Arg(0)))
+    g.op(GetVar(1, Arg(1)))
+    g.op(NewVar(2))
+    g.op(LoadSlot(0, 0))
+    g.op(LoadSlot(0, 2))
+    g.op(Call(parent, 2))
+    g.op(Pop)
+    g.op(LoadSlot(0, 2))
+    g.op(LoadSlot(0, 1))
+    g.op(TailCall(parent, 2))
+    g.op(Return)
+    install(g, grandparent)?
+
+    var a = emit("ancestor")
+    val a2 = a.label()
+
+    a.op(Choice(a2))
+    a.op(Frame(2))
+    a.op(GetVar(0, Arg(0)))
+    a.op(GetVar(1, Arg(1)))
+    a.op(LoadSlot(0, 0))
+    a.op(LoadSlot(0, 1))
+    a.op(Call(parent, 2))
+    a.op(Return)
+    a.place(a2)
+    a.op(Frame(3))
+    a.op(GetVar(0, Arg(0)))
+    a.op(GetVar(1, Arg(1)))
+    a.op(NewVar(2))
+    a.op(LoadSlot(0, 0))
+    a.op(LoadSlot(0, 2))
+    a.op(Call(parent, 2))
+    a.op(Pop)
+    a.op(LoadSlot(0, 2))
+    a.op(LoadSlot(0, 1))
+    a.op(TailCall(ancestor, 2))
+    a.op(Return)
+    install(a, ancestor)?
+
+    // owns(#don, car(#red)): the second argument is a compound in the head.
+    var o = emit("owns")
+
+    o.op(Frame(0))
+    o.op(GetConst(o.constant(atom("don")), Arg(0)))
+    o.op(GetCompound(intern("car"), 1, Arg(1)))
+    o.op(GetConst(o.constant(atom("red")), Popped))
+    succeed(&o)
+    install(o, owns)?
+
+    // wrap(x, y) :- parent(x, y). Nothing resumable is made before the tail call, so the frame is
+    // reused for `parent`.
+    var w = emit("wrap")
+
+    w.op(Frame(2))
+    w.op(GetVar(0, Arg(0)))
+    w.op(GetVar(1, Arg(1)))
+    w.op(LoadSlot(0, 0))
+    w.op(LoadSlot(0, 1))
+    w.op(TailCall(parent, 2))
+    w.op(Return)
+    install(w, wrap)?
+
+    Ok(Family(parent, grandparent, ancestor, owns, wrap))
+end relations
+
+// `every goal(args) do write(pair(X, Y)) else write(#end)`:
+//
+//     Mark(other); <goal>; Pop; MarkThrough; <write>; Unmark; Fail; other: <write end>
+//
+// `every` always fails, so `end` is written once the goal has no more solutions. `args` are pushed
+// by `push`; slots 0 and 1 are fresh variables `X` and `Y`.
+private every(e: *Emit, goal: usize, push: *Emit -> unit)
+    val other = e.label()
+
+    e.op(Frame(2))
+    e.op(NewVar(0))
+    e.op(NewVar(1))
+    e.op(Mark(other))
+    push(e)
+    e.op(Call(goal, 2))
+    e.op(Pop)
+    e.op(MarkThrough)
+    e.op(LoadSlot(0, 0))
+    e.op(LoadSlot(0, 1))
+    e.op(MakeCompound(intern("pair"), 2))
+    say(e)
+    e.op(Unmark)
+    e.op(Fail)
+    e.place(other)
+    push_atom(e, "end")
+    say(e)
+
+private both_unbound(e: *Emit)
+    e.op(LoadSlot(0, 0))
+    e.op(LoadSlot(0, 1))
+
+// `X ~ #name` -- whose value, the atom, is the first argument -- then `Y`.
+private first_is(e: *Emit, name: string)
+    e.op(LoadSlot(0, 0))
+    push_atom(e, name)
+    e.op(Unify)
+    e.op(LoadSlot(0, 1))
+
+private first_is_don(e: *Emit) = first_is(e, "don")
+
+private first_is_liam(e: *Emit) = first_is(e, "liam")
+
+private every_parent() -> Result[usize, string]
+    val f = relations()?
+    var e = emit("main")
+
+    every(&e, f.parent, both_unbound)
+    e.op(Halt)
+    finish(e)
+
+@test
+A_TWO_FACT_RELATION_ENUMERATES_ITS_FACTS_IN_ORDER()
+    assert_eq(ran(every_parent), "pair(don, randy)\npair(randy, liam)\nend\nsucceeded")
+
+private every_grandparent() -> Result[usize, string]
+    val f = relations()?
+    var e = emit("main")
+
+    every(&e, f.grandparent, both_unbound)
+    e.op(Halt)
+    finish(e)
+
+@test
+A_ONE_RULE_RELATION_OVER_THE_FACTS_FINDS_EVERY_SOLUTION_AND_NO_OTHER()
+    assert_eq(ran(every_grandparent), "pair(don, liam)\nend\nsucceeded")
+
+private every_ancestor() -> Result[usize, string]
+    val f = relations()?
+    var e = emit("main")
+
+    every(&e, f.ancestor, both_unbound)
+    every(&e, f.ancestor, first_is_don)
+    every(&e, f.ancestor, first_is_liam)
+    e.op(Halt)
+    finish(e)
+
+@test
+A_RECURSIVE_RELATION_ENUMERATES_ALL_SOLUTIONS_IN_ORDER_AND_NONE_WHERE_THERE_ARE_NONE()
+    val want = "pair(don, randy)\npair(randy, liam)\npair(don, liam)\nend\n" +
+        "pair(don, randy)\npair(don, liam)\nend\n" +
+        "end\nsucceeded"
+
+    assert_eq(ran(every_ancestor), want)
+
+private every_wrap() -> Result[usize, string]
+    val f = relations()?
+    var e = emit("main")
+
+    every(&e, f.wrap, both_unbound)
+    e.op(Halt)
+    finish(e)
+
+@test
+A_TAIL_CALL_THAT_REUSES_ITS_FRAME_STILL_ENUMERATES_THE_CALLEES_SOLUTIONS()
+    assert_eq(ran(every_wrap), "pair(don, randy)\npair(randy, liam)\nend\nsucceeded")
+
+// `owns(#don, X)` builds `car(red)` for `X`; `owns(#don, car(C))` reads `red` out for `C`; and
+// `owns(#don, bike(C))` and `owns(#don, car(#blue))` find nothing.
+private owning() -> Result[usize, string]
+    val f = relations()?
+    var e = emit("main")
+
+    every(&e, f.owns, first_is_don)
+    every(&e, f.owns, (e: *Emit) ->
+        push_atom(e, "don")
+        e.op(LoadSlot(0, 0))
+        e.op(MakeCompound(intern("car"), 1)))
+    every(&e, f.owns, (e: *Emit) ->
+        push_atom(e, "don")
+        e.op(LoadSlot(0, 0))
+        e.op(MakeCompound(intern("bike"), 1)))
+    every(&e, f.owns, (e: *Emit) ->
+        push_atom(e, "don")
+        push_atom(e, "blue")
+        e.op(MakeCompound(intern("car"), 1)))
+    e.op(Halt)
+    finish(e)
+end owning
+
+@test
+A_COMPOUND_IN_A_HEAD_BUILDS_THE_TERM_FOR_AN_UNBOUND_ARGUMENT_AND_CHECKS_A_BOUND_ONE()
+    val want = "pair(don, car(red))\nend\n" +
+        "pair(red, _G4)\nend\n" +
+        "end\n" +
+        "end\nsucceeded"
+
+    assert_eq(ran(owning), want)

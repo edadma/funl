@@ -1,0 +1,23 @@
+module io.github.edadma.funl
+
+// The atom table: a name interned once, and an id compared thereafter.
+//
+// **An atom is not a heap object.** Its value is the id, and the name lives in the VM's table for the
+// life of the VM -- so two atoms compare in one instruction and an atom costs the collector nothing.
+
+// The id of `name`, interning it on first sight.
+intern(name: string) -> u32
+    val v = current()
+
+    v.atom_ids.get(name) match
+        Some(id) -> id
+        None ->
+            val id = u32(v.atom_names.len())
+
+            v.atom_names.push(name)
+            v.atom_ids.put(name, id)
+            id
+
+atom(name: string) -> Value = Atom(intern(name))
+
+atom_name(id: u32) -> string = current().atom_names.at(usize(id))

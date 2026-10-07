@@ -1,0 +1,67 @@
+module io.github.edadma.funl
+
+// The trail: what failure has to put back that the control entries do not already save.
+//
+// **A separate stack from the control entries, because a commit is not an undo.** A binding made
+// after an older choice point and then cut past must still be undone when that older choice point
+// resumes, so a commit filters the trail rather than truncating it with the entries.
+
+enum Undo
+    // A logic variable was bound.
+    Bind(v: *VarObj)
+
+// Bind an unbound variable.
+//
+// **Conditional trailing**: a variable made after the newest control entry needs no record, since no
+// surviving entry predates it. The stamp says which side of that entry it was made on -- a collected
+// heap has no address order to ask instead.
+bind(x: *VarObj, to: Value)
+    val v = current()
+
+    x.value = to
+    x.bound = true
+
+    if needs_trail(v, x) then v.trail.push(Bind(x))
+
+// Whether a binding of `x` must be recorded: it is older than the entry on top of the control stack.
+private needs_trail(v: *Vm, x: *VarObj) -> bool
+    val n = v.control.len()
+
+    n > 0 && x.stamp < v.control.at(n - 1).stamp
+
+// Undo every trail entry above height `h`, newest first.
+undo_trail_to(v: *Vm, h: usize)
+    while v.trail.len() > h
+        v.trail.pop() match
+            Some(Bind(x)) ->
+                x.bound = false
+                x.value = Undefined
+            None -> return
+
+// Keep only the trail entries above `h` that something still on the control stack could need undone.
+//
+// **Called after the control stack has been cut back**, so "the entry on top" is the one that
+// survived. A binding is kept when its variable is older than that entry -- resuming it must unbind
+// the variable -- and dropped otherwise. With no entry left, nothing can resume, and the trail is
+// emptied.
+commit_trail(v: *Vm, h: usize)
+    val n = v.control.len()
+
+    if n == 0
+        v.trail.clear()
+        return
+
+    val top = v.control.at(n - 1).stamp
+    var kept = h
+
+    for i in h..<v.trail.len()
+        val u = v.trail.at(i)
+
+        u match
+            Bind(x) ->
+                if x.stamp < top
+                    v.trail.set(kept, u)
+                    kept += 1
+
+    v.trail.truncate(kept)
+end commit_trail

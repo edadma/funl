@@ -1,0 +1,193 @@
+module io.github.edadma.funl
+
+// The instruction loop.
+//
+// **There is no host recursion anywhere in it.** A call moves `ip` into a new heap frame, a
+// resumption is `fail` restoring an entry, and nothing is ever suspended on the sysl stack -- which
+// is what lets every suspended computation be data the collector sees.
+
+enum Outcome
+    // The run reached `Halt`.
+    Succeeded
+
+    // Failure emptied the control stack: nothing was left to resume.
+    Failed
+
+    // An instruction could not be carried out; the message says which and why.
+    Faulted(msg: string)
+
+private enum Flow
+    Next
+    Fails
+    Halts
+
+// Run chunk `chunk` as the top level, from its first instruction.
+run(v: *Vm, chunk: usize) -> Outcome
+    if chunk >= v.chunks.len() then return Faulted(s"there is no chunk $chunk to run")
+
+    v.frame = new_frame(chunk) match
+        Ok(f) -> f
+        Err(e) -> return Faulted(e)
+
+    v.code = chunk
+    v.ip = 0
+    v.mark = NoMark
+
+    loop
+        maybe_collect(v)
+
+        val at = v.ip
+        val code = v.chunks.at(v.code).code
+
+        if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
+
+        v.ip = at + 1
+
+        execute(v, code.at(at)) match
+            Ok(Next) -> ()
+            Ok(Fails) -> if !fail(v) then return Failed
+            Ok(Halts) -> return Succeeded
+            Err(e) -> return Faulted(s"${v.chunks.at(v.code).name}@$at: $e")
+end run
+
+private fails_if(ok: bool) -> Flow = if ok then Next else Fails
+
+private pop(v: *Vm) -> Result[Value, string] = v.stack.pop() match
+    Some(x) -> Ok(x)
+    None -> Err("the operand stack is empty")
+
+// Pop `n` values into a compound's arguments, the deepest first.
+private pop_into(v: *Vm, c: *CompoundObj, n: usize) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if n > top then return Err(s"wants $n operands and the stack holds $top")
+
+    for i in 0..<n
+        c.args.set(i, v.stack.at(top - n + i))
+
+    v.stack.truncate(top - n)
+    Ok(())
+
+private execute(v: *Vm, op: Op) -> Result[Flow, string]
+    op match
+        Halt -> Ok(Halts)
+        Mark(to) ->
+            push_mark(v, Mark, to)
+            Ok(Next)
+        MarkThrough ->
+            push_mark(v, MarkThrough, 0)
+            Ok(Next)
+        Choice(to) ->
+            push_choice(v, to)
+            Ok(Next)
+        Unmark ->
+            unmark(v)?
+            Ok(Next)
+        UnmarkKeep ->
+            val x = pop(v)?
+
+            unmark(v)?
+            v.stack.push(x)
+            Ok(Next)
+        Fail -> Ok(Fails)
+        Branch(to) ->
+            v.ip = to
+            Ok(Next)
+        Pop ->
+            pop(v)?
+            Ok(Next)
+        PushConst(k) ->
+            val consts = v.chunks.at(v.code).consts
+
+            if k >= consts.len() then return Err(s"constant $k of a chunk with ${consts.len()}")
+
+            v.stack.push(consts.at(k))
+            Ok(Next)
+        PushNil ->
+            v.stack.push(Nil)
+            Ok(Next)
+        PushInt(n) ->
+            v.stack.push(Int(n))
+            Ok(Next)
+        LoadSlot(depth, slot) ->
+            v.stack.push(slot_of(frame_up(v, depth)?, slot)?)
+            Ok(Next)
+        NewVar(slot) ->
+            set_slot(v.frame, slot, Var(new_var()?))?
+            Ok(Next)
+        MakeCompound(functor, n) ->
+            val c = new_compound(functor, n)?
+
+            pop_into(v, c, n)?
+            v.stack.push(Compound(c))
+            Ok(Next)
+        MakeCons ->
+            val tail = pop(v)?
+            val head = pop(v)?
+
+            v.stack.push(new_cons(head, tail)?)
+            Ok(Next)
+        Unify ->
+            val b = pop(v)?
+            val a = pop(v)?
+
+            if !unify(a, b) then return Ok(Fails)
+
+            v.stack.push(b)
+            Ok(Next)
+        Frame(n) ->
+            size_frame(v, n)?
+            Ok(Next)
+        Call(target, argc) ->
+            call(v, target, argc)?
+            Ok(Next)
+        TailCall(target, argc) ->
+            tail_call(v, target, argc)?
+            Ok(Next)
+        Return ->
+            ret(v)?
+            Ok(Next)
+        ReturnCommit ->
+            ret_commit(v)?
+            Ok(Next)
+        Native(id, argc) ->
+            call_native(v, id, argc)?
+            Ok(Next)
+        GetVar(slot, src) -> Ok(fails_if(get_var(v, slot, src)?))
+        GetValue(slot, src) -> Ok(fails_if(get_value(v, slot, src)?))
+        GetConst(k, src) -> Ok(fails_if(get_const(v, k, src)?))
+        GetCompound(functor, n, src) -> Ok(fails_if(get_compound(v, functor, n, src)?))
+        PushUnit ->
+            v.stack.push(Unit)
+            Ok(Next)
+        MakeTuple(n) ->
+            val t = new_tuple(n)?
+            val top = v.stack.len()
+
+            if n > top then return Err(s"wants $n operands and the stack holds $top")
+
+            for i in 0..<n
+                t.items.set(i, v.stack.at(top - n + i))
+
+            v.stack.truncate(top - n)
+            v.stack.push(Tuple(t))
+            Ok(Next)
+end execute
+
+// Run builtin `id` over the top `argc` values, which stand on the stack until it answers.
+private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, string]
+    if id >= v.natives.len() then return Err(s"builtin $id is not registered")
+
+    val n = v.natives.at(id)
+    val top = v.stack.len()
+
+    if argc != n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
+
+    if argc > top then return Err(s"'${n.name}' wants $argc operands and the stack holds $top")
+
+    val base = top - argc
+    val answer = n.go(base, argc)?
+
+    v.stack.truncate(base)
+    v.stack.push(answer)
+    Ok(())

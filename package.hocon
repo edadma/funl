@@ -1,0 +1,29 @@
+// FunL -- Icon's goal-directed evaluation, Prolog's logic programming and a regex engine, all on
+// one backtracking machine, written in sysl.
+//
+// The module is `io.github.edadma.funl`, the repository's address `github.com/edadma/funl` reversed.
+// The executable is named for the package, so nothing at the root may be called `funl`: the prefix
+// is what lets `main.sysl` live inside the module rather than beside a directory of the same name.
+//
+// **No `sysl` floor yet.** The compiler this builds with is a pre-release that reports its version
+// as `0.0.1`; the floor is added when the first released compiler is the one in use.
+
+package {
+  name    = "funl"
+  version = "0.0.1"
+}
+
+// **`gc` is the heap.** Every FunL value that points anywhere is a collected object -- a logic
+// variable, a compound term, a frame -- and the machine's control entries, saved operand cells and
+// trail keep such objects alive in ways reference counting cannot see: a choice point keeps a
+// frame alive long after its function returned. The root function in `collector.sysl` names every
+// place the machine holds one.
+dependencies {
+  gc { git = "github.com/sysl-lang/gc", version = "0.2.7" }
+}
+
+// An interpreter grows its operand stack, control stack and trail while it runs, and none of the
+// three has a size known before the program does.
+requires {
+  heap = true
+}

@@ -1,0 +1,126 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// The instruction set, and the chunk it is kept in.
+//
+// A jump target (`Mark`, `Choice`, `Branch`) is an instruction index within the same chunk. A call
+// target is a chunk index into `Vm.chunks`.
+//
+// **One instruction set for both languages the machine runs, dispatched by one match.** A Prolog
+// front end emits only the instructions logic needs -- the control instructions, calls, unification
+// and the `Get` family -- and never `PushUnit` or `MakeTuple`, which only FunL emits. Nothing in the
+// machine asks which language a chunk came from.
+
+// Where a head-unification instruction takes the value it unifies.
+//
+// `Arg(i)` is the frame's `i`th argument. `Popped` is the top of the operand stack, popped: it is
+// how the arguments of a compound in a head are reached, `GetCompound` having pushed them.
+enum Src
+    Arg(i: usize)
+    Popped
+
+enum Op
+    // Stop the run; the program succeeded.
+    Halt
+
+    // -- marks and choice points (`control.sysl`) ---------------------------------------------------
+
+    // Begin a bounded expression; if it fails, resume at `to`.
+    Mark(to: usize)
+
+    // Begin a bounded expression whose failure is the enclosing context's business.
+    MarkThrough
+
+    // Something that can produce another result: on failure, resume at `to`.
+    Choice(to: usize)
+
+    // End the innermost bounded expression, discarding every entry above and including its mark,
+    // and drop the expression's value.
+    Unmark
+
+    // `Unmark`, keeping the value on top of the stack.
+    UnmarkKeep
+
+    Fail
+    Branch(to: usize)
+
+    // -- operands -----------------------------------------------------------------------------------
+
+    Pop
+
+    // Push the running chunk's `k`th constant.
+    PushConst(k: usize)
+
+    PushNil
+    PushInt(n: long)
+
+    // Push slot `slot` of the frame `depth` static links up.
+    LoadSlot(depth: usize, slot: usize)
+
+    // Store a fresh unbound variable into slot `slot`.
+    NewVar(slot: usize)
+
+    // Pop `n` values and push a compound of them, the deepest first.
+    MakeCompound(functor: u32, n: usize)
+
+    // Pop a tail, then a head, and push the cons of them.
+    MakeCons
+
+    // Pop `b`, pop `a`, unify them; succeed producing `b`, or fail.
+    Unify
+
+    // -- frames and calls (`frame.sysl`) ------------------------------------------------------------
+
+    // Size the running frame's slots to `n`, every one `Undefined`.
+    Frame(n: usize)
+
+    // Call chunk `target` with the top `argc` values as its arguments.
+    Call(target: usize, argc: usize)
+
+    // As `Call`, reusing the running frame when nothing resumable was made in it. **Always followed
+    // by `Return`**: where the frame cannot be reused this is an ordinary call, and its value comes
+    // back to that `Return`.
+    TailCall(target: usize, argc: usize)
+
+    // Return the top of the stack, leaving the frame's choice points resumable.
+    Return
+
+    // `Return`, discarding every entry the frame made first: a deterministic exit.
+    ReturnCommit
+
+    // Call builtin `id` with the top `argc` values, which stay on the stack until it answers.
+    Native(id: usize, argc: usize)
+
+    // -- head unification (`unify.sysl`) ------------------------------------------------------------
+
+    // First occurrence of a head variable: the slot takes the argument as it stands.
+    GetVar(slot: usize, src: Src)
+
+    // Later occurrence: unify the slot with the argument.
+    GetValue(slot: usize, src: Src)
+
+    // A constant in the head: bind an unbound argument to constant `k`, or compare.
+    GetConst(k: usize, src: Src)
+
+    // A compound in the head. An unbound argument is bound to a fresh `functor/n` term of new
+    // variables; a bound one must have that functor and arity. Either way the term's arguments are
+    // then pushed, the first on top, for the instructions that unify them with `Src.Popped`.
+    GetCompound(functor: u32, n: usize, src: Src)
+
+    // -- FunL's own values ------------------------------------------------------------------------
+
+    PushUnit
+
+    // Pop `n` values and push a tuple of them, the deepest first.
+    MakeTuple(n: usize)
+end Op
+
+// A unit of compiled code: its instructions and the constants they push.
+//
+// **Ordinary reference-counted sysl data, never collected**: a frame names its chunk by index. The
+// constants are `Value`s and so are roots -- `roots` in `collector.sysl` walks every chunk's.
+struct Chunk
+    name: string
+    code: Buf[Op]
+    consts: Buf[Value]

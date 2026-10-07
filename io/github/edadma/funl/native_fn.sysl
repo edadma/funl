@@ -1,0 +1,35 @@
+module io.github.edadma.funl
+
+// The builtin registry.
+//
+// **Open from the start**: a builtin is `register(name, arity, go)` written in the file that
+// implements it, and the `Native` instruction is an index into the table. No central match over every
+// builtin exists to make every implementation visible to one place.
+//
+// **A builtin's arguments stand on the operand stack while it runs**, at `base ..< base + argc`, and
+// are cut off once it answers. The stack is a root, so a builtin that allocates cannot lose them --
+// but it may not keep a `Value` it read in a sysl local across anything that could run FunL code.
+
+type NativeGo = &Fn(usize, usize) -> Result[Value, string]
+
+struct Native
+    name: string
+    arity: usize
+    go: NativeGo
+
+// Add a builtin to `v`'s table and answer its id.
+register(v: *Vm, name: string, arity: usize, go: NativeGo) -> usize
+    v.natives.push(Native(name, arity, go))
+    v.natives.len() - 1
+
+// The id of the builtin called `name`, if there is one.
+native_id(name: string) -> Option[usize]
+    val v = current()
+
+    for i in 0..<v.natives.len()
+        if v.natives.at(i).name == name then return Some(i)
+
+    None
+
+// Argument `i` of a builtin whose arguments start at `base`.
+arg(base: usize, i: usize) -> Value = current().stack.at(base + i)

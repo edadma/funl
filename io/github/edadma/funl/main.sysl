@@ -1,0 +1,15 @@
+module io.github.edadma.funl
+
+// The driver. The front end is not written yet, so the command answers with how it will be used
+// and a status a shell can tell from success.
+
+const FunlVersion: string = "0.0.1"
+
+main(args: []string)
+    if args.len > 1 && args[1] == "--version"
+        print(s"funl $FunlVersion")
+        return
+
+    print("usage: funl <program.fl>  (the front end is not built yet)")
+    exit(2)
+end main

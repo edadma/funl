@@ -1,0 +1,68 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{entries, read_bytes}
+import sysl.text.{Search, from_utf8_unchecked, split}
+
+// The census: the machine's state lives in `Vm`, and a module-level `var` has to argue for itself.
+//
+// Every module-level `var` in the sources is `the_vm`, or carries `process-wide:` in the comment
+// directly above it, saying why it is not per-VM. A new one that is neither fails this test -- the
+// count is written here, so raising it is a decision somebody made while looking.
+
+private const ModuleDir: string = "io/github/edadma/funl"
+
+// The `gc.Kind` tables in `collector.sysl`.
+private const ProcessWide: usize = 6
+
+private struct Census
+    the_vm: usize
+    marked: usize
+    unargued: Buf[string]
+
+private census() -> Census
+    var c = Census(0, 0, buf())
+    var names = entries(ModuleDir).unwrap()
+
+    for name in names.view()
+        if !name.ends_with(".sysl") || name.starts_with("tests") then continue
+
+        val text = from_utf8_unchecked(read_bytes(s"$ModuleDir/$name").unwrap())
+        var above = ""
+
+        for line in split(text, "\n")
+            if line.starts_with("var ") || line.starts_with("private var ")
+                if line.contains(" the_vm:") then c.the_vm += 1
+                elif above.contains("process-wide:") then c.marked += 1
+                else c.unargued.push(s"$name: $line")
+
+            if line.starts_with("//") && !above.starts_with("//") then above = line
+            elif !line.starts_with("//") then above = ""
+            else above = above + line
+
+    c
+end census
+
+@test
+THE_MACHINES_STATE_LIVES_IN_VM_AND_A_NEW_GLOBAL_HAS_TO_BE_ARGUED_FOR()
+    val c = census()
+
+    assert_eq(c.unargued.len(), 0, "a module-level `var` that is neither `the_vm` nor marked process-wide")
+    assert_eq(c.the_vm, 1, "`the_vm`, the pointer `current()` answers")
+    assert_eq(c.marked, ProcessWide, "globals marked `process-wide:` with a reason above them")
+
+@test
+A_VM_STARTS_EMPTY_BUT_FOR_ITS_BUILTINS_AND_CURRENT_ANSWERS_THE_ONE_ENTERED()
+    var v = new_vm(65536, 4096, 2)
+    val was = enter(&v)
+
+    assert(current() == &v, "current() answers the VM entered")
+    assert_eq(v.stack.len(), 0)
+    assert_eq(v.control.len(), 0)
+    assert_eq(v.trail.len(), 0)
+    assert(native_id("write").is_some(), "the builtins are installed")
+    assert(native_id("no_such_builtin").is_none(), "and nothing else answers")
+
+    dispose_vm(&v)
+    leave(was)

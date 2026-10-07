@@ -1,0 +1,172 @@
+module io.github.edadma.funl
+@tests
+
+// Unification, at the instruction level: `Unify` over values the program pushed.
+
+// `X ~ X`, then `X` written: it terminates, and `X` is still unbound.
+private x_with_itself() -> Result[usize, string]
+    var e = emit("main")
+
+    e.op(Frame(1))
+    e.op(NewVar(0))
+    e.op(LoadSlot(0, 0))
+    e.op(LoadSlot(0, 0))
+    e.op(Unify)
+    e.op(Pop)
+    say_slot(&e, 0)
+    e.op(Halt)
+    finish(e)
+
+@test
+A_VARIABLE_UNIFIED_WITH_ITSELF_SUCCEEDS_AT_ONCE_AND_STAYS_UNBOUND()
+    assert_eq(ran(x_with_itself), "_G0\nsucceeded")
+
+// `#a ~ #b` at the top level, with nothing to resume.
+private atoms_differ() -> Result[usize, string]
+    var e = emit("main")
+
+    push_atom(&e, "a")
+    push_atom(&e, "b")
+    e.op(Unify)
+    say(&e)
+    e.op(Halt)
+    finish(e)
+
+@test
+TWO_DIFFERENT_ATOMS_DO_NOT_UNIFY_AND_THE_RUN_FAILS()
+    assert_eq(ran(atoms_differ), "failed")
+
+// `f(X, #b) ~ f(#a, Y)`, then the term and both variables written.
+private compounds_meet() -> Result[usize, string]
+    var e = emit("main")
+    val f = intern("f")
+
+    e.op(Frame(2))
+    e.op(NewVar(0))
+    e.op(NewVar(1))
+    e.op(LoadSlot(0, 0))
+    push_atom(&e, "b")
+    e.op(MakeCompound(f, 2))
+    push_atom(&e, "a")
+    e.op(LoadSlot(0, 1))
+    e.op(MakeCompound(f, 2))
+    e.op(Unify)
+    say(&e)
+    say_slot(&e, 0)
+    say_slot(&e, 1)
+    e.op(Halt)
+    finish(e)
+
+@test
+COMPOUNDS_UNIFY_ARGUMENT_BY_ARGUMENT_BINDING_VARIABLES_ON_BOTH_SIDES()
+    assert_eq(ran(compounds_meet), "f(a, b)\na\nb\nsucceeded")
+
+// Each line tries one pair inside a `Mark`, writing `yes` or `no`.
+private mismatches() -> Result[usize, string]
+    var e = emit("main")
+    val f = intern("f")
+    val g = intern("g")
+
+    // f(a) ~ g(a): same arity, different functor.
+    try_pair(&e, f, 1, g, 1)
+
+    // f(a) ~ f(a, a): same functor, different arity.
+    try_pair(&e, f, 1, f, 2)
+
+    // f(a) ~ f(a): the control.
+    try_pair(&e, f, 1, f, 1)
+
+    // 1 ~ "1": kinds are compared before values.
+    val no = e.label()
+    val next = e.label()
+
+    e.op(Mark(no))
+    e.op(PushInt(1))
+    e.op(PushConst(e.constant(new_str("1")?)))
+    e.op(Unify)
+    e.op(Unmark)
+    push_atom(&e, "yes")
+    say(&e)
+    e.op(Branch(next))
+    e.place(no)
+    push_atom(&e, "no")
+    say(&e)
+    e.place(next)
+
+    // [1, 2] ~ [1 | T]: a list and its tail.
+    e.op(Frame(1))
+    e.op(NewVar(0))
+    e.op(PushInt(1))
+    e.op(PushInt(2))
+    e.op(PushNil)
+    e.op(MakeCons)
+    e.op(MakeCons)
+    e.op(PushInt(1))
+    e.op(LoadSlot(0, 0))
+    e.op(MakeCons)
+    e.op(Unify)
+    say(&e)
+    say_slot(&e, 0)
+
+    // (1, ()) ~ (1, ()): tuples, and the unit value.
+    e.op(PushInt(1))
+    e.op(PushUnit)
+    e.op(MakeTuple(2))
+    e.op(PushInt(1))
+    e.op(PushUnit)
+    e.op(MakeTuple(2))
+    e.op(Unify)
+    say(&e)
+    e.op(Halt)
+    finish(e)
+end mismatches
+
+// `fa(a, ..) ~ fb(a, ..)` with `na` and `nb` arguments, every one the atom `a`.
+private try_pair(e: *Emit, fa: u32, na: usize, fb: u32, nb: usize)
+    val no = e.label()
+    val next = e.label()
+
+    e.op(Mark(no))
+
+    for _ in 0..<na
+        push_atom(e, "a")
+
+    e.op(MakeCompound(fa, na))
+
+    for _ in 0..<nb
+        push_atom(e, "a")
+
+    e.op(MakeCompound(fb, nb))
+    e.op(Unify)
+    e.op(Unmark)
+    push_atom(e, "yes")
+    say(e)
+    e.op(Branch(next))
+    e.place(no)
+    push_atom(e, "no")
+    say(e)
+    e.place(next)
+
+@test
+A_FUNCTOR_AN_ARITY_OR_A_KIND_THAT_DIFFERS_FAILS_AND_A_LIST_OR_TUPLE_THAT_MATCHES_SUCCEEDS()
+    assert_eq(ran(mismatches), "no\nno\nyes\nno\n[1, 2]\n[2]\n(1, ())\nsucceeded")
+
+// `Y ~ X` with `X` made first: the younger `Y` is bound to the older `X`, so `X` stays unbound.
+private younger_to_older() -> Result[usize, string]
+    var e = emit("main")
+
+    e.op(Frame(2))
+    e.op(NewVar(0))
+    e.op(NewVar(1))
+    e.op(LoadSlot(0, 0))
+    e.op(LoadSlot(0, 1))
+    e.op(Unify)
+    e.op(Pop)
+    say_slot(&e, 0)
+    say_slot(&e, 1)
+    e.op(Halt)
+    finish(e)
+
+@test
+WHEN_TWO_UNBOUND_VARIABLES_MEET_THE_YOUNGER_IS_BOUND_TO_THE_OLDER()
+    assert_eq(ran(younger_to_older), "_G0\n_G0\nsucceeded")

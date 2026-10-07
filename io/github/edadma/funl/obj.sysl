@@ -1,0 +1,135 @@
+module io.github.edadma.funl
+
+import sh.sysl.gc
+import sysl.buf.{Buf, buf}
+
+// The collected objects, and how one is made.
+//
+// **Every constructor answers a `Result`, because a full heap is an answer and not a crash.** The
+// collector runs only at the top of the instruction loop -- never inside an allocation -- so an
+// allocation that finds no room fails the instruction that asked for it, and the run reports the
+// fault against that instruction.
+//
+// **`gc.alloc` zeroes the payload**, and that is what makes assigning a `Buf` or a `string` into a
+// fresh object safe: the assignment releases the previous occupant, which is a null.
+
+struct StrObj
+    s: string
+
+struct CompoundObj
+    functor: u32
+    args: Buf[Value]
+
+struct TupleObj
+    items: Buf[Value]
+
+struct ConsObj
+    head: Value
+    tail: Value
+
+// A logic variable.
+//
+// **`stamp` dates it against the control stack**: it is the machine's stamp when the variable was
+// made, and a binding needs a trail entry only when the variable is older than the newest entry.
+// `id` is what an unbound variable prints as, unique within the run.
+struct VarObj
+    value: Value
+    bound: bool
+    stamp: u64
+    id: u64
+
+// A function's frame. **A heap object, not a region of the operand stack**: a choice point names the
+// frame its alternative runs in, and that frame has to outlive the return that left it behind.
+struct FrameObj
+    // The chunk running in this frame, as an index into `Vm.chunks` -- compiled code is ordinary
+    // reference-counted sysl data and may not live in collected memory.
+    chunk: usize
+
+    // The frame this function was defined in (the static link), and the frame to return to.
+    up: *FrameObj
+    caller: *FrameObj
+
+    return_ip: usize
+
+    // The caller's innermost mark, put back on return.
+    caller_mark: usize
+
+    // Control height when this frame was entered: entries above it were made by this frame.
+    entry: usize
+
+    // Control height a clause-level cut returns to.
+    cut: usize
+
+    // The arguments as the call passed them, and the slots the body numbers its locals into.
+    // **Two buffers and not one**: a relation's clauses each bind their own slots from the same
+    // arguments, so a slot written by one clause must not change what the next clause reads.
+    args: Buf[Value]
+    slots: Buf[Value]
+
+// Take `size` bytes of collected storage under `kind`, charging them to the collection schedule.
+private take(v: *Vm, size: usize, kind: *gc.Kind) -> Result[*u8, string]
+    val p = gc.alloc(&v.heap, size, kind)
+
+    if p == null then return Err("heap exhausted: the heap cannot hold this program's live data")
+
+    v.allocated += size
+    Ok(p)
+
+new_str(s: string) -> Result[Value, string]
+    val v = current()
+    val o: *StrObj = ptr_cast(take(v, sizeof(StrObj), &str_kind)?)
+
+    o.s = s
+    v.allocated += s.bytes.len
+    Ok(Str(o))
+
+new_tuple(n: usize) -> Result[*TupleObj, string]
+    val v = current()
+    val o: *TupleObj = ptr_cast(take(v, sizeof(TupleObj), &tuple_kind)?)
+
+    for _ in 0..<n
+        o.items.push(Undefined)
+
+    v.allocated += n * sizeof(Value)
+    Ok(o)
+
+// A fresh unbound variable, dated by the machine's current stamp.
+new_var() -> Result[*VarObj, string]
+    val v = current()
+    val o: *VarObj = ptr_cast(take(v, sizeof(VarObj), &var_kind)?)
+
+    o.value = Undefined
+    o.bound = false
+    o.stamp = v.stamp
+    o.id = v.var_count
+    v.var_count += 1
+    Ok(o)
+
+// A compound with `n` arguments, every one `Undefined` until the caller fills it.
+new_compound(functor: u32, n: usize) -> Result[*CompoundObj, string]
+    val v = current()
+    val o: *CompoundObj = ptr_cast(take(v, sizeof(CompoundObj), &compound_kind)?)
+
+    o.functor = functor
+
+    for _ in 0..<n
+        o.args.push(Undefined)
+
+    v.allocated += n * sizeof(Value)
+    Ok(o)
+
+new_cons(head: Value, tail: Value) -> Result[Value, string]
+    val o: *ConsObj = ptr_cast(take(current(), sizeof(ConsObj), &cons_kind)?)
+
+    o.head = head
+    o.tail = tail
+    Ok(Cons(o))
+
+// A frame for `chunk`, with no arguments and no slots yet.
+new_frame(chunk: usize) -> Result[*FrameObj, string]
+    val o: *FrameObj = ptr_cast(take(current(), sizeof(FrameObj), &frame_kind)?)
+
+    o.chunk = chunk
+    o.up = null
+    o.caller = null
+    Ok(o)

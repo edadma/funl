@@ -1,0 +1,12 @@
+module io.github.edadma.funl
+
+
+// Output builtins.
+
+install_io(v: *Vm)
+    register(v, "write", 1, do_write)
+
+// `write(x)`: print `x` as a line, answering `()`.
+private do_write(base: usize, argc: usize) -> Result[Value, string]
+    current().output.push(render(arg(base, 0)))
+    Ok(Unit)

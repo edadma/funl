@@ -1,0 +1,151 @@
+module io.github.edadma.funl
+
+import sh.sysl.gc
+import sysl.buf.{Buf, buf}
+
+// The collector's half of the heap: how each kind of object is traced and finalized, the roots, and
+// when a collection runs.
+//
+// **`gc` never scans the sysl stack**, so `roots` below is the complete statement of what is live. A
+// `Value` held only in a sysl local is invisible to it -- which is why a collection runs only at the
+// top of the instruction loop, where every live value is on the machine.
+
+// Grey whatever a value points at. Scalars point at nothing.
+mark_value(h: *gc.Heap, v: Value)
+    v match
+        Str(p) -> gc.mark(h, ptr_cast(p))
+        Compound(p) -> gc.mark(h, ptr_cast(p))
+        Tuple(p) -> gc.mark(h, ptr_cast(p))
+        Cons(p) -> gc.mark(h, ptr_cast(p))
+        Var(p) -> gc.mark(h, ptr_cast(p))
+        _ -> ()
+
+private mark_values(h: *gc.Heap, vs: Buf[Value])
+    for v in vs.view()
+        mark_value(h, v)
+
+trace_str(p: *u8, h: *gc.Heap)
+    return
+
+finalize_str(p: *u8)
+    val o: *StrObj = ptr_cast(p)
+
+    o.s = ""
+
+trace_tuple(p: *u8, h: *gc.Heap)
+    val o: *TupleObj = ptr_cast(p)
+
+    mark_values(h, o.items)
+
+finalize_tuple(p: *u8)
+    val o: *TupleObj = ptr_cast(p)
+
+    o.items = buf()
+
+trace_compound(p: *u8, h: *gc.Heap)
+    val o: *CompoundObj = ptr_cast(p)
+
+    mark_values(h, o.args)
+
+finalize_compound(p: *u8)
+    val o: *CompoundObj = ptr_cast(p)
+
+    o.args = buf()
+
+trace_cons(p: *u8, h: *gc.Heap)
+    val o: *ConsObj = ptr_cast(p)
+
+    mark_value(h, o.head)
+    mark_value(h, o.tail)
+
+trace_var(p: *u8, h: *gc.Heap)
+    val o: *VarObj = ptr_cast(p)
+
+    mark_value(h, o.value)
+
+// A frame keeps alive the frame it was defined in, the frame it returns to, and everything in its
+// arguments and slots -- which is how the running frame alone roots the whole dynamic chain.
+trace_frame(p: *u8, h: *gc.Heap)
+    val o: *FrameObj = ptr_cast(p)
+
+    gc.mark(h, ptr_cast(o.up))
+    gc.mark(h, ptr_cast(o.caller))
+    mark_values(h, o.args)
+    mark_values(h, o.slots)
+
+finalize_frame(p: *u8)
+    val o: *FrameObj = ptr_cast(p)
+
+    o.args = buf()
+    o.slots = buf()
+
+// process-wide: a `gc.Kind` is a table of hook addresses, written once at startup and never changed,
+// so every VM shares one per kind.
+var str_kind: gc.Kind = gc.Kind(&trace_str, &finalize_str, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var compound_kind: gc.Kind = gc.Kind(&trace_compound, &finalize_compound, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var tuple_kind: gc.Kind = gc.Kind(&trace_tuple, &finalize_tuple, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var cons_kind: gc.Kind = gc.Kind(&trace_cons, null, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var var_kind: gc.Kind = gc.Kind(&trace_var, null, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var frame_kind: gc.Kind = gc.Kind(&trace_frame, &finalize_frame, null, null)
+
+// Everything the machine can still reach.
+//
+// **The dangerous rows are `saved`, the control entries and the trail**, because they look like
+// bookkeeping rather than data: a choice point that has not been discarded keeps alive the frame of a
+// function that returned long ago, the cells of an expression that has moved on, and every variable
+// its trail entries would unbind.
+roots(h: *gc.Heap)
+    val v = current()
+
+    // The expression being evaluated.
+    mark_values(h, v.stack)
+
+    // Operand cells a choice point or a restore entry will write back.
+    mark_values(h, v.saved)
+
+    // A resumable alternative runs in its entry's frame.
+    for e in v.control.view()
+        gc.mark(h, ptr_cast(e.frame))
+
+    // Failure will unbind these.
+    for u in v.trail.view()
+        u match
+            Bind(x) -> gc.mark(h, ptr_cast(x))
+
+    // The code running now, and through it the static and dynamic chains.
+    gc.mark(h, ptr_cast(v.frame))
+
+    // Every constant a chunk can push.
+    for c in v.chunks.view()
+        mark_values(h, c.consts)
+end roots
+
+// Collect if enough has been allocated since the last collection.
+//
+// **Called only at the top of the instruction loop**, where no value is held in a sysl local. The
+// threshold is raised after every collection to `growth` times what survived, and never falls below
+// `floor`. A VM built with a floor of zero and no growth collects before every instruction, which is
+// how the suite proves the roots are complete.
+maybe_collect(v: *Vm)
+    if v.allocated < v.threshold then return
+
+    collect_now(v)
+
+collect_now(v: *Vm)
+    gc.collect(&v.heap, &roots)
+    v.collections += 1
+    v.allocated = 0
+
+    val grown = gc.live_size(&v.heap) * v.growth
+
+    v.threshold = if grown > v.floor then grown else v.floor

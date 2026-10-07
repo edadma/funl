@@ -1,0 +1,83 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// The chunk being built: instructions, constants, and labels resolved when it is finished.
+//
+// **A jump operand is a LABEL while the chunk is being built** and an instruction index once it is
+// installed: `Mark`, `Choice` and `Branch` are written with a label from `label()`, `place` says
+// where it points, and `install` rewrites each to the index it was placed at. Any other operand --
+// a slot, a count, a chunk index -- is left as written.
+
+private const Unplaced: usize = 4294967295
+
+struct Emit
+    name: string
+    code: Buf[Op]
+    consts: Buf[Value]
+    labels: Buf[usize]
+
+    // A fresh label, placed later.
+    label(*self) -> usize
+        self.labels.push(Unplaced)
+        self.labels.len() - 1
+
+    // Point `l` at the next instruction emitted.
+    place(*self, l: usize)
+        self.labels.set(l, self.code.len())
+
+    op(*self, o: Op)
+        self.code.push(o)
+
+    // The index of constant `x` in this chunk.
+    constant(*self, x: Value) -> usize
+        self.consts.push(x)
+        self.consts.len() - 1
+end Emit
+
+emit(name: string) -> Emit = Emit(name, buf(), buf(), buf())
+
+// A chunk index to call before the chunk is written, so a relation can call itself or one written
+// after it. `install` fills it.
+reserve_chunk(name: string) -> usize
+    val v = current()
+
+    v.chunks.push(Chunk(name, buf(), buf()))
+    v.chunks.len() - 1
+
+// Resolve `e`'s labels and install it as chunk `at`, which `reserve_chunk` answered.
+install(e: Emit, at: usize) -> Result[unit, string]
+    val v = current()
+
+    if at >= v.chunks.len() then return Err(s"chunk $at was never reserved")
+
+    var code: Buf[Op] = buf()
+
+    for o in e.code.view()
+        code.push(resolved(e, o)?)
+
+    v.chunks.set(at, Chunk(e.name, code, e.consts))
+    Ok(())
+
+// Reserve and install in one step, answering the chunk's index.
+finish(e: Emit) -> Result[usize, string]
+    val at = reserve_chunk(e.name)
+
+    install(e, at)?
+    Ok(at)
+
+private resolved(e: Emit, o: Op) -> Result[Op, string]
+    o match
+        Mark(l) -> Ok(Mark(target(e, l)?))
+        Choice(l) -> Ok(Choice(target(e, l)?))
+        Branch(l) -> Ok(Branch(target(e, l)?))
+        _ -> Ok(o)
+
+private target(e: Emit, l: usize) -> Result[usize, string]
+    if l >= e.labels.len() then return Err(s"'${e.name}' jumps to label $l, which was never made")
+
+    val at = e.labels.at(l)
+
+    if at == Unplaced then return Err(s"'${e.name}' jumps to label $l, which was never placed")
+
+    Ok(at)

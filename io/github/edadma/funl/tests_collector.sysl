@@ -1,0 +1,111 @@
+module io.github.edadma.funl
+@tests
+
+// The collector: that the stressed runs every other test makes really do collect inside a query,
+// and that a heap too small for a program's live data is a fault rather than a crash.
+
+// A query with choice points, restore entries, trailed bindings and frames of returned calls all
+// live at once -- `every ancestor(X, Y)` over the family facts, as `tests_relation.sysl` builds it,
+// written here again so this file says what it measures.
+private busy_query() -> Result[usize, string]
+    val parent = reserve_chunk("parent")
+    var p = emit("parent")
+    val p2 = p.label()
+
+    p.op(Choice(p2))
+    p.op(GetConst(p.constant(atom("don")), Arg(0)))
+    p.op(GetConst(p.constant(atom("randy")), Arg(1)))
+    p.op(PushUnit)
+    p.op(Return)
+    p.place(p2)
+    p.op(GetConst(p.constant(atom("randy")), Arg(0)))
+    p.op(GetConst(p.constant(atom("liam")), Arg(1)))
+    p.op(PushUnit)
+    p.op(Return)
+    install(p, parent)?
+
+    var e = emit("main")
+    val done = e.label()
+
+    e.op(Frame(3))
+    e.op(NewVar(0))
+    e.op(NewVar(1))
+    e.op(NewVar(2))
+    e.op(Mark(done))
+    e.op(LoadSlot(0, 0))
+    e.op(LoadSlot(0, 2))
+    e.op(Call(parent, 2))
+    e.op(Pop)
+    e.op(LoadSlot(0, 2))
+    e.op(LoadSlot(0, 1))
+    e.op(Call(parent, 2))
+    e.op(Pop)
+    e.op(LoadSlot(0, 0))
+    e.op(LoadSlot(0, 1))
+    e.op(MakeCompound(intern("pair"), 2))
+    say(&e)
+    e.op(Fail)
+    e.place(done)
+    e.op(Halt)
+    finish(e)
+end busy_query
+
+@test
+THE_STRESSED_HEAP_COLLECTS_INSIDE_THE_QUERY_AND_GETS_THE_SAME_ANSWER()
+    val calm = roomy(busy_query)
+    val tight = stressed(busy_query)
+
+    assert_eq(calm.text, "pair(don, liam)\nsucceeded")
+    assert_eq(tight.text, calm.text)
+    assert_eq(calm.collections, 0, "the roomy heap never reaches its threshold, so it is the control")
+    assert(tight.collections >= 5, s"collected only ${tight.collections} times")
+
+// `X` is bound after a choice point, then its slot is given a new variable, so the trail entry is
+// all that holds `X`. A third variable `Z` is made and bound to `#b` -- after the choice point, so
+// untrailed -- and the run fails back. Undoing the trail writes to `X`; were `X` collected, its
+// storage would be `Z`'s by then and `Z` would come back unbound.
+private trail_holds_the_only_reference() -> Result[usize, string]
+    var e = emit("main")
+    val alt = e.label()
+
+    e.op(Frame(2))
+    e.op(NewVar(0))
+    e.op(Choice(alt))
+    e.op(LoadSlot(0, 0))
+    push_atom(&e, "a")
+    e.op(Unify)
+    e.op(Pop)
+    e.op(NewVar(0))
+    e.op(NewVar(1))
+    e.op(LoadSlot(0, 1))
+    push_atom(&e, "b")
+    e.op(Unify)
+    e.op(Pop)
+    e.op(Fail)
+    e.place(alt)
+    say_slot(&e, 1)
+    e.op(Halt)
+    finish(e)
+end trail_holds_the_only_reference
+
+@test
+A_VARIABLE_HELD_ONLY_BY_THE_TRAIL_SURVIVES_A_COLLECTION()
+    assert_eq(ran(trail_holds_the_only_reference), "b\nsucceeded")
+
+// Wrap the top of the stack in `f(...)` for ever: the live data grows without bound.
+private grows_for_ever() -> Result[usize, string]
+    var e = emit("main")
+    val top = e.label()
+
+    e.op(PushInt(0))
+    e.place(top)
+    e.op(MakeCompound(intern("f"), 1))
+    e.op(Branch(top))
+    finish(e)
+
+@test
+A_PROGRAM_WHOSE_LIVE_DATA_OUTGROWS_THE_HEAP_FAULTS_WITH_A_SENTENCE()
+    val said = run_on(16384, 1024, 2, grows_for_ever)
+
+    assert_eq(said.text, "fault: main@1: heap exhausted: the heap cannot hold this program's live data")
+    assert(said.collections > 0, "the collector ran and found everything live")

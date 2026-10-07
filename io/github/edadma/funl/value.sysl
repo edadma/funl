@@ -1,0 +1,57 @@
+module io.github.edadma.funl
+
+// What a value is.
+//
+// **One value model for both languages the machine runs.** Prolog code never makes a `Str`, a
+// `Tuple` or a `Unit`, and FunL code makes all of them; both share the terms -- atoms, integers,
+// compounds, lists and variables -- so a FunL record unifies with a Prolog term and prints the same.
+//
+// **A `Value` holds no reference-counted sysl member.** It is copied on every push, pop and slot
+// read, and an ARC increment on each copy would be a cost on every instruction. Anything that owns
+// storage -- a string's bytes, a compound's arguments -- lives inside a collected object that is
+// that storage's only owner, and the object's finalizer gives it back.
+enum Value
+    // Never the value of an expression: what an empty slot holds before anything is stored in it,
+    // and what an unbound variable's `value` reads.
+    Undefined
+
+    Unit
+
+    // The empty list.
+    Nil
+
+    Int(n: long)
+
+    // An interned name. Two atoms are the same atom exactly when their ids are equal.
+    Atom(id: u32)
+
+    Str(p: *StrObj)
+
+    // A functor atom and its arguments: a record, a Prolog term.
+    Compound(p: *CompoundObj)
+
+    Tuple(p: *TupleObj)
+
+    // A list cell.
+    Cons(p: *ConsObj)
+
+    // A logic variable, unbound or bound to another value.
+    Var(p: *VarObj)
+end Value
+
+// Follow bound variables until reaching something that is not one.
+//
+// **Every operation that inspects a value goes through this first**, so a bound variable is
+// indistinguishable from what it is bound to everywhere but unification and the type tests that ask
+// about variables as variables.
+deref(v: Value) -> Value
+    var at = v
+
+    loop
+        at match
+            Var(p) ->
+                if !p.bound then return at
+
+                at = p.value
+            _ -> return at
+end deref
