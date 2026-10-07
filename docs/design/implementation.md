@@ -36,12 +36,10 @@ a tag, and a GitHub release. **Implementation notes go in `CLAUDE.md`**, which i
 named `funl` after the package, so nothing at the root may be called `funl` (slate's
 `dev.slatelang.slate` exists for exactly this reason).
 
-> **Open question — the module path.**
-> **Recommendation: follow whatever domain or GitHub organisation the project takes**, reversed:
-> `dev.funl.funl` for `funl.dev`, `sh.sysl.funl` if it lives in the sysl-lang org. This document
-> writes paths without the prefix. **The thing to avoid** is a hyphen anywhere in the path —
-> `import dev.funl-lang.x` stops at the hyphen — which rules out a domain like `funl-lang.dev` as
-> spelled.
+**The module path is `io.github.edadma.funl`**, the repository's address `github.com/edadma/funl`
+reversed, as every other edadma project spells its package. This document writes paths without the
+prefix. A hyphen anywhere in the path is what such a name must avoid — `import dev.funl-lang.x`
+stops at the hyphen.
 
 ## The files
 

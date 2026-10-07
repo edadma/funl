@@ -69,5 +69,4 @@ Each is argued where it arises; this is the list.
 | Is there a cut in FunL relations? | no `!` (it is the generator operator); `once` and `->` cover it | [logic](logic.md#cut-in-a-relation) |
 | What do tuples, maps and closures look like as Prolog terms? | tuples are `tuple(...)` compounds; the rest are opaque and unify by identity | [prolog](prolog.md#the-term-mapping) |
 | Does juxtaposition multiply? | only a number literal touching a name or `(`: `2n`, `3(x + 1)` | [implementation](implementation.md#the-front-end) |
-| What is the module path? | follows the domain the project takes; `<domain>.funl` until then | [implementation](implementation.md#the-repository) |
 | How strict is the regex conformance oracle? | exact on match and span, exact on captures outside a named exclusion list | [implementation](implementation.md#regex-the-att-data-and-a-second-oracle) |
