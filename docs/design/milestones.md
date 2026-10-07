@@ -75,8 +75,8 @@ inside a scan resumed after the scan has ended sees the right subject and positi
   instructions; `Capture` trail entries; lookahead, lookbehind, atomic groups, flags.
 
 **Done when:** `regex 1` and `regex 2` pass; the AT&T data passes under the agreed tiers with its
-exclusion list; the PCRE2 comparison agrees on every pattern PCRE2 accepts; and lookbehinds PCRE2
-refuses — unbounded, alternatives of different lengths, nested — have tests of their own.
+exclusion list; and lookahead, backreferences and lookbehinds — including unbounded ones,
+alternatives of different lengths, nested — have tests of their own, with spans worked out by hand.
 
 ## 5. The two directions of the call
 
