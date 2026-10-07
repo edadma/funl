@@ -266,14 +266,12 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             tail_call_fn(v, target, argc, up)?
             Ok(Next)
         CallValue(argc) ->
-            call_value(v, argc, false)?
-            Ok(Next)
+            Ok(fails_if(call_value(v, argc, false)?))
         KeepTop(file) ->
             v.funl_tops.set(file, v.frame)
             Ok(Next)
         TailCallValue(argc) ->
-            call_value(v, argc, true)?
-            Ok(Next)
+            Ok(fails_if(call_value(v, argc, true)?))
         MatchTuple(n) ->
             deref(pop(v)?) match
                 Tuple(t) ->
@@ -351,8 +349,11 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Field(name) ->
             val x = pop(v)?
 
-            v.stack.push(field_of(x, name)?)
-            Ok(Next)
+            field_of(x, name)? match
+                Some(y) ->
+                    v.stack.push(y)
+                    Ok(Next)
+                None -> Ok(Fails)
         StoreBack(depth, slot) ->
             val x = pop(v)?
 
@@ -377,8 +378,11 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             val key = pop(v)?
             val c = pop(v)?
 
-            v.stack.push(element_get(c, key, true)?)
-            Ok(Next)
+            element_get(c, key, true)? match
+                Some(x) ->
+                    v.stack.push(x)
+                    Ok(Next)
+                None -> Ok(Fails)
         StoreElem(bracket, back) ->
             val x = pop(v)?
             val key = pop(v)?
@@ -403,8 +407,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             v.stack.push(in_place(o, slot_of(frame_up(v, depth)?, slot)?, x)?)
             Ok(Next)
         SwapElems(first, second) ->
-            swap_elements(v, first, second)?
-            Ok(Next)
+            Ok(fails_if(swap_elements(v, first, second)?))
         Concat(n) ->
             concat(v, n)?
             Ok(Next)
