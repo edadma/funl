@@ -1,0 +1,88 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.{split, str_builder}
+
+// Lookahead, lookbehind and backreferences, checked against two data files under `tests/regex/`:
+//
+// - `lookaround.txt`, patterns PCRE2 accepts, each with the spans PCRE2 gives for its first match;
+//   this engine has to give the same, span for span.
+// - `lookbehind.txt`, lookbehinds PCRE2 refuses -- unbounded, alternatives of different lengths
+//   repeated, nested unbounded -- and the ones PCRE2 accepts but matches by a different rule, each
+//   with the spans worked out by hand and a sentence saying why PCRE2 is no oracle for it.
+//
+// A line is `pattern<TAB>subject<TAB>expected`, plus `<TAB>why` in the second file; `NULL` is the
+// empty subject and `#` starts a comment line. Every pattern is searched for leftmost first and runs
+// on both heaps.
+
+// Check every line of `name`; the failures, one a line. `why` says the file carries a fourth column.
+private corpus(name: string, why: bool) -> string
+    var failures = str_builder()
+    var line_no: usize = 0
+    val width: usize = if why then 4 else 3
+
+    for row in split(regex_data(name), "\n")
+        line_no += 1
+
+        if row.bytes.len == 0 || row.bytes[0] == u8('#') then continue
+
+        val cols = split(row, "\t")
+
+        if cols.len != width || (why && cols[3].bytes.len == 0)
+            panic(s"$name:$line_no is not ${if why then "`pattern subject expected why`" else "`pattern subject expected`"}, tab-separated")
+
+        val subject = if cols[1] == "NULL" then "" else cols[1]
+        val got = regex_searched(cols[0], subject)
+
+        if got != cols[2] then failures.push(s"$name:$line_no `${cols[0]}` on `$subject` wants ${cols[2]}, got $got\n")
+
+    failures.finish()
+end corpus
+
+// `string(e)` and `ccls(e)` have no lookbehind of their own to stand in -- a regex literal holds no
+// expressions -- but every pattern compiles in both directions, so their reverse instructions are run
+// here directly: scan `subject` to its end, then step back over `operand` as `op` reads it, and write
+// the text stepped over.
+private stepped_back(subject: string, operand: Value, op: Op) -> string
+    ran(() -> stepped_back_chunk(subject, operand, op))
+
+private stepped_back_chunk(subject: string, operand: Value, op: Op) -> Result[usize, string]
+    var e = emit("back")
+
+    e.op(PushConst(e.constant(new_str(subject)?)))
+    e.op(ScanBegin)
+
+    for c in subject.chars
+        e.op(Char(c, false))
+
+    e.op(RxBegin(0))
+    e.op(SavePos)
+    e.op(PushConst(e.constant(operand)))
+    e.op(op)
+    e.op(RxEnd)
+    say(&e)
+    e.op(Halt)
+    finish(e)
+
+@test
+STRING_AND_CCLS_STEP_BACK_OVER_WHAT_THEY_MATCH_IN_REVERSE()
+    assert_eq(stepped_back("xñb", new_str("ñb").unwrap(), LitOfRev), "ñb\nsucceeded")
+    assert_eq(stepped_back("xab", new_str("").unwrap(), LitOfRev), "\nsucceeded")
+    assert_eq(stepped_back("xab", new_str("xb").unwrap(), LitOfRev), "failed")
+    assert_eq(stepped_back("ab", new_str("xab").unwrap(), LitOfRev), "failed")
+    assert_eq(stepped_back("añ", new_str("ñz").unwrap(), ClassOfRev), "ñ\nsucceeded")
+    assert_eq(stepped_back("ab", new_str("a").unwrap(), ClassOfRev), "failed")
+    assert_eq(stepped_back("", new_str("a").unwrap(), ClassOfRev), "failed")
+
+@test
+STRING_AND_CCLS_IN_REVERSE_FAULT_ON_WHAT_THEY_CANNOT_MATCH()
+    assert_eq(stepped_back("ab", Int(1), LitOfRev), "fault: back@7: `string` matches a string, and was given the integer 1")
+    assert_eq(stepped_back("ab", Int(1), ClassOfRev), "fault: back@7: `ccls` matches a character of a cset or a string, and was given the integer 1")
+
+@test
+LOOKAROUND_AND_BACKREFERENCES_AGREE_WITH_PCRE2_SPAN_FOR_SPAN()
+    assert_eq(corpus("lookaround.txt", false), "")
+
+@test
+LOOKBEHINDS_PCRE2_REFUSES_OR_READS_ANOTHER_WAY_MATCH_BACKWARD_FROM_THE_POSITION()
+    assert_eq(corpus("lookbehind.txt", true), "")

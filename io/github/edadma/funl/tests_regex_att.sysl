@@ -28,7 +28,8 @@ private struct Excused
     tier: string
     used: bool
 
-private read_data(name: string) -> string = read_text(Dir + name) match
+// Data file `name` under `tests/regex/`.
+regex_data(name: string) -> string = read_text(Dir + name) match
     Ok(t) -> t
     Err(e) -> panic(s"cannot read $Dir$name (run the suite from the project root): $e")
 
@@ -36,7 +37,7 @@ private read_data(name: string) -> string = read_text(Dir + name) match
 private exclusions() -> Buf[Excused]
     var out: Buf[Excused] = buf()
 
-    for row in split(read_data("exclusions.txt"), "\n")
+    for row in split(regex_data("exclusions.txt"), "\n")
         if row.bytes.len == 0 || row.bytes[0] == u8('#') then continue
 
         val cols = split(row, "\t")
@@ -60,8 +61,8 @@ private line_number(s: string) -> usize
     n
 
 // What searching for `pattern` in `subject` comes to: the spans, 0-based as the data writes them, or
-// `NOMATCH`, or why it could not be run.
-private searched(pattern: string, subject: string) -> string
+// `NOMATCH`, or why it could not be run. It runs on both heaps, which must agree.
+regex_searched(pattern: string, subject: string) -> string
     val said = ran(() -> search_chunk(pattern, subject))
 
     if said == "failed" then return "NOMATCH"
@@ -129,7 +130,7 @@ private att(name: string) -> string
     var previous = ""
     var line_no: usize = 0
 
-    for row in split(read_data(name + ".txt"), "\n")
+    for row in split(regex_data(name + ".txt"), "\n")
         line_no += 1
 
         val cols = fields(row)
@@ -144,7 +145,7 @@ private att(name: string) -> string
 
         val subject = if cols[2] == "NULL" then "" else cols[2]
         val want = normal(cols[3])
-        val got = searched(pattern, subject)
+        val got = regex_searched(pattern, subject)
         val here = s"$name.txt:$line_no (id ${cols[0]}) `$pattern` on `$subject`"
 
         var excuse = ""

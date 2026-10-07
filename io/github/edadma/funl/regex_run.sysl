@@ -23,38 +23,42 @@ popped_position(x: Value) -> Result[usize, string]
         Int(n) -> Ok(usize(n))
         _ -> Err("a regex instruction found no position on the stack")
 
-// Step over `n` characters.
-private advance(v: *Vm, n: usize) = set_scan(v, v.subject, v.pos + n)
+// The character a test looks at: the one at the position, or -- `back` -- the one before it. A string
+// is valid UTF-8, so stepping back over a character is as unambiguous as stepping forward.
+private char_next(p: *StrObj, at: usize, back: bool) -> Option[char] = if back then char_here(p, at - 1) else char_here(p, at)
 
-rx_char(v: *Vm, c: char, fold: bool) -> Result[bool, string]
+// Step over `n` characters, forward or -- `back` -- back.
+private advance(v: *Vm, n: usize, back: bool) = set_scan(v, v.subject, if back then v.pos - n else v.pos + n)
+
+rx_char(v: *Vm, c: char, fold: bool, back: bool) -> Result[bool, string]
     val p = rx_subject(v)?
 
-    char_here(p, v.pos) match
+    char_next(p, v.pos, back) match
         Some(x) ->
             if !same_char(x, c, fold) then return Ok(false)
 
-            advance(v, 1)
+            advance(v, 1, back)
             Ok(true)
         None -> Ok(false)
 
-rx_class(v: *Vm, k: usize) -> Result[bool, string]
+rx_class(v: *Vm, k: usize, back: bool) -> Result[bool, string]
     val p = rx_subject(v)?
 
     if k >= v.classes.len() then return Err(s"there is no character class $k")
 
-    char_here(p, v.pos) match
+    char_next(p, v.pos, back) match
         Some(x) ->
             if !v.classes.at(k).has(x) then return Ok(false)
 
-            advance(v, 1)
+            advance(v, 1, back)
             Ok(true)
         None -> Ok(false)
 
 // `ccls(c)`: the character at the position is in cset `c`, or is a character of string `c`.
-rx_class_of(v: *Vm, set: Value) -> Result[bool, string]
+rx_class_of(v: *Vm, set: Value, back: bool) -> Result[bool, string]
     val p = rx_subject(v)?
 
-    val x = char_here(p, v.pos) match
+    val x = char_next(p, v.pos, back) match
         Some(x) -> x
         None -> return Ok(false)
 
@@ -65,41 +69,38 @@ rx_class_of(v: *Vm, set: Value) -> Result[bool, string]
 
     if !holds then return Ok(false)
 
-    advance(v, 1)
+    advance(v, 1, back)
     Ok(true)
 
-rx_any(v: *Vm, dotall: bool) -> Result[bool, string]
+rx_any(v: *Vm, dotall: bool, back: bool) -> Result[bool, string]
     val p = rx_subject(v)?
 
-    char_here(p, v.pos) match
+    char_next(p, v.pos, back) match
         Some(x) ->
             if !dotall && x == '\n' then return Ok(false)
 
-            advance(v, 1)
+            advance(v, 1, back)
             Ok(true)
         None -> Ok(false)
 
-// `string(s)`: the subject continues with `s` at the position.
-rx_lit_of(v: *Vm, s: Value) -> Result[bool, string]
+// `string(s)`: the subject continues with `s` at the position -- or, `back`, ends with it there.
+rx_lit_of(v: *Vm, s: Value, back: bool) -> Result[bool, string]
     val p = rx_subject(v)?
 
     val text = deref(s) match
         Str(t) -> t
         other -> return Err(s"`string` matches a string, and was given ${described(other)}")
 
-    var at = v.pos
+    val n = text.chars
 
-    for c in text.s.chars
-        char_here(p, at) match
-            Some(x) -> if x != c then return Ok(false)
-            None -> return Ok(false)
+    if back
+        if v.pos <= n then return Ok(false)
 
-        at += 1
+        return compared(v, p, text, 1, n, v.pos - n, false, true)
 
-    set_scan(v, v.subject, at)
-    Ok(true)
+    compared(v, p, text, 1, n, v.pos, false, false)
 
-rx_backref(v: *Vm, n: usize, fold: bool) -> Result[bool, string]
+rx_backref(v: *Vm, n: usize, fold: bool, back: bool) -> Result[bool, string]
     val p = rx_subject(v)?
 
     if n >= v.captures.len() then return Ok(false)
@@ -108,18 +109,27 @@ rx_backref(v: *Vm, n: usize, fold: bool) -> Result[bool, string]
 
     if g.start == 0 then return Ok(false)
 
-    var at = v.pos
+    val len = g.end - g.start
 
-    for k in g.start..<g.end
-        val want = char_at(p, k - 1)
+    if back
+        if v.pos <= len then return Ok(false)
 
-        char_here(p, at) match
+        return compared(v, p, p, g.start, len, v.pos - len, fold, true)
+
+    compared(v, p, p, g.start, len, v.pos, fold, false)
+
+// Whether the `len` characters of `text` from position `from` stand in the subject `p` from position
+// `at`; if they do, the position moves past them -- to `at` going forward, or, `back`, to `at`, the
+// start of the run it stepped back over.
+private compared(v: *Vm, p: *StrObj, text: *StrObj, from: usize, len: usize, at: usize, fold: bool, back: bool) -> Result[bool, string]
+    for k in 0..<len
+        val want = char_at(text, from - 1 + k)
+
+        char_here(p, at + k) match
             Some(x) -> if !same_char(x, want, fold) then return Ok(false)
             None -> return Ok(false)
 
-        at += 1
-
-    set_scan(v, v.subject, at)
+    set_scan(v, v.subject, if back then at else at + len)
     Ok(true)
 
 rx_assert(v: *Vm, a: Anchor) -> Result[bool, string]

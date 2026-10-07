@@ -3,8 +3,8 @@ module io.github.edadma.funl
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
 
-// Patterns compiled forward into the machine's instructions, and the pattern combinators read into
-// the same trees a regex literal is.
+// Patterns compiled into the machine's instructions, forward and in reverse, and the pattern
+// combinators read into the same trees a regex literal is.
 //
 // **A pattern is ordinary code, so it backtracks with the program around it**: an alternative is a
 // `Choice`, a repetition's "one more turn or stop" is a `Choice`, and lookahead and atomic groups
@@ -19,6 +19,8 @@ import sysl.buf.{Buf, buf}
 //     p{lo,hi}           PushInt(0); top: RepNext(lo, hi, exit); SavePos; p; RepStep(top, lo); exit: Pop
 //     (?=p)              Barrier; SavePos; p; RestorePos; CutTo
 //     (?!p)              Barrier; Choice(ok); p; CutTo; Fail; ok: Pop
+//     (?<=p)             Barrier; SavePos; p in reverse; RestorePos; CutTo
+//     (?<!p)             Barrier; Choice(ok); p in reverse; CutTo; Fail; ok: Pop
 //     (?>p), p*+         Barrier; p; CutTo
 //     ccls(e)            e; ClassOf
 //     string(e)          e; LitOf
@@ -110,7 +112,7 @@ combinator(c: Ctx, n: string, args: Buf[&Expr]) -> Result[Parsed, string]
 compile_pattern_value(e: *Emit, c: Ctx, p: &Pat, groups: usize) -> Result[unit, string]
     e.op(RxBegin(groups))
     e.op(SavePos)
-    compile_pat(e, Some(c), p)?
+    compile_pat(e, Some(c), p, false)?
     e.op(RxEnd)
     Ok(())
 
@@ -118,28 +120,37 @@ compile_pattern_value(e: *Emit, c: Ctx, p: &Pat, groups: usize) -> Result[unit, 
 // can be, and from the next one on backtracking. Group 0 is the match; the text is its value.
 compile_search(e: *Emit, p: &Pat, groups: usize) -> Result[unit, string]
     e.op(RxBegin(groups))
-    compile_pat(e, None, pat(PRepeat(pat(PAny(true)), 0, Unbounded, Lazy)))?
+    compile_pat(e, None, pat(PRepeat(pat(PAny(true)), 0, Unbounded, Lazy)), false)?
     e.op(SavePos)
-    compile_pat(e, None, p)?
+    compile_pat(e, None, p, false)?
     e.op(RxEnd)
     Ok(())
 
-// Pattern `p`'s instructions. `c` compiles the expressions inside a combinator's pattern; a pattern
-// read from a literal has none.
-compile_pat(e: *Emit, c: Option[Ctx], p: &Pat) -> Result[unit, string]
+// Pattern `p`'s instructions, matching forward from the position -- or, `back`, backward from it, as
+// a lookbehind's body is matched. `c` compiles the expressions inside a combinator's pattern; a
+// pattern read from a literal has none.
+//
+// **Reverse is the same pattern read from its other end**: a sequence's parts are compiled last part
+// first, each character test steps back over the character before the position, and a group is
+// entered at its end. Alternatives are still tried in the order written, a repetition is still
+// greedy or lazy as written, and the anchors look at the position whichever way it is moving. A
+// lookaround inside sets its own direction -- ahead is forward, behind is backward -- whichever the
+// pattern around it is going, which is what lets a lookbehind be any pattern at all: it is not
+// matched by guessing where it starts, but backward from where it ends.
+compile_pat(e: *Emit, c: Option[Ctx], p: &Pat, back: bool) -> Result[unit, string]
     *p match
         PEmpty -> ()
-        PChar(ch, fold) -> e.op(Char(ch, fold))
-        PAny(dotall) -> e.op(AnyChar(dotall))
+        PChar(ch, fold) -> e.op(if back then CharRev(ch, fold) else Char(ch, fold))
+        PAny(dotall) -> e.op(if back then AnyCharRev(dotall) else AnyChar(dotall))
         PSet(k) ->
             val v = current()
 
             v.classes.push(k)
-            e.op(Class(v.classes.len() - 1))
+            e.op(if back then ClassRev(v.classes.len() - 1) else Class(v.classes.len() - 1))
         PAnchor(a) -> e.op(Assert(a))
         PSeq(items) ->
-            for x in items.view()
-                compile_pat(e, c, x)?
+            for i in 0..<items.len()
+                compile_pat(e, c, items.at(if back then items.len() - 1 - i else i), back)?
         PAlt(items) ->
             val end = e.label()
 
@@ -148,27 +159,25 @@ compile_pat(e: *Emit, c: Option[Ctx], p: &Pat) -> Result[unit, string]
                     val next = e.label()
 
                     e.op(Choice(next))
-                    compile_pat(e, c, items.at(i))?
+                    compile_pat(e, c, items.at(i), back)?
                     e.op(Branch(end))
                     e.place(next)
                 else
-                    compile_pat(e, c, items.at(i))?
+                    compile_pat(e, c, items.at(i), back)?
 
             e.place(end)
         PGroup(n, body) ->
             e.op(GroupStart)
-            compile_pat(e, c, body)?
-            e.op(GroupEnd(n))
-        PRepeat(body, lo, hi, greed) -> repeat(e, c, body, lo, hi, greed)?
+            compile_pat(e, c, body, back)?
+            e.op(if back then GroupEndRev(n) else GroupEnd(n))
+        PRepeat(body, lo, hi, greed) -> repeat(e, c, body, lo, hi, greed, back)?
         PLook(body, ahead, negated) ->
-            if !ahead then return Err("lookbehind is matched in reverse, which is not compiled yet")
-
             if negated
                 val ok = e.label()
 
                 e.op(Barrier)
                 e.op(Choice(ok))
-                compile_pat(e, c, body)?
+                compile_pat(e, c, body, !ahead)?
                 e.op(CutTo)
                 e.op(Fail)
                 e.place(ok)
@@ -176,20 +185,20 @@ compile_pat(e: *Emit, c: Option[Ctx], p: &Pat) -> Result[unit, string]
             else
                 e.op(Barrier)
                 e.op(SavePos)
-                compile_pat(e, c, body)?
+                compile_pat(e, c, body, !ahead)?
                 e.op(RestorePos)
                 e.op(CutTo)
         PAtomic(body) ->
             e.op(Barrier)
-            compile_pat(e, c, body)?
+            compile_pat(e, c, body, back)?
             e.op(CutTo)
-        PBackref(n, fold) -> e.op(Backref(n, fold))
+        PBackref(n, fold) -> e.op(if back then BackrefRev(n, fold) else Backref(n, fold))
         PExprSet(x) ->
             compile_value(e, in_pattern(c)?, x)?
-            e.op(ClassOf)
+            e.op(if back then ClassOfRev else ClassOf)
         PExprString(x) ->
             compile_value(e, in_pattern(c)?, x)?
-            e.op(LitOf)
+            e.op(if back then LitOfRev else LitOf)
 
     Ok(())
 end compile_pat
@@ -199,10 +208,10 @@ private in_pattern(c: Option[Ctx]) -> Result[Ctx, string]
         Some(x) -> Ok(x)
         None -> Err("a pattern holding an expression was compiled with nothing to compile it in")
 
-private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed: Greed) -> Result[unit, string]
+private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed: Greed, back: bool) -> Result[unit, string]
     if greed == Possessive
         e.op(Barrier)
-        repeat(e, c, body, lo, hi, Greedy)?
+        repeat(e, c, body, lo, hi, Greedy, back)?
         e.op(CutTo)
         return Ok(())
 
@@ -218,7 +227,7 @@ private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed
         else
             e.op(Choice(skip))
 
-        compile_pat(e, c, body)?
+        compile_pat(e, c, body, back)?
         e.place(skip)
         return Ok(())
 
@@ -229,7 +238,7 @@ private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed
     e.place(top)
     e.op(RepNext(lo, hi, exit, greed == Lazy))
     e.op(SavePos)
-    compile_pat(e, c, body)?
+    compile_pat(e, c, body, back)?
     e.op(RepStep(top, lo))
     e.place(exit)
     e.op(Pop)

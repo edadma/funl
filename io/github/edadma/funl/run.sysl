@@ -375,12 +375,23 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         ScanLeave(n) ->
             close_scans(v, n)?
             Ok(Next)
-        Char(c, fold) -> Ok(fails_if(rx_char(v, c, fold)?))
-        Class(k) -> Ok(fails_if(rx_class(v, k)?))
-        ClassOf -> Ok(fails_if(rx_class_of(v, pop(v)?)?))
-        AnyChar(dotall) -> Ok(fails_if(rx_any(v, dotall)?))
-        LitOf -> Ok(fails_if(rx_lit_of(v, pop(v)?)?))
-        Backref(n, fold) -> Ok(fails_if(rx_backref(v, n, fold)?))
+        Char(c, fold) -> Ok(fails_if(rx_char(v, c, fold, false)?))
+        Class(k) -> Ok(fails_if(rx_class(v, k, false)?))
+        ClassOf -> Ok(fails_if(rx_class_of(v, pop(v)?, false)?))
+        AnyChar(dotall) -> Ok(fails_if(rx_any(v, dotall, false)?))
+        LitOf -> Ok(fails_if(rx_lit_of(v, pop(v)?, false)?))
+        Backref(n, fold) -> Ok(fails_if(rx_backref(v, n, fold, false)?))
+        CharRev(c, fold) -> Ok(fails_if(rx_char(v, c, fold, true)?))
+        ClassRev(k) -> Ok(fails_if(rx_class(v, k, true)?))
+        ClassOfRev -> Ok(fails_if(rx_class_of(v, pop(v)?, true)?))
+        AnyCharRev(dotall) -> Ok(fails_if(rx_any(v, dotall, true)?))
+        LitOfRev -> Ok(fails_if(rx_lit_of(v, pop(v)?, true)?))
+        BackrefRev(n, fold) -> Ok(fails_if(rx_backref(v, n, fold, true)?))
+        GroupEndRev(n) ->
+            val end = popped_position(pop(v)?)?
+
+            set_capture(v, n, GroupSpan(v.pos, end))
+            Ok(Next)
         GroupStart ->
             v.stack.push(Int(long(v.pos)))
             Ok(Next)

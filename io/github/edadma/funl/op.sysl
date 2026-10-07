@@ -314,6 +314,18 @@ enum Op
     // Pop where group `n` began: it has captured from there to the position.
     GroupEnd(n: usize)
 
+    // The reverse of each of the above, which a lookbehind is compiled to: the character, text or
+    // group stands *before* the position, and the position steps back over it. A group matched in
+    // reverse is entered at its end, so `GroupStart` pushes where it ends and `GroupEndRev` pops that:
+    // group `n` has captured from the position to there.
+    CharRev(c: char, fold: bool)
+    ClassRev(k: usize)
+    ClassOfRev
+    AnyCharRev(dotall: bool)
+    LitOfRev
+    BackrefRev(n: usize, fold: bool)
+    GroupEndRev(n: usize)
+
     // The position is where the anchor says.
     Assert(a: Anchor)
 

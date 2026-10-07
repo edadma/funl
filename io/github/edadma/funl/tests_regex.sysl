@@ -49,6 +49,12 @@ LOOKAHEAD_TESTS_WITHOUT_MOVING_AND_AN_ATOMIC_GROUP_KEEPS_ITS_FIRST_MATCH()
     assert_eq(ran_funl(text), "price\n: 10\na\nno\natomic\naab\nsucceeded")
 
 @test
+LOOKBEHIND_READS_BACKWARD_FROM_THE_POSITION_WITHOUT_MOVING_IT()
+    val text = "'price: 10' ? (tab(8) & `(?<=: )` & write(tab(0)))\n'ab' ? (tab(2) & write(`(?<!a)b` | 'an a comes before'))\nwrite('xaab' ? (tab(4) & `(?<=(?<!b)a+)b`))\n'ñab' ? (tab(3) & write(`(?<=^\\w+)b` | 'no'))\nevery 'aab' ? (tab(3) & `(?<=(a+))b` & write(tab(0) | 'end'))\n"
+
+    assert_eq(ran_funl(text), "10\nan a comes before\nb\nb\nend\nsucceeded")
+
+@test
 FLAGS_SET_CASE_DOTALL_MULTILINE_AND_EXTENDED_FOR_THE_REST_OF_THEIR_GROUP()
     val text = "write('HeLLo' ? `(?i)hello`)\nwrite('HeLLo' ? `(?i:h)ELLO` | 'case is back')\nwrite('a\\nb' ? `a.b` | 'dot stops at a newline')\nwrite('a\\nb' ? `(?s)a.b` | 'no')\nwrite('x\\ny' ? `x$` | 'no')\nwrite('x\\ny' ? `(?m)x$\\n^y` | 'no')\nwrite('aaab' ? `(?x) a +  b # the a's, then b` | 'no')\nwrite('a b' ? `(?x)a\\ b`)\n"
 
@@ -120,8 +126,10 @@ A_BACKREFERENCE_TO_A_GROUP_THE_PATTERN_DOES_NOT_HAVE_IS_REFUSED()
     assert_eq(complaints("'a' ? `(?<x>a)(?<x>b)`\n"), "error 1:15 two groups are named `x`\n")
 
 @test
-LOOKBEHIND_IS_REFUSED_UNTIL_PATTERNS_ARE_COMPILED_IN_REVERSE()
-    assert_eq(complaints("'a' ? `(?<=a)b`\n"), "error 1:8 lookbehind is not supported yet\n")
+A_LOOKBEHIND_NOT_CLOSED_IS_REFUSED_WHERE_IT_OPENS()
+    assert_eq(complaints("'a' ? `(?<=a`\n"), "error 1:8 this group is not closed\n")
+    assert_eq(complaints("'a' ? `b(?<!`\n"), "error 1:9 this group is not closed\n")
+    assert_eq(complaints("'a' ? `(?<=a)\\2`\n"), "error 1:14 this refers to group 2, and the pattern has no groups\n")
 
 @test
 A_REGEX_NOT_CLOSED_ON_ITS_LINE_IS_REFUSED_WHERE_IT_OPENS()

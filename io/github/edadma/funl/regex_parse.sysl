@@ -315,7 +315,14 @@ private group(p: *RxParser) -> Result[Option[&Pat], RxError]
         return Ok(Some(pat(PLook(body, true, kind == u8('!')))))
 
     if kind == u8('<') && (p.peek_at(1) == u8('=') || p.peek_at(1) == u8('!'))
-        return fail_at(open, 4, "lookbehind is not supported yet", "it is matched backwards from the position, which this engine does not compile yet")
+        val negated = p.peek_at(1) == u8('!')
+
+        p.at += 2
+
+        val body = closed_body(p, open)?
+
+        restore_flags(p, fold, multiline, dotall, extended)
+        return Ok(Some(pat(PLook(body, false, negated))))
 
     if kind == u8('<') || kind == u8('\'') || (kind == u8('P') && p.peek_at(1) == u8('<'))
         if kind == u8('P') then p.at += 1
