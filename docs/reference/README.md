@@ -13,12 +13,15 @@ the language cannot disagree for long.
 | page | what it covers |
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Generators](generators.md) | expressions with many values, backtracking, `!`, `\|`, `to`, ranges, `&`, searches, bounded expressions, `every`, `for`, `break`/`continue` and labels |
 | [Assignment and scope](assignment.md) | `=`, compound assignment, `++`/`--`, multiple assignment, `val` and `var`, block scope, reversible assignment `<-`, `in` and `not in` |
 | [Data](data.md) | tuples, lists, maps, sets, comprehensions, arrays, buffers, maps with a default, records, `undefined`, types and `is` |
 | [Functions](functions.md) | `def`, lambdas, operator sections, clauses and guards, patterns, `where`, generator functions, `yield` and `return`, partial function literals |
 | [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max` |
+| [Relations](relations.md) | logic variables, unification `~`, atoms, facts and rules, two-way head unification, calling between functions and relations, negation, `findall`/`bagof`/`setof` |
 | [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
 | [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |
+| [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
 
 ## How a page is checked
 

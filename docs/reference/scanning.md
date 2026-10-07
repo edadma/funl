@@ -155,8 +155,8 @@ a
 
 ## Leaving a scan
 
-However control leaves `s ? e` — with its value, by failing, or by `return` — the subject
-and position that were in force before it are in force again. A scan inside another one does not
+However control leaves `s ? e` — with its value, by failing, or by `return`, `break`, `continue` or
+`yield` — the subject and position that were in force before it are in force again. A scan inside another one does not
 disturb the outer one:
 
 ```funl
@@ -173,6 +173,51 @@ in
 ou
 a
 x
+```
+
+`break`, `continue` and `yield` leave a scan the same way. A `break` or `continue` in a loop body
+leaves the scans inside the loop, and the loop's own subject and position are in force again:
+
+```funl
+'outer' ?
+  for i <- 1..3
+    'inner' ? (move(1) & (if i == 2 then continue))
+    write( move(1) )
+  write( tab(0) )
+
+'outer' ?
+  for i <- 1..3
+    'inner' ? (move(1) & (if i == 2 then break))
+    write( move(1) )
+  write( tab(0) )
+```
+
+```output
+o
+u
+ter
+o
+uter
+```
+
+A `yield` from inside a scan gives the caller its own scan back. Resuming the generator gives it the
+scan again, at the position it had:
+
+```funl
+def g()
+  'abc' ?
+    move(1)
+    yield move(1)
+    yield tab(0)
+  yield 'done'
+
+'outer' ? (tab(2) & every write( g(), tab(0) ))
+```
+
+```output
+b, uter
+bc, uter
+done, uter
 ```
 
 ## `?=`

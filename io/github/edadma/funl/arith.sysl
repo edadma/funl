@@ -172,6 +172,14 @@ described(x: Value) -> string
         Unit -> "()"
         Undefined -> "undefined"
         Func(_) -> "a function"
+        Atom(_) -> s"the atom ${render(x)}"
+        Nil -> "the empty list"
+        Cons(_) -> s"the list ${render(x)}"
+        Tuple(_) -> s"the tuple ${render(x)}"
+        Compound(_) -> s"the record ${render(x)}"
+        Range(_) -> s"the range ${render(x)}"
+        Ctor(_) -> "a record constructor"
+        CSet(_) -> "a cset"
         Var(_) -> "an unbound variable"
         y -> render(y)
 
