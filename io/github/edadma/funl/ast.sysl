@@ -1,0 +1,81 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.Buf
+
+// The tree the parser builds and the resolver and compiler read.
+//
+// **A name is kept as its spelling here**; what it means -- a slot, a relation, a builtin, a fresh
+// logic variable -- is the resolver's answer, asked by the compiler.
+
+enum ExprKind
+    // A name in value position.
+    Ref(name: string)
+
+    // `_`: a new anonymous variable at each occurrence.
+    Anon
+
+    AtomE(name: string)
+    IntE(n: long)
+    StrE(s: string)
+
+    // `name(args)`: a call, or in a head a compound term.
+    CallE(name: string, name_span: Span, args: Buf[&Expr])
+
+    // `a & b`, `a | b`, `not e`.
+    Conj(a: &Expr, b: &Expr)
+    Disj(a: &Expr, b: &Expr)
+    Neg(e: &Expr)
+
+    // `a ~ b`, `a == b`, `a != b`: each produces `b` when it holds.
+    UnifyE(a: &Expr, b: &Expr)
+    EqualE(a: &Expr, b: &Expr)
+    DifferE(a: &Expr, b: &Expr)
+
+    // `if c then t else e`; with no `else`, the `if` fails when `c` does.
+    IfE(cond: &Expr, yes: &Expr, no: Option[&Expr])
+
+    // `every e do b`: drives `e` through all its values, running `b` bounded for each, then fails.
+    EveryE(gen: &Expr, body: Option[&Expr])
+
+    // An indented run of statements, each bounded but the last, whose value is the block's.
+    BlockE(stmts: Buf[Stmt])
+
+    // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
+    BadE
+end ExprKind
+
+struct Expr
+    kind: ExprKind
+    span: Span
+
+expr(kind: ExprKind, span: Span) -> &Expr = Expr(kind, span)
+
+// A statement: a declaration of logic variables, or an expression run bounded.
+enum Stmt
+    FreeS(names: Buf[Spanned[string]])
+    ExprS(e: &Expr)
+
+// Which kind of definition a clause makes.
+enum ClauseKind
+    // `def name(args)`: a fact.
+    Fact
+
+    // `def name(args) :- body`: a rule.
+    Rule(body: &Expr)
+
+    // `def name(args) = body`: a function clause.
+    FunctionC(body: &Expr)
+
+// One clause of a definition. The head's arguments are expressions -- a variable, a constant or a
+// term -- and the resolver refuses anything else.
+struct Clause
+    name: string
+    head: Span
+    params: Buf[&Expr]
+    kind: ClauseKind
+
+// What a file holds, in order: its clauses, wherever they were written, and its statements.
+struct Program
+    clauses: Buf[Clause]
+    stmts: Buf[Stmt]

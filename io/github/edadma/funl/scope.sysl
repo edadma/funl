@@ -1,0 +1,297 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+import sysl.text.Search
+
+// The resolver: what every name in a program means, decided before anything is compiled.
+//
+// **Definitions are hoisted.** Every clause in the file, wherever it is written, joins the
+// definition of its name before any body is read, so a rule may call one written after it. A
+// definition is one kind or the other: facts and `:-` rules make a relation, `=` clauses a function,
+// and a name with both is refused naming both clauses.
+//
+// **In a relation, a name that is not otherwise in scope is a logic variable of the clause** --
+// `logic.md`'s rule. A head parameter is one; a name naming a relation or a builtin means that
+// thing; any other name is a fresh variable of the clause; `_` is a new one at each occurrence. A
+// relation is hoisted, so the statements of the top level -- and the variables they declare -- are
+// not in its scope. **A clause variable written once is warned about**, unless its name starts with
+// `_`.
+//
+// **At the top level a name must be declared**, by `free`, before it is read.
+
+// One definition: its clauses, in the order the file gives them.
+struct Rel
+    name: string
+    arity: usize
+    clauses: Buf[Clause]
+
+    // The chunk it is compiled into, reserved once the definition is known to be a relation.
+    chunk: usize
+
+// The names of one clause, or of the top level, numbered as slots of its frame.
+struct Scope
+    slots: Map[string, usize]
+
+    // Each name's first occurrence, in slot order.
+    names: Buf[Spanned[string]]
+
+    // How many times each name is written, for the singleton warning.
+    uses: Map[string, usize]
+
+    // Slots below this are bound by the clause's head; those from here up are made fresh when the
+    // clause is entered.
+    head: usize
+
+    count(self) -> usize = self.names.len()
+
+    // The slot of `name`, making one if this is its first occurrence.
+    note(*self, name: string, at: Span) -> usize
+        val n = self.uses.get(name) match
+            Some(k) -> k
+            None -> 0
+
+        self.uses.put(name, n + 1)
+
+        self.slots.get(name) match
+            Some(s) -> s
+            None ->
+                val s = self.names.len()
+
+                self.slots.put(name, s)
+                self.names.push(Spanned(name, at))
+                s
+    end note
+
+    slot(self, name: string) -> Option[usize] = self.slots.get(name)
+end Scope
+
+scope() -> Scope = Scope(map(), buf(), map(), 0)
+
+// What the resolver decided about a whole program.
+struct Resolved
+    rels: Buf[Rel]
+    by_name: Map[string, usize]
+
+    // For each relation, a scope per clause.
+    scopes: Buf[Buf[Scope]]
+
+    top: Scope
+
+    // The top level's statements, in order.
+    top_stmts: Buf[Stmt]
+
+    // The relation called `name`, if there is one.
+    rel(self, name: string) -> Option[Rel] = self.by_name.get(name) match
+        Some(i) -> Some(self.rels.at(i))
+        None -> None
+end Resolved
+
+// Resolve `prog`, adding every refusal and warning to `report`.
+resolve(prog: Program, report: *Report) -> Resolved
+    var rels: Buf[Rel] = buf()
+    var by_name: Map[string, usize] = map()
+
+    for c in prog.clauses.view()
+        by_name.get(c.name) match
+            None ->
+                var cs: Buf[Clause] = buf()
+
+                cs.push(c)
+                by_name.put(c.name, rels.len())
+                rels.push(Rel(c.name, c.params.len(), cs, 0))
+            Some(i) ->
+                var r = rels.at(i)
+                val first = r.clauses.at(0)
+
+                if is_function(first.kind) != is_function(c.kind)
+                    report.add(error(c.head, s"`${c.name}` mixes a function clause with relation clauses")
+                        .with_label(s"this is ${kind_text(c.kind)}")
+                        .with_note("a definition is one kind or the other: facts and `:-` rules make a relation, `=` clauses a function"))
+                    report.add(Diagnostic(Note, first.head, s"`${c.name}` is first defined here, by ${kind_text(first.kind)}", "", ""))
+                elif c.params.len() != r.arity
+                    report.add(error(c.head, s"`${c.name}` was defined with ${counted(r.arity, "argument")}, and this clause has ${c.params.len()}")
+                        .with_note("every clause of a definition takes the same number of arguments"))
+                else
+                    r.clauses.push(c)
+                    rels.set(i, r)
+
+    var scopes: Buf[Buf[Scope]] = buf()
+
+    for i in 0..<rels.len()
+        var r = rels.at(i)
+
+        if is_function(r.clauses.at(0).kind)
+            report.add(error(r.clauses.at(0).head, s"`${r.name}` is a function, and this build compiles relations only")
+                .with_note("a relation's clauses are facts, `def f(x)`, or rules, `def f(x) :- body`"))
+        else
+            r.chunk = reserve_chunk(r.name)
+            rels.set(i, r)
+
+        scopes.push(buf())
+
+    var res = Resolved(rels, by_name, scopes, scope(), prog.stmts)
+
+    for i in 0..<res.rels.len()
+        val r = res.rels.at(i)
+
+        if is_function(r.clauses.at(0).kind) then continue
+
+        var per: Buf[Scope] = buf()
+
+        for c in r.clauses.view()
+            per.push(clause_scope(&res, c, report))
+
+        res.scopes.set(i, per)
+
+    var top = scope()
+
+    for s in prog.stmts.view()
+        walk_stmt(&res, &top, s, false, report)
+
+    res.top = top
+    res
+end resolve
+
+private is_function(k: ClauseKind) -> bool = k match
+    FunctionC(_) -> true
+    _ -> false
+
+private kind_text(k: ClauseKind) -> string = k match
+    Fact -> "a fact"
+    Rule(_) -> "a rule"
+    FunctionC(_) -> "a function clause, written with `=`"
+
+// The scope of one relation clause: its head's variables first, then its body's, and a warning for
+// each written only once.
+private clause_scope(r: *Resolved, c: Clause, report: *Report) -> Scope
+    var sc = scope()
+
+    for p in c.params.view()
+        walk_head(&sc, p, report)
+
+    sc.head = sc.count()
+
+    c.kind match
+        Rule(body) -> walk(r, &sc, body, true, report)
+        _ -> ()
+
+    for named in sc.names.view()
+        val n = named.value
+
+        if sc.uses.get(n) == Some(1) && !n.starts_with("_")
+            report.add(warning(named.span, s"`$n` appears only once in this clause of `${c.name}`")
+                .with_label("written once")
+                .with_note(s"a variable written once is usually a misspelling of another; `_$n` says the single occurrence is intended"))
+
+    sc
+end clause_scope
+
+// A head argument: a variable, `_`, a constant, or a term of those.
+private walk_head(sc: *Scope, p: &Expr, report: *Report)
+    p.kind match
+        Ref(n) -> sc.note(n, p.span)
+        Anon -> ()
+        AtomE(_) -> ()
+        IntE(_) -> ()
+        StrE(_) -> ()
+        CallE(_, _, args) ->
+            for a in args.view()
+                walk_head(sc, a, report)
+        BadE -> ()
+        _ ->
+            report.add(error(p.span, "a head argument is a variable, a constant or a term")
+                .with_note("a goal belongs in the body, after `:-`"))
+end walk_head
+
+private walk_stmt(r: *Resolved, sc: *Scope, s: Stmt, relation: bool, report: *Report)
+    s match
+        FreeS(names) ->
+            for named in names.view()
+                if is_global(r, named.value)
+                    report.add(error(named.span, s"`${named.value}` is already a relation or a builtin, and cannot also be a variable"))
+                else
+                    sc.note(named.value, named.span)
+        ExprS(e) -> walk(r, sc, e, relation, report)
+
+// An expression's names, in a relation clause (`relation`) or at the top level.
+private walk(r: *Resolved, sc: *Scope, e: &Expr, relation: bool, report: *Report)
+    e.kind match
+        Ref(n) ->
+            if is_global(r, n)
+                report.add(error(e.span, s"`$n` is a relation or a builtin, which is called rather than used as a value")
+                    .with_label(s"called as `$n(...)`"))
+            elif relation
+                sc.note(n, e.span)
+            elif sc.slot(n).is_some()
+                sc.note(n, e.span)
+            else
+                report.add(error(e.span, s"`$n` is not defined")
+                    .with_note(s"a logic variable is declared before it is used: `free $n`"))
+        CallE(n, at, args) ->
+            callable(r, n, at, args.len(), report)
+
+            for a in args.view()
+                walk(r, sc, a, relation, report)
+        Conj(a, b) -> walk_two(r, sc, a, b, relation, report)
+        Disj(a, b) -> walk_two(r, sc, a, b, relation, report)
+        UnifyE(a, b) -> walk_two(r, sc, a, b, relation, report)
+        EqualE(a, b) -> walk_two(r, sc, a, b, relation, report)
+        DifferE(a, b) -> walk_two(r, sc, a, b, relation, report)
+        Neg(x) -> walk(r, sc, x, relation, report)
+        IfE(c, y, n) ->
+            walk_two(r, sc, c, y, relation, report)
+
+            n match
+                Some(x) -> walk(r, sc, x, relation, report)
+                None -> ()
+        EveryE(g, body) ->
+            walk(r, sc, g, relation, report)
+
+            body match
+                Some(x) -> walk(r, sc, x, relation, report)
+                None -> ()
+        BlockE(stmts) ->
+            for s in stmts.view()
+                walk_stmt(r, sc, s, relation, report)
+        _ -> ()
+end walk
+
+private walk_two(r: *Resolved, sc: *Scope, a: &Expr, b: &Expr, relation: bool, report: *Report)
+    walk(r, sc, a, relation, report)
+    walk(r, sc, b, relation, report)
+
+private is_global(r: *Resolved, n: string) -> bool = r.by_name.get(n).is_some() || native_id(n).is_some()
+
+// A call names a relation or a builtin, with as many arguments as it takes.
+private callable(r: *Resolved, n: string, at: Span, argc: usize, report: *Report)
+    val arity = r.rel(n) match
+        Some(rel) -> rel.arity
+        None ->
+            native_id(n) match
+                Some(id) -> current().natives.at(id).arity
+                None ->
+                    var d = error(at, s"`$n` is not defined").with_label("called here")
+
+                    nearest_name(n, global_names(r)) match
+                        Some(near) -> d = d.with_note(s"did you mean `$near`?")
+                        None -> ()
+
+                    report.add(d)
+                    return
+
+    if argc != arity
+        report.add(error(at, s"`$n` takes ${counted(arity, "argument")}, and this call gives $argc"))
+end callable
+
+private global_names(r: *Resolved) -> Buf[string]
+    var names: Buf[string] = buf()
+
+    for rel in r.rels.view()
+        names.push(rel.name)
+
+    for nat in current().natives.view()
+        names.push(nat.name)
+
+    names

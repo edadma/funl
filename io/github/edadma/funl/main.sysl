@@ -1,15 +1,68 @@
 module io.github.edadma.funl
 
-// The driver. The front end is not written yet, so the command answers with how it will be used
-// and a status a shell can tell from success.
+import sh.sysl.parsing.{full_report, source_of}
+import sysl.fs.read_text
+
+// The driver: `funl <program.fl>` compiles the program, runs it, and prints what it wrote.
+//
+// **The status says which of three things happened**: 0 for a program that ran, 1 for one that was
+// refused or faulted -- the diagnostics are on standard error -- and 2 when `funl` could not work out
+// what it was asked to do.
 
 const FunlVersion: string = "0.0.1"
+
+// The heap a program runs in, and the collector's schedule over it.
+private const HeapBytes: usize = 268435456
+private const CollectFloor: usize = 4194304
+private const Growth: usize = 2
 
 main(args: []string)
     if args.len > 1 && args[1] == "--version"
         print(s"funl $FunlVersion")
         return
 
-    print("usage: funl <program.fl>  (the front end is not built yet)")
-    exit(2)
+    if args.len != 2
+        eprints("usage: funl <program.fl>\n")
+        exit(2)
+
+    val file = args[1]
+
+    val text = read_text(file) match
+        Ok(t) -> t
+        Err(e) ->
+            eprints(s"funl: cannot read $file: $e\n")
+            exit(2)
+
+    exit(run_file(file, text))
 end main
+
+// Compile and run `text`, read from `file`; the status to exit with.
+private run_file(file: string, text: string) -> int
+    val src = source_of(file, text)
+    var v = new_vm(HeapBytes, CollectFloor, Growth)
+    val was = enter(&v)
+    var report = full_report()
+    var status = 0
+
+    val chunk = compile_program(src, &report)
+
+    if !report.is_empty() then eprints(report.render(src))
+
+    chunk match
+        None -> status = 1
+        Some(at) ->
+            val outcome = run(&v, at)
+
+            for line in v.output.view()
+                print(line)
+
+            outcome match
+                Faulted(m) ->
+                    eprints(s"funl: $m\n")
+                    status = 1
+                _ -> ()
+
+    dispose_vm(&v)
+    leave(was)
+    status
+end run_file

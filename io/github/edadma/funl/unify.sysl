@@ -1,5 +1,7 @@
 module io.github.edadma.funl
 
+import sysl.buf.{Buf, buf}
+
 // Unification, and the head-unification instructions built on it.
 //
 // **Iterative, with an explicit work list**, so a deep term cannot overflow the sysl stack. The list
@@ -192,3 +194,78 @@ private push_args(v: *Vm, c: *CompoundObj)
     while i > 0
         i -= 1
         v.stack.push(c.args.at(i))
+
+// -- equality ------------------------------------------------------------------------------------
+
+// Whether `a` and `b` are equal values, for `==` and `!=` (`op`, named in the error).
+//
+// **Equality binds nothing, so an unbound variable cannot be compared** and is an instantiation
+// error. Kinds are compared before values, as unification compares them. Iterative over a work list
+// of its own, which nothing can collect while it runs: equality allocates nothing.
+equal_values(a: Value, b: Value, op: string) -> Result[bool, string]
+    var work: Buf[Value] = buf()
+
+    work.push(a)
+    work.push(b)
+
+    while work.len() > 0
+        val y = deref(work.pop().unwrap())
+        val x = deref(work.pop().unwrap())
+
+        if unbound(x) || unbound(y) then return Err(s"instantiation error: '$op' was given an unbound variable")
+
+        if identical(x, y) then continue
+
+        val same = x match
+            Undefined -> y match
+                Undefined -> true
+                _ -> false
+            Unit -> y match
+                Unit -> true
+                _ -> false
+            Nil -> y match
+                Nil -> true
+                _ -> false
+            Int(n) -> y match
+                Int(m) -> n == m
+                _ -> false
+            Atom(i) -> y match
+                Atom(j) -> i == j
+                _ -> false
+            Str(p) -> y match
+                Str(q) -> p.s == q.s
+                _ -> false
+            Compound(p) -> y match
+                Compound(q) -> both(&work, p.functor == q.functor, p.args.view(), q.args.view())
+                _ -> false
+            Tuple(p) -> y match
+                Tuple(q) -> both(&work, true, p.items.view(), q.items.view())
+                _ -> false
+            Cons(p) -> y match
+                Cons(q) ->
+                    work.push(p.head)
+                    work.push(q.head)
+                    work.push(p.tail)
+                    work.push(q.tail)
+                    true
+                _ -> false
+            Var(_) -> false
+
+        if !same then return Ok(false)
+
+    Ok(true)
+end equal_values
+
+private unbound(x: Value) -> bool = x match
+    Var(p) -> !p.bound
+    _ -> false
+
+// Push each pair of parts of two terms whose heads already agree (`heads`) and whose arity does.
+private both(work: *Buf[Value], heads: bool, xs: []Value, ys: []Value) -> bool
+    if !heads || xs.len != ys.len then return false
+
+    for i in 0..<xs.len
+        work.push(xs[i])
+        work.push(ys[i])
+
+    true

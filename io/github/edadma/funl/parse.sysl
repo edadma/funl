@@ -1,0 +1,291 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// The parser: the token cursor, the report, and the forms that are not expressions -- statements,
+// `free`, and definitions with their clauses.
+//
+// **A parse error is a node and a diagnostic**, never a stop: the statement it is in is skipped to
+// the end of its line and parsing goes on, so one pass reports every mistake in a file.
+
+struct Parser
+    toks: Tokens[Tok]
+    report: *Report
+    src: Source
+
+    // How deeply expressions are nested, which `parse_expr` bounds.
+    depth: usize
+
+    // **Not `private`: the expression callbacks in `parse_expr.sysl` use these.**
+
+    // The token at the cursor, if any.
+    peek_tok(self) -> Option[Tok] = self.toks.peek() match
+        Some(t) -> Some(t.value)
+        None -> None
+
+    // Whether the token at the cursor is of `k`'s kind; payloads are not compared.
+    at_tok(self, k: Tok) -> bool = self.peek_tok() match
+        Some(t) -> tag(t) == tag(k)
+        None -> false
+
+    // Whether the token after the cursor is of `k`'s kind.
+    next_is(self, k: Tok) -> bool = self.toks.peek_at(1) match
+        Some(t) -> tag(t.value) == tag(k)
+        None -> false
+
+    // Take the token at the cursor if it is of `k`'s kind.
+    accept(*self, k: Tok) -> bool
+        if !self.at_tok(k) then return false
+
+        self.toks.advance()
+        true
+
+    // Take a `k`, or say that `what` was wanted here.
+    expect(*self, k: Tok, what: string) -> bool
+        if self.accept(k) then return true
+
+        self.fail_here(what)
+        false
+
+    // Say that `what` was wanted where the cursor is -- unless something was already said about
+    // that place, by the lexer or by a construct inside this one: that is the same mistake again.
+    fail_here(*self, what: string)
+        val sp = self.toks.here()
+
+        for i in 0..<self.report.len()
+            if self.report.at(i).span.start == sp.start then return
+
+        val found = self.peek_tok() match
+            Some(t) -> describe(t)
+            None -> "the end of the input"
+
+        self.report.add(expected(sp, what, found))
+
+    // Step over the rest of a statement: up to the `Newline` that ends it, or the `Dedent` that
+    // closes the block it is in, stepping over any block it opened.
+    skip_line(*self)
+        var depth: usize = 0
+
+        loop
+            val t = self.peek_tok() match
+                Some(t) -> t
+                None -> return
+
+            t match
+                Newline -> if depth == 0 then return
+                Indent -> depth += 1
+                Dedent ->
+                    if depth == 0 then return
+
+                    depth -= 1
+                _ -> ()
+
+            self.toks.advance()
+    end skip_line
+
+    // Step over the rest of a bracketed list through its `)`, or to the end of the statement when
+    // the `)` never comes.
+    skip_to_close(*self)
+        var depth: usize = 0
+
+        loop
+            val t = self.peek_tok() match
+                Some(t) -> t
+                None -> return
+
+            t match
+                LParen -> depth += 1
+                RParen ->
+                    self.toks.advance()
+
+                    if depth == 0 then return
+
+                    depth -= 1
+                    continue
+                Newline -> return
+                Indent -> return
+                Dedent -> return
+                _ -> ()
+
+            self.toks.advance()
+    end skip_to_close
+end Parser
+
+impl TokenStream for Parser
+    type Token = Spanned[Tok]
+
+    look(self) -> Option[Spanned[Tok]] = self.toks.peek()
+    take(*self) -> Option[Spanned[Tok]] = self.toks.advance()
+
+// A token's kind as a number, for comparing kinds whatever the payload.
+tag(t: Tok) -> u8
+    t match
+        Name(_) -> 0
+        AtomLit(_) -> 1
+        IntLit(_) -> 2
+        StrLit(_) -> 3
+        Def -> 4
+        Free -> 5
+        Every -> 6
+        Do -> 7
+        If -> 8
+        Then -> 9
+        Else -> 10
+        Not -> 11
+        And -> 12
+        Or -> 13
+        LParen -> 14
+        RParen -> 15
+        Comma -> 16
+        Amp -> 17
+        Bar -> 18
+        Tilde -> 19
+        EqEq -> 20
+        BangEq -> 21
+        Equals -> 22
+        Turnstile -> 23
+        Newline -> 24
+        Indent -> 25
+        Dedent -> 26
+end tag
+
+// The program in `src`, with every complaint about its syntax added to `report`.
+parse(src: Source, report: *Report) -> Program
+    var p = Parser(lex(src, report), report, src, 0)
+    var clauses: Buf[Clause] = buf()
+    var stmts: Buf[Stmt] = buf()
+
+    loop
+        while p.accept(Newline)
+            ()
+
+        if p.peek_tok().is_none() then break
+
+        if p.at_tok(Indent)
+            p.report.add(error(p.toks.here(), "this line is indented, and nothing above it opens a block")
+                .with_note("a block opens under a line ending in `then`, `else`, `do`, `:-` or `=`, or under a bare `def`"))
+            p.take()
+            p.skip_line()
+            p.accept(Dedent)
+            continue
+
+        if p.at_tok(Dedent)
+            p.take()
+            continue
+
+        if p.accept(Def)
+            definition(&p, &clauses)
+        else
+            stmts.push(statement(&p))
+
+        // An indented line under the statement is refused at the top of the loop.
+        if p.at_tok(Newline) || p.at_tok(Indent) || p.peek_tok().is_none() then continue
+
+        p.fail_here("the end of the line")
+        p.skip_line()
+    end loop
+
+    Program(clauses, stmts)
+end parse
+
+// One statement: `free names`, or an expression.
+statement(p: *Parser) -> Stmt
+    if !p.accept(Free) then return ExprS(parse_expr(p, 0))
+
+    var names: Buf[Spanned[string]] = buf()
+
+    loop
+        p.toks.peek() match
+            Some(t) ->
+                t.value match
+                    Name(n) ->
+                        p.take()
+                        names.push(Spanned(n, t.span))
+                    _ ->
+                        p.fail_here("a name to declare")
+                        break
+            None ->
+                p.fail_here("a name to declare")
+                break
+
+        if !p.accept(Comma) then break
+
+    FreeS(names)
+end statement
+
+// What follows `def`: one clause on the line, or an indented block of them.
+private definition(p: *Parser, clauses: *Buf[Clause])
+    if !p.accept(Indent)
+        clause(p, clauses)
+        return
+
+    loop
+        while p.accept(Newline)
+            ()
+
+        if p.accept(Dedent) || p.peek_tok().is_none() then return
+
+        clause(p, clauses)
+
+        if p.at_tok(Newline) || p.at_tok(Dedent) then continue
+
+        p.fail_here("the end of the clause")
+        p.skip_line()
+end definition
+
+// `name(args)`, then nothing for a fact, `:- body` for a rule, or `= body` for a function.
+private clause(p: *Parser, clauses: *Buf[Clause])
+    val first = p.toks.peek() match
+        Some(t) -> t
+        None ->
+            p.fail_here("the name being defined")
+            return
+
+    val name = first.value match
+        Name(n) -> n
+        _ ->
+            p.fail_here("the name being defined")
+            p.skip_line()
+            return
+
+    p.take()
+
+    val params = if p.accept(LParen) then arguments(p) else buf()
+    val head = first.span.to(p.toks.previous())
+
+    val kind = if p.accept(Turnstile)
+            Rule(rule_body(p))
+        elif p.accept(Equals)
+            FunctionC(parse_expr(p, 0))
+        else
+            Fact
+
+    clauses.push(Clause(name, head, params, kind))
+end clause
+
+// A rule's body: one goal on the line, or an indented block whose lines are its conjuncts.
+private rule_body(p: *Parser) -> &Expr
+    if !p.accept(Indent) then return parse_expr(p, 0)
+
+    var body = parse_expr(p, 0)
+
+    loop
+        if p.accept(Newline)
+            val next = parse_expr(p, 0)
+
+            body = expr(Conj(body, next), body.span.to(next.span))
+            continue
+
+        if p.accept(Dedent) then break
+
+        p.fail_here("the end of the line")
+        p.skip_line()
+
+        if p.at_tok(Newline) then continue
+
+        p.accept(Dedent)
+        break
+
+    body
+end rule_body

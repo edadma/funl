@@ -1,6 +1,7 @@
 module io.github.edadma.funl
 @tests
 
+import sh.sysl.parsing.{full_report, source_of}
 import sysl.text.str_builder
 
 // The harness: assemble a program into a fresh VM, run it, and answer what it said.
@@ -65,6 +66,57 @@ ran(build: () -> Result[usize, string]) -> string
 
     assert_eq(tight.text, calm.text, "the program said something different on a heap collected at every step")
     calm.text
+
+// -- FunL source -------------------------------------------------------------------------------
+
+// Compile FunL `text` into the running VM: its chunk, or every diagnostic rendered.
+compiled_text(text: string) -> Result[usize, string]
+    val src = source_of("test.fl", text)
+    var r = full_report()
+
+    compile_program(src, &r) match
+        Some(chunk) -> Ok(chunk)
+        None -> Err(r.render(src))
+
+// The transcript of FunL program `text`, run on both heaps; a refused program answers
+// `assembly: ` and its diagnostics.
+ran_funl(text: string) -> string = ran(() -> compiled_text(text))
+
+// What compiling `text` reports, one diagnostic a line: `severity line:col message`, in the order
+// they were found.
+complaints(text: string) -> string
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val src = source_of("test.fl", text)
+    var r = full_report()
+    var out = str_builder()
+
+    compile_program(src, &r)
+
+    for i in 0..<r.len()
+        val d = r.at(i)
+
+        out.push(s"${d.severity} ${src.locate(d.span.start)} ${d.message}\n")
+
+    dispose_vm(&v)
+    leave(was)
+    out.finish()
+end complaints
+
+// Every diagnostic compiling `text` gives, rendered as a person sees them.
+rendered(text: string) -> string
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val src = source_of("test.fl", text)
+    var r = full_report()
+
+    compile_program(src, &r)
+
+    val out = r.render(src)
+
+    dispose_vm(&v)
+    leave(was)
+    out
 
 // The id of builtin `name`, which the test is about to emit a call to.
 builtin(name: string) -> usize = native_id(name).unwrap()

@@ -61,6 +61,9 @@ enum Op
     // Store a fresh unbound variable into slot `slot`.
     NewVar(slot: usize)
 
+    // Push a fresh unbound variable: an anonymous `_`.
+    PushVar
+
     // Pop `n` values and push a compound of them, the deepest first.
     MakeCompound(functor: u32, n: usize)
 
@@ -69,6 +72,11 @@ enum Op
 
     // Pop `b`, pop `a`, unify them; succeed producing `b`, or fail.
     Unify
+
+    // Pop `b`, pop `a`; succeed producing `b` when they are equal (`TestEq`) or unequal (`TestNe`),
+    // or fail. An unbound variable in either is an instantiation error.
+    TestEq
+    TestNe
 
     // -- frames and calls (`frame.sysl`) ------------------------------------------------------------
 

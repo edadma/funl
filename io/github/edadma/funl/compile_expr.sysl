@@ -1,0 +1,155 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+
+// Expressions and statements, compiled to the machine.
+//
+// **An expression that succeeds leaves exactly one value on the operand stack**; one that fails
+// leaves the machine failing, and the control stack decides where that goes. So every form below
+// is the composition of its parts' code with the few control instructions that say how they
+// backtrack into each other:
+//
+//     a & b                  a; Pop; b
+//     a | b                  Choice(l); a; Branch(end); l: b; end:
+//     not e                  Mark(ok); e; Unmark; Fail; ok: PushUnit
+//     if c then t else e     Mark(no); c; Unmark; t; Branch(end); no: e; end:
+//     every g do b           g; Pop; MarkThrough; b; Unmark; Fail
+//     a statement            Mark(next); e; Unmark; next:
+//
+// A condition, a statement and the body of an `every` are bounded: their `Unmark` discards every
+// choice point made inside them. Everything else is left resumable, so a generator anywhere in an
+// expression is backtracked into by whatever fails after it.
+
+// What the compiler reads while it compiles one clause or the top level.
+struct Ctx
+    res: *Resolved
+    sc: *Scope
+
+// Push `x`'s value.
+compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    x.kind match
+        Ref(n) -> e.op(LoadSlot(0, slot_of_name(c, n)?))
+        Anon -> e.op(PushVar)
+        AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
+        IntE(n) -> e.op(PushInt(n))
+        StrE(s) -> e.op(PushConst(e.constant(new_str(s)?)))
+        CallE(n, _, args) ->
+            for a in args.view()
+                compile_value(e, c, a)?
+
+            c.res.rel(n) match
+                Some(r) -> e.op(Call(r.chunk, args.len()))
+                None ->
+                    native_id(n) match
+                        Some(id) -> e.op(Native(id, args.len()))
+                        None -> return Err(s"'$n' was resolved and names nothing")
+        Conj(a, b) ->
+            compile_value(e, c, a)?
+            e.op(Pop)
+            compile_value(e, c, b)?
+        Disj(a, b) ->
+            val other = e.label()
+            val end = e.label()
+
+            e.op(Choice(other))
+            compile_value(e, c, a)?
+            e.op(Branch(end))
+            e.place(other)
+            compile_value(e, c, b)?
+            e.place(end)
+        Neg(g) ->
+            val ok = e.label()
+
+            e.op(Mark(ok))
+            compile_value(e, c, g)?
+            e.op(Unmark)
+            e.op(Fail)
+            e.place(ok)
+            e.op(PushUnit)
+        UnifyE(a, b) -> binary(e, c, a, b, Unify)?
+        EqualE(a, b) -> binary(e, c, a, b, TestEq)?
+        DifferE(a, b) -> binary(e, c, a, b, TestNe)?
+        IfE(cond, yes, no) ->
+            val other = e.label()
+            val end = e.label()
+
+            condition(e, c, cond, other)?
+            compile_value(e, c, yes)?
+            e.op(Branch(end))
+            e.place(other)
+
+            no match
+                Some(n) -> compile_value(e, c, n)?
+                None -> e.op(Fail)
+
+            e.place(end)
+        EveryE(g, body) ->
+            compile_value(e, c, g)?
+            e.op(Pop)
+
+            body match
+                Some(b) ->
+                    e.op(MarkThrough)
+                    compile_value(e, c, b)?
+                    e.op(Unmark)
+                None -> ()
+
+            e.op(Fail)
+        BlockE(stmts) -> block(e, c, stmts)?
+        BadE -> return Err("a tree with a parse error in it reached the compiler")
+
+    Ok(())
+end compile_value
+
+// `a op b`: both values, then the instruction that compares them.
+private binary(e: *Emit, c: Ctx, a: &Expr, b: &Expr, o: Op) -> Result[unit, string]
+    compile_value(e, c, a)?
+    compile_value(e, c, b)?
+    e.op(o)
+    Ok(())
+
+// A bounded condition: its first value or nothing, then on to what follows; to `other` if it fails.
+// Not `private`: a relation's tail position compiles `if` with it too.
+condition(e: *Emit, c: Ctx, cond: &Expr, other: usize) -> Result[unit, string]
+    e.op(Mark(other))
+    compile_value(e, c, cond)?
+    e.op(Unmark)
+    Ok(())
+
+// A block's statements, each bounded but the last, whose value is the block's.
+private block(e: *Emit, c: Ctx, stmts: Buf[Stmt]) -> Result[unit, string]
+    for i in 0..<stmts.len()
+        val s = stmts.at(i)
+
+        if i + 1 < stmts.len()
+            compile_stmt(e, c, s)?
+            continue
+
+        s match
+            ExprS(x) -> compile_value(e, c, x)?
+            FreeS(_) ->
+                compile_stmt(e, c, s)?
+                e.op(PushUnit)
+
+    Ok(())
+end block
+
+// A statement: `free` makes its variables, and an expression runs bounded and is dropped.
+compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
+    s match
+        FreeS(names) ->
+            for named in names.view()
+                e.op(NewVar(slot_of_name(c, named.value)?))
+        ExprS(x) ->
+            val next = e.label()
+
+            e.op(Mark(next))
+            compile_value(e, c, x)?
+            e.op(Unmark)
+            e.place(next)
+
+    Ok(())
+
+private slot_of_name(c: Ctx, n: string) -> Result[usize, string] = c.sc.slot(n) match
+    Some(s) -> Ok(s)
+    None -> Err(s"'$n' was resolved and has no slot")

@@ -1,0 +1,145 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// What the front end says about a program it refuses or warns about: the lexer, the parser and the
+// resolver, each refusal at the place it is about. `complaints` writes one diagnostic a line as
+// `severity line:col message`.
+
+// -- the whole rendering, once ------------------------------------------------------------------
+
+@test
+A_DIAGNOSTIC_QUOTES_THE_LINE_AND_POINTS_AT_WHAT_IS_WRONG()
+    val want = "error: expected an atom's name after `#`\n" +
+        " --> test.fl:2:8\n" +
+        "  |\n" +
+        "2 | write(#)\n" +
+        "  |        ^ found `)`\n" +
+        "  |\n" +
+        "  = note: an atom is written `#name`, as in `#don`\n"
+
+    assert_eq(rendered("free x\nwrite(#)\n"), want)
+
+// -- the lexer -----------------------------------------------------------------------------------
+
+@test
+AN_UNTERMINATED_STRING_IS_REFUSED_WHERE_IT_OPENS()
+    assert_eq(complaints("write('abc)\n"), "error 1:7 this string is unterminated\n")
+
+@test
+AN_UNCLOSED_BLOCK_COMMENT_IS_REFUSED_WHERE_IT_OPENS()
+    assert_eq(complaints("write(#a)\n/* never /* closed */\n"), "error 2:1 this comment is never closed\n")
+
+@test
+A_CHARACTER_THAT_BEGINS_NOTHING_IS_REFUSED_AND_THE_REST_IS_STILL_READ()
+    assert_eq(complaints("write(#a) ! \nwrite(#)\n"),
+        "error 1:11 `!` cannot begin anything here\nerror 2:8 expected an atom's name after `#`\n")
+
+@test
+A_LINE_LINING_UP_WITH_NO_OPEN_BLOCK_IS_REFUSED()
+    val text = "if #a ~ #a then\n    write(#a)\n  write(#b)\n"
+
+    assert_eq(complaints(text), "error 3:3 this line lines up with no block that is open\n")
+
+@test
+AN_INDENTED_LINE_UNDER_NOTHING_THAT_OPENS_A_BLOCK_IS_REFUSED()
+    assert_eq(complaints("write(#a)\n  write(#b)\n"), "error 2:3 this line is indented, and nothing above it opens a block\n")
+
+// -- the parser ----------------------------------------------------------------------------------
+
+@test
+A_RULE_WITH_NO_BODY_IS_REFUSED_AT_THE_END_OF_ITS_LINE()
+    assert_eq(complaints("def p(x) :-\nwrite(#a)\n"), "error 1:12 expected an expression\n")
+
+@test
+A_MISSING_CLOSING_BRACKET_IS_REPORTED_ONCE()
+    assert_eq(complaints("write(#a\n"), "error 1:9 expected `,` or `)`\n")
+
+@test
+A_MISSING_THEN_IS_REFUSED_WHERE_IT_WAS_WANTED()
+    assert_eq(complaints("if #a ~ #a write(#a)\n"), "error 1:12 expected `then`\n")
+
+@test
+A_DEFINITION_NEEDS_A_NAME()
+    assert_eq(complaints("def (x)\n"), "error 1:5 expected the name being defined\n")
+
+@test
+FREE_NEEDS_A_NAME()
+    assert_eq(complaints("free #a\n"), "error 1:6 expected a name to declare\n")
+
+@test
+EVERY_MISTAKE_IN_A_FILE_IS_REPORTED_IN_ONE_PASS()
+    assert_eq(complaints("write(#)\nwrite(&)\nif #a then\n"),
+        "error 1:8 expected an atom's name after `#`\n" +
+        "error 2:7 expected an expression\n" +
+        "error 3:11 expected an expression\n")
+
+// -- the resolver --------------------------------------------------------------------------------
+
+@test
+A_DEFINITION_MIXING_A_FUNCTION_CLAUSE_WITH_RELATION_CLAUSES_IS_REFUSED_NAMING_BOTH()
+    assert_eq(complaints("def p(#a)\ndef q(#b)\ndef p(x) = x\n"),
+        "error 3:5 `p` mixes a function clause with relation clauses\n" +
+        "note 1:5 `p` is first defined here, by a fact\n")
+
+@test
+A_FUNCTION_IS_REFUSED_UNTIL_FUNCTIONS_ARE_COMPILED()
+    assert_eq(complaints("def f(x) = x\n"), "error 1:5 `f` is a function, and this build compiles relations only\n")
+
+@test
+CLAUSES_OF_ONE_DEFINITION_MUST_AGREE_ON_ARITY()
+    assert_eq(complaints("def p(#a)\ndef p(#a, #b)\n"), "error 2:5 `p` was defined with 1 argument, and this clause has 2\n")
+
+@test
+A_CALL_WITH_THE_WRONG_NUMBER_OF_ARGUMENTS_IS_REFUSED()
+    assert_eq(complaints("def p(#a)\nwrite(#a, #b)\nif p(#a, #b) then write(#a)\n"),
+        "error 2:1 `write` takes 1 argument, and this call gives 2\n" +
+        "error 3:4 `p` takes 1 argument, and this call gives 2\n")
+
+@test
+A_CALL_OF_NOTHING_IS_REFUSED_WITH_THE_NEAREST_NAME()
+    val text = "def parent(#a, #b)\nfree x\nif parnt(x, #b) then write(x)\n"
+
+    assert_eq(complaints(text), "error 3:4 `parnt` is not defined\n")
+    assert(rendered(text).contains("did you mean `parent`?"), rendered(text))
+
+@test
+A_NAME_THE_TOP_LEVEL_NEVER_DECLARED_IS_REFUSED()
+    assert_eq(complaints("write(x)\nfree x\n"), "error 1:7 `x` is not defined\n")
+
+@test
+A_RELATION_IS_CALLED_NOT_USED_AS_A_VALUE()
+    assert_eq(complaints("def p(#a)\nwrite(p)\n"), "error 2:7 `p` is a relation or a builtin, which is called rather than used as a value\n")
+
+@test
+A_RELATION_CANNOT_ALSO_BE_DECLARED_A_VARIABLE()
+    assert_eq(complaints("def p(#a)\nfree p\n"), "error 2:6 `p` is already a relation or a builtin, and cannot also be a variable\n")
+
+@test
+A_GOAL_IN_A_HEAD_IS_REFUSED()
+    assert_eq(complaints("def p(x & y)\n"), "error 1:7 a head argument is a variable, a constant or a term\n")
+
+@test
+A_CLAUSE_VARIABLE_WRITTEN_ONCE_IS_WARNED_ABOUT()
+    assert_eq(complaints("def p(#a)\ndef q(x) :- p(y) & p(x)\n"), "warning 2:15 `y` appears only once in this clause of `q`\n")
+
+@test
+A_SINGLETON_UNDER_NOT_IS_WARNED_ABOUT_TOO()
+    assert_eq(complaints("def p(#a)\ndef q(x) :- p(x) & not p(z)\n"), "warning 2:26 `z` appears only once in this clause of `q`\n")
+
+@test
+A_LEADING_UNDERSCORE_OR_A_BARE_UNDERSCORE_SAYS_ONE_OCCURRENCE_IS_MEANT()
+    assert_eq(complaints("def p(#a)\ndef q(_x, _) :- p(_y) & p(_)\n"), "")
+
+@test
+EVERY_HEAD_PARAMETER_COUNTS_AS_AN_OCCURRENCE()
+    assert_eq(complaints("def p(x, y) :- q(x)\ndef q(#a)\n"), "warning 1:10 `y` appears only once in this clause of `p`\n")
+
+@test
+THE_FAMILY_TREE_COMPILES_WITH_NOTHING_TO_SAY()
+    val text = "def parent(#a, #b)\n" +
+        "def ancestor(x, y) :- parent(x, y) | parent(x, p) & ancestor(p, y)\n" +
+        "def relation(x, y) :- ancestor(a, x) & ancestor(a, y) & x != y\n"
+
+    assert_eq(complaints(text), "")

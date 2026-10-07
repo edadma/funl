@@ -1,0 +1,164 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Expressions: the `pratt` callbacks, and the prefix forms -- `if`, `every`, `not` -- that read as
+// far right as they can.
+//
+// **A token that cannot begin an expression is refused before `pratt` takes it**, so a missing
+// operand leaves the `)` or the end of the line where it was for the caller to find.
+
+// Deep enough for any program a person writes, shallow enough that the sysl stack holds it.
+private const MaxDepth: usize = 400
+
+// An expression at binding power `bp`.
+parse_expr(p: *Parser, bp: u8) -> &Expr
+    val t = p.look() match
+        Some(t) -> t
+        None ->
+            p.fail_here("an expression")
+            return expr(BadE, p.toks.here())
+
+    if !starts_expr(t.value)
+        p.fail_here("an expression")
+        return expr(BadE, t.span)
+
+    if p.depth >= MaxDepth
+        p.report.add(error(t.span, "this expression is nested too deeply to read"))
+        p.skip_line()
+        return expr(BadE, t.span)
+
+    p.depth += 1
+
+    val e = pratt(p, bp, nud, led, lbp).unwrap()
+
+    p.depth -= 1
+    e
+end parse_expr
+
+private lbp(t: Spanned[Tok]) -> u8 = power(t.value).left
+
+private nud(t: Spanned[Tok], p: *Parser) -> &Expr
+    t.value match
+        Name(n) ->
+            if n == "_" then return expr(Anon, t.span)
+
+            if p.at_tok(LParen) then return call(p, n, t.span)
+
+            expr(Ref(n), t.span)
+        AtomLit(a) -> expr(AtomE(a), t.span)
+        IntLit(n) -> expr(IntE(n), t.span)
+        StrLit(s) -> expr(StrE(s), t.span)
+        LParen ->
+            val inner = parse_expr(p, 0)
+
+            p.expect(RParen, "`)`")
+            inner
+        Not ->
+            val e = parse_expr(p, NotPower)
+
+            expr(Neg(e), t.span.to(e.span))
+        If -> if_expr(p, t.span)
+        Every -> every_expr(p, t.span)
+        _ -> expr(BadE, t.span)
+end nud
+
+private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
+    val right = parse_expr(p, power(t.value).right)
+    val span = left.span.to(right.span)
+
+    val kind = t.value match
+        Or -> Disj(left, right)
+        Bar -> Disj(left, right)
+        And -> Conj(left, right)
+        Amp -> Conj(left, right)
+        Tilde -> UnifyE(left, right)
+        EqEq -> EqualE(left, right)
+        BangEq -> DifferE(left, right)
+        _ -> BadE
+
+    expr(kind, span)
+end led
+
+// `name(args)`, the name already read and the `(` next.
+private call(p: *Parser, name: string, name_span: Span) -> &Expr
+    p.take()
+
+    val args = arguments(p)
+
+    expr(CallE(name, name_span, args), name_span.to(p.toks.previous()))
+
+// The arguments of a call or a head, the `(` already taken, through the `)`.
+arguments(p: *Parser) -> Buf[&Expr]
+    var args: Buf[&Expr] = buf()
+
+    if p.accept(RParen) then return args
+
+    loop
+        args.push(parse_expr(p, 0))
+
+        if p.accept(Comma) then continue
+
+        if !p.expect(RParen, "`,` or `)`") then p.skip_to_close()
+
+        break
+
+    args
+end arguments
+
+// `if c then t [else e]`, the `if` already read.
+private if_expr(p: *Parser, at: Span) -> &Expr
+    val cond = parse_expr(p, 0)
+
+    if !p.expect(Then, "`then`") then return expr(BadE, at.to(cond.span))
+
+    val yes = branch(p)
+
+    // An `else` may begin the line after a block that ended the `then` branch.
+    if p.at_tok(Newline) && p.next_is(Else) then p.take()
+
+    if !p.accept(Else) then return expr(IfE(cond, yes, None), at.to(yes.span))
+
+    val no = branch(p)
+
+    expr(IfE(cond, yes, Some(no)), at.to(no.span))
+end if_expr
+
+// `every e [do b]`, the `every` already read.
+private every_expr(p: *Parser, at: Span) -> &Expr
+    val gen = parse_expr(p, 0)
+
+    if !p.accept(Do) then return expr(EveryE(gen, None), at.to(gen.span))
+
+    val body = branch(p)
+
+    expr(EveryE(gen, Some(body)), at.to(body.span))
+
+// What follows `then`, `else` or `do`: an expression on the same line, or an indented block.
+private branch(p: *Parser) -> &Expr
+    if !p.at_tok(Indent) then return parse_expr(p, 0)
+
+    val at = p.toks.here()
+
+    p.take()
+
+    var stmts: Buf[Stmt] = buf()
+
+    loop
+        stmts.push(statement(p))
+
+        if p.accept(Newline) then continue
+
+        if p.accept(Dedent) then break
+
+        p.fail_here("the end of the line")
+        p.skip_line()
+
+        if p.accept(Newline) then continue
+
+        p.accept(Dedent)
+        break
+
+    expr(BlockE(stmts), at.to(p.toks.previous()))
+end branch

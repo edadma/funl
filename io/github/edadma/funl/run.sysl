@@ -115,6 +115,9 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         NewVar(slot) ->
             set_slot(v.frame, slot, Var(new_var()?))?
             Ok(Next)
+        PushVar ->
+            v.stack.push(Var(new_var()?))
+            Ok(Next)
         MakeCompound(functor, n) ->
             val c = new_compound(functor, n)?
 
@@ -135,6 +138,8 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
 
             v.stack.push(b)
             Ok(Next)
+        TestEq -> compare(v, true, "==")
+        TestNe -> compare(v, false, "!=")
         Frame(n) ->
             size_frame(v, n)?
             Ok(Next)
@@ -173,6 +178,16 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             v.stack.push(Tuple(t))
             Ok(Next)
 end execute
+
+// `TestEq` and `TestNe`: pop `b` and `a`, and push `b` when their equality is `want`.
+private compare(v: *Vm, want: bool, op: string) -> Result[Flow, string]
+    val b = pop(v)?
+    val a = pop(v)?
+
+    if equal_values(a, b, op)? != want then return Ok(Fails)
+
+    v.stack.push(b)
+    Ok(Next)
 
 // Run builtin `id` over the top `argc` values, which stand on the stack until it answers.
 private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, string]

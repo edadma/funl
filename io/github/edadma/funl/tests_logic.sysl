@@ -1,0 +1,178 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.read_text
+import sysl.text.Search
+
+// FunL programs, compiled from source and run on both heaps: the family tree, the machine's
+// guarantees shown again from source, and each construct of a relation body and of ordinary code.
+
+@test
+THE_FAMILY_TREE_PRINTS_EVERY_ANSWER_THE_LOGIC_CHAPTER_GIVES_DUPLICATES_INCLUDED()
+    val text = read_text("examples/family_tree.fl") match
+        Ok(t) -> t
+        Err(e) -> panic(s"cannot read examples/family_tree.fl (run the suite from the project root): $e")
+
+    val want = "don\ndon\nliam\nliam\nlogan\nlogan\n" +
+        "liam\nolivia\nemma\nlogan\n" +
+        "aiden\naiden\n" +
+        "liam\nsucceeded"
+
+    assert_eq(ran_funl(text), want)
+
+@test
+A_VARIABLE_UNIFIED_WITH_ITSELF_SUCCEEDS_AT_ONCE()
+    assert_eq(ran_funl("free x\nif x ~ x then write(#same)\n"), "same\nsucceeded")
+
+// `y` is bound inside a bounded condition, whose `Unmark` commits; resuming `p` must still undo it,
+// or `y ~ #b` fails and `b` is never written.
+@test
+A_BINDING_MADE_AFTER_A_CHOICE_POINT_IS_UNDONE_WHEN_IT_RESUMES_THROUGH_AN_UNMARK()
+    val text = "def p(#a)\ndef p(#b)\nfree x, y\nevery p(x) do if y ~ x then write(y)\n"
+
+    assert_eq(ran_funl(text), "a\nb\nsucceeded")
+
+// `#tag` is pushed before `p` is called and popped by `!=` after `p` returns leaving a choice point:
+// the second solution needs it back.
+@test
+A_RELATION_RETURNING_INTO_A_CALLER_WITH_OPERANDS_BELOW_ITS_MARKS_RESUMES_CORRECTLY()
+    val text = "def p(#a)\ndef p(#b)\nfree x\nevery write(#tag != (p(x) & x))\n"
+
+    assert_eq(ran_funl(text), "a\nb\nsucceeded")
+
+@test
+A_RULE_BODY_BLOCK_IS_ONE_CONJUNCTION_OF_ITS_LINES()
+    val text = "def\n" +
+        "  parent(#f, #a)\n" +
+        "  parent(#f, #b)\n" +
+        "  parent(#m, #a)\n" +
+        "  parent(#m, #b)\n" +
+        "  parent(#f, #c)\n" +
+        "  full_siblings(a, b) :-\n" +
+        "    parent(f, a) & parent(f, b)\n" +
+        "    parent(m, a) & parent(m, b)\n" +
+        "    a != b & f != m\n" +
+        "free x, y\n" +
+        "every full_siblings(x, y) do write(x) & write(y)\n" +
+        "if full_siblings(#a, #a) then write(#wrong) else write(#right)\n" +
+        "if full_siblings(#a, #c) then write(#wrong) else write(#right)\n"
+
+    assert_eq(ran_funl(text), "a\nb\nb\na\na\nb\nb\na\nright\nright\nsucceeded")
+
+@test
+ALTERNATION_PRODUCES_EVERY_VALUE_OF_THE_LEFT_THEN_EVERY_VALUE_OF_THE_RIGHT()
+    assert_eq(ran_funl("every write(#a | #b | #c)\n"), "a\nb\nc\nsucceeded")
+
+@test
+OR_AND_AND_ARE_ALTERNATION_AND_CONJUNCTION_BELOW_THE_OPERATORS()
+    val text = "every write(#a or #b)\nif #a ~ #a and #b ~ #b then write(#both)\nif #a ~ #a and #b ~ #c then write(#wrong)\n"
+
+    assert_eq(ran_funl(text), "a\nb\nboth\nsucceeded")
+
+@test
+A_RULE_ALTERNATION_TRIES_BOTH_BRANCHES_AND_A_RECURSIVE_RELATION_FINDS_EVERY_ANCESTOR()
+    val text = "def\n" +
+        "  parent(#a, #b)\n" +
+        "  parent(#b, #c)\n" +
+        "  parent(#c, #d)\n" +
+        "  ancestor(x, y) :- parent(x, y) | parent(x, p) & ancestor(p, y)\n" +
+        "free who\n" +
+        "every ancestor(who, #d) do write(who)\n" +
+        "every ancestor(#a, who) do write(who)\n"
+
+    assert_eq(ran_funl(text), "c\na\nb\nb\nc\nd\nsucceeded")
+
+@test
+NOT_SUCCEEDS_EXACTLY_WHEN_ITS_GOAL_FAILS()
+    val text = "def p(#a)\n" +
+        "if not p(#b) then write(#no_b)\n" +
+        "if not p(#a) then write(#no_a) else write(#has_a)\n" +
+        "def q(x) :- not p(x)\n" +
+        "if q(#a) then write(#wrong)\n" +
+        "if q(#z) then write(#q_z)\n"
+
+    assert_eq(ran_funl(text), "no_b\nhas_a\nq_z\nsucceeded")
+
+@test
+IF_WITHOUT_ELSE_FAILS_WHEN_ITS_CONDITION_DOES_AND_THE_STATEMENT_AFTER_IT_STILL_RUNS()
+    assert_eq(ran_funl("if #a ~ #b then write(#wrong)\nwrite(#next)\n"), "next\nsucceeded")
+
+@test
+A_CONDITION_COMMITS_TO_ITS_FIRST_SOLUTION_AND_KEEPS_ITS_BINDINGS()
+    val text = "def p(#a)\ndef p(#b)\nfree x\nif p(x) then write(x)\nwrite(x)\n"
+
+    assert_eq(ran_funl(text), "a\na\nsucceeded")
+
+@test
+EVERY_UNDOES_ITS_BINDINGS_WHEN_IT_IS_EXHAUSTED()
+    val text = "def p(#a)\nfree x\nevery p(x) do write(x)\nif x ~ #z then write(x)\n"
+
+    assert_eq(ran_funl(text), "a\nz\nsucceeded")
+
+@test
+THEN_ELSE_AND_DO_OPEN_INDENTED_BLOCKS_OF_STATEMENTS()
+    val text = "def p(#a)\n" +
+        "def p(#b)\n" +
+        "free x\n" +
+        "if p(#a) then\n" +
+        "  write(#one)\n" +
+        "  write(#two)\n" +
+        "else\n" +
+        "  write(#three)\n" +
+        "every p(x) do\n" +
+        "  write(x)\n" +
+        "  write(#after)\n"
+
+    assert_eq(ran_funl(text), "one\ntwo\na\nafter\nb\nafter\nsucceeded")
+
+@test
+EQUALITY_AND_INEQUALITY_PRODUCE_THEIR_RIGHT_OPERAND_OR_FAIL()
+    val text = "write(#a == #a)\nwrite(1 == 2)\nwrite(1 != 2)\nwrite(#a != #a)\nwrite('x' == 'x')\n"
+
+    assert_eq(ran_funl(text), "a\n2\nx\nsucceeded")
+
+@test
+COMPARING_AN_UNBOUND_VARIABLE_IS_AN_INSTANTIATION_ERROR()
+    val said = ran_funl("free x, y\nwrite(x != y)\n")
+
+    assert(said.contains("fault: main@"), said)
+    assert(said.contains("instantiation error: '!=' was given an unbound variable"), said)
+
+// A term can be written in a head and not yet built in ordinary code, so the bound-argument half of
+// `GetCompound` is `tests_relation.sysl`'s.
+@test
+A_HEAD_BINDS_AN_UNBOUND_ARGUMENT_TO_A_CONSTANT_A_NUMBER_A_STRING_OR_A_TERM()
+    val text = "def owns(#don, car(#red, _))\n" +
+        "def age(#don, 42)\n" +
+        "def named(#don, 'Don')\n" +
+        "free n, s, t\n" +
+        "if owns(#don, t) then write(t)\n" +
+        "if age(#don, n) then write(n)\n" +
+        "if named(#don, s) then write(s)\n" +
+        "if age(#don, 41) then write(#wrong)\n" +
+        "if named(#don, 'don') then write(#wrong)\n"
+
+    // `n`, `s` and `t` are variables 0 to 2, so the term's two fresh arguments are 3 and 4.
+    assert_eq(ran_funl(text), "car(red, _G4)\n42\nDon\nsucceeded")
+
+@test
+A_REPEATED_HEAD_VARIABLE_UNIFIES_ITS_ARGUMENTS()
+    val text = "def same(x, x)\nfree y\nif same(#a, #a) then write(#yes)\nif same(#a, #b) then write(#wrong)\nif same(y, #c) then write(y)\n"
+
+    assert_eq(ran_funl(text), "yes\nc\nsucceeded")
+
+@test
+AN_ANONYMOUS_VARIABLE_IS_NEW_AT_EACH_OCCURRENCE()
+    val text = "def pair(#a, #b)\ndef both(x) :- pair(x, _) & pair(_, _)\nfree x\nevery both(x) do write(x)\n"
+
+    assert_eq(ran_funl(text), "a\nsucceeded")
+
+@test
+COMMENTS_ARE_DOUBLE_SEMICOLONS_AND_NESTING_BLOCKS_AND_SAY_NOTHING()
+    val text = ";; a fact\ndef p(#a) ;; trailing\n/* a /* nested */ block */\n\n   ;; an indented comment line\nfree x\nevery p(x) do write(x)\n"
+
+    assert_eq(ran_funl(text), "a\nsucceeded")
+
+@test
+A_WARNING_DOES_NOT_STOP_A_PROGRAM()
+    assert_eq(ran_funl("def p(#a)\ndef q(x) :- p(y)\nif q(#z) then write(#ran)\n"), "ran\nsucceeded")

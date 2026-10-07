@@ -1,0 +1,122 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+
+// The tokens, and how strongly each infix one binds.
+//
+// **The ladder, lowest first**: `or` · `and` · the operand of `not` · alternation `|` · conjunction
+// `&` · comparison `~`, `==`, `!=` · application. Comparison binds tighter than `&` and `|`, so a
+// rule body reads `a != b & f != m` as the two goals `logic.md` says it is.
+
+enum Tok
+    Name(text: string)
+    AtomLit(text: string)
+    IntLit(n: long)
+    StrLit(text: string)
+
+    // Words.
+    Def
+    Free
+    Every
+    Do
+    If
+    Then
+    Else
+    Not
+    And
+    Or
+
+    LParen
+    RParen
+    Comma
+    Amp
+    Bar
+    Tilde
+    EqEq
+    BangEq
+    Equals
+    Turnstile
+
+    // Layout: the end of a line at the same depth, a deeper line, and each block a shallower line
+    // closes.
+    Newline
+    Indent
+    Dedent
+end Tok
+
+// Spelling a token for a diagnostic: what a reader would have to type to produce it.
+describe(t: Tok) -> string
+    t match
+        Name(s) -> s"`$s`"
+        AtomLit(s) -> s"`#$s`"
+        IntLit(n) -> s"`$n`"
+        StrLit(_) -> "a string"
+        Def -> "`def`"
+        Free -> "`free`"
+        Every -> "`every`"
+        Do -> "`do`"
+        If -> "`if`"
+        Then -> "`then`"
+        Else -> "`else`"
+        Not -> "`not`"
+        And -> "`and`"
+        Or -> "`or`"
+        LParen -> "`(`"
+        RParen -> "`)`"
+        Comma -> "`,`"
+        Amp -> "`&`"
+        Bar -> "`|`"
+        Tilde -> "`~`"
+        EqEq -> "`==`"
+        BangEq -> "`!=`"
+        Equals -> "`=`"
+        Turnstile -> "`:-`"
+        Newline -> "the end of the line"
+        Indent -> "an indented line"
+        Dedent -> "the end of the block"
+end describe
+
+// The word a name is, if it is one.
+keyword(s: string) -> Option[Tok]
+    if s == "def" then return Some(Def)
+    if s == "free" then return Some(Free)
+    if s == "every" then return Some(Every)
+    if s == "do" then return Some(Do)
+    if s == "if" then return Some(If)
+    if s == "then" then return Some(Then)
+    if s == "else" then return Some(Else)
+    if s == "not" then return Some(Not)
+    if s == "and" then return Some(And)
+    if s == "or" then return Some(Or)
+
+    None
+end keyword
+
+// The operator's power on its left; 0 for a token that is not an infix operator, which stops the
+// expression loop.
+power(t: Tok) -> Power
+    t match
+        Or -> left_assoc(10)
+        And -> left_assoc(12)
+        Bar -> left_assoc(20)
+        Amp -> left_assoc(30)
+        Tilde -> left_assoc(40)
+        EqEq -> left_assoc(40)
+        BangEq -> left_assoc(40)
+        _ -> left_assoc(0)
+
+// The level `not` reads its operand at: everything that binds tighter than `and`.
+const NotPower: u8 = 14
+
+// Whether a token can begin an expression.
+starts_expr(t: Tok) -> bool
+    t match
+        Name(_) -> true
+        AtomLit(_) -> true
+        IntLit(_) -> true
+        StrLit(_) -> true
+        Every -> true
+        If -> true
+        Not -> true
+        LParen -> true
+        _ -> false

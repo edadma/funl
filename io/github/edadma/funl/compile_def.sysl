@@ -1,0 +1,167 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Relations, and the whole program.
+//
+// **A relation is a `Choice` per clause but the last**, so its clauses are alternatives that are
+// all tried, and a relation that reaches its last clause leaves nothing behind for itself:
+//
+//     Choice(c2)
+//     Frame(n); <head>; NewVar for each body variable; <body in tail position>
+//     c2: ...
+//
+// **The head is unified, not matched** (`logic.md` § "Head unification is two-way"): a variable's
+// first occurrence is `GetVar`, a later one `GetValue`, a constant `GetConst` and a term
+// `GetCompound` with its arguments read off the stack -- each binding an unbound argument of the
+// caller's rather than refusing it.
+//
+// **A body ends in tail position.** A call there is a `TailCall`, which reuses the frame when the
+// clause has made nothing resumable; every other goal returns `()` with `Return`, which leaves the
+// body's choice points standing so the caller sees every solution.
+
+// The program in `src`, compiled into the running VM: the chunk to run, or `None` with the reasons
+// in `report`. Warnings alone do not stop it.
+compile_program(src: Source, report: *Report) -> Option[usize]
+    val prog = parse(src, report)
+
+    if report.has_errors() then return None
+
+    var res = resolve(prog, report)
+
+    if report.has_errors() then return None
+
+    compiled(&res) match
+        Ok(chunk) -> Some(chunk)
+        Err(e) ->
+            report.add(error(point(0), s"the compiler failed: $e"))
+            None
+end compile_program
+
+private compiled(res: *Resolved) -> Result[usize, string]
+    for i in 0..<res.rels.len()
+        compile_relation(res, res.rels.at(i), res.scopes.at(i))?
+
+    var top = res.top
+    var e = emit("main")
+    val c = Ctx(res, &top)
+
+    e.op(Frame(top.count()))
+
+    for s in res.top_stmts.view()
+        compile_stmt(&e, c, s)?
+
+    e.op(Halt)
+    finish(e)
+end compiled
+
+private compile_relation(res: *Resolved, r: Rel, scopes: Buf[Scope]) -> Result[unit, string]
+    var e = emit(r.name)
+
+    for i in 0..<r.clauses.len()
+        val cl = r.clauses.at(i)
+        var sc = scopes.at(i)
+        val c = Ctx(res, &sc)
+        val last = i + 1 == r.clauses.len()
+        val next = e.label()
+
+        if !last then e.op(Choice(next))
+
+        e.op(Frame(sc.count()))
+
+        var seen: Buf[bool] = buf()
+
+        for _ in 0..<sc.head
+            seen.push(false)
+
+        for j in 0..<cl.params.len()
+            head_arg(&e, &sc, cl.params.at(j), Arg(j), &seen)?
+
+        for s in sc.head..<sc.count()
+            e.op(NewVar(s))
+
+        cl.kind match
+            Rule(body) -> tail(&e, c, body)?
+            _ ->
+                e.op(PushUnit)
+                e.op(Return)
+
+        if !last then e.place(next)
+
+    install(e, r.chunk)
+end compile_relation
+
+// One head argument, unified with what `src` reads.
+private head_arg(e: *Emit, sc: *Scope, p: &Expr, src: Src, seen: *Buf[bool]) -> Result[unit, string]
+    p.kind match
+        Ref(n) ->
+            val s = sc.slot(n).unwrap()
+
+            if seen.at(s)
+                e.op(GetValue(s, src))
+            else
+                seen.set(s, true)
+                e.op(GetVar(s, src))
+        Anon ->
+            src match
+                Popped -> e.op(Pop)
+                Arg(_) -> ()
+        AtomE(n) -> e.op(GetConst(e.constant(atom(n)), src))
+        IntE(n) -> e.op(GetConst(e.constant(Int(n)), src))
+        StrE(s) -> e.op(GetConst(e.constant(new_str(s)?), src))
+        CallE(n, _, args) ->
+            e.op(GetCompound(intern(n), args.len(), src))
+
+            for a in args.view()
+                head_arg(e, sc, a, Popped, seen)?
+        _ -> return Err("a head argument the resolver refused reached the compiler")
+
+    Ok(())
+end head_arg
+
+// A body in tail position: every path through it ends in `Return`.
+private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    x.kind match
+        CallE(n, _, args) ->
+            c.res.rel(n) match
+                Some(r) ->
+                    for a in args.view()
+                        compile_value(e, c, a)?
+
+                    e.op(TailCall(r.chunk, args.len()))
+                    e.op(Return)
+                None -> returning(e, c, x)?
+        Conj(a, b) ->
+            compile_value(e, c, a)?
+            e.op(Pop)
+            tail(e, c, b)?
+        Disj(a, b) ->
+            val other = e.label()
+
+            e.op(Choice(other))
+            tail(e, c, a)?
+            e.place(other)
+            tail(e, c, b)?
+        IfE(cond, yes, no) ->
+            val other = e.label()
+
+            condition(e, c, cond, other)?
+            tail(e, c, yes)?
+            e.place(other)
+
+            no match
+                Some(n) -> tail(e, c, n)?
+                None -> e.op(Fail)
+        _ -> returning(e, c, x)?
+
+    Ok(())
+end tail
+
+// A goal that is not a call, last in a body: run it, then return `()`.
+private returning(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    compile_value(e, c, x)?
+    e.op(Pop)
+    e.op(PushUnit)
+    e.op(Return)
+    Ok(())

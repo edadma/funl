@@ -1,0 +1,218 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.text.from_utf8_unchecked
+
+// FunL's tokens, over `sh.sysl.parsing`'s byte cursor and its layout pass.
+//
+// **Indentation is structure.** A line deeper than the one before it emits `Indent`, a line at the
+// same depth `Newline`, and a shallower one a `Dedent` per block it closes and then a `Newline`;
+// the end of the input closes everything still open. Inside brackets a newline is whitespace,
+// except under a token that opens a block -- `then`, `else`, `do`, `=` and `:-` -- written at the end
+// of its line.
+//
+// **Comments are `;;` to the end of the line and `/* ... */`, which nests.** A line holding nothing
+// but blanks and a comment is no line at all: it opens and closes nothing.
+//
+// A malformed token is reported and skipped, so one pass reports every one in a file.
+
+private const TabWidth: usize = 8
+
+// The tokens of `src`, with every complaint about its spelling added to `report`.
+lex(src: Source, report: *Report) -> Tokens[Tok]
+    var s = scan(src)
+    var lay = layout()
+    var out: Tokens[Tok] = tokens()
+    var line_start = true
+    var first = true
+
+    // Where the last real token ended, which is where a `Newline` is said to be.
+    var last_end: usize = 0
+
+    loop
+        if line_start
+            line_start = false
+
+            val ind = measure_indent(&s, TabWidth)
+
+            if blank_rest(&s)
+                s.skip_to_line_end()
+
+                if !s.accept_newline() then break
+
+                line_start = true
+                continue
+
+            if lay.significant()
+                val here = point(s.at)
+
+                lay.line(ind.columns) match
+                    Same -> if !first then out.push(Newline, point(last_end))
+                    Deeper -> out.push(Indent, here)
+                    Shallower(n) -> close(&out, n, here, last_end)
+                    Ragged(n) ->
+                        report.add(error(here, "this line lines up with no block that is open")
+                            .with_label("indented to a column between two levels")
+                            .with_note("a line returns to the indentation of a line above it, or goes deeper"))
+                        close(&out, n, here, last_end)
+
+            first = false
+
+        s.skip_blanks()
+
+        if s.starts_with(";;".bytes)
+            s.skip_to_line_end()
+            continue
+
+        s.skip_block_comment("/*".bytes, "*/".bytes, true) match
+            Ok(true) -> continue
+            Ok(false) -> ()
+            Err(sp) ->
+                report.add(error(Span(sp.start, sp.start + 2), "this comment is never closed")
+                    .with_label("opened here")
+                    .with_note("a `/*` comment ends at the matching `*/`, and comments nest"))
+                break
+
+        val c = s.peek() match
+            Some(c) -> c
+            None -> break
+
+        if is_newline(c)
+            s.accept_newline()
+            line_start = true
+            continue
+
+        val start = s.at
+
+        if one_token(&s, src, &lay, &out, report, c)
+            last_end = s.at
+        else
+            // Nothing was made of it: say so and step over the character.
+            s.next_char()
+            report.add(error(Span(start, s.at), s"`${from_utf8_unchecked(src.text(Span(start, s.at)))}` cannot begin anything here"))
+    end loop
+
+    val end = point(src.bytes.len)
+
+    for _ in 0..<lay.finish()
+        out.push(Dedent, end)
+
+    out
+end lex
+
+// Whether nothing but a comment is left on this line.
+private blank_rest(s: *Scanner) -> bool
+    s.peek() match
+        None -> true
+        Some(c) -> is_newline(c) || s.starts_with(";;".bytes)
+
+// Whether the token just read is the last thing on its line, so a block opens under it.
+private ends_line(s: *Scanner) -> bool
+    val m = s.mark()
+
+    s.skip_blanks()
+
+    val ends = blank_rest(s)
+
+    s.reset(m)
+    ends
+
+// `n` blocks closed by the line starting at `here`, then the end of the statement before it.
+private close(out: *Tokens[Tok], n: usize, here: Span, last_end: usize)
+    for _ in 0..<n
+        out.push(Dedent, here)
+
+    out.push(Newline, point(last_end))
+
+// Read one token starting with byte `c`; false if nothing starts with it.
+private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], report: *Report, c: u8) -> bool
+    val start = s.at
+
+    if is_ident_start(c)
+        val sp = s.read_ident(is_ident_start, is_ident_cont).unwrap()
+        val word = from_utf8_unchecked(src.text(sp))
+
+        keyword(word) match
+            Some(k) ->
+                out.push(k, sp)
+
+                if (word == "then" || word == "else" || word == "do") && ends_line(s) then lay.opens_block()
+            None -> out.push(Name(word), sp)
+
+        return true
+
+    if c == u8('#')
+        s.bump()
+
+        s.read_ident(is_ident_start, is_ident_cont) match
+            Some(sp) -> out.push(AtomLit(from_utf8_unchecked(src.text(sp))), Span(start, s.at))
+            None ->
+                report.add(expected(point(s.at), "an atom's name after `#`", found_at(src, point(s.at)))
+                    .with_note("an atom is written `#name`, as in `#don`"))
+
+        return true
+
+    if is_digit(c)
+        read_integer(s) match
+            Ok(n) ->
+                if n > 9223372036854775807
+                    report.add(error(Span(start, s.at), "this integer is too large to hold")
+                        .with_note("an integer is 64 bits, signed"))
+                else
+                    out.push(IntLit(long(n)), Span(start, s.at))
+            Err(e) -> report.add(error(where(e), s"this number is $e"))
+
+        return true
+
+    if c == u8('\'') || c == u8('"')
+        read_quoted(s, c) match
+            Ok(text) -> out.push(StrLit(text), Span(start, s.at))
+            Err(e) ->
+                val at = where(e)
+
+                report.add(error(Span(at.start, at.start + 1), s"this string is $e").with_label("opened here"))
+                s.skip_to_line_end()
+
+        return true
+
+    s.bump()
+
+    if c == u8('(')
+        lay.open_bracket()
+        out.push(LParen, Span(start, s.at))
+    elif c == u8(')')
+        for _ in 0..<lay.close_bracket()
+            out.push(Dedent, point(start))
+
+        out.push(RParen, Span(start, s.at))
+    elif c == u8(',')
+        if ends_line(s)
+            for _ in 0..<lay.close_blocks_in_bracket()
+                out.push(Dedent, point(start))
+
+        out.push(Comma, Span(start, s.at))
+    elif c == u8('&')
+        out.push(Amp, Span(start, s.at))
+    elif c == u8('|')
+        out.push(Bar, Span(start, s.at))
+    elif c == u8('~')
+        out.push(Tilde, Span(start, s.at))
+    elif c == u8('=')
+        if s.accept(u8('='))
+            out.push(EqEq, Span(start, s.at))
+        else
+            out.push(Equals, Span(start, s.at))
+
+            if ends_line(s) then lay.opens_block()
+    elif c == u8('!') && s.accept(u8('='))
+        out.push(BangEq, Span(start, s.at))
+    elif c == u8(':') && s.accept(u8('-'))
+        out.push(Turnstile, Span(start, s.at))
+
+        if ends_line(s) then lay.opens_block()
+    else
+        s.reset(start)
+        return false
+
+    true
+end one_token
