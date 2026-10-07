@@ -13,6 +13,7 @@ the language cannot disagree for long.
 | page | what it covers |
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
 
 ## How a page is checked
 
