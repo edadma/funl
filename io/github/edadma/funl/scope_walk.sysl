@@ -43,7 +43,7 @@ struct Walk
             None -> ()
 
         self.sc.fns.get(name) match
-            Some(r) -> return Function(r, if self.sid == self.res.top then TopUp else 0)
+            Some(r) -> return Function(r, if self.sid == self.res.top then self.res.top_up else 0)
             None -> ()
 
         val m = self.res.meaning_above(self.sc.parent, self.sc.parent_block, Anywhere, 1, name)

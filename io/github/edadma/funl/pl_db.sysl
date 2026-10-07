@@ -56,6 +56,10 @@ struct DbClause
     // The next clause of the predicate, or `NoClause`.
     next: usize
 
+    // The file whose clauses it is one of, which consulting that file again retracts; empty for a
+    // clause added while the program runs.
+    file: string
+
 // A dynamic predicate.
 struct DynPred
     name: string
@@ -208,8 +212,9 @@ revive(p: usize)
     v.preds.put(key, PredInfo(d.chunk, true, DynamicPred(p), origin))
 
 // Add clause `t` -- `Head :- Body`, already a copy of its own -- to dynamic predicate `p`, first
-// (`asserta`) or last.
-add_clause(p: usize, t: Value, front: bool) -> Result[unit, Fault]
+// (`asserta`) or last: one of `file`'s clauses, or one added while the program runs when `file` is
+// empty.
+add_clause(p: usize, t: Value, front: bool, file: string) -> Result[unit, Fault]
     val v = current()
     val d = v.db.preds.at(p)
     val (rule, nvars) = clause_term(t)
@@ -236,7 +241,7 @@ add_clause(p: usize, t: Value, front: bool) -> Result[unit, Fault]
         Compound(h) -> first_key(h.args)
         _ -> None
 
-    val c = DbClause(p, t, key, chunk, v.db.gen, 0, NoClause)
+    val c = DbClause(p, t, key, chunk, v.db.gen, 0, NoClause, file)
 
     val slot = v.db.free.pop() match
         Some(at) ->
@@ -304,6 +309,21 @@ erase_all(p: usize)
     for s in standing.view()
         erase(s)
 
+// Retract every standing clause `file` gave a dynamic predicate: what consulting the file again does
+// first. A call already running keeps seeing them, as it keeps seeing any clause retracted after it
+// began. A freed slot belongs to no file, so it is never among them.
+erase_file(file: string)
+    val v = current()
+    var standing: Buf[usize] = buf()
+
+    for i in 0..<v.db.clauses.len()
+        val c = v.db.clauses.at(i)
+
+        if c.died == 0 && c.file == file then standing.push(i)
+
+    for s in standing.view()
+        erase(s)
+
 // The head and the body of a stored clause, `Head :- Body`.
 clause_head(t: Value) -> Value = clause_part(t, 0)
 
@@ -340,7 +360,7 @@ private sweep(v: *Vm)
 
                 if d.last == i then d.last = prev
 
-                v.db.clauses.set(i, DbClause(p, Undefined, None, 0, 0, 0, NoClause))
+                v.db.clauses.set(i, DbClause(p, Undefined, None, 0, 0, 0, NoClause, ""))
                 v.db.free.push(i)
                 v.db.retired.push(c.chunk)
                 v.db.dead -= 1

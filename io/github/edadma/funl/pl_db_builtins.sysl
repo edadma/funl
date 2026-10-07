@@ -86,7 +86,7 @@ private assert_clause(x: Value, front: bool, who: string) -> Result[Value, Fault
         Fixed -> return Err(cannot_modify(name, arity, who))
         Absent -> make_dynamic(name, arity, nowhere())?
 
-    add_clause(p, t, front)?
+    add_clause(p, t, front, "")?
     Ok(Unit)
 
 // Clause `x` -- `Head :- Body`, or a fact `Head` -- as the database keeps it: checked, each variable

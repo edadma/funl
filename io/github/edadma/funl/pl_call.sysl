@@ -104,8 +104,10 @@ private value_goal(x: Value) -> &Term
 
 // `Consult`: the file named on top, loaded, and what its directives run called.
 //
-// A file that cannot be read is `existence_error(source_sink, File)`, and one whose text is refused
-// `syntax_error(File)`, the diagnostics in the message.
+// A file that cannot be read is `existence_error(source_sink, File)`, as is a file it imports that
+// cannot be; one that defines a builtin's predicate, or one another file or FunL definition holds,
+// `permission_error(modify, static_procedure, Name/Arity)`; and one whose text is refused
+// `syntax_error(File)`. The diagnostics are in the message.
 consult(v: *Vm) -> Result[unit, Fault]
     val named = deref(v.stack.pop().unwrap_or(Undefined))
 
@@ -123,8 +125,18 @@ consult(v: *Vm) -> Result[unit, Fault]
     var report = full_report()
 
     val chunk = load_prolog(src, &report) match
-        Some(c) -> c
-        None -> return Err(syntax_error(file, s"consult could not load $file:\n${report.render(src)}"))
+        Ok(c) -> c
+        Err(why) -> return Err(refused(file, why, s"consult could not load $file:\n${report.render(src)}"))
 
     call(v, chunk, 0)
 end consult
+
+// The error `consult/1` raises for `file`, refused for `why`.
+private refused(file: string, why: Refusal, msg: string) -> Fault = why match
+    Unreadable -> syntax_error(file, msg)
+    Missing(f) -> new_str(f) match
+        Ok(culprit) -> existence_error("source_sink", culprit, msg)
+        Err(m) -> Broken(m)
+    Taken(name, arity) -> indicator(name, arity) match
+        Ok(pi) -> permission_error("modify", "static_procedure", pi, msg)
+        Err(m) -> Broken(m)

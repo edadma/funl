@@ -1,0 +1,65 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.path.{join, parent}
+
+// `:- import("file.fl")`: a Prolog file loading a FunL file (`prolog.md` § "Calling FunL from
+// Prolog").
+//
+// **The FunL file is compiled as the Prolog file is read**, so its definitions are predicates before
+// the Prolog file's own clauses are defined: a relation `r` of `n` arguments is `r/n`, a function `f`
+// of `n` parameters `f/(n+1)`, under the namespace's rules -- a key another file holds is refused
+// naming both, the Prolog file's own clauses for a key the FunL file took among them. **Its top level
+// runs where the directive stands** among the file's directives, and its frame stays for the file's
+// functions to reach its variables, as a program's top level stays for the program's.
+//
+// The path is read relative to the directory of the Prolog file, as FunL's `import "file.pl"` reads
+// its own, and a FunL file the VM has already imported is not loaded again -- consulting the Prolog
+// file again among the ways that happens.
+
+// Carry out `:- import(File)` in Prolog file `src`, its top level a step of `goals`; answers why the
+// load is refused, given `why` so far.
+import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadStep], why: Refusal) -> Refusal
+    val given = named.kind match
+        TStr(s) -> s
+        TAtom(id) -> atom_name(id)
+        _ ->
+            report.add(error(named.span, "import names its file with a string"))
+            return why
+
+    val file = parent(src.name) match
+        Some(dir) -> join(dir, given)
+        None -> given
+
+    val v = current()
+
+    for f in v.funl_files.view()
+        if f == file then return why
+
+    val text = read_text(file) match
+        Ok(t) -> t
+        Err(e) ->
+            val now = refusal(why, report, Missing(file))
+
+            report.add(error(named.span, s"`$file` cannot be read: $e"))
+            return now
+
+    val fl = source_of(file, text)
+    var inner = full_report()
+    val m = v.funl_tops.len()
+
+    v.funl_tops.push(null)
+
+    compile_imported(fl, m, &inner) match
+        Ok(chunk) ->
+            v.funl_files.push(file)
+            goals.push(RunChunk(chunk))
+            why
+        Err(r) ->
+            val now = refusal(why, report, r)
+
+            report.add(error(named.span, s"`$file` could not be loaded").with_note(inner.render(fl)))
+            now
+end import_directive

@@ -28,10 +28,21 @@ import sysl.path.{join, parent}
 
 // The program in `src`, compiled into the running VM: the chunk to run, or `None` with the reasons
 // in `report`. Warnings alone do not stop it.
-compile_program(src: Source, report: *Report) -> Option[usize]
+compile_program(src: Source, report: *Report) -> Option[usize] = compile_funl(src, TopUp, report) match
+    Ok(chunk) -> Some(chunk)
+    Err(_) -> None
+
+// The FunL file in `src`, imported by a Prolog file as number `m` (`pl_import.sysl`), compiled into
+// the running VM: the chunk that runs its top level and returns `()`, or why it was refused with the
+// reasons in `report`.
+compile_imported(src: Source, m: usize, report: *Report) -> Result[usize, Refusal] = compile_funl(src, file_up(m), report)
+
+// The FunL code in `src`, whose top level's frame `top_up` names: a program for `TopUp`, whose
+// chunk halts, and otherwise a file Prolog imported, whose chunk keeps its frame and returns.
+private compile_funl(src: Source, top_up: usize, report: *Report) -> Result[usize, Refusal]
     val prog = parse(src, report)
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(Unreadable)
 
     // The Prolog files are loaded first, so the resolver knows their predicates by name.
     var loads: Buf[usize] = buf()
@@ -42,26 +53,26 @@ compile_program(src: Source, report: *Report) -> Option[usize]
             Some(chunk) -> loads.push(chunk)
             None -> ()
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(Unreadable)
 
-    var res = resolve(prog, report)
+    var res = resolve(prog, top_up, report)
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(Unreadable)
 
-    match_up(src, &res, report) match
-        Ok(_) -> ()
+    val why = match_up(src, &res, report) match
+        Ok(w) -> w
         Err(e) ->
             report.add(error(point(0), s"the compiler failed: $e"))
-            return None
+            return Err(Unreadable)
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(why)
 
     compiled(&res, loads) match
-        Ok(chunk) -> Some(chunk)
+        Ok(chunk) -> Ok(chunk)
         Err(e) ->
             report.add(error(point(0), s"the compiler failed: $e"))
-            None
-end compile_program
+            Err(Unreadable)
+end compile_funl
 
 // `import "file.pl"`: the Prolog file, read relative to the directory of the program importing it,
 // loaded into the VM; the chunk that runs its directives, or `None` with the reason reported at the
@@ -86,8 +97,8 @@ private imported(src: Source, i: Spanned[string], seen: *Buf[string], report: *R
     var inner = full_report()
 
     load_prolog(pl, &inner) match
-        Some(chunk) -> Some(chunk)
-        None ->
+        Ok(chunk) -> Some(chunk)
+        Err(_) ->
             report.add(error(i.span, s"`$file` could not be loaded").with_note(inner.render(pl)))
             None
 end imported
@@ -100,7 +111,11 @@ end imported
 // share one predicate for each name and arity. A key of the library's is taken over, as a Prolog
 // program's own definition takes it over. A builtin's key stays the builtin's: the FunL definition is
 // FunL's own under its name and Prolog does not see it, which no load order can change.
-private match_up(src: Source, res: *Resolved, report: *Report) -> Result[unit, string]
+//
+// Answers why the code is refused when a key was: the first key refused, or `Unreadable` when none.
+private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal, string]
+    var why: Refusal = Unreadable
+
     for i in 0..<res.rels.len()
         val r = res.rels.at(i)
 
@@ -126,6 +141,7 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[unit, s
 
         clash(key, origin) match
             Some(m) ->
+                why = refusal(why, report, Taken(key_name(key), if r.function then r.arity + 1 else r.arity))
                 report.add(error(head, m))
                 continue
             None -> ()
@@ -136,7 +152,7 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[unit, s
             for k in 0..<r.arity
                 e.op(LoadArg(k))
 
-            e.op(CallFn(r.chunk, r.arity, TopUp))
+            e.op(CallFn(r.chunk, r.arity, res.top_up))
             e.op(LoadArg(r.arity))
             e.op(Unify)
             e.op(Pop)
@@ -151,18 +167,23 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[unit, s
 
         define_predicate(key, e, origin)?
 
-    Ok(())
+    Ok(why)
 end match_up
 
+// The relations and functions, and the top level: a program's halts; an imported file's keeps its
+// frame for its functions to reach, then returns `()` to the Prolog file that imported it.
 private compiled(res: *Resolved, loads: Buf[usize]) -> Result[usize, string]
     for r in res.rels.view()
         if r.function then compile_function(res, r)? else compile_relation(res, r)?
 
-    var e = emit("main")
+    val program = res.top_up == TopUp
+    var e = emit(if program then "main" else "top level")
     var loops: Buf[Looping] = buf()
     val c = context(res, res.top, &loops)
 
     e.op(Frame(res.scopes.at(res.top).count()))
+
+    if !program then e.op(KeepTop(TopUp - 1 - res.top_up))
 
     // What each imported file's directives run, before the program's own statements.
     for l in loads.view()
@@ -172,7 +193,12 @@ private compiled(res: *Resolved, loads: Buf[usize]) -> Result[usize, string]
     for s in res.top_stmts.view()
         compile_stmt(&e, c, s)?
 
-    e.op(Halt)
+    if program
+        e.op(Halt)
+    else
+        e.op(PushUnit)
+        e.op(Return)
+
     finish(e)
 end compiled
 

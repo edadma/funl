@@ -64,6 +64,23 @@ enum PredKind
     // A dynamic predicate, entry `index` of the database (`pl_db.sysl`).
     DynamicPred(index: usize)
 
+// Why a file could not be loaded, which says the error `consult/1` raises; the diagnostics are in the
+// report.
+enum Refusal
+    // Text the reader or a compiler refuses: `syntax_error`.
+    Unreadable
+
+    // A file it names cannot be read: `existence_error(source_sink, File)`.
+    Missing(file: string)
+
+    // It defines `name/arity`, which a builtin or another file's definition holds:
+    // `permission_error(modify, static_procedure, name/arity)`.
+    Taken(name: string, arity: usize)
+
+// Why a load is refused, given that `r` has just been found: the first problem decides, so `r` only
+// when nothing has been reported yet, and `why`, what decided before, otherwise.
+refusal(why: Refusal, report: *Report, r: Refusal) -> Refusal = if report.has_errors() then why else r
+
 // The chunk of predicate `name/arity`: its own, a builtin's, or one reserved for it.
 predicate_chunk(name: string, arity: usize) -> usize
     val v = current()
@@ -165,6 +182,34 @@ claim(key: string, origin: Origin)
         Some(p) -> if p.origin.file == "" then v.preds.put(key, PredInfo(p.chunk, p.defined, p.kind, origin))
         None -> ()
 
+// Wipe what Prolog file `file` defined, before it is loaded again: its static predicates become
+// undefined, keeping their chunks for the calls that name them, and the clauses it gave dynamic
+// predicates are retracted. The predicates it declared dynamic stay dynamic, with any clause the
+// program asserted.
+forget_file(file: string) -> Result[unit, string]
+    val v = current()
+    var keys: Buf[string] = buf()
+    var walk = v.preds.walk()
+
+    loop
+        walk.next() match
+            Some((k, p)) ->
+                p.kind match
+                    ProgramPred -> if p.origin.file == file then keys.push(k)
+                    _ -> ()
+            None -> break
+
+    for k in keys.view()
+        val p = v.preds.get(k).unwrap()
+        var e = emit(k)
+
+        e.op(NoProcedure)
+        install(e, p.chunk)?
+        v.preds.put(k, PredInfo(p.chunk, false, Unclaimed, nowhere()))
+
+    erase_file(file)
+    Ok(())
+
 // Whether `key` is a predicate of the library written in Prolog, which a program may replace.
 is_library(key: string) -> bool = current().preds.get(key) match
     Some(p) -> p.kind match
@@ -225,13 +270,44 @@ private struct Group
     arity: usize
     clauses: Buf[ReadClause]
 
+// What loading a file runs, in order: a directive's goal, or the top level of a FunL file it imports.
+enum LoadStep
+    Goal(c: ReadClause)
+    RunChunk(chunk: usize)
+
 // Read and compile the Prolog program in `src` into the running VM: the chunk that runs its
-// directives, or `None` with the reasons in `report`.
-load_prolog(src: Source, report: *Report) -> Option[usize]
+// directives, or why it was refused with the reasons in `report`.
+//
+// **Loading a file again replaces what it defined** (`prolog.md` § "Calling FunL from Prolog"), as
+// consulting it again does in SWI-Prolog: what the file defined before is wiped first
+// (`forget_file`), the clauses it gave dynamic predicates among it, so they are not there twice.
+//
+// A FunL file it imported is not counted as loaded when the file itself is refused, since its top
+// level never runs: importing it again loads it again.
+load_prolog(src: Source, report: *Report) -> Result[usize, Refusal]
+    val v = current()
+    val before = v.funl_files.len()
+    val loaded = load_file(src, report)
+
+    if loaded.is_err()
+        while v.funl_files.len() > before
+            v.funl_files.pop()
+
+    loaded
+
+private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
+    var why: Refusal = Unreadable
+
+    forget_file(src.name) match
+        Ok(_) -> ()
+        Err(m) ->
+            report.add(error(point(0), s"the Prolog compiler failed: $m"))
+            return Err(why)
+
     var r = pl_reader(src, report)
     var groups: Buf[Group] = buf()
     var by_key: Map[string, usize] = map()
-    var goals: Buf[ReadClause] = buf()
+    var goals: Buf[LoadStep] = buf()
     var inits: Buf[ReadClause] = buf()
 
     loop
@@ -242,7 +318,7 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
 
         directive_goal(c.t) match
             Some(g) ->
-                directive(src, report, ReadClause(g, c.names), &goals, &inits)
+                why = directive(src, report, ReadClause(g, c.names), &goals, &inits, why)
                 continue
             None -> ()
 
@@ -264,6 +340,7 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
 
         // ISO's `permission_error(modify, static_procedure, ...)`, raised as the file loads.
         if is_builtin(key)
+            why = refusal(why, report, Taken(name, n))
             report.add(error(head.span, s"`$key` is a builtin predicate, and a program cannot define it"))
             continue
 
@@ -281,7 +358,7 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
                 groups.push(Group(name, n, cs))
     end loop
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(why)
 
     var origins: Buf[Origin] = buf()
 
@@ -291,12 +368,14 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
         val origin = Origin(src.name, s"the Prolog predicate `$key` at ${located(src, head.span.start)}")
 
         clash(key, origin) match
-            Some(m) -> report.add(error(head.span, m))
+            Some(m) ->
+                why = refusal(why, report, Taken(g.name, g.arity))
+                report.add(error(head.span, m))
             None -> ()
 
         origins.push(origin)
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(why)
 
     var codes: Buf[Emit] = buf()
 
@@ -310,7 +389,7 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
             Ok(e) -> codes.push(e)
             Err(p) -> report.add(error(p.at, p.message))
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(why)
 
     for i in 0..<groups.len()
         val g = groups.at(i)
@@ -319,31 +398,35 @@ load_prolog(src: Source, report: *Report) -> Option[usize]
         dynamic_index(key) match
             Some(p) ->
                 claim(key, origins.at(i))
-                load_dynamic(report, p, g.clauses)
+                load_dynamic(report, p, g.clauses, src.name)
             None -> define_predicate(key, codes.at(i), origins.at(i)).unwrap()
 
-    if report.has_errors() then return None
+    if report.has_errors() then return Err(why)
 
     var load = emit(s"load ${src.name}")
 
-    for g in goals.view()
-        run_directive(&load, src, report, g, "directive")?
+    for s in goals.view()
+        s match
+            Goal(g) -> if run_directive(&load, src, report, g, "directive").is_none() then return Err(why)
+            RunChunk(at) ->
+                load.op(Call(at, 0))
+                load.op(Pop)
 
     for g in inits.view()
-        run_directive(&load, src, report, g, "initialization goal")?
+        if run_directive(&load, src, report, g, "initialization goal").is_none() then return Err(why)
 
     load.op(PushUnit)
     load.op(Return)
 
     finish(load) match
-        Ok(at) -> Some(at)
+        Ok(at) -> Ok(at)
         Err(e) ->
             report.add(error(point(0), s"the Prolog compiler failed: $e"))
-            None
-end load_prolog
+            Err(why)
+end load_file
 
-// A file's clauses for dynamic predicate `p`, added to the database in order.
-private load_dynamic(report: *Report, p: usize, clauses: Buf[ReadClause])
+// A file's clauses for dynamic predicate `p`, added to the database in order as `file`'s.
+private load_dynamic(report: *Report, p: usize, clauses: Buf[ReadClause], file: string)
     for c in clauses.view()
         var vars: Buf[Value] = buf()
 
@@ -359,7 +442,7 @@ private load_dynamic(report: *Report, p: usize, clauses: Buf[ReadClause])
                 report.add(error(c.t.span, fault_text(f)))
                 continue
 
-        add_clause(p, stored, false) match
+        add_clause(p, stored, false, file) match
             Ok(_) -> ()
             Err(f) -> report.add(error(c.t.span, fault_text(f)))
 
@@ -381,9 +464,10 @@ private directive_goal(t: &Term) -> Option[&Term]
 
     None
 
-// A directive as it is read: `op/3` carried out now, `initialization/1` kept for after the rest,
-// anything else kept to run in order.
-private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[ReadClause], inits: *Buf[ReadClause])
+// A directive as it is read: `op/3` and `import/1` carried out now, `initialization/1` kept for
+// after the rest, anything else kept to run in order. Answers why the load is refused, given `why`
+// so far.
+private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadStep], inits: *Buf[ReadClause], why: Refusal) -> Refusal
     val t = c.t
 
     t.kind match
@@ -392,11 +476,13 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[ReadC
 
             if n == "op" && args.len() == 3
                 op_directive(report, t, args)
-                return
+                return why
 
             if n == "initialization" && (args.len() == 1 || args.len() == 2)
                 inits.push(ReadClause(args.at(0), c.names))
-                return
+                return why
+
+            if n == "import" && args.len() == 1 then return import_directive(src, report, args.at(0), goals, why)
 
             // `dynamic/1` is carried out now too: the file's own clauses for the predicates it
             // names are added to the database rather than compiled as static code.
@@ -407,16 +493,17 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[ReadC
                     Ok(x) -> x
                     Err(m) ->
                         report.add(error(t.span, m))
-                        return
+                        return why
 
                 declare_dynamic(spec, src.name, located(src, t.span.start)) match
                     Ok(_) -> ()
                     Err(f) -> report.add(error(t.span, fault_text(f)))
 
-                return
+                return why
         _ -> ()
 
-    goals.push(c)
+    goals.push(Goal(c))
+    why
 
 // `:- op(P, T, Names)`, where `Names` is a name or a list of them.
 private op_directive(report: *Report, t: &Term, args: Buf[&Term])
@@ -498,7 +585,10 @@ end run_directive
 // A whole Prolog program, `funl file.pl`: load it, which runs its directives and its
 // `initialization/1` goals, and halt.
 prolog_program(src: Source, report: *Report) -> Option[usize]
-    val load = load_prolog(src, report)?
+    val load = load_prolog(src, report) match
+        Ok(at) -> at
+        Err(_) -> return None
+
     var e = emit("main")
 
     e.op(Frame(0))

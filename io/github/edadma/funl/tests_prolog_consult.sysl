@@ -1,0 +1,96 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.{remove_file, write_text}
+
+// Consulting a file again, and what `consult/1` raises when a file cannot be loaded.
+//
+// **Consulting a file again replaces what it defined**, as SWI-Prolog's reconsult does: the file's
+// static predicates are wiped, and the clauses it gave its dynamic predicates retracted, before it is
+// read again -- so its clauses are never there twice, a predicate it no longer defines is gone, and
+// a clause the program asserted stays. A call already running keeps seeing the clauses it began with.
+
+private const Items: string = "\"tests/prolog/reload_dyn.pl\""
+
+// Write each formal term `consult(File)` raises, or `none`.
+private const Try: string = "try(F) :- catch((consult(F), E = none), error(E, _), true), write(E), nl.\n"
+
+@test
+CONSULTING_A_FILE_AGAIN_DOES_NOT_ADD_ITS_DYNAMIC_CLAUSES_TWICE()
+    val text = s":- consult($Items).\n:- consult($Items).\n:- forall(item(X), (write(X), nl)).\n"
+
+    assert_eq(ran_prolog(text), "1\n2\n3\nsucceeded")
+
+@test
+CONSULTING_A_FILE_AGAIN_KEEPS_THE_CLAUSES_THE_PROGRAM_ASSERTED()
+    val text = s":- consult($Items), assertz(item(9)), consult($Items), forall(item(X), (write(X), nl)).\n"
+
+    assert_eq(ran_prolog(text), "9\n1\n2\n3\nsucceeded")
+
+@test
+A_CALL_RUNNING_WHILE_ITS_FILE_IS_CONSULTED_AGAIN_SEES_THE_CLAUSES_IT_BEGAN_WITH()
+    val text = s":- consult($Items).\n" +
+        s":- forall(item(X), ((X == 1 -> consult($Items) ; true), write(X), nl)).\n" +
+        ":- findall(Y, item(Y), L), length(L, N), write(N), nl.\n"
+
+    assert_eq(ran_prolog(text), "1\n2\n3\n3\nsucceeded")
+
+// Consult `tests/prolog/rewritten.pl` holding `first`, then again holding `second`, on one VM with
+// this heap and schedule; what the second program said.
+private consulted_twice(heap: usize, floor: usize, growth: usize, first: string, second: string, query: string) -> string
+    val file = "tests/prolog/rewritten.pl"
+    var v = new_vm(heap, floor, growth)
+    val was = enter(&v)
+
+    write_text(file, first).unwrap()
+    run(&v, prolog_text(s":- consult(\"$file\").\n").unwrap())
+    write_text(file, second).unwrap()
+
+    val outcome = outcome_text(run(&v, prolog_text(s":- consult(\"$file\").\n$query").unwrap()))
+    var said = ""
+
+    for line in v.output.view()
+        said = said + line + "\n"
+
+    remove_file(file).unwrap()
+    dispose_vm(&v)
+    leave(was)
+    said + outcome
+
+@test
+A_PREDICATE_A_FILE_NO_LONGER_DEFINES_IS_GONE_WHEN_THE_FILE_IS_CONSULTED_AGAIN()
+    val first = "gone(a).\nkept(a).\n:- dynamic(count/1).\ncount(1).\n"
+    val second = "kept(b).\n:- dynamic(count/1).\n"
+    val query = ":- catch(gone(_), error(E, _), (functor(E, F, _), write(F), nl)).\n" +
+        ":- forall(kept(K), (write(K), nl)).\n:- findall(C, count(C), L), write(L), nl.\n"
+    val calm = consulted_twice(RoomyHeap, RoomyFloor, 2, first, second, query)
+
+    assert_eq(consulted_twice(TightHeap, 0, 0, first, second, query), calm)
+    assert_eq(calm, "existence_error\nb\n[]\nsucceeded")
+
+@test
+CONSULT_RAISES_A_SYNTAX_ERROR_FOR_TEXT_THE_READER_REFUSES()
+    assert_eq(ran_prolog(Try + ":- try(\"tests/prolog/unreadable.pl\").\n"), "syntax_error(tests/prolog/unreadable.pl)\nsucceeded")
+
+@test
+CONSULT_RAISES_A_PERMISSION_ERROR_FOR_A_PREDICATE_ANOTHER_FILE_DEFINES()
+    val text = Try + ":- consult(\"tests/prolog/clash_a.pl\").\n:- try(\"tests/prolog/clash_b.pl\").\n:- try(\"tests/prolog/clash_c.pl\").\n"
+
+    assert_eq(ran_prolog(text),
+        "permission_error(modify,static_procedure,shared/1)\npermission_error(modify,static_procedure,counter/1)\nsucceeded")
+
+@test
+CONSULT_RAISES_A_PERMISSION_ERROR_FOR_A_FILE_DEFINING_A_BUILTIN()
+    assert_eq(ran_prolog(Try + ":- try(\"tests/prolog/defines_builtin.pl\").\n"),
+        "permission_error(modify,static_procedure,atom_length/2)\nsucceeded")
+
+@test
+CONSULT_RAISES_AN_EXISTENCE_ERROR_FOR_A_MISSING_FILE()
+    assert_eq(ran_prolog(Try + ":- try(\"tests/prolog/missing.pl\").\n"),
+        "existence_error(source_sink,tests/prolog/missing.pl)\nsucceeded")
+
+@test
+CONSULT_RAISES_A_PERMISSION_ERROR_FOR_A_PREDICATE_A_FUNL_PROGRAM_DEFINES()
+    // The Prolog file's directive runs once the FunL program's definitions are predicates.
+    assert_eq(ran_funl("import \"tests/prolog/consult_clash.pl\"\ndef shared(#mine)\n"),
+        "permission_error(modify,static_procedure,shared/1)\nsucceeded")

@@ -20,7 +20,7 @@ install_library(v: *Vm)
     val src = source_of("library", library_text())
     var report = full_report()
 
-    if load_prolog(src, &report).is_none() then panic(s"the Prolog library does not load:\n${report.render(src)}")
+    if load_prolog(src, &report).is_err() then panic(s"the Prolog library does not load:\n${report.render(src)}")
 
     mark_library()
     leave(was)

@@ -67,7 +67,7 @@ PROLOG_CONSULTING_A_SECOND_FILE_THAT_DEFINES_THE_SAME_PREDICATE_GETS_AN_ERROR_IT
         ":- catch(consult(\"tests/prolog/clash_b.pl\"), error(E, _), (functor(E, F, _), write(F), nl)).\n" +
         ":- forall(shared(X), (write(X), nl)).\n"
 
-    assert_eq(ran_prolog(text), "syntax_error\na\nsucceeded")
+    assert_eq(ran_prolog(text), "permission_error\na\nsucceeded")
 
 @test
 IMPORTING_THE_SAME_FILE_TWICE_LOADS_IT_ONCE_AND_IS_NO_COLLISION()

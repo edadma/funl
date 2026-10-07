@@ -168,6 +168,10 @@ enum Op
     // Call the function value under the top `argc` values.
     CallValue(argc: usize)
 
+    // Keep the running frame as the top level's frame of the FunL file Prolog imported as number
+    // `file`: the first thing that file's top level does, so its functions reach its variables.
+    KeepTop(file: usize)
+
     // `CallValue` in tail position. **Always followed by `Return`.**
     TailCallValue(argc: usize)
 
@@ -455,6 +459,14 @@ enum Gathering
 
 // What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame.
 const TopUp: usize = 4294967295
+
+// How many FunL files Prolog can import, each with a top level of its own: the `up` values just
+// below `TopUp` name their frames, so no count of static links can be mistaken for one.
+const FileUps: usize = 1048576
+
+// What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame of the FunL file
+// Prolog imported as number `m`.
+file_up(m: usize) -> usize = TopUp - 1 - m
 
 // What a chunk's `arity` is when no call into it is checked: the top level, and the relations,
 // whose calls the resolver has already counted.

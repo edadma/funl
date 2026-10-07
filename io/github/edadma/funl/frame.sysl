@@ -41,10 +41,18 @@ call(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault] = open_frame(v, 
 // Call function chunk `target`, whose static link is the frame `up` names (see `link`).
 call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] = open_frame(v, target, argc, link(v, up)?)
 
-// The frame a `MakeClosure` or a `CallFn` names: `up` static links above the running frame, or the
-// top level's frame for `TopUp`.
+// The frame a `MakeClosure` or a `CallFn` names: `up` static links above the running frame, the
+// top level's frame for `TopUp`, or that of a FunL file Prolog imported for `file_up(m)`.
 link(v: *Vm, up: usize) -> Result[*FrameObj, string]
     if up == TopUp then return Ok(v.globals)
+
+    if up >= TopUp - FileUps
+        val m = TopUp - 1 - up
+        val f = if m < v.funl_tops.len() then v.funl_tops.at(m) else null
+
+        if f == null then return Err("a FunL file's function was called before the file's top level ran")
+
+        return Ok(f)
 
     frame_up(v, up)
 

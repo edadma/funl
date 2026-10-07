@@ -235,6 +235,10 @@ struct Resolved
     // The top level's scope id.
     top: usize
 
+    // What a call or a closure names the top level's frame by: `TopUp` for a program, `file_up(m)`
+    // for a FunL file Prolog imported.
+    top_up: usize
+
     // The top level's statements, in order.
     top_stmts: Buf[Stmt]
 
@@ -272,7 +276,7 @@ struct Resolved
                 None -> ()
 
             s.fns.get(name) match
-                Some(r) -> return Function(r, if at == self.top then TopUp else d)
+                Some(r) -> return Function(r, if at == self.top then self.top_up else d)
                 None -> ()
 
             at = s.parent
@@ -286,7 +290,7 @@ struct Resolved
     // What `name` means among the top-level definitions and the builtins.
     global(self, name: string) -> Meaning
         self.by_name.get(name) match
-            Some(i) -> return if self.rels.at(i).function then Function(i, TopUp) else Relation(i)
+            Some(i) -> return if self.rels.at(i).function then Function(i, self.top_up) else Relation(i)
             None -> ()
 
         native_id(name) match
@@ -296,9 +300,10 @@ struct Resolved
         if pred_name_known(name) then Predicate(name) else Unknown
 end Resolved
 
-// Resolve `prog`, adding every refusal and warning to `report`.
-resolve(prog: Program, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, prog.stmts, map(), map(), map())
+// Resolve `prog`, whose top level's frame `top_up` names, adding every refusal and warning to
+// `report`.
+resolve(prog: Program, top_up: usize, report: *Report) -> Resolved
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map())
 
     res.top = new_scope_id(&res)
 

@@ -256,6 +256,9 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         CallValue(argc) ->
             call_value(v, argc, false)?
             Ok(Next)
+        KeepTop(file) ->
+            v.funl_tops.set(file, v.frame)
+            Ok(Next)
         TailCallValue(argc) ->
             call_value(v, argc, true)?
             Ok(Next)

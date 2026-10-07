@@ -225,6 +225,10 @@ roots(h: *gc.Heap)
     // The top level's frame, the static link of every top-level function's frames.
     gc.mark(h, ptr_cast(v.globals))
 
+    // The top level's frame of each FunL file Prolog imported, for the same reason.
+    for f in v.funl_tops.view()
+        if f != null then gc.mark(h, ptr_cast(f))
+
     // Every constant a chunk can push.
     for c in v.chunks.view()
         mark_values(h, c.consts)
