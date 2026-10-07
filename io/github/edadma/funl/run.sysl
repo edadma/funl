@@ -271,8 +271,14 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         Update(depth, slot, o) ->
             val b = pop(v)?
             val f = frame_up(v, depth)?
+            val held = slot_of(f, slot)?
 
-            arith(o, slot_of(f, slot)?, b)? match
+            // `+=` onto a buffer adds to it in place, the variable still holding the same buffer.
+            if o == Add && adds_in_place(held, b)
+                v.stack.push(held)
+                return Ok(Next)
+
+            arith(o, held, b)? match
                 Some(x) ->
                     set_slot(f, slot, x)?
                     v.stack.push(x)
@@ -324,6 +330,40 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             Ok(Next)
         Collected(slot, set) ->
             collected(v, slot, set)?
+            Ok(Next)
+        MakeMap(n) ->
+            make_map(v, n)?
+            Ok(Next)
+        MakeSet(n) ->
+            make_set(v, n)?
+            Ok(Next)
+        MakeRecord(ctor, n) ->
+            make_record(v, ctor, n)?
+            Ok(Next)
+        Index ->
+            val key = pop(v)?
+            val c = pop(v)?
+
+            v.stack.push(element_get(c, key, true)?)
+            Ok(Next)
+        StoreElem(bracket, back) ->
+            val x = pop(v)?
+            val key = pop(v)?
+            val c = pop(v)?
+
+            element_set(c, key, bracket, x, back)?
+            v.stack.push(x)
+            Ok(Next)
+        Append(depth, slot) ->
+            val x = pop(v)?
+
+            v.stack.push(append_to(slot_of(frame_up(v, depth)?, slot)?, x)?)
+            Ok(Next)
+        SwapElems(first, second) ->
+            swap_elements(v, first, second)?
+            Ok(Next)
+        Concat(n) ->
+            concat(v, n)?
             Ok(Next)
 end execute
 

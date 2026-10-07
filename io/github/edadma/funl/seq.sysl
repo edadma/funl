@@ -76,7 +76,8 @@ is_seq(x: Value) -> bool = deref(x) match
     Range(_) -> true
     _ -> false
 
-// Every element of `x` -- a proper list, or a range with an end -- pushed onto `out`, in order;
+// Every element of `x` -- a proper list, a range with an end, a tuple, a set, an array or a buffer --
+// pushed onto `out`, in order;
 // `what` names the operation for a refusal.
 elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, string]
     var at = deref(x)
@@ -97,6 +98,18 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, string]
                     out.push(Int(k))
                     k += r.step
 
+                return Ok(())
+            Tuple(t) ->
+                out.extend(t.items.view())
+                return Ok(())
+            Set(s) ->
+                out.extend(s.items.view())
+                return Ok(())
+            Array(a) ->
+                out.extend(a.items.view())
+                return Ok(())
+            Buffer(a) ->
+                out.extend(a.items.view())
                 return Ok(())
             Var(_) -> return Err(s"instantiation error: $what reached an unbound tail of a list")
             y -> return Err(s"$what wants a list and reached ${described(y)}")
@@ -192,8 +205,12 @@ member(x: Value, c: Value) -> Result[bool, string]
                 return Ok((n - r.from) % r.step == 0)
             Tuple(t) -> return within(x, t.items)
             Set(s) -> return within(x, s.items)
+            Array(a) -> return within(x, a.items)
+            Buffer(a) -> return within(x, a.items)
+            Map(m) -> return Ok(map_find(m, x)?.is_some())
+            MutMap(m) -> return Ok(map_find(m, x)?.is_some())
             Var(_) -> return Err("instantiation error: 'in' was given an unbound variable to look in")
-            y -> return Err(s"'in' looks in a list, a range, a tuple or a set, and was given ${described(y)}")
+            y -> return Err(s"'in' looks in a list, a range, a tuple, a set, an array, a buffer or a map's keys, and was given ${described(y)}")
 
 private within(x: Value, items: Buf[Value]) -> Result[bool, string]
     for y in items.view()
@@ -258,7 +275,8 @@ element_at(c: Value, index: Value) -> Result[Value, string]
         _ -> Err(s"${described(x)} cannot be indexed")
 end element_at
 
-// How many elements a list, a range with an end, a tuple, a set or a string -- in characters -- has.
+// How many elements a list, a range with an end, a tuple, a set, an array, a buffer, a map, a term or
+// a string -- in characters -- has.
 length_of(x: Value) -> Result[long, string]
     val c = deref(x)
 
@@ -282,6 +300,11 @@ length_of(x: Value) -> Result[long, string]
             Ok(range_count(r))
         Tuple(t) -> Ok(long(t.items.len()))
         Set(s) -> Ok(long(s.items.len()))
+        Array(a) -> Ok(long(a.items.len()))
+        Buffer(a) -> Ok(long(a.items.len()))
+        Map(m) -> Ok(long(m.keys.len()))
+        MutMap(m) -> Ok(long(m.keys.len()))
+        Compound(p) -> Ok(long(p.args.len()))
         Str(p) ->
             var n: long = 0
 
@@ -293,8 +316,12 @@ length_of(x: Value) -> Result[long, string]
         y -> Err(s"${described(y)} has no length")
 end length_of
 
-// `x.name`.
+// `x.name`: a record's field, a map's key, a buffer's `removeLast`, or any collection's `length`.
 field_of(x: Value, name: u32) -> Result[Value, string]
+    data_field(x, name)? match
+        Some(y) -> return Ok(y)
+        None -> ()
+
     val n = atom_name(name)
 
     if n == "length" then return Ok(Int(length_of(x)?))

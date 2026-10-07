@@ -5,3 +5,4 @@ module io.github.edadma.funl
 install_natives(v: *Vm)
     install_io(v)
     install_predef(v)
+    install_data(v)

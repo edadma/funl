@@ -2,7 +2,8 @@ module io.github.edadma.funl
 
 import sysl.math.{checked_add, checked_mul, checked_sub}
 
-// FunL's arithmetic and ordering operators. `+` on a list or a range is `list_add` (`seq.sysl`).
+// FunL's arithmetic and ordering operators. `+` on a list or a range is `list_add` (`seq.sysl`), and
+// `+` and `-` on a set or a map are `combined` and `removed` (`data.sysl`).
 //
 // **Numbers are 64-bit integers here, and a result that is not one is refused, never rounded or
 // wrapped**: an overflow, or a division that does not come out whole, faults naming the operation.
@@ -67,7 +68,10 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], string]
         Add ->
             if is_seq(x) then return Ok(Some(list_add(x, y)?))
 
+            if combines(x) then return Ok(Some(combined(x, y)?))
+
             if is_str(x) || is_str(y) then return Ok(Some(new_str(render(x) + render(y))?))
+        Sub -> if combines(x) then return Ok(Some(removed(x, y)?))
         _ -> ()
 
     val n = int_operand(o, x)?

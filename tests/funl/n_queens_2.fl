@@ -1,0 +1,28 @@
+def
+  permute( [] ) = seq()
+  permute( l ) = permute_( l.length, array(l) )
+  permute_( n, a )
+    if n == 1
+      seq( a )
+    else
+      for i <- 0..<n - 1
+        yield permute_( n - 1, a )
+
+        if 2 div n
+          swap( a(i), a(n - 1) )
+        else
+          swap( a(0), a(n - 1) )
+
+      permute_( n - 1, a )
+
+val n = 4
+
+var up = array( 2n - 1 )
+var down = array( 2n - 1 )
+
+def place( p, c ) | c == n = write( p )
+def place( p, c )
+  every down(p(c) + c) == up(n - 1 + p(c) - c) == undefined and down(p(c) + c) <- up(n - 1 + p(c) - c) <- 1
+    place( p, c + 1 )
+
+every place( permute(0..n - 1), 0 )

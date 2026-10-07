@@ -1,0 +1,188 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// The grammar of data: what an element target of `=` and `<-` is, interpolated strings, and `data`
+// declarations. Map and set literals are read with the other bracketed forms in `parse_expr.sysl`.
+
+// The element `target` names, given the value written into it -- with `=`, or with `<-` (`back`):
+// `name(k)`, `c(k)`, `c[k]` or `c.name`. `None` for a target that is not an element.
+element_target(target: &Expr, value: &Expr, back: bool, at: Span) -> Option[&Expr]
+    target.kind match
+        CallE(n, ns, args) ->
+            if args.len() != 1 then return None
+
+            Some(expr(SetElemE(expr(Ref(n), ns), args.at(0), false, value, back), at))
+        ApplyE(f, args) ->
+            if args.len() != 1 then return None
+
+            Some(expr(SetElemE(f, args.at(0), false, value, back), at))
+        IndexE(c, k) -> Some(expr(SetElemE(c, k, true, value, back), at))
+        FieldE(c, n) -> Some(expr(SetElemE(c, expr(StrE(n), target.span), false, value, back), at))
+        _ -> None
+
+// Whether `target` is shaped like an element: something an `=` can write into.
+is_element(target: &Expr) -> bool = element_target(target, target, false, target.span).is_some()
+
+// `target <- value`, both read.
+//
+// **`<-` binds more loosely than anything, so in `c and x <- e` what it assigns is the last operand
+// of the condition**: the left operands of `and`, `or` and `&` stay as they are, and the assignment is
+// made of the right one -- which is how the n-queens placement reads, `free and row(r) <- r`.
+reversed(p: *Parser, target: &Expr, value: &Expr) -> &Expr
+    val at = target.span.to(value.span)
+
+    target.kind match
+        AndE(a, b) -> expr(AndE(a, reversed(p, b, value)), at)
+        OrE(a, b) -> expr(OrE(a, reversed(p, b, value)), at)
+        Conj(a, b) -> expr(Conj(a, reversed(p, b, value)), at)
+        Ref(n) -> expr(RevAssignE(n, value), at)
+        BadE -> expr(BadE, at)
+        _ ->
+            element_target(target, value, true, at) match
+                Some(x) -> x
+                None ->
+                    p.report.add(error(target.span, "only a variable or an element can be assigned with `<-`")
+                        .with_note("`x <- e` stores `e` in `x`, `a(i) <- e` in an element, and backtracking puts the old value back"))
+                    expr(BadE, at)
+
+// -- interpolation ------------------------------------------------------------------------------------
+
+// `"... $name ... ${e} ..."`: the literal read again from the source at the token's span and taken
+// apart -- the text between the holes, and each hole's expression parsed where it is written.
+interpolated(p: *Parser, t: Spanned[Tok]) -> &Expr
+    var s = Scanner(p.src.bytes, t.span.start)
+
+    val parts = read_interpolated_named(&s, u8('"'), "${".bytes, u8('}'), is_ident_start, is_ident_cont) match
+        Ok(v) -> v
+        Err(_) -> return expr(BadE, t.span)
+
+    var pieces: Buf[&Expr] = buf()
+
+    for i in 0..<parts.chunks.len()
+        val chunk = parts.chunks.at(i)
+
+        if chunk != "" then pieces.push(expr(StrE(chunk), t.span))
+
+        if i < parts.holes.len() then pieces.push(hole(p, parts.holes.at(i)))
+
+    expr(InterpE(pieces), t.span)
+
+// One hole's expression, read at the offsets it occupies in the file, so that a complaint about it
+// points into the string. The lambdas and blocks inside it are numbered on from the enclosing
+// parser's, ids being unique in the program.
+private hole(p: *Parser, at: Span) -> &Expr
+    val sub = hole_source(p.src, at)
+    var inner = Parser(lex(sub, p.report), p.report, sub, p.depth, p.lambdas, p.nodes)
+
+    // The text blanked before the hole is indentation to the layout pass, which opens a block there.
+    inner.accept(Indent)
+
+    if inner.peek_tok().is_none() || inner.at_tok(Dedent) || inner.at_tok(Newline)
+        p.report.add(error(Span(at.start - 2, at.end + 1), "this interpolation has nothing in it")
+            .with_note("`${e}` puts the value of the expression `e` into the string"))
+        return expr(BadE, at)
+
+    val e = parse_expr(&inner, 0)
+
+    while inner.accept(Dedent) || inner.accept(Newline)
+        ()
+
+    if inner.peek_tok().is_some() then inner.fail_here("the `}` that ends the interpolation")
+
+    p.lambdas = inner.lambdas
+    p.nodes = inner.nodes
+    e
+end hole
+
+// The file with everything but the hole blanked and nothing after the hole: offsets, lines and
+// columns stay the file's, and the input ends where the hole does -- so an expression cut short is
+// reported at the hole's end, not at the end of the file.
+private hole_source(src: Source, at: Span) -> Source
+    var out: Buf[u8] = buf()
+
+    for i in 0..<at.end
+        val c = src.bytes[i]
+
+        if i >= at.start
+            out.push(c)
+        elif c == u8('\n')
+            out.push(c)
+        else
+            out.push(u8(' '))
+
+    source(src.name, out.view())
+
+// -- `data` -------------------------------------------------------------------------------------------
+
+// `data name(fields)`, or `data type = c1(fields) | c2 | ...`, the `data` already read.
+data_declaration(p: *Parser) -> Stmt
+    var ctors: Buf[CtorDecl] = buf()
+
+    val first = constructor(p) match
+        Some(c) -> c
+        None -> return DataS(ctors)
+
+    if !p.accept(Equals)
+        ctors.push(first)
+        return DataS(ctors)
+
+    if first.fields.len() > 0
+        p.report.add(error(first.at, "a data type's name has no fields; its constructors do")
+            .with_note("`data shape = circle(r) | square(s)`"))
+
+    loop
+        constructor(p) match
+            Some(c) -> ctors.push(c)
+            None -> return DataS(ctors)
+
+        if !p.accept(Bar) then break
+
+    DataS(ctors)
+end data_declaration
+
+// A constructor: its name and, in parentheses, its fields' names.
+private constructor(p: *Parser) -> Option[CtorDecl]
+    val t = p.toks.peek() match
+        Some(t) -> t
+        None ->
+            p.fail_here("a constructor's name")
+            return None
+
+    val n = t.value match
+        Name(n) -> n
+        _ ->
+            p.fail_here("a constructor's name")
+            p.skip_line()
+            return None
+
+    p.take()
+
+    var fields: Buf[string] = buf()
+
+    if !p.accept(LParen) then return Some(CtorDecl(n, t.span, fields))
+
+    if p.accept(RParen) then return Some(CtorDecl(n, t.span, fields))
+
+    loop
+        p.toks.peek() match
+            Some(f) ->
+                f.value match
+                    Name(name) ->
+                        p.take()
+                        fields.push(name)
+                    _ ->
+                        p.fail_here("a field's name")
+                        p.skip_to_close()
+                        return Some(CtorDecl(n, t.span, fields))
+            None ->
+                p.fail_here("a field's name")
+                return None
+
+        if !p.accept(Comma) then break
+
+    if !p.expect(RParen, "`,` or `)`") then p.skip_to_close()
+
+    Some(CtorDecl(n, t.span, fields))
+end constructor

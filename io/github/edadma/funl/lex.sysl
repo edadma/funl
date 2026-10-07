@@ -168,7 +168,25 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
 
         return true
 
-    if c == u8('\'') || c == u8('"')
+    // **A double-quoted string interpolates and a single-quoted one does not.** One with a hole in it
+    // becomes `InterpLit`, which the parser takes apart again from the source; one without is an
+    // ordinary string, `$$` already read as a dollar.
+    if c == u8('"')
+        read_interpolated_named(s, c, "${".bytes, u8('}'), is_ident_start, is_ident_cont) match
+            Ok(parts) ->
+                if parts.holes.len() == 0
+                    out.push(StrLit(parts.chunks.at(0)), Span(start, s.at))
+                else
+                    out.push(InterpLit, Span(start, s.at))
+            Err(e) ->
+                val at = where(e)
+
+                report.add(error(Span(at.start, at.start + 1), s"this string is $e").with_label("opened here"))
+                s.skip_to_line_end()
+
+        return true
+
+    if c == u8('\'')
         read_quoted(s, c) match
             Ok(text) -> out.push(StrLit(text), Span(start, s.at))
             Err(e) ->

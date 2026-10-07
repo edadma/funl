@@ -67,7 +67,7 @@ IN_SUCCEEDS_WITH_THE_LEFT_OPERAND_OR_FAILS()
         "3, 4, 5, 7, (2, 3), 2, 1\nsucceeded")
     assert_eq(ran_funl("if 4 in [1, 2, 3] then write( #yes ) else write( #no )\nif 4 in 1..10 by 2 then write( #yes ) else write( #no )\nif 0 in 1.. then write( #yes ) else write( #no )\nif 2 not in [1, 2, 3] then write( #yes ) else write( #no )\n"),
         "no\nno\nno\nno\nsucceeded")
-    assert_eq(ran_funl("write( 5 in 7 )\n"), "fault: main@4: 'in' looks in a list, a range, a tuple or a set, and was given the integer 7")
+    assert_eq(ran_funl("write( 5 in 7 )\n"), "fault: main@4: 'in' looks in a list, a range, a tuple, a set, an array, a buffer or a map's keys, and was given the integer 7")
 
 @test
 A_COMPREHENSION_COLLECTS_EVERY_VALUE_IN_ORDER()
@@ -75,7 +75,7 @@ A_COMPREHENSION_COLLECTS_EVERY_VALUE_IN_ORDER()
         "[10, 100, 30, 300]\n[], [\"a\", \"b\", \"c\"]\nsucceeded")
     assert_eq(ran_funl("write( {x | x <- [1, 1, 2, 1]}, {x | x <- []} )\nevery write( !{x \\ 2 | x <- 1..5} )\n"),
         "{1, 2}, {}\n0\n1\n2\nsucceeded")
-    assert_eq(complaints("{1, 2}\n"), "error 1:1 a set is written as a comprehension, `{e | x <- c}`\n")
+    assert_eq(complaints("write( {1, 2}, {a: 1} )\n"), "")
 
 @test
 A_STRING_INSIDE_A_COLLECTION_PRINTS_QUOTED()
@@ -105,4 +105,4 @@ A_REVERSIBLE_ASSIGNMENT_IN_A_FUNCTION_IS_UNDONE_WHEN_THE_CALL_IS_BACKTRACKED_PAS
 
     assert_eq(ran_funl(text), "0\n3\nsucceeded")
     assert_eq(roomy(() -> compiled_text(text)).trail, 0)
-    assert_eq(complaints("(1 <- 2)\n"), "error 1:2 only a variable can be assigned with `<-`\n")
+    assert_eq(complaints("(1 <- 2)\n"), "error 1:2 only a variable or an element can be assigned with `<-`\n")

@@ -1,0 +1,190 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Maps, mutable maps, sets, arrays, buffers, records and `data`, `c[i]`, writing into an element with
+// `=` and `<-`, `swap`, and interpolated strings. Every program runs on both heaps.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- maps ----------------------------------------------------------------------------------------------
+
+@test
+A_MAP_IS_WRITTEN_WITH_KEYS_AND_REACHED_BY_KEY_CALL_AND_FIELD()
+    assert_eq(ran_funl("val m = {a: 1, \"b\": 2, 3: [4]}\nwrite( m, m.a, m(\"b\"), m(3), m[\"a\"], m.length, {} )\n"),
+        "{\"a\": 1, \"b\": 2, 3: [4]}, 1, 2, [4], 1, 3, {}\nsucceeded")
+    assert_eq(ran_funl("write( {a: 1, a: 2}, {a: 1:[2]} )\n"), "{\"a\": 2}, {\"a\": [1, 2]}\nsucceeded")
+
+@test
+A_MISSING_KEY_IS_AN_ERROR()
+    faults_with("write( {a: 1}(\"b\") )\n", "{\"a\": 1} has no key \"b\"")
+    faults_with("write( {a: 1}.b )\n", "{\"a\": 1} has no key \"b\"")
+    faults_with("val m = map()\nwrite( m(7) )\n", "MutableMap() has no key 7")
+
+@test
+PLUS_AND_MINUS_MAKE_NEW_MAPS()
+    assert_eq(ran_funl("val m = {a: 1}\nwrite( m + {b: 2}, m + (\"c\", 3), {a: 1, b: 2} - \"a\", {a: 1, b: 2, c: 3} - {\"a\", \"c\"}, m )\n"),
+        "{\"a\": 1, \"b\": 2}, {\"a\": 1, \"c\": 3}, {\"b\": 2}, {\"b\": 2}, {\"a\": 1}\nsucceeded")
+    faults_with("write( {a: 1} + 5 )\n", "'+' adds a map or a pair `(key, value)` to a map, and was given the integer 5")
+
+@test
+A_MAP_TESTS_ITS_KEYS_AND_GENERATES_ITS_ENTRIES()
+    assert_eq(ran_funl("write( \"a\" in {a: 1}, \"z\" not in {a: 1}, {a: 1, b: 2} == {b: 2, a: 1} )\nevery write( !{a: 1, b: 2} )\nfor (k, v) <- map({x: 9})\n  write( k, v )\n"),
+        "a, z, {\"b\": 2, \"a\": 1}\n(\"a\", 1)\n(\"b\", 2)\nx, 9\nsucceeded")
+
+@test
+A_MUTABLE_MAP_TAKES_NEW_KEYS_BY_CALL_FIELD_AND_BRACKET()
+    assert_eq(ran_funl("val m = map({a: 1})\nm.a = 2\nm(\"b\") = 3\nm[\"c\"] = 4\nm.d = 5\nwrite( m, m.length, map(), map([(1, 2)]) )\n"),
+        "MutableMap(\"a\": 2, \"b\": 3, \"c\": 4, \"d\": 5), 4, MutableMap(), MutableMap(1: 2)\nsucceeded")
+    faults_with("val m = {a: 1}\nm.a = 2\n", "is an immutable map, and nothing can be stored in it")
+    faults_with("write( map(5) )\n", "'map' wants a list and reached the integer 5")
+    faults_with("write( map([1]) )\n", "'map' makes an entry of a pair `(key, value)`, and was given the integer 1")
+
+// A mutable map is its own identity: equal only to itself, never to another with the same entries.
+@test
+WHAT_CHANGES_IN_PLACE_IS_EQUAL_ONLY_TO_ITSELF()
+    assert_eq(ran_funl("val m = map()\nval a = array(1)\nwrite( m == m, a == a )\nif m == map() then write( #same ) else write( #different )\nif array(1) == array(1) then write( #same ) else write( #different )\nif a ~ a then write( #unifies ) else write( #not )\n"),
+        "MutableMap(), Array(undefined)\ndifferent\ndifferent\nunifies\nsucceeded")
+
+// -- sets ----------------------------------------------------------------------------------------------
+
+@test
+A_SET_IS_WRITTEN_AS_ITS_ELEMENTS_EACH_KEPT_ONCE()
+    assert_eq(ran_funl("val s = {3, 1, 3, 2}\nwrite( s, s.length, 2 in s, {1, 2} == {2, 1} )\nevery write( !{7, 8} )\n"),
+        "{3, 1, 2}, 3, 2, {2, 1}\n7\n8\nsucceeded")
+    assert_eq(ran_funl("write( {1, 2} + {2, 3}, {1, 2} + 5, {1, 2, 3} - {2}, {1, 2} - 1 )\n"),
+        "{1, 2, 3}, {1, 2, 5}, {1, 3}, {2}\nsucceeded")
+    assert_eq(complaints("write( {1, a: 2} )\n"), "error 1:12 a set's items are values, and this is a map's `key: value`\n")
+    assert_eq(complaints("write( {a: 1, 2} )\n"), "error 1:15 a map's entries are each written `key: value`\n")
+
+// -- arrays and buffers ----------------------------------------------------------------------------
+
+@test
+AN_ARRAY_HAS_A_FIXED_LENGTH_AND_ELEMENTS_THAT_CHANGE()
+    assert_eq(ran_funl("val a = array(3)\na(0) = #x\na[2] = #y\na[-1] = #z\nwrite( a, a.length, a(1), seq(a), array([1, 2]), array(1..3) )\n"),
+        "Array(x, y, z), 3, y, (x, y, z), Array(1, 2), Array(1, 2, 3)\nsucceeded")
+    faults_with("val a = array(2)\nwrite( a(2) )\n", "index 2 is out of range for Array(undefined, undefined), which has 2 elements")
+    faults_with("val a = array(2)\na(-1) = 1\n", "index -1 is out of range for Array(undefined, undefined), which has 2 elements")
+    faults_with("write( array(-1) )\n", "an array cannot have -1 elements")
+
+@test
+A_BUFFER_GROWS_BY_PLUS_EQUALS_AND_SHRINKS_BY_REMOVE_LAST()
+    assert_eq(ran_funl("val b = buffer()\nb += 1\nb += (2, 3)\nvar c = buffer([7])\nc += 8\nwrite( b, c, b.length )\nwrite( b.removeLast, b, buffer(1..3) )\n"),
+        "Buffer(1, (2, 3)), Buffer(7, 8), 2\n(2, 3), Buffer(1), Buffer(1, 2, 3)\nsucceeded")
+    faults_with("val b = buffer()\nwrite( b.removeLast )\n", "'removeLast' was asked of an empty buffer")
+    faults_with("val n = 5\nn += 1\n", "`+=` on a `val` adds to the buffer it holds, and this one holds the integer 5")
+    assert_eq(complaints("val n = 5\nn -= 1\n"), "error 2:1 `n` is a `val`, and cannot be assigned\n")
+
+@test
+SEQ_TAKES_A_SNAPSHOT_THAT_LATER_CHANGES_DO_NOT_REACH()
+    assert_eq(ran_funl("val a = array([1, 2])\nval s = seq(a)\na(0) = 9\nwrite( s, a, seq(), seq([5]) )\n"),
+        "(1, 2), Array(9, 2), (), (5)\nsucceeded")
+
+// -- indexing --------------------------------------------------------------------------------------------
+
+@test
+BRACKETS_COUNT_FROM_ONE_AND_FROM_MINUS_ONE_AT_THE_END()
+    assert_eq(ran_funl("write( \"kitten\"[1], \"kitten\"[-1], [5, 6, 7][3], (5, 6)[-2], (1..)[4], buffer([8, 9])[2] )\n"),
+        "k, n, 7, 5, 4, 9\nsucceeded")
+    faults_with("write( \"abc\"[0] )\n", "position 0 is out of range for the string 'abc', which has 3 elements: `[i]` counts from 1, and from -1 at the end")
+    faults_with("write( [1, 2][3] )\n", "position 3 is out of range for [1, 2], which has 2 elements")
+    faults_with("write( [1, 2][-3] )\n", "position -3 is out of range for [1, 2], which has 2 elements")
+    faults_with("write( 5[1] )\n", "the integer 5 has no length")
+
+// -- records ---------------------------------------------------------------------------------------------
+
+@test
+A_RECORD_IS_REACHED_BY_FIELD_BY_NAME_AND_BY_INDEX()
+    assert_eq(ran_funl("data point(x, y)\nval p = point(3, 4)\nwrite( p, p.x, p(\"y\"), p(0), p[2], p.length )\n"),
+        "point(3, 4), 3, 4, 3, 4, 2\nsucceeded")
+    faults_with("data point(x, y)\nwrite( point(3, 4).z )\n", "point(3, 4) has no field 'z'")
+    faults_with("data point(x, y)\nwrite( point(3, 4)(\"z\") )\n", "point(3, 4) has no field 'z'")
+    faults_with("data point(x, y)\nwrite( point(3, 4)(2) )\n", "index 2 is out of range for point(3, 4), which has 2 elements")
+    faults_with("data point(x, y)\nval p = point(1, 2)\np.x = 5\n", "point(1, 2) is a record, and its fields cannot be assigned")
+
+@test
+A_FIELD_OF_WHAT_IS_NOT_A_RECORD_IS_AN_ERROR()
+    faults_with("write( 5.x )\n", "the integer 5 has no field 'x'")
+    faults_with("write( [1].x )\n", "[1] has no field 'x'")
+    faults_with("write( #a.x )\n", "a has no field 'x'")
+
+@test
+A_CONSTRUCTOR_CALLED_WITH_THE_WRONG_NUMBER_OF_FIELDS_IS_REFUSED()
+    assert_eq(complaints("data point(x, y)\nwrite( point(1) )\n"), "error 2:8 the constructor `point` takes 2 fields, and this call gives 1\n")
+    faults_with("data point(x, y)\nval make = point\nwrite( make(1, 2, 3) )\n", "the constructor 'point' takes 2 fields, and was given 3")
+
+@test
+A_DATA_TYPE_HAS_CONSTRUCTORS_MATCHED_BY_PATTERNS()
+    val text = "data shape = circle(r) | square(s) | empty\ndef\n  area( circle(r) ) = 3 * r * r\n  area( square(s) ) = s * s\n  area( empty ) = 0\nwrite( area(circle(2)), area(square(3)), area(empty), empty, circle, circle(1) == circle(1) )\nval make = square\nwrite( area(make(5)) )\n"
+
+    assert_eq(ran_funl(text), "12, 9, 0, empty, <constructor circle(r)>, circle(1)\n25\nsucceeded")
+
+// A record is a compound term, so it unifies with one written as a term.
+@test
+A_RECORD_UNIFIES_WITH_A_TERM_OF_ITS_SHAPE()
+    assert_eq(ran_funl("data point(x, y)\nfree a\nif point(1, 2) ~ point(a, 2) then write( a )\nval point(p, q) = point(5, 6)\nwrite( p, q )\n"),
+        "1\n5, 6\nsucceeded")
+
+@test
+A_CONSTRUCTOR_IS_DECLARED_IN_ITS_BLOCK()
+    assert_eq(ran_funl("data t(a)\nval inner =\n  data t(b)\n  t(1).b\nwrite( inner, t(2).a )\n"), "1, 2\nsucceeded")
+    assert_eq(complaints("data t(a)\nt = 1\n"), "error 2:1 `t` is a constructor, and cannot be assigned\n")
+
+// -- `<-` onto an element ----------------------------------------------------------------------------
+
+// An element written with `<-` gets its old value back when the expression it is part of is
+// backtracked into -- a new key of a mutable map leaves again -- and keeps the new one once that
+// expression completes.
+@test
+AN_ELEMENT_ASSIGNED_WITH_A_LEFT_ARROW_IS_UNDONE_BY_BACKTRACKING()
+    assert_eq(ran_funl("val a = array(2)\nevery (a(0) <- 1 to 3) == 4\nwrite( a )\na(1) <- 9\nwrite( a )\n"),
+        "Array(undefined, undefined)\nArray(undefined, 9)\nsucceeded")
+    assert_eq(ran_funl("val m = map({k: 0})\nevery (m.k <- 1 to 2) == 5\nevery (m(\"new\") <- 1 to 2) == 5\nwrite( m )\n"),
+        "MutableMap(\"k\": 0)\nsucceeded")
+    assert_eq(ran_funl("val b = buffer([0, 0])\nevery (b[2] <- !\"xy\") & write( b ) & fail\nwrite( b )\n"),
+        "Buffer(0, \"x\")\nBuffer(0, \"y\")\nBuffer(0, 0)\nsucceeded")
+
+    val text = "val a = array(1)\ndef f( n ) = (a(0) <- n) & n > 2\nevery f( 1 | 2 | 3 )\nwrite( a )\nf( 1 | 2 | 3 )\nwrite( a )\n"
+
+    assert_eq(ran_funl(text), "Array(undefined)\nArray(3)\nsucceeded")
+    assert_eq(roomy(() -> compiled_text(text)).trail, 0)
+
+// `<-` binds more loosely than anything: in `c and x <- e` it assigns the last operand.
+@test
+A_LEFT_ARROW_AFTER_A_CONDITION_ASSIGNS_ITS_LAST_OPERAND()
+    assert_eq(ran_funl("val a = array(3)\nevery (i = 0 to 1) & a(i) == undefined and a(i) <- i + 10 do write( a )\nwrite( a )\n"),
+        "Array(10, undefined, undefined)\nArray(undefined, 11, undefined)\nArray(undefined, undefined, undefined)\nsucceeded")
+    assert_eq(complaints("(1 <- 2)\n"), "error 1:2 only a variable or an element can be assigned with `<-`\n")
+
+// -- swap ------------------------------------------------------------------------------------------------
+
+@test
+SWAP_EXCHANGES_TWO_ELEMENTS()
+    assert_eq(ran_funl("val a = array([1, 2, 3])\nswap( a(0), a(2) )\nwrite( a )\nval m = map({x: 1, y: 2})\nswap( m.x, m[\"y\"] )\nwrite( m )\n"),
+        "Array(3, 2, 1)\nMutableMap(\"x\": 2, \"y\": 1)\nsucceeded")
+    assert_eq(complaints("var x = 1\nvar y = 2\nswap( x, y )\n"),
+        "error 3:7 `swap` exchanges elements, and this is not one\nerror 3:10 `swap` exchanges elements, and this is not one\n")
+    assert_eq(complaints("val a = array(1)\nswap( a(0) )\n"), "error 2:1 `swap` exchanges two elements, and this call gives 1\n")
+    faults_with("val a = array(1)\nswap( a(0), a(5) )\n", "index 5 is out of range for Array(undefined), which has 1 element")
+
+// -- interpolation -------------------------------------------------------------------------------------
+
+@test
+A_DOUBLE_QUOTED_STRING_INTERPOLATES()
+    assert_eq(ran_funl("val m = 3\nval l = [1, \"a\"]\nwrite( \"m is $m, twice ${m * 2}, l is $l, $$m, ${\"in\" + \"ner\"}\" )\nwrite( 'not $m' )\nevery write( \"${1 to 2}!\" )\n"),
+        "m is 3, twice 6, l is [1, \"a\"], $m, inner\nnot $m\n1!\n2!\nsucceeded")
+    assert_eq(complaints("write( \"${}\" )\n"), "error 1:9 this interpolation has nothing in it\n")
+    assert_eq(complaints("write( \"${1 +}\" )\n"), "error 1:14 expected an expression\n")
+    assert_eq(complaints("write( \"$nope\" )\n"), "error 1:10 `nope` is not defined\n")
+
+// -- undefined -----------------------------------------------------------------------------------------
+
+@test
+UNDEFINED_IS_A_VALUE_THAT_CAN_BE_WRITTEN()
+    assert_eq(ran_funl("var x\nwrite( x == undefined, undefined )\nif 1 == undefined then write( #no ) else write( #yes )\n"),
+        "undefined, undefined\nyes\nsucceeded")

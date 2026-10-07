@@ -20,6 +20,11 @@ struct CompoundObj
     functor: u32
     args: Buf[Value]
 
+    // The `data` constructor that made it, plus one, so that a term made any other way -- by
+    // unification, by a Prolog clause, by `MakeCompound` -- is 0, as `gc.alloc` leaves it. A record's
+    // fields are named by its constructor; a plain term's are not.
+    record: u32
+
 struct TupleObj
     items: Buf[Value]
 
@@ -37,6 +42,16 @@ struct RangeObj
     endless: bool
 
 struct SetObj
+    items: Buf[Value]
+
+// A map's keys and the values under them, in step, in the order the keys were first added. A key is
+// found by equality, as `==` decides it.
+struct MapObj
+    keys: Buf[Value]
+    vals: Buf[Value]
+
+// An array's or a buffer's elements.
+struct ArrayObj
     items: Buf[Value]
 
 // A logic variable.
@@ -165,6 +180,23 @@ new_range(from: long, last: long, step: long, inclusive: bool, endless: bool) ->
 new_set() -> Result[*SetObj, string]
     val o: *SetObj = ptr_cast(take(current(), sizeof(SetObj), &set_kind)?)
 
+    Ok(o)
+
+// An empty map, which the caller fills.
+new_map() -> Result[*MapObj, string]
+    val o: *MapObj = ptr_cast(take(current(), sizeof(MapObj), &map_kind)?)
+
+    Ok(o)
+
+// An array of `n` elements, every one `Undefined` until something is stored.
+new_array(n: usize) -> Result[*ArrayObj, string]
+    val v = current()
+    val o: *ArrayObj = ptr_cast(take(v, sizeof(ArrayObj), &array_kind)?)
+
+    for _ in 0..<n
+        o.items.push(Undefined)
+
+    v.allocated += n * sizeof(Value)
     Ok(o)
 
 // A frame for `chunk`, with no arguments and no slots yet.

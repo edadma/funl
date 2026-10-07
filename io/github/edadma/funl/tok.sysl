@@ -16,6 +16,11 @@ enum Tok
     IntLit(n: long)
     StrLit(text: string)
 
+    // A double-quoted string with `$name` or `${e}` written into it. The token carries nothing: the
+    // parser reads the literal again from the source at the token's span, taking it apart into its
+    // text and the expressions in its holes.
+    InterpLit
+
     // Words.
     Def
     Free
@@ -47,6 +52,8 @@ enum Tok
     For
     Break
     Continue
+    DataW
+    UndefinedW
 
     LParen
     RParen
@@ -119,6 +126,7 @@ describe(t: Tok) -> string
         AtomLit(s) -> s"`#$s`"
         IntLit(n) -> s"`$n`"
         StrLit(_) -> "a string"
+        InterpLit -> "a string"
         Newline -> "the end of the line"
         Indent -> "an indented line"
         Dedent -> "the end of the block"
@@ -158,6 +166,8 @@ private spelling(t: Tok) -> string
         For -> "for"
         Break -> "break"
         Continue -> "continue"
+        DataW -> "data"
+        UndefinedW -> "undefined"
         Semi -> ";"
         Colon -> ":"
         LeftArrow -> "<-"
@@ -237,6 +247,8 @@ keyword(s: string) -> Option[Tok]
     if s == "for" then return Some(For)
     if s == "break" then return Some(Break)
     if s == "continue" then return Some(Continue)
+    if s == "data" then return Some(DataW)
+    if s == "undefined" then return Some(UndefinedW)
 
     None
 end keyword
@@ -274,6 +286,7 @@ power(t: Tok) -> Power
         Div -> left_assoc(60)
         Caret -> right_assoc(70)
         LParen -> left_assoc(ApplyPower)
+        LBracket -> left_assoc(ApplyPower)
         Dot -> left_assoc(ApplyPower)
         PlusPlus -> left_assoc(ApplyPower)
         MinusMinus -> left_assoc(ApplyPower)
@@ -352,6 +365,8 @@ starts_expr(t: Tok) -> bool
         AtomLit(_) -> true
         IntLit(_) -> true
         StrLit(_) -> true
+        InterpLit -> true
+        UndefinedW -> true
         Every -> true
         If -> true
         Not -> true

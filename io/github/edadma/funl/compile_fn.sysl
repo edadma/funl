@@ -157,7 +157,10 @@ match_fresh(e: *Emit, c: Ctx, p: &Expr) -> Result[unit, string]
 // Match the top of the stack against `p`, popping it; fail when it does not match.
 private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool]) -> Result[unit, string]
     p.kind match
-        Ref(n) -> bind_name(e, c, n, seen)?
+        Ref(n) ->
+            nullary(c.meaning(n, p.span.start)) match
+                Some(functor) -> equal_to(e, Atom(functor))
+                None -> bind_name(e, c, n, seen)?
         Anon -> e.op(Pop)
         AtomE(n) -> equal_to(e, atom(n))
         IntE(n) -> equal_to(e, Int(n))

@@ -161,6 +161,27 @@ enum ExprKind
     // `a, b = e1, e2`: every value made first, then every variable stored; produces `()`.
     MultiAssignE(targets: Buf[Spanned[string]], values: Buf[&Expr])
 
+    // `undefined`: the value of a variable never assigned.
+    UndefE
+
+    // `{k: v, ...}`: an immutable map of the keys' values to the values', in the order written. A key
+    // written as a bare name is that name as a string, so `{a: 1}` is `{"a": 1}`.
+    MapE(keys: Buf[&Expr], vals: Buf[&Expr])
+
+    // `{a, b, ...}`: a set of the items' values.
+    SetE(items: Buf[&Expr])
+
+    // `c[i]`: an element counted from 1, or from -1 at the end; for a map, the value under key `i`.
+    IndexE(c: &Expr, key: &Expr)
+
+    // An element written: `c(k) = e`, `c.name = e`, `c[k] = e` (`bracket`), or with `<-` (`back`), when
+    // backtracking puts the old element back. `key` is the index, the map key, or the field's name as
+    // a string. Produces `e`'s value.
+    SetElemE(c: &Expr, key: &Expr, bracket: bool, e: &Expr, back: bool)
+
+    // `"text $name ${e} text"`: the parts in order, text and holes, each rendered and joined.
+    InterpE(parts: Buf[&Expr])
+
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
 end ExprKind
@@ -194,7 +215,18 @@ enum Stmt
 
     // `def` inside a body or a `where`: functions local to the frame they are written in.
     DefS(clauses: Buf[Clause])
+
+    // `data point(x, y)` or `data shape = circle(r) | square(s) | empty`: constructors of records,
+    // declared in the block like a `val`.
+    DataS(ctors: Buf[CtorDecl])
 end Stmt
+
+// One constructor of a `data` declaration: its name and its fields' names. One written with no
+// parentheses has no fields, and its value is its atom.
+struct CtorDecl
+    name: string
+    at: Span
+    fields: Buf[string]
 
 // Which kind of definition a clause makes.
 enum ClauseKind

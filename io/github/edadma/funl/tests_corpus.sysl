@@ -205,3 +205,52 @@ FIBONACCI_1()
 @test
 MAX_1()
     corpus("max_1")
+
+@test
+BREAK()
+    corpus("break")
+
+@test
+CONTINUE()
+    corpus("continue")
+
+@test
+DIVISORS()
+    corpus("divisors")
+
+@test
+HANOI()
+    corpus("hanoi")
+
+@test
+N_QUEENS_1()
+    corpus("n_queens_1")
+
+@test
+N_QUEENS_2()
+    corpus("n_queens_2")
+
+@test
+PERMUTATIONS()
+    corpus("permutations")
+
+@test
+ELEMENTS()
+    corpus("elements")
+
+// The old output listed the keys sorted, `"asdf": 5, "qwer": 7, "rtyu": 6`, the order its host's map
+// kept them in. A map here keeps its keys in the order they were first added, as a set keeps its
+// elements.
+@test
+MUTABLE_MAPS()
+    corpus("mutable_maps")
+
+// The old output printed each constructor as its host object, `RecordConstructor(num, num,
+// List(Symbol(v)))`. Here a constructor prints as its declaration names it, `<constructor num(v)>`.
+@test
+NESTED_BLOCK_DECLARATION()
+    corpus("nested_block_declaration")
+
+@test
+ACKERMANN()
+    corpus("ackermann")

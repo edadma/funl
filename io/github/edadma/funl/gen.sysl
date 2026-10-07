@@ -16,8 +16,9 @@ import sysl.text.{from_utf8_unchecked, is_char_boundary}
 // element has been produced has left nothing on the control stack.
 //
 // The cursor of `!c` is two cells: what is left of the collection, and a position in it. A list's
-// position stays 0 and its cell moves down the list; a tuple's and a set's position is an index, a
-// string's a byte offset and a range's its next element, the collection itself staying put.
+// position stays 0 and its cell moves down the list; a tuple's, a set's, an array's, a buffer's and a
+// map's position is an index, a string's a byte offset and a range's its next element, the collection
+// itself staying put. A map produces its entries as pairs `(key, value)`.
 
 // `GenStart`: the collection on top becomes its first cursor.
 gen_start(v: *Vm) -> Result[unit, string]
@@ -35,9 +36,13 @@ gen_start(v: *Vm) -> Result[unit, string]
         Tuple(_) -> ()
         Str(_) -> ()
         Set(_) -> ()
+        Array(_) -> ()
+        Buffer(_) -> ()
+        Map(_) -> ()
+        MutMap(_) -> ()
         Range(r) -> first = r.from
         Var(_) -> return Err("instantiation error: `!` was given an unbound variable")
-        _ -> return Err(s"`!` generates the elements of a list, a range, a tuple, a set or a string, and was given ${described(c)}")
+        _ -> return Err(s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map or a string, and was given ${described(c)}")
 
     v.stack.set(top - 1, c)
     v.stack.push(Int(first))
@@ -91,6 +96,42 @@ gen_next(v: *Vm) -> Result[bool, string]
             rest = v.stack.at(top - 2)
             next = at + 1
             spent = next == n
+        Array(a) ->
+            if at >= long(a.items.len())
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = a.items.at(usize(at))
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next >= long(a.items.len())
+        Buffer(a) ->
+            if at >= long(a.items.len())
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = a.items.at(usize(at))
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next >= long(a.items.len())
+        Map(m) ->
+            if at >= long(m.keys.len())
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = entry(m, usize(at))?
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next >= long(m.keys.len())
+        MutMap(m) ->
+            if at >= long(m.keys.len())
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = entry(m, usize(at))?
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next >= long(m.keys.len())
         Range(r) ->
             if range_past(r, at)
                 v.stack.truncate(top - 2)
@@ -165,6 +206,14 @@ gen_range(v: *Vm, inclusive: bool) -> Result[bool, string]
     v.stack.push(Int(cur))
     Ok(true)
 end gen_range
+
+// Entry `i` of a map as `!` produces it: the pair `(key, value)`.
+private entry(m: *MapObj, i: usize) -> Result[Value, string]
+    val t = new_tuple(2)?
+
+    t.items.set(0, m.keys.at(i))
+    t.items.set(1, m.vals.at(i))
+    Ok(Tuple(t))
 
 // A range's bound or step, which must be an integer.
 private bound(x: Value, word: string) -> Result[long, string]

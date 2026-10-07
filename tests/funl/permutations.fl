@@ -1,0 +1,18 @@
+every write( permute([1, 2, 3, 4]) )
+
+def
+  permute( [] ) = seq()
+  permute( l ) = permute_( l.length, array(l) )
+  permute_( n, a )
+    if n == 1
+      seq( a )
+    else
+      for i <- 0..<n - 1
+        yield permute_( n - 1, a )
+
+        if 2 div n
+          swap( a(i), a(n - 1) )
+        else
+          swap( a(0), a(n - 1) )
+
+      permute_( n - 1, a )

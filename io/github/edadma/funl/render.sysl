@@ -7,8 +7,10 @@ import sysl.text.{StrBuilder, str_builder}
 // **A term may be cyclic**, unification having no occurs check, so the walk stops at `MaxDepth`
 // and writes `...` rather than recursing for ever.
 //
-// **A string prints as its text, and inside a list, a tuple, a set or a term in double quotes**, so
-// `["a", "b"]` is told apart from `[a, b]`, whose elements are atoms.
+// **A string prints as its text, and inside a collection or a term in double quotes**, so
+// `["a", "b"]` is told apart from `[a, b]`, whose elements are atoms. An immutable map prints as it is
+// written, `{"a": 1}`, a mutable one as `MutableMap("a": 1)`, and an array and a buffer as
+// `Array(1, 2)` and `Buffer(1, 2)`.
 private const MaxDepth: usize = 1000
 
 render(v: Value) -> string
@@ -50,7 +52,38 @@ private write_value(out: *StrBuilder, v: Value, depth: usize)
             out.push(">")
         Range(r) -> write_range(out, r)
         Set(s) -> write_items(out, s.items.view(), depth, "{", "}")
+        Map(m) -> write_entries(out, m, depth, "{", "}")
+        MutMap(m) -> write_entries(out, m, depth, "MutableMap(", ")")
+        Array(a) -> write_items(out, a.items.view(), depth, "Array(", ")")
+        Buffer(a) -> write_items(out, a.items.view(), depth, "Buffer(", ")")
+        Ctor(id) -> write_ctor(out, current().ctors.at(usize(id)))
 end write_value
+
+// A map's entries, `key: value`, keys and values written as elements are.
+private write_entries(out: *StrBuilder, m: *MapObj, depth: usize, open: string, close: string)
+    out.push(open)
+
+    for i in 0..<m.keys.len()
+        if i > 0 then out.push(", ")
+
+        write_value(out, m.keys.at(i), depth + 1)
+        out.push(": ")
+        write_value(out, m.vals.at(i), depth + 1)
+
+    out.push(close)
+
+// A constructor as its declaration names it: `<constructor point(x, y)>`.
+private write_ctor(out: *StrBuilder, d: CtorDef)
+    out.push("<constructor ")
+    out.push(atom_name(d.functor))
+    out.push("(")
+
+    for i in 0..<d.fields.len()
+        if i > 0 then out.push(", ")
+
+        out.push(atom_name(d.fields.at(i)))
+
+    out.push(")>")
 
 // A range as it is written: `1..5`, `1..<5`, `1..`, with `by k` when the step is not one.
 private write_range(out: *StrBuilder, r: *RangeObj)

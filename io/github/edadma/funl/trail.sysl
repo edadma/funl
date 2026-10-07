@@ -13,6 +13,10 @@ enum Undo
     // `x <- e` overwrote slot `slot` of frame `f`, which held `old`.
     Assign(f: *FrameObj, slot: usize, old: Value)
 
+    // `c(key) <- e` overwrote an element of array, buffer or mutable map `c`, which held `old` -- or,
+    // for a map without `had`, held nothing, the key being new.
+    Elem(c: Value, key: Value, old: Value, had: bool)
+
 // Bind an unbound variable.
 //
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
@@ -50,6 +54,7 @@ undo_trail_to(v: *Vm, h: usize)
                 x.bound = false
                 x.value = Undefined
             Some(Assign(f, slot, old)) -> if slot < f.slots.len() then f.slots.set(slot, old)
+            Some(Elem(c, key, old, had)) -> put_element_back(c, key, old, had)
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
@@ -75,6 +80,7 @@ commit_trail(v: *Vm, h: usize, ends: bool)
         val keep = u match
             Bind(x) -> x.stamp < top
             Assign(_, _, _) -> !ends
+            Elem(_, _, _, _) -> !ends
 
         if keep
             v.trail.set(kept, u)

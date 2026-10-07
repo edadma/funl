@@ -64,6 +64,8 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         AtomLit(a) -> expr(AtomE(a), t.span)
         IntLit(n) -> number(p, n, t.span)
         StrLit(s) -> expr(StrE(s), t.span)
+        InterpLit -> interpolated(p, t)
+        UndefinedW -> expr(UndefE, t.span)
         TrueW -> expr(BoolE(true), t.span)
         FalseW -> expr(BoolE(false), t.span)
         Otherwise -> expr(BoolE(true), t.span)
@@ -121,7 +123,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             expr(YieldE(e), t.span.to(e.span))
         LBracket -> list(p, t.span)
-        LBrace -> set_comprehension(p, t.span)
+        LBrace -> braces(p, t.span)
         Backslash ->
             val e = parse_expr(p, DefinedPower)
 
@@ -156,21 +158,70 @@ private list(p: *Parser, open: Span) -> &Expr
 
     expr(ListE(items), open.to(p.toks.previous()))
 
-// `{e | p <- c, ...}`, the `{` already read, through the `}`. A set literal and a map are not read
-// here: a `{` that does not open a comprehension is refused.
-private set_comprehension(p: *Parser, open: Span) -> &Expr
+// What follows `{`, through the `}`: `{}`, the empty map; a map `{k: v, ...}`; a set `{a, b, ...}`;
+// or a set comprehension `{e | p <- c, ...}`.
+//
+// **A map's entry is read as one expression and taken apart at its top `:`**, which is cons
+// everywhere else: cons groups to the right, so `{a: x:xs}` is the key `a` and the list `x:xs`. The
+// first item decides which the braces hold, and every other item must agree.
+private braces(p: *Parser, open: Span) -> &Expr
+    if p.accept(RBrace) then return expr(MapE(buf(), buf()), open.to(p.toks.previous()))
+
     val first = parse_expr(p, 0)
 
     comprehension_head(p, first) match
         Some(h) -> return comprehension(p, open, h.elem, h.pat, RBrace, "`}`", true)
         None -> ()
 
-    p.report.add(error(open.to(first.span), "a set is written as a comprehension, `{e | x <- c}`")
-        .with_note("set literals and maps are not built yet"))
+    val is_map = map_entry(first).is_some()
+    var keys: Buf[&Expr] = buf()
+    var vals: Buf[&Expr] = buf()
+    var items: Buf[&Expr] = buf()
+    var bad = false
+    var item = first
 
-    if !p.accept(RBrace) then p.skip_line()
+    loop
+        map_entry(item) match
+            Some(kv) ->
+                if is_map
+                    keys.push(kv.key)
+                    vals.push(kv.value)
+                else
+                    p.report.add(error(item.span, "a set's items are values, and this is a map's `key: value`"))
+                    bad = true
+            None ->
+                if is_map
+                    p.report.add(error(item.span, "a map's entries are each written `key: value`"))
+                    bad = true
+                else
+                    items.push(item)
 
-    expr(BadE, open.to(p.toks.previous()))
+        if !p.accept(Comma) then break
+
+        item = parse_expr(p, 0)
+
+    if !p.expect(RBrace, "`,` or `}`") then p.skip_line()
+
+    val at = open.to(p.toks.previous())
+
+    if bad then return expr(BadE, at)
+
+    if is_map then expr(MapE(keys, vals), at) else expr(SetE(items), at)
+end braces
+
+private struct KeyValue
+    key: &Expr
+    value: &Expr
+
+// A map's entry, `key: value`. A key written as a bare name is that name as a string.
+private map_entry(e: &Expr) -> Option[KeyValue] = e.kind match
+    ConsE(k, v) ->
+        val key = k.kind match
+            Ref(n) -> expr(StrE(n), k.span)
+            _ -> k
+
+        Some(KeyValue(key, v))
+    _ -> None
 
 // The element and first pattern of a comprehension, `e | p` read as one alternation with `<-` next:
 // the `|` that separates them is read as alternation's, and its right side is the pattern.
@@ -211,7 +262,8 @@ private comprehension(p: *Parser, open: Span, elem: &Expr, first: &Expr, close: 
     expr(CompE(id, elem, gens, set), open.to(p.toks.previous()))
 
 // An expression where one is delimited -- inside parentheses or a call's arguments, at the head of
-// `every` and `while` -- which may also be an assignment `name = e` or `name op= e`. Nowhere else
+// `every` and `while` -- which may also be an assignment `name = e` or `name op= e`, or a write
+// into an element, `a(i) = e`. Nowhere else
 // does `=` assign inside an expression: a statement reads its own `=`, and a guard's or a
 // definition's `=` begins a body.
 delimited(p: *Parser) -> &Expr
@@ -235,10 +287,17 @@ delimited(p: *Parser) -> &Expr
         DefinedE(_, _) ->
             p.take()
             guarded_assign(p, e, parse_expr(p, 0))
-        _ -> e
+        _ ->
+            if !is_element(e) then return e
 
-// `name <- e`, the target read and `<-` next. It groups to the right, so `a <- b <- e` stores `e`
-// in both.
+            p.take()
+
+            val value = parse_expr(p, 0)
+
+            element_target(e, value, false, e.span.to(value.span)).unwrap()
+
+// `target <- e`, the target read and `<-` next: a variable, or an element. It groups to the right, so
+// `a <- b <- e` stores `e` in both.
 reversible(p: *Parser, target: &Expr) -> &Expr
     p.take()
 
@@ -246,15 +305,7 @@ reversible(p: *Parser, target: &Expr) -> &Expr
 
     if p.at_tok(LeftArrow) then value = reversible(p, value)
 
-    val at = target.span.to(value.span)
-
-    target.kind match
-        Ref(n) -> expr(RevAssignE(n, value), at)
-        BadE -> expr(BadE, at)
-        _ ->
-            p.report.add(error(target.span, "only a variable can be assigned with `<-`")
-                .with_note("`x <- e` stores `e` in the variable `x`, and backtracking puts the old value back"))
-            expr(BadE, at)
+    reversed(p, target, value)
 
 // `\x = e` or `/x = e`, the `=` read: the assignment made only when `x` is defined, or undefined --
 // the test, and then the assignment, which the test failing skips.
@@ -395,6 +446,12 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
         DotDot -> return range_value(p, left, t.span, true)
         DotDotLess -> return range_value(p, left, t.span, false)
         Dot -> return field(p, left)
+        LBracket ->
+            val key = parse_expr(p, 0)
+
+            if !p.expect(RBracket, "`]`") then p.skip_line()
+
+            return expr(IndexE(left, key), left.span.to(p.toks.previous()))
         PlusPlus -> return postfix_step(p, left, t.span, 1)
         MinusMinus -> return postfix_step(p, left, t.span, -1)
         _ -> ()

@@ -34,7 +34,7 @@ struct Walk
     // scopes above.
     meaning(self, name: string, pos: usize) -> Meaning
         self.sc.find(self.blk, name, pos) match
-            Some(d) -> return Local(0, d.slot, d.fixed)
+            Some(d) -> return self.sc.named(0, d)
             None -> ()
 
         self.sc.fns.get(name) match
@@ -67,6 +67,11 @@ walk_stmt(w: *Walk, s: Stmt)
         ExprS(e) -> walk(w, e)
         ValS(pat, e, fixed) ->
             walk(w, e)
+
+            if !fixed && writes_element(pat, w.meaning(call_name(pat), pat.span.start))
+                walk(w, pat)
+                return
+
             declare_pattern(w, pat, e.span.end, fixed)
         VarS(n, at, e) ->
             var from = at.end
@@ -82,6 +87,32 @@ walk_stmt(w: *Walk, s: Stmt)
         // Hoisted before the scope's names were read; what is learnt here is the block the
         // functions were written in, whose names their bodies see.
         DefS(clauses) -> written_in_block(w, clauses)
+
+        // Each constructor is a name of the block, which nothing can assign, from its declaration on.
+        DataS(ctors) ->
+            for d in ctors.view()
+                if refused_as_variable(w, d.name, d.at) then continue
+
+                val slot = w.sc.declare(w.blk, d.name, d.at, d.at.end, true)
+
+                w.sc.ctors.put(slot, declare_ctor(d.name, d.fields))
+
+// The name a statement `name(k) = e` writes through, or "" for any other left side.
+call_name(pat: &Expr) -> string = pat.kind match
+    CallE(n, _, _) -> n
+    _ -> ""
+
+// Whether the statement `pat = e`, `pat` being `name(k)`, writes into an element of the variable
+// `name` -- `m` being what the name means -- rather than matching a pattern: a constructor's name, or
+// one nothing declares, makes it a pattern.
+writes_element(pat: &Expr, m: Meaning) -> bool
+    pat.kind match
+        CallE(_, _, args) -> if args.len() != 1 then return false
+        _ -> return false
+
+    m match
+        Local(_, _, _) -> true
+        _ -> false
 
 // At the top level and in a relation, a name a top-level definition or a builtin already has cannot
 // also be a variable; the refusal is reported, and the answer says whether there was one. A
@@ -103,7 +134,11 @@ refused_as_variable(w: *Walk, n: string, at: Span) -> bool
 // A pattern's names, declared in the block being read, in scope from offset `from`.
 declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
     p.kind match
-        Ref(n) -> if !refused_as_variable(w, n, p.span) then w.sc.declare(w.blk, n, p.span, from, fixed)
+        Ref(n) ->
+            // A constructor with no fields is a constant, which the pattern compares with.
+            if nullary(w.meaning(n, p.span.start)).is_some() then return
+
+            if !refused_as_variable(w, n, p.span) then w.sc.declare(w.blk, n, p.span, from, fixed)
         Anon -> ()
         AtomE(_) -> ()
         IntE(_) -> ()
@@ -140,6 +175,7 @@ walk(w: *Walk, e: &Expr)
             w.meaning(n, e.span.start) match
                 Local(depth, _, _) -> if depth == 0 then w.sc.used(n)
                 Function(_, _) -> ()
+                Constructor(_) -> ()
                 Gone -> ()
                 Relation(_) -> called_not_used(w, n, e.span)
                 Builtin(_) -> called_not_used(w, n, e.span)
@@ -153,10 +189,30 @@ walk(w: *Walk, e: &Expr)
                         w.report.add(error(e.span, s"`$n` is not defined")
                             .with_note("a name is a parameter, a `val`, a function, or declared with `free`"))
         CallE(n, at, args) ->
-            callable(w, n, at, args.len())
+            if is_swap(w.meaning(n, at.start), n)
+                swapped(w, args, e.span)
+            else
+                callable(w, n, at, args.len())
 
             for a in args.view()
                 walk(w, a)
+        UndefE -> ()
+        MapE(keys, vals) ->
+            for x in keys.view()
+                walk(w, x)
+
+            for x in vals.view()
+                walk(w, x)
+        SetE(items) ->
+            for x in items.view()
+                walk(w, x)
+        IndexE(c, k) -> walk_two(w, c, k)
+        SetElemE(c, k, _, x, _) ->
+            walk_two(w, c, k)
+            walk(w, x)
+        InterpE(parts) ->
+            for x in parts.view()
+                walk(w, x)
         ApplyE(f, args) ->
             walk(w, f)
 
@@ -244,9 +300,11 @@ walk(w: *Walk, e: &Expr)
         AssignE(n, x) ->
             walk(w, x)
             assigned(w, n, e.span, e.span.end)
-        CompoundE(n, _, x) ->
+        CompoundE(n, o, x) ->
             walk(w, x)
-            updated(w, n, e.span)
+
+            // `b += x` on a `val` assigns nothing: it adds to the buffer `b` holds, checked as it runs.
+            if !(o == Add && names_val(w.meaning(n, e.span.start))) then updated(w, n, e.span)
         StepE(n, _, _) -> updated(w, n, e.span)
         MultiAssignE(targets, values) ->
             for x in values.view()
@@ -270,6 +328,52 @@ private called_not_used(w: *Walk, n: string, at: Span)
     w.report.add(error(at, s"`$n` is a relation or a builtin, which is called rather than used as a value")
         .with_label(s"called as `$n(...)`"))
 
+// The atom a name is, where it means a constructor with no fields.
+nullary(m: Meaning) -> Option[u32] = m match
+    Constructor(id) ->
+        val d = current().ctors.at(id)
+
+        if d.fields.len() == 0 then Some(d.functor) else None
+    _ -> None
+
+// Whether `m` is a `val`, a variable nothing can assign.
+names_val(m: Meaning) -> bool = m match
+    Local(_, _, fixed) -> fixed
+    _ -> false
+
+// Whether a call of `n`, which means `m`, is `swap`: the name, where nothing the program declares
+// takes it.
+is_swap(m: Meaning, n: string) -> bool
+    if n != "swap" then return false
+
+    m match
+        Unknown -> true
+        _ -> false
+
+// `swap(a(i), b(j))`: two elements, each something an `=` could write into. Exchanging two variables
+// is not built: it waits on a decision about passing a variable by reference.
+private swapped(w: *Walk, args: Buf[&Expr], at: Span)
+    if args.len() != 2
+        w.report.add(error(at, s"`swap` exchanges two elements, and this call gives ${args.len()}")
+            .with_note("`swap( a(i), a(j) )` exchanges two elements of an array"))
+        return
+
+    for a in args.view()
+        val ok = if is_element(a) then writes_into(w, a) else false
+
+        if !ok
+            w.report.add(error(a.span, "`swap` exchanges elements, and this is not one")
+                .with_note("an element is written `a(i)`, `a[i]` or `m.key`; swapping two variables is not built"))
+
+// Whether element `a`, as written, reaches a collection: `name(k)` needs `name` to be a variable.
+private writes_into(w: *Walk, a: &Expr) -> bool
+    a.kind match
+        CallE(n, at, _) ->
+            w.meaning(n, at.start) match
+                Local(_, _, _) -> true
+                _ -> false
+        _ -> true
+
 // A call names something callable, with as many arguments as it takes.
 private callable(w: *Walk, n: string, at: Span, argc: usize)
     val arity = w.meaning(n, at.start) match
@@ -280,6 +384,13 @@ private callable(w: *Walk, n: string, at: Span, argc: usize)
         Function(r, _) -> w.res.rels.at(r).arity
         Relation(r) -> w.res.rels.at(r).arity
         Builtin(id) -> current().natives.at(id).arity
+        Constructor(id) ->
+            val fields = current().ctors.at(id).fields.len()
+
+            if argc != fields
+                w.report.add(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this call gives $argc"))
+
+            return
         _ ->
             var d = error(at, s"`$n` is not defined").with_label("called here")
 
@@ -335,6 +446,7 @@ hoist_stmts(w: *Walk, stmts: Buf[Stmt])
                     Some(x) -> hoist_expr(w, x)
                     None -> ()
             FreeS(_) -> ()
+            DataS(_) -> ()
 
 // The `def`s in the blocks of an expression -- but not inside a lambda, which is a scope of its own.
 hoist_expr(w: *Walk, e: &Expr)
@@ -415,6 +527,22 @@ hoist_expr(w: *Walk, e: &Expr)
         DefinedE(x, _) -> hoist_expr(w, x)
         FieldE(x, _) -> hoist_expr(w, x)
         RevAssignE(_, x) -> hoist_expr(w, x)
+        MapE(keys, vals) ->
+            for x in keys.view()
+                hoist_expr(w, x)
+
+            for x in vals.view()
+                hoist_expr(w, x)
+        SetE(items) ->
+            for x in items.view()
+                hoist_expr(w, x)
+        IndexE(c, k) -> hoist_two(w, c, k)
+        SetElemE(c, k, _, x, _) ->
+            hoist_two(w, c, k)
+            hoist_expr(w, x)
+        InterpE(parts) ->
+            for x in parts.view()
+                hoist_expr(w, x)
         _ -> ()
 end hoist_expr
 

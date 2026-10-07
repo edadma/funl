@@ -237,6 +237,35 @@ enum Op
     // End a round of `|e` that produced a value: the innermost mark, pushed at `to`, now restarts
     // `e` there when failure reaches it, and the enclosing mark becomes the innermost again.
     ChangeMark(to: usize)
+
+    // -- maps, arrays, buffers and records (`data.sysl`) ------------------------------------------
+
+    // Pop `n` keys and values, pushed key then value, the first deepest; push the immutable map.
+    MakeMap(n: usize)
+
+    // Pop `n` values, the first deepest; push the set of them.
+    MakeSet(n: usize)
+
+    // Pop `n` values, the first deepest; push the record constructor `ctor` makes of them.
+    MakeRecord(ctor: usize, n: usize)
+
+    // Pop a key, pop a collection; push `c[key]`, counting from 1.
+    Index
+
+    // Pop a value, a key and a collection; write the value into the element the key names -- counting
+    // from 1 when `bracket` -- recording the old element on the trail when `back`; push the value.
+    StoreElem(bracket: bool, back: bool)
+
+    // Pop `x`; add it to the end of the buffer slot `slot` of the frame `depth` static links up holds,
+    // and push the buffer: `b += x` where `b` is a `val`.
+    Append(depth: usize, slot: usize)
+
+    // Pop a key and a collection twice; exchange the two elements they name, the first counting from
+    // 1 when `first`, the second when `second`; push `()`.
+    SwapElems(first: bool, second: bool)
+
+    // Pop `n` values, the first deepest; push the string of them rendered one after another.
+    Concat(n: usize)
 end Op
 
 // What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame.

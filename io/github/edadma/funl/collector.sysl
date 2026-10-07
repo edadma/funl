@@ -21,6 +21,10 @@ mark_value(h: *gc.Heap, v: Value)
         Func(p) -> gc.mark(h, ptr_cast(p))
         Range(p) -> gc.mark(h, ptr_cast(p))
         Set(p) -> gc.mark(h, ptr_cast(p))
+        Map(p) -> gc.mark(h, ptr_cast(p))
+        MutMap(p) -> gc.mark(h, ptr_cast(p))
+        Array(p) -> gc.mark(h, ptr_cast(p))
+        Buffer(p) -> gc.mark(h, ptr_cast(p))
         _ -> ()
 
 private mark_values(h: *gc.Heap, vs: Buf[Value])
@@ -74,6 +78,28 @@ finalize_set(p: *u8)
 
     o.items = buf()
 
+trace_map(p: *u8, h: *gc.Heap)
+    val o: *MapObj = ptr_cast(p)
+
+    mark_values(h, o.keys)
+    mark_values(h, o.vals)
+
+finalize_map(p: *u8)
+    val o: *MapObj = ptr_cast(p)
+
+    o.keys = buf()
+    o.vals = buf()
+
+trace_array(p: *u8, h: *gc.Heap)
+    val o: *ArrayObj = ptr_cast(p)
+
+    mark_values(h, o.items)
+
+finalize_array(p: *u8)
+    val o: *ArrayObj = ptr_cast(p)
+
+    o.items = buf()
+
 trace_var(p: *u8, h: *gc.Heap)
     val o: *VarObj = ptr_cast(p)
 
@@ -121,6 +147,12 @@ var range_kind: gc.Kind = gc.Kind(&trace_range, null, null, null)
 var set_kind: gc.Kind = gc.Kind(&trace_set, &finalize_set, null, null)
 
 // process-wide: a table of hook addresses, as above.
+var map_kind: gc.Kind = gc.Kind(&trace_map, &finalize_map, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var array_kind: gc.Kind = gc.Kind(&trace_array, &finalize_array, null, null)
+
+// process-wide: a table of hook addresses, as above.
 var var_kind: gc.Kind = gc.Kind(&trace_var, null, null, null)
 
 // process-wide: a table of hook addresses, as above.
@@ -154,6 +186,10 @@ roots(h: *gc.Heap)
             Bind(x) -> gc.mark(h, ptr_cast(x))
             Assign(f, _, old) ->
                 gc.mark(h, ptr_cast(f))
+                mark_value(h, old)
+            Elem(c, key, old, _) ->
+                mark_value(h, c)
+                mark_value(h, key)
                 mark_value(h, old)
 
     // The code running now, and through it the static and dynamic chains.

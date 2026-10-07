@@ -115,13 +115,21 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, string]
 
     val c = callee match
         Func(p) -> p
+        Ctor(id) ->
+            // A constructor called through a value: its record, made of the arguments once the
+            // callee's cell is gone from under them.
+            for i in n - argc..<n
+                v.stack.set(i - 1, v.stack.at(i))
+
+            v.stack.truncate(n - 1)
+            return make_record(v, usize(id), argc)
         _ ->
             if !indexable(callee) then return Err(s"${described(callee)} is not a function, and cannot be called")
 
             // `c(i)`: an element, which a tail call's `Return` then returns like any value.
-            if argc != 1 then return Err(s"${described(callee)} is indexed by one integer, and was given $argc arguments")
+            if argc != 1 then return Err(s"${described(callee)} is indexed by one key, and was given $argc arguments")
 
-            val x = element_at(callee, v.stack.at(n - 1))?
+            val x = element_get(callee, v.stack.at(n - 1), false)?
 
             v.stack.truncate(n - 2)
             v.stack.push(x)
@@ -136,13 +144,19 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[unit, string]
 
     if tail then tail_into(v, c.chunk, argc, c.up) else open_frame(v, c.chunk, argc, c.up)
 
-// Whether a value is reached by call syntax, `c(i)`: a list, a range, a tuple or a string.
+// Whether a value is reached by call syntax, `c(i)`: a list, a range, a tuple, a string, an array, a
+// buffer, a map or a record.
 private indexable(x: Value) -> bool = x match
     Nil -> true
     Cons(_) -> true
     Range(_) -> true
     Tuple(_) -> true
     Str(_) -> true
+    Array(_) -> true
+    Buffer(_) -> true
+    Map(_) -> true
+    MutMap(_) -> true
+    Compound(_) -> true
     _ -> false
 
 // No clause of the running function took its arguments.

@@ -131,6 +131,7 @@ assigned(w: *Walk, n: string, at: Span, from: usize)
                 w.sc.used(n)
         Unknown -> if !refused_as_variable(w, n, at) then w.sc.declare(w.blk, n, at, from, false)
         Gone -> if !refused_as_variable(w, n, at) then w.sc.declare(w.blk, n, at, from, false)
+        Constructor(_) -> constructor_refused(w, n, at)
         _ ->
             w.report.add(error(at, s"`$n` is a function, a relation or a builtin, and cannot be assigned")
                 .with_note("`name = e` assigns a variable"))
@@ -151,10 +152,15 @@ updated(w: *Walk, n: string, at: Span)
         Gone ->
             w.report.add(error(at, s"`$n` is not defined here")
                 .with_note("the block that declared it has ended"))
+        Constructor(_) -> constructor_refused(w, n, at)
         _ ->
             w.report.add(error(at, s"`$n` is a function, a relation or a builtin, and cannot be assigned")
                 .with_note("an update changes a variable"))
 end updated
+
+private constructor_refused(w: *Walk, n: string, at: Span)
+    w.report.add(error(at, s"`$n` is a constructor, and cannot be assigned")
+        .with_note("a `data` declaration's names make records; a variable is declared with `var`"))
 
 private fixed_refused(w: *Walk, n: string, at: Span)
     w.report.add(error(at, s"`$n` is a `val`, and cannot be assigned")

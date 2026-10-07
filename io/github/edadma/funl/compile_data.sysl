@@ -1,0 +1,81 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+
+// The data forms, compiled:
+//
+//     {k: v, ...}            k; v; ...; MakeMap(n)
+//     {a, b, ...}            a; b; ...; MakeSet(n)
+//     c[i]                   c; i; Index
+//     c(k) = e               c; k; e; StoreElem              -- `<-` trails the old element
+//     "a $x b"               "a "; x; " b"; Concat(3)
+//     swap(a(i), b(j))       a; i; b; j; SwapElems
+//     point(x, y)            x; y; MakeRecord(point)
+//     b += x, `b` a val      x; Append(b)
+//
+// Every part is pushed before the instruction that combines them, so a generator in any part is
+// backtracked into as it is anywhere else, and each of its values makes its own map, string or store.
+
+// `{k: v, ...}`.
+compile_map(e: *Emit, c: Ctx, keys: Buf[&Expr], vals: Buf[&Expr]) -> Result[unit, string]
+    for i in 0..<keys.len()
+        compile_value(e, c, keys.at(i))?
+        compile_value(e, c, vals.at(i))?
+
+    e.op(MakeMap(keys.len()))
+    Ok(())
+
+// `{a, b, ...}`.
+compile_set(e: *Emit, c: Ctx, items: Buf[&Expr]) -> Result[unit, string]
+    for x in items.view()
+        compile_value(e, c, x)?
+
+    e.op(MakeSet(items.len()))
+    Ok(())
+
+// `"text $x ${e} text"`: each part, then the string of them.
+compile_interp(e: *Emit, c: Ctx, parts: Buf[&Expr]) -> Result[unit, string]
+    for x in parts.view()
+        compile_value(e, c, x)?
+
+    e.op(Concat(parts.len()))
+    Ok(())
+
+// An element written: the collection, the key, the value, and the store.
+compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, bracket: bool, x: &Expr, back: bool) -> Result[unit, string]
+    compile_value(e, c, coll)?
+    compile_value(e, c, key)?
+    compile_value(e, c, x)?
+    e.op(StoreElem(bracket, back))
+    Ok(())
+
+// `swap(a, b)`: both elements' collections and keys, then the exchange.
+compile_swap(e: *Emit, c: Ctx, args: Buf[&Expr]) -> Result[unit, string]
+    if args.len() != 2 then return Err("a swap the resolver refused reached the compiler")
+
+    val first = place(e, c, args.at(0))?
+    val second = place(e, c, args.at(1))?
+
+    e.op(SwapElems(first, second))
+    Ok(())
+
+// Push the collection and the key an element names; whether it counts from 1, `c[k]`.
+private place(e: *Emit, c: Ctx, a: &Expr) -> Result[bool, string]
+    a.kind match
+        CallE(n, at, args) ->
+            compile_value(e, c, expr(Ref(n), at))?
+            compile_value(e, c, args.at(0))?
+            Ok(false)
+        ApplyE(f, args) ->
+            compile_value(e, c, f)?
+            compile_value(e, c, args.at(0))?
+            Ok(false)
+        IndexE(coll, k) ->
+            compile_value(e, c, coll)?
+            compile_value(e, c, k)?
+            Ok(true)
+        FieldE(coll, n) ->
+            compile_value(e, c, coll)?
+            compile_value(e, c, expr(StrE(n), a.span))?
+            Ok(false)
+        _ -> Err("a swap of something that is not an element reached the compiler")

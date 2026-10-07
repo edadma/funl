@@ -51,6 +51,19 @@ enum Value
 
     // A set of distinct values, in the order they were first added.
     Set(p: *SetObj)
+
+    // A map from keys to values, in the order the keys were first added: `Map` immutable, written
+    // `{k: v}`, and `MutMap` changed in place, made by `map(m)`. Both are kinds of one object.
+    Map(p: *MapObj)
+    MutMap(p: *MapObj)
+
+    // A run of values changed in place: `Array` of a fixed length, made by `array(n)`, and `Buffer`,
+    // which grows, made by `buffer()`. Both are kinds of one object.
+    Array(p: *ArrayObj)
+    Buffer(p: *ArrayObj)
+
+    // A `data` constructor as a value: called, it makes a record; `id` indexes `Vm.ctors`.
+    Ctor(id: u32)
 end Value
 
 // Follow bound variables until reaching something that is not one.

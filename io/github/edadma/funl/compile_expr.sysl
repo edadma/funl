@@ -64,6 +64,11 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
                 Function(r, up) -> e.op(MakeClosure(c.res.rels.at(r).chunk, up))
                 Gone -> e.op(PushConst(e.constant(Undefined)))
+                Constructor(id) ->
+                    // One with no fields is its atom; any other is a value that makes records.
+                    val d = current().ctors.at(id)
+
+                    e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))
                 _ -> return Err(s"'$n' was resolved and is not a value")
         Anon -> e.op(PushVar)
         AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
@@ -182,7 +187,10 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
 
             val v = variable(c, n, x.span.start)?
 
-            e.op(Update(v.depth, v.slot, o))
+            if o == Add && names_val(c.meaning(n, x.span.start))
+                e.op(Append(v.depth, v.slot))
+            else
+                e.op(Update(v.depth, v.slot, o))
         StepE(n, delta, prefix) ->
             val v = variable(c, n, x.span.start)?
 
@@ -231,6 +239,12 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             val v = variable(c, n, x.span.end)?
 
             e.op(StoreBack(v.depth, v.slot))
+        UndefE -> e.op(PushConst(e.constant(Undefined)))
+        MapE(keys, vals) -> compile_map(e, c, keys, vals)?
+        SetE(items) -> compile_set(e, c, items)?
+        IndexE(coll, k) -> binary(e, c, coll, k, Index)?
+        SetElemE(coll, k, bracket, a, back) -> compile_store(e, c, coll, k, bracket, a, back)?
+        InterpE(parts) -> compile_interp(e, c, parts)?
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
@@ -316,6 +330,13 @@ private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
 call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string]
     val m = c.meaning(n, pos)
 
+    if is_swap(m, n)
+        compile_swap(e, c, args)?
+
+        if tail then e.op(Return)
+
+        return Ok(())
+
     m match
         Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
         _ -> ()
@@ -336,6 +357,7 @@ call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool
 
             e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
         Builtin(id) -> e.op(Native(id, argc))
+        Constructor(id) -> e.op(MakeRecord(id, argc))
         _ -> return Err(s"'$n' was resolved and names nothing")
 
     if tail then e.op(Return)
@@ -393,12 +415,20 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
             compile_value(e, c, x)?
             e.op(Unmark)
             e.place(next)
-        ValS(pat, x, _) ->
+        ValS(pat, x, fixed) ->
             val next = e.label()
 
             e.op(Mark(next))
-            compile_value(e, c, x)?
-            match_fresh(e, c, pat)?
+
+            // `name(k) = x` with `name` a variable writes into an element, as the resolver decided.
+            if !fixed && writes_element(pat, c.meaning(call_name(pat), pat.span.start))
+                pat.kind match
+                    CallE(n, at, args) -> compile_store(e, c, expr(Ref(n), at), args.at(0), false, x, false)?
+                    _ -> ()
+            else
+                compile_value(e, c, x)?
+                match_fresh(e, c, pat)?
+
             e.op(Unmark)
             e.place(next)
         VarS(n, _, x) ->
@@ -414,6 +444,9 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
             e.op(Unmark)
             e.place(next)
         DefS(_) -> ()
+
+        // A constructor's name is resolved to the constructor wherever it is read; nothing is stored.
+        DataS(_) -> ()
 
     Ok(())
 

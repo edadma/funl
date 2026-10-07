@@ -1,0 +1,103 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// The builtins that make the mutable collections and take a snapshot of one: `array`, `buffer`, `map`
+// and `seq`.
+
+install_data(v: *Vm)
+    register(v, "array", 1, do_array)
+    register(v, "buffer", Variadic, do_buffer)
+    register(v, "map", Variadic, do_map)
+    register(v, "seq", Variadic, do_seq)
+
+// `array(n)`: an array of `n` elements, each `undefined` until something is stored. `array(c)`: an
+// array of the elements of `c`.
+private do_array(base: usize, argc: usize) -> Result[Value, string]
+    val x = deref(arg(base, 0))
+
+    x match
+        Int(n) ->
+            if n < 0 then return Err(s"an array cannot have $n elements")
+
+            return Ok(Array(new_array(usize(n))?))
+        _ -> ()
+
+    Ok(Array(filled(x, "'array'")?))
+
+// `buffer()`: an empty buffer. `buffer(c)`: a buffer of the elements of `c`.
+private do_buffer(base: usize, argc: usize) -> Result[Value, string]
+    if argc > 1 then return Err(s"'buffer' takes no argument or one collection, and was given $argc")
+
+    if argc == 0 then return Ok(Buffer(new_array(0)?))
+
+    Ok(Buffer(filled(arg(base, 0), "'buffer'")?))
+
+// `map()`: an empty mutable map. `map(m)`: a mutable map of the entries of map `m`, or of the pairs
+// `(key, value)` a collection holds.
+private do_map(base: usize, argc: usize) -> Result[Value, string]
+    if argc > 1 then return Err(s"'map' takes no argument or one collection, and was given $argc")
+
+    val m = new_map()?
+
+    if argc == 0 then return Ok(MutMap(m))
+
+    val x = deref(arg(base, 0))
+
+    x match
+        Map(p) -> copy_entries(m, p)?
+        MutMap(p) -> copy_entries(m, p)?
+        _ ->
+            var items: Buf[Value] = buf()
+
+            elements(x, "'map'", &items)?
+
+            for e in items.view()
+                deref(e) match
+                    Tuple(t) ->
+                        if t.items.len() != 2 then return Err(s"'map' makes an entry of a pair `(key, value)`, and was given ${described(e)}")
+
+                        map_put(m, t.items.at(0), t.items.at(1))?
+                    _ -> return Err(s"'map' makes an entry of a pair `(key, value)`, and was given ${described(e)}")
+
+    Ok(MutMap(m))
+
+private copy_entries(m: *MapObj, p: *MapObj) -> Result[unit, string]
+    for i in 0..<p.keys.len()
+        map_put(m, p.keys.at(i), p.vals.at(i))?
+
+    Ok(())
+
+// `seq(c)`: the elements of `c` as they are now, in a tuple that nothing changes -- a snapshot of an
+// array or a buffer. `seq()` is `()`.
+private do_seq(base: usize, argc: usize) -> Result[Value, string]
+    if argc > 1 then return Err(s"'seq' takes no argument or one collection, and was given $argc")
+
+    if argc == 0 then return Ok(Unit)
+
+    var items: Buf[Value] = buf()
+
+    elements(arg(base, 0), "'seq'", &items)?
+
+    if items.len() == 0 then return Ok(Unit)
+
+    val t = new_tuple(items.len())?
+
+    for i in 0..<items.len()
+        t.items.set(i, items.at(i))
+
+    Ok(Tuple(t))
+
+// A new array object holding the elements of collection `x`.
+private filled(x: Value, what: string) -> Result[*ArrayObj, string]
+    var items: Buf[Value] = buf()
+
+    elements(x, what, &items)?
+
+    val a = new_array(0)?
+
+    for e in items.view()
+        a.items.push(e)
+
+    current().allocated += items.len() * sizeof(Value)
+    Ok(a)

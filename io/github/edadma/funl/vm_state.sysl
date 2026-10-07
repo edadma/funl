@@ -54,6 +54,9 @@ struct Vm
     atom_ids: Map[string, u32]
     natives: Buf[Native]
 
+    // Every `data` constructor the program declares, by the id its `Ctor` values and records carry.
+    ctors: Buf[CtorDef]
+
     // What `write` printed, a line per call.
     output: Buf[string]
 
@@ -87,7 +90,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
 
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, buf(), 0,
-        buf(), map(), buf(), buf(),
+        buf(), map(), buf(), buf(), buf(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0)
 
     install_natives(&v)

@@ -1,0 +1,494 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.counted
+import sysl.buf.{Buf, buf}
+import sysl.text.str_builder
+
+// Maps, arrays, buffers and records as values: making them, reaching an element by call syntax, by
+// `[i]` and by field, writing one, and what `+`, `-` and `+=` make of them.
+//
+// **An array, a buffer and a mutable map change in place, so each is its own identity**: `==` and
+// unification compare them as objects and never by their contents, which can change under a binding
+// (prolog.md § The term mapping). An immutable map compares by its entries, as a set does by its
+// elements.
+//
+// **Call syntax counts from 0 and `[i]` from 1** -- `a(0)` and `a[1]` are the same element, and
+// `a[-1]` is the last -- and a map is reached by its key either way.
+//
+// **Everything here may allocate**, which is safe because a collection runs only between
+// instructions: a value held in a sysl local for the length of one instruction is never collected
+// out from under it.
+
+// A `data` constructor: the functor of the records it makes, and its fields' names in order.
+struct CtorDef
+    functor: u32
+    fields: Buf[u32]
+
+// Register constructor `name` with `fields`, answering its id.
+declare_ctor(name: string, fields: Buf[string]) -> usize
+    val v = current()
+    var ids: Buf[u32] = buf()
+
+    for f in fields.view()
+        ids.push(intern(f))
+
+    v.ctors.push(CtorDef(intern(name), ids))
+    v.ctors.len() - 1
+
+// -- making them ---------------------------------------------------------------------------------------
+
+// `MakeRecord`: the record constructor `id` makes of the top `n` values, the first deepest. A
+// constructor with no fields makes its atom.
+make_record(v: *Vm, id: usize, n: usize) -> Result[unit, string]
+    if id >= v.ctors.len() then return Err(s"there is no constructor $id")
+
+    val d = v.ctors.at(id)
+    val name = atom_name(d.functor)
+
+    if n != d.fields.len() then return Err(s"the constructor '$name' takes ${counted(d.fields.len(), "field")}, and was given $n")
+
+    if n == 0
+        v.stack.push(Atom(d.functor))
+        return Ok(())
+
+    val top = v.stack.len()
+
+    if n > top then return Err(s"'$name' wants $n operands and the stack holds $top")
+
+    val c = new_compound(d.functor, n)?
+
+    c.record = u32(id) + 1
+
+    for i in 0..<n
+        c.args.set(i, v.stack.at(top - n + i))
+
+    v.stack.truncate(top - n)
+    v.stack.push(Compound(c))
+    Ok(())
+end make_record
+
+// `MakeMap`: the top `2n` values, each key under its value, become an immutable map. A key written
+// twice keeps its place and takes the later value.
+make_map(v: *Vm, n: usize) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if 2 * n > top then return Err(s"a map of $n entries wants ${2 * n} operands and the stack holds $top")
+
+    val m = new_map()?
+    val base = top - 2 * n
+
+    for i in 0..<n
+        map_put(m, v.stack.at(base + 2 * i), v.stack.at(base + 2 * i + 1))?
+
+    v.stack.truncate(base)
+    v.stack.push(Map(m))
+    Ok(())
+
+// `MakeSet`: the top `n` values become a set, each kept once.
+make_set(v: *Vm, n: usize) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if n > top then return Err(s"a set of $n wants $n operands and the stack holds $top")
+
+    val s = new_set()?
+
+    for i in 0..<n
+        set_add(s, v.stack.at(top - n + i))?
+
+    v.stack.truncate(top - n)
+    v.stack.push(Set(s))
+    Ok(())
+
+// -- maps ----------------------------------------------------------------------------------------------
+
+// Where key `k` is in map `m`.
+map_find(m: *MapObj, k: Value) -> Result[Option[usize], string]
+    for i in 0..<m.keys.len()
+        if equal_values(k, m.keys.at(i), "a map key")? then return Ok(Some(i))
+
+    Ok(None)
+
+// Where the string key `s` is in map `m`: what `m.name` looks up, with no string made to look with.
+private text_key(m: *MapObj, s: string) -> Option[usize]
+    for i in 0..<m.keys.len()
+        deref(m.keys.at(i)) match
+            Str(p) -> if p.s == s then return Some(i)
+            _ -> ()
+
+    None
+
+// `x` under key `k`, the key added at the end when it is new.
+map_put(m: *MapObj, k: Value, x: Value) -> Result[unit, string]
+    map_find(m, k)? match
+        Some(i) -> m.vals.set(i, x)
+        None ->
+            m.keys.push(k)
+            m.vals.push(x)
+            current().allocated += 2 * sizeof(Value)
+
+    Ok(())
+
+// A new map object holding `m`'s entries.
+private copy_map(m: *MapObj) -> Result[*MapObj, string]
+    val o = new_map()?
+
+    for i in 0..<m.keys.len()
+        o.keys.push(m.keys.at(i))
+        o.vals.push(m.vals.at(i))
+
+    current().allocated += 2 * m.keys.len() * sizeof(Value)
+    Ok(o)
+
+// Whether two immutable maps hold the same keys under equal values, in whatever order.
+same_map(p: *MapObj, q: *MapObj) -> Result[bool, string]
+    if p.keys.len() != q.keys.len() then return Ok(false)
+
+    for i in 0..<p.keys.len()
+        map_find(q, p.keys.at(i))? match
+            Some(j) -> if !equal_values(p.vals.at(i), q.vals.at(j), "==")? then return Ok(false)
+            None -> return Ok(false)
+
+    Ok(true)
+
+// -- reaching an element -------------------------------------------------------------------------------
+
+// The element key `key` names in `c`: `c(key)`, or `c[key]` when `bracket`. An array, a buffer, a list,
+// a range, a tuple, a string or a record is indexed by an integer, and a record also by its field's
+// name; a map is looked up by its key.
+element_get(c: Value, key: Value, bracket: bool) -> Result[Value, string]
+    val x = deref(c)
+
+    x match
+        Map(m) -> return value_under(m, key, x)
+        MutMap(m) -> return value_under(m, key, x)
+        Compound(p) ->
+            deref(key) match
+                Str(s) ->
+                    return field_index(p, intern(s.s)) match
+                        Some(i) -> Ok(p.args.at(i))
+                        None -> Err(s"${described(x)} has no field '${s.s}'")
+                _ -> ()
+        _ -> ()
+
+    var i = integer(key)?
+
+    if bracket then i = position(x, i)?
+
+    x match
+        Array(a) -> Ok(a.items.at(in_range(x, i, a.items.len())?))
+        Buffer(a) -> Ok(a.items.at(in_range(x, i, a.items.len())?))
+        Compound(p) -> Ok(p.args.at(in_range(x, i, p.args.len())?))
+        _ -> element_at(x, Int(i))
+end element_get
+
+// What map `m` holds under `key`; `x` is the map, for the refusal when it holds nothing there.
+private value_under(m: *MapObj, key: Value, x: Value) -> Result[Value, string]
+    map_find(m, key)? match
+        Some(i) -> Ok(m.vals.at(i))
+        None -> Err(s"${described(x)} has no key ${quoted(key)}")
+
+// A key as a message quotes it: a string in double quotes, anything else as it prints.
+private quoted(k: Value) -> string = deref(k) match
+    Str(p) -> s"\"${p.s}\""
+    y -> render(y)
+
+private integer(key: Value) -> Result[long, string] = deref(key) match
+    Int(n) -> Ok(n)
+    Var(_) -> Err("instantiation error: an index is an unbound variable")
+    y -> Err(s"an index is an integer, and this one is ${described(y)}")
+
+// Index `i`, counting from 0, checked against a collection of `n` elements.
+private in_range(x: Value, i: long, n: usize) -> Result[usize, string]
+    if i < 0 || i >= long(n) then return Err(s"index $i is out of range for ${described(x)}, which has ${counted(n, "element")}")
+
+    Ok(usize(i))
+
+// Where position `i` of `x` is, counting from 0: `[i]` counts from 1, and from -1 at the end, so
+// position 0 is no element at all.
+private position(x: Value, i: long) -> Result[long, string]
+    val endless = x match
+        Range(r) -> r.endless
+        _ -> false
+
+    if endless && i > 0 then return Ok(i - 1)
+
+    val n = length_of(x)?
+
+    if i >= 1 && i <= n then return Ok(i - 1)
+
+    if i <= -1 && i >= -n then return Ok(n + i)
+
+    Err(s"position $i is out of range for ${described(x)}, which has ${counted(usize(n), "element")}: `[i]` counts from 1, and from -1 at the end")
+
+// Which of a record's fields is called `name`.
+private field_index(c: *CompoundObj, name: u32) -> Option[usize]
+    if c.record == 0 then return None
+
+    val d = current().ctors.at(usize(c.record - 1))
+
+    for i in 0..<d.fields.len()
+        if d.fields.at(i) == name then return Some(i)
+
+    None
+
+// `x.name` for the kinds whose fields are their own: a record's field, a map's string key, and a
+// buffer's `removeLast`, which takes its last element off and produces it. `None` where `x` has no
+// such field, for `field_of` to answer the fields every collection has.
+data_field(x: Value, name: u32) -> Result[Option[Value], string]
+    val y = deref(x)
+    val n = atom_name(name)
+
+    y match
+        Compound(p) ->
+            field_index(p, name) match
+                Some(i) -> return Ok(Some(p.args.at(i)))
+                None -> ()
+        Map(m) -> return named_key(m, y, n)
+        MutMap(m) -> return named_key(m, y, n)
+        Buffer(b) ->
+            if n == "removeLast"
+                return b.items.pop() match
+                    Some(e) -> Ok(Some(e))
+                    None -> Err("'removeLast' was asked of an empty buffer")
+        _ -> ()
+
+    Ok(None)
+end data_field
+
+// `m.name`: what the map holds under the string `name` -- or, holding nothing there, its `length`.
+private named_key(m: *MapObj, y: Value, n: string) -> Result[Option[Value], string]
+    text_key(m, n) match
+        Some(i) -> return Ok(Some(m.vals.at(i)))
+        None -> ()
+
+    if n == "length" then return Ok(None)
+
+    Err(s"${described(y)} has no key \"$n\"")
+
+// -- writing an element --------------------------------------------------------------------------------
+
+// Write `x` into the element `key` names in `c` -- `c(key) = x`, or `c[key] = x` when `bracket` --
+// recording what it held on the trail when `back`, for failure to put back.
+element_set(c: Value, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, string]
+    val col = deref(c)
+
+    col match
+        Array(a) -> set_item(col, a, key, bracket, x, back)
+        Buffer(a) -> set_item(col, a, key, bracket, x, back)
+        MutMap(m) ->
+            map_find(m, key)? match
+                Some(i) ->
+                    if back then trailed(col, key, m.vals.at(i), true)
+
+                    m.vals.set(i, x)
+                None ->
+                    if back then trailed(col, key, Undefined, false)
+
+                    m.keys.push(key)
+                    m.vals.push(x)
+                    current().allocated += 2 * sizeof(Value)
+
+            Ok(())
+        Map(_) -> Err(s"${described(col)} is an immutable map, and nothing can be stored in it: `map(m)` makes a mutable copy")
+        Compound(_) -> Err(s"${described(col)} is a record, and its fields cannot be assigned")
+        Var(_) -> Err("instantiation error: an element was stored into an unbound variable")
+        _ -> Err(s"${described(col)} cannot be changed: only an array, a buffer and a mutable map have elements that can be assigned")
+end element_set
+
+private set_item(col: Value, a: *ArrayObj, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, string]
+    var i = integer(key)?
+
+    if bracket then i = position(col, i)?
+
+    val at = in_range(col, i, a.items.len())?
+
+    if back then trailed(col, Int(long(at)), a.items.at(at), true)
+
+    a.items.set(at, x)
+    Ok(())
+
+// Record an element's old value. With nothing on the control stack nothing can fail back past the
+// store, and no record is made.
+private trailed(c: Value, key: Value, old: Value, had: bool)
+    val v = current()
+
+    if v.control.len() > 0 then v.trail.push(Elem(c, key, old, had))
+
+// Undo an element's store: put back what it held, or -- a map's key being new -- take the key out. The
+// key of an array's or a buffer's element is its index from 0, as `element_set` recorded it.
+put_element_back(c: Value, key: Value, old: Value, had: bool)
+    deref(c) match
+        Array(a) -> put_item_back(a, key, old)
+        Buffer(a) -> put_item_back(a, key, old)
+        MutMap(m) ->
+            val i = map_find(m, key) match
+                Ok(Some(i)) -> i
+                _ -> return
+
+            if had
+                m.vals.set(i, old)
+            else
+                m.keys.remove(i)
+                m.vals.remove(i)
+        _ -> ()
+
+private put_item_back(a: *ArrayObj, key: Value, old: Value)
+    key match
+        Int(i) -> if i >= 0 && usize(i) < a.items.len() then a.items.set(usize(i), old)
+        _ -> ()
+
+// `SwapElems`: the two elements named by the top four cells -- a collection and a key, twice --
+// exchanged.
+swap_elements(v: *Vm, first: bool, second: bool) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if top < 4 then return Err("a swap wants two collections and two keys, and the stack holds fewer")
+
+    val c1 = v.stack.at(top - 4)
+    val k1 = v.stack.at(top - 3)
+    val c2 = v.stack.at(top - 2)
+    val k2 = v.stack.at(top - 1)
+    val x1 = element_get(c1, k1, first)?
+    val x2 = element_get(c2, k2, second)?
+
+    element_set(c1, k1, first, x2, false)?
+    element_set(c2, k2, second, x1, false)?
+    v.stack.truncate(top - 4)
+    v.stack.push(Unit)
+    Ok(())
+
+// `b += x` where `b` holds a buffer: `x` added to its end, in place. False where `held` is not a
+// buffer, and `+=` is the ordinary update.
+adds_in_place(held: Value, x: Value) -> bool
+    deref(held) match
+        Buffer(b) ->
+            b.items.push(x)
+            current().allocated += sizeof(Value)
+            true
+        _ -> false
+
+// `Append`: `b += x` where `b` is a `val`, which nothing can assign -- so it has to hold a buffer, and
+// `x` goes on its end.
+append_to(held: Value, x: Value) -> Result[Value, string]
+    if adds_in_place(held, x) then return Ok(held)
+
+    Err(s"`+=` on a `val` adds to the buffer it holds, and this one holds ${described(held)}")
+
+// -- `+` and `-` on sets and immutable maps ---------------------------------------------------------
+
+// Whether `+` and `-` on `x` make a new set or map.
+combines(x: Value) -> bool = x match
+    Set(_) -> true
+    Map(_) -> true
+    _ -> false
+
+// `x + y`: a set with `y`'s elements -- or `y` itself -- added; a map with `y`'s entries -- or the
+// pair `(key, value)` -- added, a key already there taking the new value.
+combined(x: Value, y: Value) -> Result[Value, string]
+    val other = deref(y)
+
+    x match
+        Set(s) ->
+            val o = copy_set(s)?
+
+            other match
+                Set(t) ->
+                    for e in t.items.view()
+                        set_add(o, e)?
+                _ -> set_add(o, other)?
+
+            Ok(Set(o))
+        Map(m) ->
+            val o = copy_map(m)?
+
+            other match
+                Map(t) -> put_all(o, t)?
+                MutMap(t) -> put_all(o, t)?
+                Tuple(t) ->
+                    if t.items.len() != 2 then return Err(s"'+' adds a map or a pair `(key, value)` to a map, and was given ${described(other)}")
+
+                    map_put(o, t.items.at(0), t.items.at(1))?
+                _ -> return Err(s"'+' adds a map or a pair `(key, value)` to a map, and was given ${described(other)}")
+
+            Ok(Map(o))
+        _ -> Err(s"'+' cannot combine ${described(x)}")
+end combined
+
+// `x - y`: a set without `y`'s elements -- or without `y` -- and a map without the keys in `y`, a set
+// of keys, or without the key `y`.
+removed(x: Value, y: Value) -> Result[Value, string]
+    val other = deref(y)
+
+    x match
+        Set(s) ->
+            val o = new_set()?
+
+            for e in s.items.view()
+                val gone = other match
+                    Set(t) ->
+                        var found = false
+
+                        for u in t.items.view()
+                            if equal_values(e, u, "-")? then found = true
+
+                        found
+                    _ -> equal_values(e, other, "-")?
+
+                if !gone
+                    o.items.push(e)
+                    current().allocated += sizeof(Value)
+
+            Ok(Set(o))
+        Map(m) ->
+            val o = copy_map(m)?
+
+            other match
+                Set(t) ->
+                    for k in t.items.view()
+                        drop_key(o, k)?
+                _ -> drop_key(o, other)?
+
+            Ok(Map(o))
+        _ -> Err(s"'-' cannot take anything out of ${described(x)}")
+end removed
+
+private copy_set(s: *SetObj) -> Result[*SetObj, string]
+    val o = new_set()?
+
+    for e in s.items.view()
+        o.items.push(e)
+
+    current().allocated += s.items.len() * sizeof(Value)
+    Ok(o)
+
+private put_all(o: *MapObj, t: *MapObj) -> Result[unit, string]
+    for i in 0..<t.keys.len()
+        map_put(o, t.keys.at(i), t.vals.at(i))?
+
+    Ok(())
+
+private drop_key(m: *MapObj, k: Value) -> Result[unit, string]
+    map_find(m, k)? match
+        Some(i) ->
+            m.keys.remove(i)
+            m.vals.remove(i)
+        None -> ()
+
+    Ok(())
+
+// -- interpolation -------------------------------------------------------------------------------------
+
+// `Concat`: the top `n` values rendered one after another, as `write` would print each, into a string.
+concat(v: *Vm, n: usize) -> Result[unit, string]
+    val top = v.stack.len()
+
+    if n > top then return Err(s"a string of $n parts wants $n operands and the stack holds $top")
+
+    var out = str_builder()
+
+    for i in 0..<n
+        out.push(render(v.stack.at(top - n + i)))
+
+    v.stack.truncate(top - n)
+    v.stack.push(new_str(out.finish())?)
+    Ok(())

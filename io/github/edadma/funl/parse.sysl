@@ -213,6 +213,9 @@ tag(t: Tok) -> u8
         Dot -> 73
         In -> 74
         NotIn -> 75
+        InterpLit -> 76
+        DataW -> 77
+        UndefinedW -> 78
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
@@ -273,6 +276,8 @@ statement(p: *Parser) -> Stmt
 
     if p.accept(VarW) then return var_statement(p)
 
+    if p.accept(DataW) then return data_declaration(p)
+
     if !p.accept(Free)
         val e = parse_expr(p, 0)
 
@@ -288,10 +293,16 @@ statement(p: *Parser) -> Stmt
 
         val value = body_expr(p)
 
+        // `name(k) = e` is left a pattern here, being one when `name` is a constructor: the resolver
+        // makes it a write into an element when `name` is a variable.
         e.kind match
             Ref(n) -> return ExprS(expr(AssignE(n, value), e.span.to(value.span)))
             DefinedE(_, _) -> return ExprS(guarded_assign(p, e, value))
-            _ -> return ValS(e, value, false)
+            CallE(_, _, _) -> return ValS(e, value, false)
+            _ ->
+                element_target(e, value, false, e.span.to(value.span)) match
+                    Some(x) -> return ExprS(x)
+                    None -> return ValS(e, value, false)
 
     var names: Buf[Spanned[string]] = buf()
 

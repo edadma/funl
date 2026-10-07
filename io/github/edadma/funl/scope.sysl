@@ -100,7 +100,16 @@ struct Scope
     // The functions a `def` or a `where` defines here, as indices into `Resolved.rels`.
     fns: Map[string, usize]
 
+    // The slots a `data` declaration's constructors are declared in, and each one's constructor id.
+    ctors: Map[usize, usize]
+
     count(self) -> usize = self.names.len()
+
+    // What declaration `d` of this scope means, the scope `depth` static links up: a constructor, or a
+    // variable.
+    named(self, depth: usize, d: Decl) -> Meaning = self.ctors.get(d.slot) match
+        Some(id) -> Constructor(id)
+        None -> Local(depth, d.slot, d.fixed)
 
     // A new block inside block `parent`.
     open(*self, parent: usize) -> usize
@@ -182,7 +191,7 @@ child_scope(parent: usize, parent_block: usize) -> Scope
     var decls: Map[string, Decl] = map()
 
     blocks.push(Block(decls, NoScope))
-    Scope(blocks, buf(), map(), 0, parent, parent_block, map())
+    Scope(blocks, buf(), map(), 0, parent, parent_block, map(), map())
 
 // What a name means where it is written.
 enum Meaning
@@ -198,6 +207,10 @@ enum Meaning
 
     Relation(rel: usize)
     Builtin(id: usize)
+
+    // A `data` constructor, `id` indexing `Vm.ctors`.
+    Constructor(id: usize)
+
     Unknown
 
 // Where a loop that `break` or `continue` leaves records its marks: the slot holding the index of
@@ -252,7 +265,7 @@ struct Resolved
             val s = self.scopes.at(at)
 
             s.find(b, name, p) match
-                Some(k) -> return Local(d, k.slot, k.fixed)
+                Some(k) -> return s.named(d, k)
                 None -> ()
 
             s.fns.get(name) match

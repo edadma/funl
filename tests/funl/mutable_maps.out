@@ -1,0 +1,5 @@
+MutableMap("asdf": 3, "rtyu": 4)
+MutableMap("asdf": 5, "rtyu": 4)
+MutableMap("asdf": 5, "rtyu": 6)
+MutableMap("asdf": 5, "rtyu": 6, "qwer": 7)
+MutableMap("asdf": 5, "rtyu": 6, "qwer": 7, "zxcv": 8)
