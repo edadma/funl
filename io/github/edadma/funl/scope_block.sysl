@@ -44,6 +44,35 @@ walk_for(w: *Walk, id: usize, label: Option[string], gens: Buf[ForGen], body: Op
     loop_body(w, id, label, body)
     w.blk = outer
 
+// A comprehension: its bindings declare their names in a block of its own, as a `for`'s do, and the
+// element is read inside it. The block also holds the hidden slot the values are collected in.
+//
+// **The names are in scope from the element on**, since the element is written before the bindings
+// that make them: `[2k | k <- l]`. So a collection a binding iterates sees the comprehension's own
+// names rather than ones of the same spelling outside it.
+walk_comprehension(w: *Walk, id: usize, elem: &Expr, gens: Buf[ForGen], at: Span)
+    val outer = w.blk
+
+    w.blk = w.sc.open(outer)
+    w.res.blocks.put(id, w.blk)
+    w.sc.declare(w.blk, collected_name(id), at, 0, false)
+
+    for g in gens.view()
+        declare_pattern(w, g.pat, elem.span.start, false)
+
+    for g in gens.view()
+        walk(w, g.iter)
+
+        g.filter match
+            Some(f) -> walk(w, f)
+            None -> ()
+
+    walk(w, elem)
+    w.blk = outer
+
+// The hidden name of the slot comprehension `id` collects its values in, which no program can write.
+collected_name(id: usize) -> string = "$collected" + s"$id"
+
 // A loop's body, read with the loop as the innermost one `break` and `continue` can leave.
 loop_body(w: *Walk, id: usize, label: Option[string], body: Option[&Expr])
     val b = body match

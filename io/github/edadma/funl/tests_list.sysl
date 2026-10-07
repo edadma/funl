@@ -1,0 +1,108 @@
+module io.github.edadma.funl
+@tests
+
+// Lists, ranges and comprehensions as values: `+`, cons, indexing, `.length`, the list patterns,
+// `in` and `not in`, `\x` and `/x`, and reversible assignment `x <- e`.
+
+@test
+PLUS_JOINS_TWO_LISTS_AND_ADDS_ANYTHING_ELSE_TO_THE_END()
+    assert_eq(ran_funl("write( [1, 2] + [3], [1] + 2, [] + [], (1..3) + [4], [1] + (2..3) )\n"),
+        "[1, 2, 3], [1, 2], [], [1, 2, 3, 4], [1, 2, 3]\nsucceeded")
+    assert_eq(ran_funl("var l = []\nl += 1\nl += (2, 3)\nwrite( l )\n"), "[1, (2, 3)]\nsucceeded")
+    assert_eq(ran_funl("write( (1..) + [1] )\n"),
+        "fault: main@8: '+' was given the endless range 1.., which has no last element")
+
+@test
+CONS_MAKES_A_LIST_AND_READS_A_RANGE_AS_ONE()
+    assert_eq(ran_funl("write( 1:2:[], 0:1..3, 1:2 )\n"), "[1, 2], [0, 1, 2, 3], [1 | 2]\nsucceeded")
+    assert_eq(ran_funl("val l = [2, 3]\nwrite( 1:l == [1, 2, 3] )\n"), "[1, 2, 3]\nsucceeded")
+
+@test
+A_LIST_A_RANGE_A_TUPLE_AND_A_STRING_ARE_INDEXED_BY_CALL_SYNTAX()
+    assert_eq(ran_funl("val l = [3, 4, 5]\nwrite( l(0), [3, 4, 5](1), (1..10)(3), (1..)(5), (10..1 by -2)(2), (1, 2, 3)(2), \"héllo\"(1) )\n"),
+        "3, 4, 4, 6, 6, 3, é\nsucceeded")
+    assert_eq(ran_funl("write( [1, 2, 3](3) )\n"), "fault: main@10: index 3 is out of range for [1, 2, 3], which has 3 elements")
+    assert_eq(ran_funl("write( [1, 2](-1) )\n"), "fault: main@8: index -1 is out of range for [1, 2], which has 2 elements")
+    assert_eq(ran_funl("write( [](0) )\n"), "fault: main@4: index 0 is out of range for [], which has 0 elements")
+    assert_eq(ran_funl("write( [1](#a) )\n"), "fault: main@6: an index is an integer, and this one is a")
+
+@test
+LENGTH_COUNTS_ELEMENTS_AND_CHARACTERS()
+    assert_eq(ran_funl("write( [7, 8].length, [].length, (1..3).length, (1..<3).length, (1..10 by 3).length, (10..1 by -3).length, (1..0).length, \"héllo\".length, (1, 2).length )\n"),
+        "2, 0, 3, 2, 4, 4, 0, 5, 2\nsucceeded")
+    assert_eq(ran_funl("write( (1..).length )\n"), "fault: main@5: the range 1.. has no end, and no length")
+    assert_eq(ran_funl("write( [1].size )\n"), "fault: main@5: [1] has no field 'size'")
+    assert_eq(ran_funl("write( 5.length )\n"), "fault: main@3: the integer 5 has no length")
+
+@test
+A_RANGE_IS_A_VALUE_PRINTED_AS_IT_IS_WRITTEN()
+    assert_eq(ran_funl("write( 1..5, 1..<5, 1.., 1..10 by 2, 10..1 by -1 )\nval r = 1..3\nevery write( !r )\n"),
+        "1..5, 1..<5, 1.., 1..10 by 2, 10..1 by -1\n1\n2\n3\nsucceeded")
+    assert_eq(ran_funl("write( 1..3 == [1, 2, 3], [] == (1..0), 1..3 == 1..3, 1..3 != [1, 2] )\n"),
+        "[1, 2, 3], 1..0, 1..3, [1, 2]\nsucceeded")
+    assert_eq(ran_funl("write( 1..3 by 0 )\n"), "fault: main@5: a range from 1 by 0 would never move: a step cannot be zero")
+    assert_eq(ran_funl("write( 1..#a )\n"), "fault: main@5: a range counts with integers, and its end is a")
+
+// An endless range is iterated lazily: nothing is made but the next element.
+@test
+AN_ENDLESS_RANGE_IS_ITERATED_UNTIL_SOMETHING_STOPS_IT()
+    assert_eq(ran_funl("val cr =\n  for d <- 1..\n    if d*d >= 12 then break (d)\n\nwrite( cr )\nval h:t = 1..\nwrite( h, t )\n"),
+        "4\n1, 2..\nsucceeded")
+    assert_eq(complaints("write( 1..< )\n"), "error 1:9 a range with `..<` needs an end to stop before\n")
+
+@test
+LIST_PATTERNS_MATCH_A_LIST_OR_A_RANGE_OR_FAIL()
+    assert_eq(ran_funl("val [a, b] = [7, 8]\nwrite( a, b )\nval [c] = [1, 2]\nwrite( #after )\nfor (x:xs) <- [[1, 2], [3]]\n  write( x, xs )\n"),
+        "7, 8\nafter\n1, [2]\n3, []\nsucceeded")
+    assert_eq(ran_funl("def\n  f( [] ) = #empty\n  f( [_] ) = #one\n  f( _:_:_ ) = #more\n\nwrite( f([]), f(1..0), f([5]), f(5..5), f([1, 2, 3]), f(1..) )\n"),
+        "empty, empty, one, one, more, more\nsucceeded")
+    assert_eq(ran_funl("def f( [] ) = 0\ndef f( [x] ) = x\nwrite( f([1, 2]) )\n"),
+        "fault: f@16: argument match not found: no clause of 'f' matches ([1, 2])")
+    assert_eq(ran_funl("def f( h:t ) = h\nwrite( f(3) )\n"),
+        "fault: f@9: argument match not found: no clause of 'f' matches (3)")
+
+@test
+IN_SUCCEEDS_WITH_THE_LEFT_OPERAND_OR_FAILS()
+    assert_eq(ran_funl("write( 3 in [1, 2, 3], 4 not in [1, 2], 5 in 1..10 by 2, 7 in 1.., (2, 3) in [(1, 2), (2, 3)], 2 in (1, 2), 1 in {x | x <- [1]} )\n"),
+        "3, 4, 5, 7, (2, 3), 2, 1\nsucceeded")
+    assert_eq(ran_funl("if 4 in [1, 2, 3] then write( #yes ) else write( #no )\nif 4 in 1..10 by 2 then write( #yes ) else write( #no )\nif 0 in 1.. then write( #yes ) else write( #no )\nif 2 not in [1, 2, 3] then write( #yes ) else write( #no )\n"),
+        "no\nno\nno\nno\nsucceeded")
+    assert_eq(ran_funl("write( 5 in 7 )\n"), "fault: main@4: 'in' looks in a list, a range, a tuple or a set, and was given the integer 7")
+
+@test
+A_COMPREHENSION_COLLECTS_EVERY_VALUE_IN_ORDER()
+    assert_eq(ran_funl("write( [x * y | x <- 1..3, y <- [10, 100] if x != 2] )\nwrite( [x | x <- []], [!s | s <- [\"ab\", \"c\"]] )\n"),
+        "[10, 100, 30, 300]\n[], [\"a\", \"b\", \"c\"]\nsucceeded")
+    assert_eq(ran_funl("write( {x | x <- [1, 1, 2, 1]}, {x | x <- []} )\nevery write( !{x \\ 2 | x <- 1..5} )\n"),
+        "{1, 2}, {}\n0\n1\n2\nsucceeded")
+    assert_eq(complaints("{1, 2}\n"), "error 1:1 a set is written as a comprehension, `{e | x <- c}`\n")
+
+@test
+A_STRING_INSIDE_A_COLLECTION_PRINTS_QUOTED()
+    assert_eq(ran_funl("write( [\"a\", (\"b\", 1)], \"a\" )\n"), "[\"a\", (\"b\", 1)], a\nsucceeded")
+
+@test
+BACKSLASH_TESTS_DEFINED_AND_SLASH_UNDEFINED()
+    assert_eq(ran_funl("var k\nif \\k then write( #def ) else write( #undef )\nwrite( /k )\nk = 1\nif \\k then write( #def ) else write( #undef )\nif /k then write( #undef ) else write( #def )\n"),
+        "undef\nundefined\ndef\ndef\nsucceeded")
+    assert_eq(ran_funl("var a = 3\nvar b\n\\a = 4\n\\b = 4\n/a = 5\n/b = 5\nwrite( a, b )\n"), "4, 5\nsucceeded")
+    assert_eq(complaints("\\1 = 2\n"), "error 1:1 only a variable can be assigned under `\\` or `/`\n")
+
+// `x <- e` puts the old value back when the expression it is in is backtracked into, and is
+// permanent once that expression completes.
+@test
+A_REVERSIBLE_ASSIGNMENT_IS_UNDONE_BY_BACKTRACKING()
+    assert_eq(ran_funl("var x = 0\nevery (x <- 1 to 3) == 4\nwrite( x )\nevery (x = 1 to 3) == 4\nwrite( x )\n"), "0\n3\nsucceeded")
+    assert_eq(ran_funl("var x = 0\nfor i <- 1..3 if (x <- i) > 5\n  write( i )\nwrite( x )\nfor i <- 1..3 do x <- i\nwrite( x )\n"), "0\n3\nsucceeded")
+    assert_eq(ran_funl("var x = 0\nevery (x <- !\"abc\") & write( x ) & fail\nwrite( x )\nx <- 9\nwrite( x )\n"), "a\nb\nc\n0\n9\nsucceeded")
+    assert_eq(ran_funl("var a\nvar b\na <- b <- 7\nwrite( a, b )\n"), "7, 7\nsucceeded")
+
+// Through a function: a value the function produced keeps its assignment until something fails
+// back past the call.
+@test
+A_REVERSIBLE_ASSIGNMENT_IN_A_FUNCTION_IS_UNDONE_WHEN_THE_CALL_IS_BACKTRACKED_PAST()
+    val text = "var x = 0\ndef f( n ) = (x <- n) & n > 2\nevery f( 1 | 2 | 3 )\nwrite( x )\nf( 1 | 2 | 3 )\nwrite( x )\n"
+
+    assert_eq(ran_funl(text), "0\n3\nsucceeded")
+    assert_eq(roomy(() -> compiled_text(text)).trail, 0)
+    assert_eq(complaints("(1 <- 2)\n"), "error 1:2 only a variable can be assigned with `<-`\n")

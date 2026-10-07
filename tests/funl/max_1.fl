@@ -1,0 +1,10 @@
+def
+  max( [] ) = error( "max: empty list" )
+  max( h:t )
+    var maximum = h
+
+    every maximum <:= !t
+
+    maximum
+
+every write( max([1, 2, 3, 4, 0, -1]) )

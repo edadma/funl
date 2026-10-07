@@ -137,7 +137,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             val tail = pop(v)?
             val head = pop(v)?
 
-            v.stack.push(new_cons(head, tail)?)
+            v.stack.push(new_cons(head, cons_tail(tail)?)?)
             Ok(Next)
         Unify ->
             val b = pop(v)?
@@ -285,6 +285,45 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
         GenRange(inclusive) -> Ok(fails_if(gen_range(v, inclusive)?))
         ChangeMark(to) ->
             change_mark(v, to)?
+            Ok(Next)
+        MakeRange(inclusive, endless) ->
+            make_range(v, inclusive, endless)?
+            Ok(Next)
+        MatchCons -> Ok(fails_if(match_cons(v)?))
+        MatchNil -> Ok(fails_if(match_nil(v)?))
+        Member(negated) ->
+            val c = pop(v)?
+            val x = pop(v)?
+
+            if member(x, c)? == negated then return Ok(Fails)
+
+            v.stack.push(x)
+            Ok(Next)
+        TestDefined(defined) ->
+            val top = v.stack.len()
+
+            if top == 0 then return Err("the operand stack is empty")
+
+            val undefined = deref(v.stack.at(top - 1)) match
+                Undefined -> true
+                _ -> false
+
+            Ok(fails_if(undefined != defined))
+        Field(name) ->
+            val x = pop(v)?
+
+            v.stack.push(field_of(x, name)?)
+            Ok(Next)
+        StoreBack(depth, slot) ->
+            val x = pop(v)?
+
+            assign_reversibly(frame_up(v, depth)?, slot, x)?
+            Ok(Next)
+        Collect(slot) ->
+            collect(v, slot)?
+            Ok(Next)
+        Collected(slot, set) ->
+            collected(v, slot, set)?
             Ok(Next)
 end execute
 

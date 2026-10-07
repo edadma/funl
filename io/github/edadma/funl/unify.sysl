@@ -119,7 +119,16 @@ private step(x: Value, y: Value) -> bool
         // Function values unify by identity, which `identical` has already tested.
         Func(_) -> false
         Var(_) -> false
+
+        // A range holds no variable, and a set is unordered: each unifies with what it equals.
+        Range(_) -> equal_or_not(x, y)
+        Set(_) -> equal_or_not(x, y)
 end step
+
+// Whether two values are equal, an instantiation error counting as not.
+private equal_or_not(x: Value, y: Value) -> bool = equal_values(x, y, "~") match
+    Ok(b) -> b
+    Err(_) -> false
 
 private unify_args(p: *CompoundObj, q: *CompoundObj) -> bool
     if p.functor != q.functor || p.args.len() != q.args.len() then return false
@@ -234,6 +243,7 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, string]
                 _ -> false
             Nil -> y match
                 Nil -> true
+                Range(q) -> range_empty(q)
                 _ -> false
             Int(n) -> y match
                 Int(m) -> n == m
@@ -257,12 +267,23 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, string]
                     work.push(p.tail)
                     work.push(q.tail)
                     true
+                Range(q) -> range_equals_list(q, x)?
                 _ -> false
             Bool(a) -> y match
                 Bool(b) -> a == b
                 _ -> false
             Func(_) -> false
             Var(_) -> false
+
+            // A range equals another with the same elements, and a list with them in order.
+            Range(p) -> y match
+                Range(q) -> same_range(p, q)
+                Nil -> range_empty(p)
+                Cons(_) -> range_equals_list(p, y)?
+                _ -> false
+            Set(p) -> y match
+                Set(q) -> same_set(p, q)?
+                _ -> false
 
         if !same then return Ok(false)
 

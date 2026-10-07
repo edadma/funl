@@ -176,6 +176,16 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool]) -> Result[unit, st
 
             for x in args.view()
                 pattern(e, c, x, seen)?
+        ListE(items) ->
+            for x in items.view()
+                e.op(MatchCons)
+                pattern(e, c, x, seen)?
+
+            e.op(MatchNil)
+        ConsE(h, t) ->
+            e.op(MatchCons)
+            pattern(e, c, h, seen)?
+            pattern(e, c, t, seen)?
         Disj(a, b) ->
             val other = e.label()
             val end = e.label()

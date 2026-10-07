@@ -84,16 +84,7 @@ compile_for(e: *Emit, c: Ctx, id: usize, label: Option[string], gens: Buf[ForGen
     whole_mark(e, slots)
 
     for g in gens.view()
-        iterate(e, inner, g.iter)?
-        match_fresh(e, inner, g.pat)?
-
-        g.filter match
-            Some(f) ->
-                e.op(MarkThrough)
-                compile_value(e, inner, f)?
-                e.op(FailIfFalse)
-                e.op(Unmark)
-            None -> ()
+        bind_generator(e, inner, g)?
 
     turn(e, inner, Looping(id, label, exit, exit, true), slots, body, MarkThrough)?
     e.op(Fail)
@@ -122,17 +113,49 @@ compile_continue(e: *Emit, c: Ctx, label: Option[string]) -> Result[unit, string
     e.op(if l.resumes then Fail else Branch(l.top))
     Ok(())
 
-// What a `for` binding iterates: a range is its own generator, anything else is a collection whose
+// One binding of a `for` or a comprehension, `p <- c if f`: each element of `c` matched against `p`,
+// whose names are declared in `c`'s block, and kept when the filter succeeds. Not `private`: a
+// comprehension's bindings compile with it too.
+bind_generator(e: *Emit, c: Ctx, g: ForGen) -> Result[unit, string]
+    iterate(e, c, g.iter)?
+    match_fresh(e, c, g.pat)?
+
+    g.filter match
+        Some(f) ->
+            e.op(MarkThrough)
+            compile_value(e, c, f)?
+            e.op(FailIfFalse)
+            e.op(Unmark)
+        None -> ()
+
+    Ok(())
+
+// What a binding iterates: `i to j` is its own generator, and a range written in place with an end,
+// `i..j`, is counted out the same way without being made; anything else is a collection whose
 // elements are generated.
 private iterate(e: *Emit, c: Ctx, iter: &Expr) -> Result[unit, string]
-    compile_value(e, c, iter)?
-
     iter.kind match
-        RangeE(_, _, _, _) -> ()
-        _ ->
-            e.op(GenStart)
-            e.op(GenNext)
+        RangeE(_, _, _, _) ->
+            compile_value(e, c, iter)?
+            return Ok(())
+        RangeValE(from, upto, by, inclusive) ->
+            upto match
+                Some(u) ->
+                    compile_value(e, c, from)?
+                    compile_value(e, c, u)?
 
+                    by match
+                        Some(k) -> compile_value(e, c, k)?
+                        None -> e.op(PushInt(1))
+
+                    e.op(GenRange(inclusive))
+                    return Ok(())
+                None -> ()
+        _ -> ()
+
+    compile_value(e, c, iter)?
+    e.op(GenStart)
+    e.op(GenNext)
     Ok(())
 
 // The mark around a whole loop, for a loop something leaves.

@@ -86,15 +86,16 @@ fail(v: *Vm) -> bool
 end fail
 
 // Discard every entry from height `h` up without failing: a commit. The trail is filtered, not
-// unwound (`commit_trail`).
-cut_to(v: *Vm, h: usize)
+// unwound (`commit_trail`); `ends` says whether the commit ends a bounded expression, which makes
+// the reversible assignments made inside it permanent, or is a cut, which does not.
+cut_to(v: *Vm, h: usize, ends: bool)
     if v.control.len() <= h then return
 
     val first = v.control.at(h)
 
     v.saved.truncate(first.saved_at)
     v.control.truncate(h)
-    commit_trail(v, first.trail)
+    commit_trail(v, first.trail, ends)
 
 // End the innermost bounded expression: every entry above and including its mark goes, so nothing
 // that ran inside it can be resumed, and the expression's cells go with them.
@@ -104,7 +105,7 @@ unmark(v: *Vm) -> Result[unit, string]
     val at = v.mark
     val m = v.control.at(at)
 
-    cut_to(v, at)
+    cut_to(v, at, true)
     v.stack.truncate(m.floor)
     v.mark = m.mark
     Ok(())
@@ -120,7 +121,7 @@ unmark_to(v: *Vm, recorded: Value) -> Result[unit, string]
 
     val m = v.control.at(at)
 
-    cut_to(v, at)
+    cut_to(v, at, true)
     v.stack.truncate(m.floor)
     v.mark = m.mark
     Ok(())

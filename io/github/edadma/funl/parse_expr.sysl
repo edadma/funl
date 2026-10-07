@@ -121,16 +121,32 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             expr(YieldE(e), t.span.to(e.span))
         LBracket -> list(p, t.span)
+        LBrace -> set_comprehension(p, t.span)
+        Backslash ->
+            val e = parse_expr(p, DefinedPower)
+
+            expr(DefinedE(e, true), t.span.to(e.span))
+        Slash ->
+            val e = parse_expr(p, DefinedPower)
+
+            expr(DefinedE(e, false), t.span.to(e.span))
         _ -> expr(BadE, t.span)
 end nud
 
-// `[a, b, ...]`, the `[` already read, through the `]`.
+// `[a, b, ...]` or a list comprehension `[e | p <- c, ...]`, the `[` already read, through the `]`.
 private list(p: *Parser, open: Span) -> &Expr
     var items: Buf[&Expr] = buf()
 
     if !p.accept(RBracket)
         loop
-            items.push(parse_expr(p, 0))
+            val item = parse_expr(p, 0)
+
+            if items.len() == 0
+                comprehension_head(p, item) match
+                    Some(h) -> return comprehension(p, open, h.elem, h.pat, RBracket, "`]`", false)
+                    None -> ()
+
+            items.push(item)
 
             if p.accept(Comma) then continue
 
@@ -139,6 +155,60 @@ private list(p: *Parser, open: Span) -> &Expr
             break
 
     expr(ListE(items), open.to(p.toks.previous()))
+
+// `{e | p <- c, ...}`, the `{` already read, through the `}`. A set literal and a map are not read
+// here: a `{` that does not open a comprehension is refused.
+private set_comprehension(p: *Parser, open: Span) -> &Expr
+    val first = parse_expr(p, 0)
+
+    comprehension_head(p, first) match
+        Some(h) -> return comprehension(p, open, h.elem, h.pat, RBrace, "`}`", true)
+        None -> ()
+
+    p.report.add(error(open.to(first.span), "a set is written as a comprehension, `{e | x <- c}`")
+        .with_note("set literals and maps are not built yet"))
+
+    if !p.accept(RBrace) then p.skip_line()
+
+    expr(BadE, open.to(p.toks.previous()))
+
+// The element and first pattern of a comprehension, `e | p` read as one alternation with `<-` next:
+// the `|` that separates them is read as alternation's, and its right side is the pattern.
+private comprehension_head(p: *Parser, first: &Expr) -> Option[CompHead]
+    if !p.at_tok(LeftArrow) then return None
+
+    first.kind match
+        Disj(e, pat) -> Some(CompHead(e, pat))
+        _ -> None
+
+private struct CompHead
+    elem: &Expr
+    pat: &Expr
+
+// The bindings of a comprehension from its first `<-`, its element and first pattern read, through
+// `close`.
+private comprehension(p: *Parser, open: Span, elem: &Expr, first: &Expr, close: Tok, what: string, set: bool) -> &Expr
+    val id = p.node_id()
+    var gens: Buf[ForGen] = buf()
+    var pat = first
+
+    loop
+        if !p.expect(LeftArrow, "`<-`")
+            p.skip_line()
+            return expr(BadE, open.to(p.toks.previous()))
+
+        val iter = parse_expr(p, 0)
+        val filter = if p.accept(If) then Some(parse_expr(p, 0)) else None
+
+        gens.push(ForGen(pat, iter, filter))
+
+        if !p.accept(Comma) then break
+
+        pat = parse_expr(p, 0)
+
+    if !p.expect(close, s"`,` or $what") then p.skip_line()
+
+    expr(CompE(id, elem, gens, set), open.to(p.toks.previous()))
 
 // An expression where one is delimited -- inside parentheses or a call's arguments, at the head of
 // `every` and `while` -- which may also be an assignment `name = e` or `name op= e`. Nowhere else
@@ -151,6 +221,8 @@ delimited(p: *Parser) -> &Expr
         Some(c) -> return c
         None -> ()
 
+    if p.at_tok(LeftArrow) then return reversible(p, e)
+
     if !p.at_tok(Equals) then return e
 
     e.kind match
@@ -160,7 +232,46 @@ delimited(p: *Parser) -> &Expr
             val value = parse_expr(p, 0)
 
             expr(AssignE(n, value), e.span.to(value.span))
+        DefinedE(_, _) ->
+            p.take()
+            guarded_assign(p, e, parse_expr(p, 0))
         _ -> e
+
+// `name <- e`, the target read and `<-` next. It groups to the right, so `a <- b <- e` stores `e`
+// in both.
+reversible(p: *Parser, target: &Expr) -> &Expr
+    p.take()
+
+    var value = parse_expr(p, 0)
+
+    if p.at_tok(LeftArrow) then value = reversible(p, value)
+
+    val at = target.span.to(value.span)
+
+    target.kind match
+        Ref(n) -> expr(RevAssignE(n, value), at)
+        BadE -> expr(BadE, at)
+        _ ->
+            p.report.add(error(target.span, "only a variable can be assigned with `<-`")
+                .with_note("`x <- e` stores `e` in the variable `x`, and backtracking puts the old value back"))
+            expr(BadE, at)
+
+// `\x = e` or `/x = e`, the `=` read: the assignment made only when `x` is defined, or undefined --
+// the test, and then the assignment, which the test failing skips.
+guarded_assign(p: *Parser, test: &Expr, value: &Expr) -> &Expr
+    val at = test.span.to(value.span)
+
+    test.kind match
+        DefinedE(target, _) ->
+            target.kind match
+                Ref(n) -> return expr(Conj(test, expr(AssignE(n, value), at)), at)
+                BadE -> return expr(BadE, at)
+                _ -> ()
+        _ -> ()
+
+    p.report.add(error(test.span, "only a variable can be assigned under `\\` or `/`")
+        .with_note("`\\x = e` assigns `x` only when it has a value, `/x = e` only when it has none"))
+    expr(BadE, at)
 
 // `name op= e`, the target read and an assignment operator next; `None` when none is.
 compound_assign(p: *Parser, target: &Expr) -> Option[&Expr]
@@ -213,6 +324,43 @@ range(p: *Parser, from: &Expr, inclusive: bool) -> &Expr
 
     expr(RangeE(from, upto, Some(step), inclusive), from.span.to(step.span))
 
+// `a..b`, `a..<b` or the endless `a..`, each with an optional `by k`, the `..` or `..<` already
+// read. The range has no end when nothing that can begin an expression follows: `for d <- 1..`.
+private range_value(p: *Parser, from: &Expr, op: Span, inclusive: bool) -> &Expr
+    val more = p.peek_tok() match
+        Some(k) -> starts_expr(k)
+        None -> false
+
+    if !more
+        if !inclusive
+            p.report.add(error(op, "a range with `..<` needs an end to stop before")
+                .with_note("`a..` is the range with no end"))
+            return expr(BadE, from.span.to(op))
+
+        return expr(RangeValE(from, None, None, true), from.span.to(op))
+
+    val upto = parse_expr(p, RangePower)
+
+    if !p.accept(By) then return expr(RangeValE(from, Some(upto), None, inclusive), from.span.to(upto.span))
+
+    val step = parse_expr(p, RangePower)
+
+    expr(RangeValE(from, Some(upto), Some(step), inclusive), from.span.to(step.span))
+
+// `e.name`, the `.` already read.
+private field(p: *Parser, left: &Expr) -> &Expr
+    p.peek_tok() match
+        Some(k) ->
+            k match
+                Name(n) ->
+                    p.take()
+                    return expr(FieldE(left, n), left.span.to(p.toks.previous()))
+                _ -> ()
+        None -> ()
+
+    p.fail_here("a field's name after `.`")
+    expr(BadE, left.span)
+
 // A number literal, and juxtaposition: a literal immediately followed by a name or `(`, with no
 // space between, multiplies it -- `2n`, `3(x + 1)`.
 private number(p: *Parser, n: long, at: Span) -> &Expr
@@ -244,6 +392,9 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
             return expr(ApplyE(left, args), left.span.to(p.toks.previous()))
         To -> return range(p, left, true)
         Until -> return range(p, left, false)
+        DotDot -> return range_value(p, left, t.span, true)
+        DotDotLess -> return range_value(p, left, t.span, false)
+        Dot -> return field(p, left)
         PlusPlus -> return postfix_step(p, left, t.span, 1)
         MinusMinus -> return postfix_step(p, left, t.span, -1)
         _ -> ()
@@ -266,6 +417,9 @@ private infix(op: Tok, a: &Expr, b: &Expr) -> ExprKind
         Tilde -> UnifyE(a, b)
         EqEq -> EqualE(a, b)
         BangEq -> DifferE(a, b)
+        Colon -> ConsE(a, b)
+        In -> InE(a, b, false)
+        NotIn -> InE(a, b, true)
         _ ->
             binop_of(op) match
                 Some(o) -> BinE(o, a, b)
@@ -445,11 +599,11 @@ private if_expr(p: *Parser, at: Span) -> &Expr
     expr(IfE(cond, yes, Some(no)), at.to(no.span))
 end if_expr
 
-// What follows `then`, `else`, `do`, `=`, `->` or `repeat`: an expression on the same line, or an indented
-// block. **A block whose every line is a lambda is a partial function literal**: one anonymous
+// What follows `then`, `else`, `do`, `=`, `->` or `repeat`: an expression on the same line -- which,
+// as a statement can, may assign, `do x = e` -- or an indented block. **A block whose every line is a lambda is a partial function literal**: one anonymous
 // function whose clauses are the lambdas, in order.
 branch(p: *Parser) -> &Expr
-    if !p.at_tok(Indent) then return parse_expr(p, 0)
+    if !p.at_tok(Indent) then return delimited(p)
 
     val at = p.toks.here()
 

@@ -19,6 +19,8 @@ mark_value(h: *gc.Heap, v: Value)
         Cons(p) -> gc.mark(h, ptr_cast(p))
         Var(p) -> gc.mark(h, ptr_cast(p))
         Func(p) -> gc.mark(h, ptr_cast(p))
+        Range(p) -> gc.mark(h, ptr_cast(p))
+        Set(p) -> gc.mark(h, ptr_cast(p))
         _ -> ()
 
 private mark_values(h: *gc.Heap, vs: Buf[Value])
@@ -58,6 +60,19 @@ trace_cons(p: *u8, h: *gc.Heap)
 
     mark_value(h, o.head)
     mark_value(h, o.tail)
+
+trace_range(p: *u8, h: *gc.Heap)
+    return
+
+trace_set(p: *u8, h: *gc.Heap)
+    val o: *SetObj = ptr_cast(p)
+
+    mark_values(h, o.items)
+
+finalize_set(p: *u8)
+    val o: *SetObj = ptr_cast(p)
+
+    o.items = buf()
 
 trace_var(p: *u8, h: *gc.Heap)
     val o: *VarObj = ptr_cast(p)
@@ -100,6 +115,12 @@ var tuple_kind: gc.Kind = gc.Kind(&trace_tuple, &finalize_tuple, null, null)
 var cons_kind: gc.Kind = gc.Kind(&trace_cons, null, null, null)
 
 // process-wide: a table of hook addresses, as above.
+var range_kind: gc.Kind = gc.Kind(&trace_range, null, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var set_kind: gc.Kind = gc.Kind(&trace_set, &finalize_set, null, null)
+
+// process-wide: a table of hook addresses, as above.
 var var_kind: gc.Kind = gc.Kind(&trace_var, null, null, null)
 
 // process-wide: a table of hook addresses, as above.
@@ -131,6 +152,9 @@ roots(h: *gc.Heap)
     for u in v.trail.view()
         u match
             Bind(x) -> gc.mark(h, ptr_cast(x))
+            Assign(f, _, old) ->
+                gc.mark(h, ptr_cast(f))
+                mark_value(h, old)
 
     // The code running now, and through it the static and dynamic chains.
     gc.mark(h, ptr_cast(v.frame))

@@ -14,7 +14,7 @@ import sysl.text.{Search, from_utf8_unchecked, split}
 private const ModuleDir: string = "io/github/edadma/funl"
 
 // The `gc.Kind` tables in `collector.sysl`.
-private const ProcessWide: usize = 7
+private const ProcessWide: usize = 9
 
 private struct Census
     the_vm: usize

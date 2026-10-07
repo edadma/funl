@@ -6,6 +6,9 @@ import sysl.text.{StrBuilder, str_builder}
 //
 // **A term may be cyclic**, unification having no occurs check, so the walk stops at `MaxDepth`
 // and writes `...` rather than recursing for ever.
+//
+// **A string prints as its text, and inside a list, a tuple, a set or a term in double quotes**, so
+// `["a", "b"]` is told apart from `[a, b]`, whose elements are atoms.
 private const MaxDepth: usize = 1000
 
 render(v: Value) -> string
@@ -32,14 +35,33 @@ private write_value(out: *StrBuilder, v: Value, depth: usize)
             out.push("_G")
             out.push_uint(p.id)
         Unit -> out.push("()")
-        Str(p) -> out.push(p.s)
+        Str(p) ->
+            if depth == 0
+                out.push(p.s)
+            else
+                out.push("\"")
+                out.push(p.s)
+                out.push("\"")
         Tuple(p) -> write_items(out, p.items.view(), depth, "(", ")")
         Bool(b) -> out.push(if b then "true" else "false")
         Func(p) ->
             out.push("<function ")
             out.push(current().chunks.at(p.chunk).name)
             out.push(">")
+        Range(r) -> write_range(out, r)
+        Set(s) -> write_items(out, s.items.view(), depth, "{", "}")
 end write_value
+
+// A range as it is written: `1..5`, `1..<5`, `1..`, with `by k` when the step is not one.
+private write_range(out: *StrBuilder, r: *RangeObj)
+    out.push_int(r.from)
+    out.push(if r.endless || r.inclusive then ".." else "..<")
+
+    if !r.endless then out.push_int(r.last)
+
+    if r.step != 1
+        out.push(" by ")
+        out.push_int(r.step)
 
 private write_items(out: *StrBuilder, items: []Value, depth: usize, open: string, close: string)
     out.push(open)

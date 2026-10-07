@@ -27,6 +27,12 @@ import sysl.buf.{Buf, buf}
 //
 //     x op= e                e; Update(x, op)          -- `e` first, so each of its values updates
 //     x++                    LoadSlot(x); PushInt(1); Update(x, +); Pop
+//     x <- e                 e; Dup; StoreBack(x)      -- the old value trailed, for failure to restore
+//     h:t                    h; t; MakeCons
+//     a..b by k              a; b; k; MakeRange
+//     [e | p <- c if f]      PushNil; StoreSlot(acc); Mark(done); c; GenStart; GenNext; match p;
+//                            MarkThrough; f; FailIfFalse; Unmark; e; Collect(acc); Fail;
+//                            done: Collected(acc)
 
 // What the compiler reads while it compiles one scope's code.
 struct Ctx
@@ -197,6 +203,34 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 e.op(store_to(c, targets.at(i).value, x.span.end)?)
 
             e.op(PushUnit)
+        ConsE(h, t) -> binary(e, c, h, t, MakeCons)?
+        RangeValE(from, upto, by, inclusive) ->
+            compile_value(e, c, from)?
+
+            upto match
+                Some(u) -> compile_value(e, c, u)?
+                None -> ()
+
+            by match
+                Some(k) -> compile_value(e, c, k)?
+                None -> e.op(PushInt(1))
+
+            e.op(MakeRange(inclusive, upto.is_none()))
+        CompE(id, elem, gens, set) -> compile_comprehension(e, c, id, elem, gens, set)?
+        InE(a, coll, negated) -> binary(e, c, a, coll, Member(negated))?
+        DefinedE(a, defined) ->
+            compile_value(e, c, a)?
+            e.op(TestDefined(defined))
+        FieldE(a, name) ->
+            compile_value(e, c, a)?
+            e.op(Field(intern(name)))
+        RevAssignE(n, a) ->
+            compile_value(e, c, a)?
+            e.op(Dup)
+
+            val v = variable(c, n, x.span.end)?
+
+            e.op(StoreBack(v.depth, v.slot))
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
@@ -236,6 +270,29 @@ private alternation(e: *Emit, c: Ctx, a: &Expr, b: &Expr, conditions: bool) -> R
     if conditions then e.op(FailIfFalse)
 
     e.place(end)
+    Ok(())
+
+// `[elem | p <- c if f, ...]`, or `{...}` (`set`): every value of `elem` for every combination of
+// the bindings, collected in the comprehension's hidden slot. The bindings run exactly as a `for`'s
+// do; the element is generated in full, each value collected and then failed past, until failure
+// reaches the mark that ends the whole and the collection is pushed.
+private compile_comprehension(e: *Emit, c: Ctx, id: usize, elem: &Expr, gens: Buf[ForGen], set: bool) -> Result[unit, string]
+    val inner = c.in_block(id)?
+    val acc = slot_of_name(inner, collected_name(id))?
+    val done = e.label()
+
+    e.op(PushNil)
+    e.op(StoreSlot(acc))
+    e.op(Mark(done))
+
+    for g in gens.view()
+        bind_generator(e, inner, g)?
+
+    compile_value(e, inner, elem)?
+    e.op(Collect(acc))
+    e.op(Fail)
+    e.place(done)
+    e.op(Collected(acc, set))
     Ok(())
 
 // A variable's place: the frame `depth` static links up, and its slot there.

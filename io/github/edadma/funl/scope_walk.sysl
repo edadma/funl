@@ -118,13 +118,19 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
         Disj(a, b) ->
             declare_pattern(w, a, from, fixed)
             declare_pattern(w, b, from, fixed)
+        ListE(items) ->
+            for x in items.view()
+                declare_pattern(w, x, from, fixed)
+        ConsE(h, t) ->
+            declare_pattern(w, h, from, fixed)
+            declare_pattern(w, t, from, fixed)
         AsE(n, x) ->
             w.sc.declare(w.blk, n, p.span, from, fixed)
             declare_pattern(w, x, from, fixed)
         BadE -> ()
         _ ->
             w.report.add(error(p.span, "this cannot be matched against anything")
-                .with_note("a pattern is a name, `_`, a constant, a tuple, a term, an alternation `p | q`, or `name@pattern`"))
+                .with_note("a pattern is a name, `_`, a constant, a tuple, a list `[a, b]` or `h:t`, a term, an alternation `p | q`, or `name@pattern`"))
 end declare_pattern
 
 // An expression's names.
@@ -217,6 +223,18 @@ walk(w: *Walk, e: &Expr)
             by match
                 Some(x) -> walk(w, x)
                 None -> ()
+        ConsE(a, b) -> walk_two(w, a, b)
+        RangeValE(a, upto, by, _) ->
+            walk(w, a)
+            walk_maybe(w, upto)
+            walk_maybe(w, by)
+        CompE(id, elem, gens, _) -> walk_comprehension(w, id, elem, gens, e.span)
+        InE(a, c, _) -> walk_two(w, a, c)
+        DefinedE(x, _) -> walk(w, x)
+        FieldE(x, _) -> walk(w, x)
+        RevAssignE(n, x) ->
+            walk(w, x)
+            assigned(w, n, e.span, e.span.end)
         YieldE(x) ->
             if !w.function
                 w.report.add(error(e.span, "`yield` is written inside a function")
@@ -242,6 +260,11 @@ end walk
 private walk_two(w: *Walk, a: &Expr, b: &Expr)
     walk(w, a)
     walk(w, b)
+
+walk_maybe(w: *Walk, x: Option[&Expr])
+    x match
+        Some(e) -> walk(w, e)
+        None -> ()
 
 private called_not_used(w: *Walk, n: string, at: Span)
     w.report.add(error(at, s"`$n` is a relation or a builtin, which is called rather than used as a value")
@@ -377,6 +400,21 @@ hoist_expr(w: *Walk, e: &Expr)
             by match
                 Some(x) -> hoist_expr(w, x)
                 None -> ()
+        ConsE(a, b) -> hoist_two(w, a, b)
+        RangeValE(a, upto, by, _) ->
+            hoist_expr(w, a)
+            hoist_maybe(w, upto)
+            hoist_maybe(w, by)
+        CompE(_, elem, gens, _) ->
+            for g in gens.view()
+                hoist_expr(w, g.iter)
+                hoist_maybe(w, g.filter)
+
+            hoist_expr(w, elem)
+        InE(a, c, _) -> hoist_two(w, a, c)
+        DefinedE(x, _) -> hoist_expr(w, x)
+        FieldE(x, _) -> hoist_expr(w, x)
+        RevAssignE(_, x) -> hoist_expr(w, x)
         _ -> ()
 end hoist_expr
 

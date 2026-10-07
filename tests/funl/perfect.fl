@@ -1,0 +1,10 @@
+def
+  foldl( f, z, [] )           = z
+  foldl( f, z, x:xs )         = foldl( f, f(z, x), xs )
+
+  sum( l ) = foldl( (+), 0, l )
+
+  perfect( n ) = sum( [d | d <- 1..n if d div n] ) == 2n
+
+for i <- 1..30 if perfect( i )
+   write( i )

@@ -95,13 +95,6 @@ for_expr(p: *Parser, at: Span, label: Option[string]) -> &Expr
 
     expr(ForE(id, label, gens, Some(body)), at.to(body.span))
 
-// What a `for` binding iterates: a collection, or a range -- `i to j`, or `i..j` and `i..<j`, each
-// with an optional `by k`.
-private for_iter(p: *Parser) -> &Expr
-    val from = parse_expr(p, 0)
-
-    if p.accept(DotDot) then return range(p, from, true)
-
-    if p.accept(DotDotLess) then return range(p, from, false)
-
-    from
+// What a `for` binding iterates: a collection -- a range `i..j` among them -- or the generator
+// `i to j`.
+private for_iter(p: *Parser) -> &Expr = parse_expr(p, 0)

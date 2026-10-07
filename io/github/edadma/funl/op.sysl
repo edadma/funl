@@ -202,6 +202,38 @@ enum Op
     // reached it.
     GenRange(inclusive: bool)
 
+    // -- lists, ranges and sets (`seq.sysl`) -----------------------------------------------------------
+
+    // Pop a step, then -- unless `endless` -- an end, then a start, and push the range of them.
+    MakeRange(inclusive: bool, endless: bool)
+
+    // Pop a value; when it is a non-empty list or range push its rest and then its first element,
+    // which is on top, or fail.
+    MatchCons
+
+    // Pop a value; succeed when it is an empty list or range, or fail.
+    MatchNil
+
+    // Pop a collection, pop `x`; succeed producing `x` when the collection holds it -- or, `negated`,
+    // when it does not -- or fail.
+    Member(negated: bool)
+
+    // Fail unless the top is defined (`defined`) or `undefined`, leaving it.
+    TestDefined(defined: bool)
+
+    // Replace the top with its field `name`, an atom id.
+    Field(name: u32)
+
+    // Pop into slot `slot` of the frame `depth` static links up, recording what it held on the trail
+    // for failure to put back.
+    StoreBack(depth: usize, slot: usize)
+
+    // Pop a value and add it to the collection building in slot `slot`, newest first.
+    Collect(slot: usize)
+
+    // Push what slot `slot` collected, in the order it was collected: a list, or a set (`set`).
+    Collected(slot: usize, set: bool)
+
     // End a round of `|e` that produced a value: the innermost mark, pushed at `to`, now restarts
     // `e` there when failure reaches it, and the enclosing mark becomes the innermost again.
     ChangeMark(to: usize)

@@ -10,6 +10,9 @@ enum Undo
     // A logic variable was bound.
     Bind(v: *VarObj)
 
+    // `x <- e` overwrote slot `slot` of frame `f`, which held `old`.
+    Assign(f: *FrameObj, slot: usize, old: Value)
+
 // Bind an unbound variable.
 //
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
@@ -29,6 +32,16 @@ private needs_trail(v: *Vm, x: *VarObj) -> bool
 
     n > 0 && x.stamp < v.control.at(n - 1).stamp
 
+// `x <- e`: store `x` into slot `slot` of frame `f`, recording what it held for failure to put back.
+// With nothing on the control stack nothing can fail back past the store, and no record is made.
+assign_reversibly(f: *FrameObj, slot: usize, x: Value) -> Result[unit, string]
+    val v = current()
+    val old = slot_of(f, slot)?
+
+    if v.control.len() > 0 then v.trail.push(Assign(f, slot, old))
+
+    set_slot(f, slot, x)
+
 // Undo every trail entry above height `h`, newest first.
 undo_trail_to(v: *Vm, h: usize)
     while v.trail.len() > h
@@ -36,15 +49,17 @@ undo_trail_to(v: *Vm, h: usize)
             Some(Bind(x)) ->
                 x.bound = false
                 x.value = Undefined
+            Some(Assign(f, slot, old)) -> if slot < f.slots.len() then f.slots.set(slot, old)
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
 //
 // **Called after the control stack has been cut back**, so "the entry on top" is the one that
 // survived. A binding is kept when its variable is older than that entry -- resuming it must unbind
-// the variable -- and dropped otherwise. With no entry left, nothing can resume, and the trail is
-// emptied.
-commit_trail(v: *Vm, h: usize)
+// the variable -- and dropped otherwise. A reversible assignment is dropped when the commit ends a
+// bounded expression (`ends`), which makes it permanent, and kept at a cut, which ends none. With no
+// entry left, nothing can resume, and the trail is emptied.
+commit_trail(v: *Vm, h: usize, ends: bool)
     val n = v.control.len()
 
     if n == 0
@@ -57,11 +72,13 @@ commit_trail(v: *Vm, h: usize)
     for i in h..<v.trail.len()
         val u = v.trail.at(i)
 
-        u match
-            Bind(x) ->
-                if x.stamp < top
-                    v.trail.set(kept, u)
-                    kept += 1
+        val keep = u match
+            Bind(x) -> x.stamp < top
+            Assign(_, _, _) -> !ends
+
+        if keep
+            v.trail.set(kept, u)
+            kept += 1
 
     v.trail.truncate(kept)
 end commit_trail

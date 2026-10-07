@@ -102,8 +102,35 @@ enum ExprKind
     // `fail`: fails.
     FailE
 
-    // `[a, b, ...]`: a list of the items' values.
+    // `[a, b, ...]`: a list of the items' values. As a pattern, a list of exactly that many elements.
     ListE(items: Buf[&Expr])
+
+    // `h:t`: the list whose first element is `h` and whose rest is `t`. As a pattern, any non-empty
+    // list -- or range -- whose parts match.
+    ConsE(head: &Expr, tail: &Expr)
+
+    // `a..b` (`inclusive`), `a..<b`, or `a..` with no end (`upto` absent), with an optional `by k`:
+    // a range value, which can be stored, iterated, indexed and matched as a list.
+    RangeValE(from: &Expr, upto: Option[&Expr], by: Option[&Expr], inclusive: bool)
+
+    // `[e | p <- c if f, ...]` or `{e | ...}` (`set`): every value of `e`, in order, for every
+    // combination the bindings produce, collected into a list or a set. `id` names the block the
+    // patterns' names are declared in.
+    CompE(id: usize, elem: &Expr, gens: Buf[ForGen], set: bool)
+
+    // `x in c` and `x not in c` (`negated`): `x` when `c` holds it -- or, negated, does not -- and
+    // failure otherwise.
+    InE(a: &Expr, c: &Expr, negated: bool)
+
+    // `\x` (`defined`) and `/x`: `x` when it is defined, or when it is `undefined`, and failure
+    // otherwise.
+    DefinedE(e: &Expr, defined: bool)
+
+    // `e.name`: a field of `e`'s value, `l.length`.
+    FieldE(e: &Expr, name: string)
+
+    // `name <- e`: `name = e`, undone when the expression it is part of is backtracked into.
+    RevAssignE(name: string, e: &Expr)
 
     // `!c`: each element of `c`, one per resumption.
     BangE(e: &Expr)

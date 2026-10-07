@@ -208,6 +208,11 @@ tag(t: Tok) -> u8
         OpEq(_) -> 68
         PlusPlus -> 69
         MinusMinus -> 70
+        LBrace -> 71
+        RBrace -> 72
+        Dot -> 73
+        In -> 74
+        NotIn -> 75
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
@@ -250,7 +255,8 @@ parse(src: Source, report: *Report) -> Program
 end parse
 
 // One statement: `free names`, `def`, `val pattern = e`, `var name [= e]`, an assignment --
-// `name = e`, `name op= e`, `a, b = e1, e2` -- `pattern = e`, or an expression.
+// `name = e`, `name op= e`, `name <- e`, `\name = e`, `/name = e`, `a, b = e1, e2` -- `pattern = e`,
+// or an expression.
 statement(p: *Parser) -> Stmt
     if p.accept(Def)
         var clauses: Buf[Clause] = buf()
@@ -276,12 +282,15 @@ statement(p: *Parser) -> Stmt
             Some(c) -> return ExprS(c)
             None -> ()
 
+        if p.at_tok(LeftArrow) then return ExprS(reversible(p, e))
+
         if !p.accept(Equals) then return ExprS(e)
 
         val value = body_expr(p)
 
         e.kind match
             Ref(n) -> return ExprS(expr(AssignE(n, value), e.span.to(value.span)))
+            DefinedE(_, _) -> return ExprS(guarded_assign(p, e, value))
             _ -> return ValS(e, value, false)
 
     var names: Buf[Spanned[string]] = buf()

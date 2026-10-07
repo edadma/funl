@@ -5,8 +5,9 @@ import sh.sysl.parsing.*
 // The tokens, and how strongly each infix one binds.
 //
 // **The ladder, lowest first**: the lambda arrow `->` (right) · `or` · `and` · the operand of `not` ·
-// alternation `|` · conjunction `&` · comparison `~`, `==`, `!=`, `<`, `<=`, `>`, `>=` · `to until` · `+ -` ·
-// `* / \ % mod div` · `^` (right) · prefix `-` · `!` · application and postfix `++` `--`. Comparison binds tighter than `&` and
+// alternation `|` · conjunction `&` · comparison `~`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not in` ·
+// cons `:` (right) · `to until .. ..<` · `+ -` · `* / \ % mod div` · `^` (right) · prefix `-` ·
+// `! \ /` · application, `.` and postfix `++` `--`. Comparison binds tighter than `&` and
 // `|`, so a rule body reads `a != b & f != m` as the two goals `logic.md` says it is.
 
 enum Tok
@@ -78,12 +79,23 @@ enum Tok
     Semi
     Colon
 
-    // `<-`: the binding of a `for` head.
+    // `<-`: the binding of a `for` head or a comprehension, and reversible assignment `x <- e`.
     LeftArrow
 
-    // `..` and `..<`: a range in a `for` head, inclusive and exclusive of its end.
+    // `..` and `..<`: a range, inclusive and exclusive of its end.
     DotDot
     DotDotLess
+
+    // `{` and `}`: a set comprehension.
+    LBrace
+    RBrace
+
+    // `.`: a field, `l.length`.
+    Dot
+
+    // `in`, and `not in` read as one operator.
+    In
+    NotIn
 
     // `+=`, `-=`, `*=`, `/=`, `\=`, `%=`, `^=`, and `<:=` and `>:=`, which store the right operand
     // when the ordering holds and fail otherwise: an assignment through the operator.
@@ -151,6 +163,11 @@ private spelling(t: Tok) -> string
         LeftArrow -> "<-"
         DotDot -> ".."
         DotDotLess -> "..<"
+        LBrace -> "{"
+        RBrace -> "}"
+        Dot -> "."
+        In -> "in"
+        NotIn -> "not in"
         OpEq(o) ->
             o match
                 Lt -> "<:="
@@ -212,6 +229,7 @@ keyword(s: string) -> Option[Tok]
     if s == "to" then return Some(To)
     if s == "until" then return Some(Until)
     if s == "by" then return Some(By)
+    if s == "in" then return Some(In)
     if s == "yield" then return Some(YieldW)
     if s == "var" then return Some(VarW)
     if s == "while" then return Some(While)
@@ -239,8 +257,13 @@ power(t: Tok) -> Power
         LessEq -> left_assoc(40)
         Greater -> left_assoc(40)
         GreaterEq -> left_assoc(40)
+        In -> left_assoc(40)
+        NotIn -> left_assoc(40)
+        Colon -> right_assoc(ConsPower)
         To -> left_assoc(RangePower)
         Until -> left_assoc(RangePower)
+        DotDot -> left_assoc(RangePower)
+        DotDotLess -> left_assoc(RangePower)
         Plus -> left_assoc(50)
         Minus -> left_assoc(50)
         Star -> left_assoc(60)
@@ -251,6 +274,7 @@ power(t: Tok) -> Power
         Div -> left_assoc(60)
         Caret -> right_assoc(70)
         LParen -> left_assoc(ApplyPower)
+        Dot -> left_assoc(ApplyPower)
         PlusPlus -> left_assoc(ApplyPower)
         MinusMinus -> left_assoc(ApplyPower)
         _ -> left_assoc(0)
@@ -268,9 +292,17 @@ const ReturnPower: u8 = 30
 // `|a | b` is `(|a) | b`.
 const RepeatPower: u8 = 20
 
-// `to` and `until`, and the level their bounds and a `by` step are read at: looser than arithmetic,
-// tighter than a comparison, so `1 to n + 1` counts to `n + 1` and `x == 1 to 3` compares with each.
+// `to` and `until`, `..` and `..<`, and the level their bounds and a `by` step are read at: looser
+// than arithmetic, tighter than a comparison, so `1 to n + 1` counts to `n + 1` and `x == 1 to 3`
+// compares with each.
 const RangePower: u8 = 45
+
+// Cons `h:t`, grouping to the right: looser than a range, tighter than a comparison, so `x:xs == l`
+// compares the cons and `0:1..3` is `0` before the range.
+const ConsPower: u8 = 42
+
+// The level `\x` and `/x` read their operand at, as `!` does.
+const DefinedPower: u8 = 88
 
 // The level the operand of `!` is read at: application binds tighter, so `!f(x)` generates the
 // elements of `f(x)`.
@@ -334,6 +366,9 @@ starts_expr(t: Tok) -> bool
         Bar -> true
         YieldW -> true
         LBracket -> true
+        LBrace -> true
+        Backslash -> true
+        Slash -> true
         While -> true
         Repeat -> true
         For -> true

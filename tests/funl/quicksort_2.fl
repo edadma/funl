@@ -1,0 +1,14 @@
+def foldr(f, z, [])     =  z
+def foldr(f, z, (x:xs)) =  f(x, foldr(f, z, xs))
+
+val select = p -> (x, (ts, fs)) -> if p(x) then (x:ts, fs) else (ts, x:fs)
+
+def partition(p, xs) = foldr(select(p), ([],[]), xs)
+
+def
+  qsort([])     = []
+  qsort((x:xs)) = qsort(ys) + (x:qsort(zs))
+    where
+      (ys, zs) = partition((<x), xs)
+
+write(qsort([4, 6, 9, 1, 3, 5, 7, 2, 8]))

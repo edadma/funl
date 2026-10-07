@@ -73,7 +73,7 @@ BANG_BINDS_TIGHTER_THAN_ARITHMETIC_AND_LOOSER_THAN_A_CALL()
 
 @test
 BANG_REFUSES_WHAT_HAS_NO_ELEMENTS()
-    generator_fault("write( !5 )\n", "`!` generates the elements of a list, a tuple or a string, and was given the integer 5")
+    generator_fault("write( !5 )\n", "`!` generates the elements of a list, a range, a tuple, a set or a string, and was given the integer 5")
     generator_fault("free x\nwrite( !x )\n", "instantiation error: `!` was given an unbound variable")
 
 // -- backtracking into a generator ------------------------------------------------------------------

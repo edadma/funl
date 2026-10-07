@@ -135,3 +135,73 @@ EXPONENTIAL_2()
 @test
 EXPONENTIAL_3()
     corpus("exponential_3")
+
+@test
+NAMED_PATTERN()
+    corpus("named_pattern")
+
+@test
+IF_ELIF_ELSE()
+    corpus("if_elif_else")
+
+@test
+DEFINED()
+    corpus("defined")
+
+@test
+UNDEFINED()
+    corpus("undefined")
+
+@test
+SET_COMPREHENSION()
+    corpus("set_comprehension")
+
+@test
+LIST_COMPREHENSION_SCOPE()
+    corpus("list_comprehension_scope")
+
+@test
+SUM_3_5()
+    corpus("sum_3_5")
+
+@test
+PERFECT()
+    corpus("perfect")
+
+@test
+PYTHAGOREAN_TRIPLES()
+    corpus("pythagorean_triples")
+
+// The old output was `(1, 1, 2, ...)`: its `+` of two ranges made a host sequence that printed like
+// a tuple. Here a range joined to a list is a list.
+@test
+SERIES_UP()
+    corpus("series_up")
+
+@test
+MERGE_SORT()
+    corpus("merge_sort")
+
+@test
+QUICKSORT_1()
+    corpus("quicksort_1")
+
+@test
+QUICKSORT_2()
+    corpus("quicksort_2")
+
+@test
+FILTER()
+    corpus("filter")
+
+@test
+TAKE()
+    corpus("take")
+
+@test
+FIBONACCI_1()
+    corpus("fibonacci_1")
+
+@test
+MAX_1()
+    corpus("max_1")

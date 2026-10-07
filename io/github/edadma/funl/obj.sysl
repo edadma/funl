@@ -27,6 +27,18 @@ struct ConsObj
     head: Value
     tail: Value
 
+// A range: `from`, then every `step` on while short of `last` (`inclusive`, up to and including
+// it), or for ever when `endless`.
+struct RangeObj
+    from: long
+    last: long
+    step: long
+    inclusive: bool
+    endless: bool
+
+struct SetObj
+    items: Buf[Value]
+
 // A logic variable.
 //
 // **`stamp` dates it against the control stack**: it is the machine's stamp when the variable was
@@ -138,6 +150,22 @@ new_cons(head: Value, tail: Value) -> Result[Value, string]
     o.head = head
     o.tail = tail
     Ok(Cons(o))
+
+new_range(from: long, last: long, step: long, inclusive: bool, endless: bool) -> Result[Value, string]
+    val o: *RangeObj = ptr_cast(take(current(), sizeof(RangeObj), &range_kind)?)
+
+    o.from = from
+    o.last = last
+    o.step = step
+    o.inclusive = inclusive
+    o.endless = endless
+    Ok(Range(o))
+
+// An empty set, which the caller fills.
+new_set() -> Result[*SetObj, string]
+    val o: *SetObj = ptr_cast(take(current(), sizeof(SetObj), &set_kind)?)
+
+    Ok(o)
 
 // A frame for `chunk`, with no arguments and no slots yet.
 new_frame(chunk: usize) -> Result[*FrameObj, string]

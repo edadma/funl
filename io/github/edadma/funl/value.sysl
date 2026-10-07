@@ -44,6 +44,13 @@ enum Value
     // A function value: compiled code and the frame it was made in. Two are equal, and unify,
     // exactly when they are the same object.
     Func(p: *ClosureObj)
+
+    // `a..b`, `a..<b`, `a..`: the integers from `a` by a step, to an end or without one. Immutable,
+    // and read as a list wherever one is: iterated, indexed, matched by `h:t` and `[]`.
+    Range(p: *RangeObj)
+
+    // A set of distinct values, in the order they were first added.
+    Set(p: *SetObj)
 end Value
 
 // Follow bound variables until reaching something that is not one.
