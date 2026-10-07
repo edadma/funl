@@ -195,6 +195,10 @@ roots(h: *gc.Heap)
     // The string being scanned.
     mark_value(h, v.subject)
 
+    // The strings open scans will put back.
+    for s in v.scans.view()
+        mark_value(h, s.subject)
+
     // Failure will unbind these.
     for u in v.trail.view()
         u match
@@ -207,6 +211,8 @@ roots(h: *gc.Heap)
                 mark_value(h, key)
                 mark_value(h, old)
             Scan(subject, _) -> mark_value(h, subject)
+            ScanOpened -> ()
+            ScanClosed(subject, _) -> mark_value(h, subject)
 
     // The code running now, and through it the static and dynamic chains.
     gc.mark(h, ptr_cast(v.frame))

@@ -335,7 +335,9 @@ with the rest of the language they succeed with `x` or fail.
 
 **`s ? e` evaluates `e` with `s` as the subject and a position at its start**, and a family of
 builtins read and move that position. Every movement is reversible: backtracking past a `tab` or a
-`move` puts the position back.
+`move` puts the position back, and a bounded expression that completes keeps it. However control
+leaves `s ? e` — its value, failure, `return`, `break`, `continue` or `yield` — the subject and
+position around the scan are in force again.
 
 | builtin | does |
 |---|---|

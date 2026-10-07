@@ -9,13 +9,16 @@ import sysl.buf.{Buf, buf}
 //     every g do b      [W] g; Pop; MarkThrough; [T] b; Unmark; Fail; exit:
 //     for p <- c do b   [W] c; <iterate>; <match p>; [filter]; MarkThrough; [T] b; Unmark; Fail; exit:
 //
-//     break (v)         UnmarkTo(whole); v; Branch(exit)
-//     continue          UnmarkTo(turn); Branch(top)      -- `Fail` instead, into the generator, in `every` and `for`
+//     break (v)         [ScanLeave(n)]; UnmarkTo(whole); v; Branch(exit)
+//     continue          [ScanLeave(n)]; UnmarkTo(turn); Branch(top)      -- `Fail` instead, into the generator, in `every` and `for`
 //
 // `[W]` is `MarkThrough; SaveMark(whole)`, a mark around the whole loop, and `[T]` is
 // `SaveMark(turn)` after the mark around one turn. Both are emitted only for a loop something
 // leaves, and `UnmarkTo` truncates the control stack to the recorded mark however many marks the
-// loop's body has opened since: nothing has to count them.
+// loop's body has opened since: nothing has to count them. `[ScanLeave(n)]` is there when the jump
+// leaves `n` scans opened inside the loop, and puts back the scan state the outermost replaced; it
+// runs before `UnmarkTo`, whose commit makes the restored state permanent, and a `break`'s value is
+// then computed outside the scans.
 //
 // **Every loop fails when it runs out** -- its condition fails, its generators are spent -- and a
 // `break` makes it succeed, with the `break`'s value or `()`.
@@ -31,6 +34,9 @@ struct Looping
     top: usize
     resumes: bool
 
+    // How many scans were open around the loop: a `break` or `continue` leaves the ones opened since.
+    scans: usize
+
 // `every g do b`.
 compile_every(e: *Emit, c: Ctx, id: usize, label: Option[string], g: &Expr, body: Option[&Expr]) -> Result[unit, string]
     val slots = c.res.loops.get(id)
@@ -39,7 +45,7 @@ compile_every(e: *Emit, c: Ctx, id: usize, label: Option[string], g: &Expr, body
     whole_mark(e, slots)
     compile_value(e, c, g)?
     e.op(Pop)
-    turn(e, c, Looping(id, label, exit, exit, true), slots, body, MarkThrough)?
+    turn(e, c, Looping(id, label, exit, exit, true, c.scans), slots, body, MarkThrough)?
     e.op(Fail)
     e.place(exit)
     Ok(())
@@ -56,7 +62,7 @@ compile_while(e: *Emit, c: Ctx, id: usize, label: Option[string], cond: &Expr, b
     compile_value(e, c, cond)?
     e.op(FailIfFalse)
     e.op(Unmark)
-    turn(e, c, Looping(id, label, exit, top, false), slots, body, Mark(top))?
+    turn(e, c, Looping(id, label, exit, top, false, c.scans), slots, body, Mark(top))?
     e.op(Branch(top))
     e.place(exit)
     Ok(())
@@ -69,7 +75,7 @@ compile_repeat(e: *Emit, c: Ctx, id: usize, label: Option[string], body: &Expr) 
 
     whole_mark(e, slots)
     e.place(top)
-    turn(e, c, Looping(id, label, exit, top, false), slots, Some(body), Mark(top))?
+    turn(e, c, Looping(id, label, exit, top, false, c.scans), slots, Some(body), Mark(top))?
     e.op(Branch(top))
     e.place(exit)
     Ok(())
@@ -86,7 +92,7 @@ compile_for(e: *Emit, c: Ctx, id: usize, label: Option[string], gens: Buf[ForGen
     for g in gens.view()
         bind_generator(e, inner, g)?
 
-    turn(e, inner, Looping(id, label, exit, exit, true), slots, body, MarkThrough)?
+    turn(e, inner, Looping(id, label, exit, exit, true, c.scans), slots, body, MarkThrough)?
     e.op(Fail)
     e.place(exit)
     Ok(())
@@ -96,6 +102,7 @@ compile_for(e: *Emit, c: Ctx, id: usize, label: Option[string], gens: Buf[ForGen
 compile_break(e: *Emit, c: Ctx, label: Option[string], v: Option[&Expr]) -> Result[unit, string]
     val l = target(c, label)?
 
+    leave_scans(e, c.scans - l.scans)
     e.op(UnmarkTo(slots_of(c, l.id)?.whole))
 
     v match
@@ -109,6 +116,7 @@ compile_break(e: *Emit, c: Ctx, label: Option[string], v: Option[&Expr]) -> Resu
 compile_continue(e: *Emit, c: Ctx, label: Option[string]) -> Result[unit, string]
     val l = target(c, label)?
 
+    leave_scans(e, c.scans - l.scans)
     e.op(UnmarkTo(slots_of(c, l.id)?.turn))
     e.op(if l.resumes then Fail else Branch(l.top))
     Ok(())

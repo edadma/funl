@@ -19,8 +19,12 @@ import sysl.buf.{Buf, buf}
 //     !c                     c; GenStart; GenNext
 //     i to j by k            i; j; k; GenRange(true)
 //     |e                     top: MarkThrough; e; ChangeMark(top)
-//     yield e                Choice(after); e; Return; after: PushUnit
+//     yield e                Choice(after); e; [ScanLeave(n)]; Return; after: PushUnit
+//     return e               e; [ScanLeave(n)]; ReturnCommit
 //     s ? e                  s; ScanBegin; e; ScanEnd
+//
+// `[ScanLeave(n)]` is there when the jump leaves `n` scans of the function's body that are open
+// around it, and puts back the scan state the outermost of them replaced.
 //     f(a, ...)              a; ...; PushInt(0); NativeGen(f)   -- a builtin that fails or generates
 //
 // A condition, a statement and the body of an `every` are bounded: their `Unmark` discards every
@@ -47,16 +51,27 @@ struct Ctx
     // The loops around the code being compiled, innermost last.
     loops: *Buf[Looping]
 
+    // How many scans `s ? e` of this function's body are open around the code being compiled: what a
+    // `return` or `yield` here leaves (`ScanLeave`).
+    scans: usize
+
     // What `n` means written at offset `pos` here.
     meaning(self, n: string, pos: usize) -> Meaning = self.res.meaning(self.sc, self.blk, pos, n)
 
     // The same, compiling the block the parser numbered `id`.
     in_block(self, id: usize) -> Result[Ctx, string] = self.res.blocks.get(id) match
-        Some(b) -> Ok(Ctx(self.res, self.sc, b, self.loops))
+        Some(b) -> Ok(Ctx(self.res, self.sc, b, self.loops, self.scans))
         None -> Err(s"block $id was never resolved")
 
-// A context for scope `sid` from its root block, inside no loop, its loop stack `loops`.
-context(res: *Resolved, sid: usize, loops: *Buf[Looping]) -> Ctx = Ctx(res, sid, 0, loops)
+    // The same, compiling the body of one more scan.
+    in_scan(self) -> Ctx = Ctx(self.res, self.sc, self.blk, self.loops, self.scans + 1)
+
+// A context for scope `sid` from its root block, inside no loop or scan, its loop stack `loops`.
+context(res: *Resolved, sid: usize, loops: *Buf[Looping]) -> Ctx = Ctx(res, sid, 0, loops, 0)
+
+// Before a jump out of `n` scans, the instruction that leaves them.
+leave_scans(e: *Emit, n: usize)
+    if n > 0 then e.op(ScanLeave(n))
 
 // Push `x`'s value.
 compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
@@ -156,6 +171,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 Some(a) -> compile_value(e, c, a)?
                 None -> e.op(PushUnit)
 
+            leave_scans(e, c.scans)
             e.op(ReturnCommit)
         FailE -> e.op(Fail)
         ListE(items) ->
@@ -257,7 +273,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         ScanE(s, body) ->
             compile_value(e, c, s)?
             e.op(ScanBegin)
-            compile_value(e, c, body)?
+            compile_value(e, c.in_scan(), body)?
             e.op(ScanEnd)
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
@@ -276,6 +292,7 @@ suspend(e: *Emit, c: Ctx, a: &Expr, last: bool) -> Result[unit, string]
 
     e.op(Choice(after))
     compile_value(e, c, a)?
+    leave_scans(e, c.scans)
     e.op(Return)
     e.place(after)
     e.op(if last then Fail else PushUnit)

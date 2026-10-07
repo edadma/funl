@@ -370,7 +370,10 @@ private execute(v: *Vm, op: Op) -> Result[Flow, string]
             scan_begin(v)?
             Ok(Next)
         ScanEnd ->
-            scan_end(v)?
+            close_scans(v, 1)?
+            Ok(Next)
+        ScanLeave(n) ->
+            close_scans(v, n)?
             Ok(Next)
 end execute
 
@@ -453,8 +456,8 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, string]
             v.stack.push(x)
             Ok(Next)
 
-// `ScanBegin`: pop the string to scan; push the scan state it replaces, the subject and then the
-// position; begin at position 1 of the string.
+// `ScanBegin`: pop the string to scan; save the scan state it replaces on `scans`; begin at position 1
+// of the string.
 private scan_begin(v: *Vm) -> Result[unit, string]
     val s = deref(pop(v)?)
 
@@ -462,24 +465,5 @@ private scan_begin(v: *Vm) -> Result[unit, string]
         Str(_) -> ()
         x -> return Err(s"`?` scans a string, and was given ${described(x)}")
 
-    v.stack.push(v.subject)
-    v.stack.push(Int(long(v.pos)))
-    set_scan(v, s, 1)
-    Ok(())
-
-// `ScanEnd`: pop the scanned expression's value, then the position and the subject `ScanBegin` saved
-// under it, which are the scan state again; push the value. Both changes of the scan state are
-// trailed, so failing back into the scanned expression -- a generator in it resumed after the scan
-// has ended -- makes its subject and position the scan's again.
-private scan_end(v: *Vm) -> Result[unit, string]
-    val x = pop(v)?
-
-    val at = pop(v)? match
-        Int(k) -> usize(k)
-        _ -> return Err("`ScanEnd` found no saved position under the scan's value")
-
-    val subject = pop(v)?
-
-    set_scan(v, subject, at)
-    v.stack.push(x)
+    open_scan(v, s)
     Ok(())

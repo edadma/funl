@@ -274,12 +274,15 @@ enum Op
 
     // -- string scanning (`scan.sysl`) ------------------------------------------------------------------
 
-    // Pop a string; push the subject and the position it replaces; scan it from position 1.
+    // Pop a string; save the scan state it replaces; scan it from position 1.
     ScanBegin
 
-    // Pop a value, then the position and the subject under it, which become the scan state; push the
-    // value.
+    // The scan has produced its value: put back the scan state its `ScanBegin` saved.
     ScanEnd
+
+    // Leave the `n` innermost scans before a `return`, `break`, `continue` or `yield` jumps out of
+    // them: the scan state becomes the one the outermost of them replaced.
+    ScanLeave(n: usize)
 end Op
 
 // What `MakeClosure`, `CallFn` and `TailCallFn` take for the top level's frame.

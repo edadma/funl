@@ -30,6 +30,7 @@ struct Machine
     stamp: u64              // bumped by every entry pushed; dates logic variables
     subject: Value          // the string being scanned
     pos: usize              // the scan position in it
+    scans: Buf[ScanSaved]   // the subject and position each open scan replaced, innermost last
     flags: u32              // regex flags in force (case-insensitive, dot-all, ...)
     captures: Buf[Span]     // regex capture groups, one per numbered group
 ```
@@ -52,9 +53,7 @@ struct Entry
     saved_at: usize         // where its saved cells start in `saved`
     trail: usize            // trail height when it was pushed
     stamp: u64              // machine stamp when it was pushed
-    subject: Value          // scan state when it was pushed
-    pos: usize
-    flags: u32
+    flags: u32              // regex flags when it was pushed
 ```
 
 Five kinds, each a few lines of behaviour:
@@ -78,18 +77,21 @@ fail()
         stack.append(saved[e.saved_at..])
         saved.truncate(e.saved_at)
         frame = e.frame; code = e.code; mark = e.mark
-        subject = e.subject; pos = e.pos; flags = e.flags
+        flags = e.flags
         e.kind match
             Mark(_) | Choice(_) -> ip = e.ip; return
             _ -> ()                                   // MarkThrough, Restore, Catch: keep going
 ```
 
-**Every entry saves the scan position, the subject and the regex flags**, which is three words and
-makes every movement of the scan position reversible without the movement doing anything. The old
-machine instead had `tab` and `move` each push an extra entry whose only job was to run a closure
-putting the position back (`pushChoice(vm => { vm.seq = …; vm.scanpos = … })`), and distinguished
-"pattern" choice points, which saved the position, from ordinary ones, which did not. In the
-rewrite there is one kind of choice point and no closures on the control stack.
+**An entry does not save the scan state; a change of it is trailed** (String scanning, below), so
+failure that passes back over a movement of the position undoes it through `undo_trail_to`, with no
+scan fields on the entry. Saving `subject` and `pos` in every entry would restore them at *every*
+failure, which is wrong for a bounded expression that has completed: in `'abc' ? every 1 to 3 do
+write(move(1))` the generator's choice point predates every `move`, so resuming it would put the
+position back to 1 and write `a` three times, where Icon writes `a`, `b`, `c`. The old machine had
+`tab` and `move` each push an extra entry whose only job was to run a closure putting the position
+back (`pushChoice(vm => { vm.seq = …; vm.scanpos = … })`); the rewrite has no closures on the
+control stack, and one kind of choice point.
 
 ## Marks: how a bounded expression is built
 
@@ -321,11 +323,16 @@ the height as a `Cut(size)` value onto the operand stack.
 enum Undo
     Bind(var: *VarObj)                          // a logic variable was bound
     Assign(place: Place, old: Value)            // x <- e overwrote a slot or an element
+    Scan(subject: Value, pos: usize)            // the scan state changed, and was this
+    ScanOpened                                  // a scan began, pushing onto `scans`
+    ScanClosed(subject: Value, pos: usize)      // a scan ended or was left, popping this off `scans`
     Capture(group: usize, old: Span)            // a regex capture group was set
 ```
 
 `undo_trail_to(h)` pops entries above `h` and reverses each: a `Bind` makes its variable unbound
-again, an `Assign` writes the old value back, a `Capture` restores the old span.
+again, an `Assign` writes the old value back, a `Scan` puts the subject and position back,
+`ScanOpened` pops `scans` and `ScanClosed` pushes its state back on, and a `Capture` restores the
+old span.
 
 ### A separate trail, because a commit is not an undo
 
@@ -345,6 +352,7 @@ same.
 |---|---|
 | `Bind(v)` | **kept** if `v` is older than the entry now on top of the control stack (`v.stamp < top.stamp`); otherwise dropped, nothing left being able to see the binding undone |
 | `Assign` | **dropped at `Unmark`** — the bounded expression is over, so the assignment is permanent; **kept at a cut**, which does not end a bounded expression |
+| `Scan`, `ScanOpened`, `ScanClosed` | as `Assign`: a change of the scan state is a reversible assignment |
 | `Capture` | kept while any entry remains |
 
 **When the control stack is empty the trail is emptied**, nothing being left to undo anything for.
@@ -359,17 +367,60 @@ instead.
 
 ## String scanning
 
-**The scan state is two registers, `subject` and `pos`, saved by every control entry.**
+**The scan state is two registers, `subject` and `pos`, and every change of it is a reversible
+assignment, trailed** (`set_scan`, an `Undo.Scan` of the state it replaces). As Icon defines `tab`
+and `move`, failure that passes back over a change undoes it, and a bounded expression that
+completes makes it permanent. Control entries carry no scan fields, because restoring the scan
+state at every failure is wrong twice over: `'abc' ? every 1 to 3 do write(move(1))` must write
+`a`, `b`, `c`, not `a` three times, and in
 
 ```
-ScanBegin       push subject and pos as two operand cells; subject = pop'd string; pos = 1
-ScanEnd         result = pop; pos = pop; subject = pop; push result
+'ab cd' ?
+  while tab(upto(' '))
+    move(1)
+
+  write(tab(0))
 ```
 
-Nothing else is needed for reversibility. If the scanned expression later resumes — `every write(text
-? upto(vowel))` — the generator's choice point inside it was pushed while `subject` was `text`, so
-failure puts `text` and the right position back. The old machine needed two closures per scan to get
-the same effect.
+the loop ends by its condition failing, and the `move` its body made must survive that failure for
+`tab(0)` to write `cd`.
+
+```
+ScanBegin       subject' = pop'd string; push (subject, pos) on scans; subject = subject'; pos = 1
+ScanEnd         (subject, pos) = pop scans                 -- the scan's value stays on the stack
+ScanLeave(n)    pop n off scans; (subject, pos) = the last popped, the outermost
+```
+
+Each push and pop of `scans` is trailed (`ScanOpened`, `ScanClosed`) as well as the change of
+`subject` and `pos`. If the scanned expression later resumes — `every write(text ? upto(vowel))` —
+failure back into it undoes the `ScanEnd`: the saved state goes back on `scans` and the subject and
+position become the scan's again, where its own `ScanEnd` will find them. The old machine needed two
+closures per scan to get the same effect.
+
+### Leaving a scan by a jump
+
+**`return`, `break`, `continue` and `yield` restore the scan state the outermost scan they leave
+replaced**, as Icon restores the outer `&subject` and `&pos` whichever way control leaves `s ? e`.
+Without it the inner subject would stay in force after the jump: `ScanEnd` never runs, and the
+commit the jump makes (`UnmarkTo`, `ReturnCommit`) ends a bounded expression and so drops the `Scan`
+record that failure would have used to put the outer state back.
+
+The compiler knows how many scans a jump leaves, because a scan cannot cross a function: it counts
+the scans of the function's body open around the code (`Ctx.scans`), and each loop records the count
+at its own level. A `return` or `yield` leaves all of them, and a `break` or `continue` the ones
+opened since its loop; where that is not zero, `ScanLeave(n)` precedes the jump.
+
+- **`break` and `continue`**: `ScanLeave(n); UnmarkTo(slot)`. The restore is trailed and the
+  `UnmarkTo` commit makes it permanent, keeping what the loop moved in its own scan; a `break`'s
+  value is computed afterwards, outside the scans, as in Icon.
+- **`return e`**: `e; ScanLeave(n); ReturnCommit`. `e` is evaluated inside the scans — `s ? return
+  tab(0)` returns the rest of `s` — and the caller continues in its own scan.
+- **`yield e`**: `Choice(after); e; ScanLeave(n); Return`. Resuming the generator fails back past
+  the `ScanLeave`, which puts the generator's scans back on `scans` and its subject and position in
+  the registers.
+
+A generator in an enclosing scan, resumed after the jump, sees its own subject again either way: its
+choice point predates the jump, and failing back to it undoes everything the jump trailed.
 
 The builtins are natives reading and writing the two registers. `tab(i)` and `move(n)` set `pos` and
 answer the substring; `upto(c)` and `find(s)` are generators, with a cursor exactly as `!c` has.
@@ -404,7 +455,8 @@ pattern's alternatives are choice points like any other, and `ok()` failing resu
 | `SetFlags(on, off)` | | change `flags` for what follows |
 
 `Choice`, `Barrier` and `CutTo` are the program's own, unchanged: **a regex alternative is just a
-choice point**, and since every entry saves `pos`, there is no separate pattern choice point.
+choice point**, and since every movement of `pos` is trailed, there is no separate pattern choice
+point.
 
 ### Forward and reverse, and lookbehind with no restriction
 

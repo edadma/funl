@@ -21,6 +21,13 @@ enum Undo
     // the subject `subject` at position `pos`.
     Scan(subject: Value, pos: usize)
 
+    // A scan began, saving the scan state around it on `scans`.
+    ScanOpened
+
+    // A scan ended, or was left by `return`, `break`, `continue` or `yield`, and took the saved state
+    // `subject` at `pos` off `scans`.
+    ScanClosed(subject: Value, pos: usize)
+
 // Bind an unbound variable.
 //
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
@@ -62,6 +69,34 @@ set_scan(v: *Vm, subject: Value, pos: usize)
     v.subject = subject
     v.pos = pos
 
+// `s ? e` begins: save the scan state around it on `scans` and scan `s` from position 1. Both changes
+// are trailed, so failing back past the beginning undoes it.
+open_scan(v: *Vm, s: Value)
+    if v.control.len() > 0 then v.trail.push(ScanOpened)
+
+    v.scans.push(ScanSaved(v.subject, v.pos))
+    set_scan(v, s, 1)
+
+// Leave the `n` innermost scans, `n` at least 1: take their saved states off `scans` and make the scan
+// state the outermost one's, the state in force when the first of them began.
+//
+// **`ScanEnd` leaves one; `return`, `break`, `continue` and `yield` leave every scan between them and
+// where they go**, as Icon restores the outer `&subject` and `&pos` whichever way control leaves a
+// scan. Each removal is trailed, so failing back into a scan that was left -- a generator inside it
+// resumed -- puts its saved state back where its own `ScanEnd` will find it.
+close_scans(v: *Vm, n: usize) -> Result[unit, string]
+    var outer = ScanSaved(Undefined, 1)
+
+    for _ in 0..<n
+        outer = v.scans.pop() match
+            Some(s) -> s
+            None -> return Err("a scan was left that was never begun")
+
+        if v.control.len() > 0 then v.trail.push(ScanClosed(outer.subject, outer.pos))
+
+    set_scan(v, outer.subject, outer.pos)
+    Ok(())
+
 // Undo every trail entry above height `h`, newest first.
 undo_trail_to(v: *Vm, h: usize)
     while v.trail.len() > h
@@ -74,6 +109,8 @@ undo_trail_to(v: *Vm, h: usize)
             Some(Scan(subject, pos)) ->
                 v.subject = subject
                 v.pos = pos
+            Some(ScanOpened) -> v.scans.pop()
+            Some(ScanClosed(subject, pos)) -> v.scans.push(ScanSaved(subject, pos))
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
@@ -102,6 +139,8 @@ commit_trail(v: *Vm, h: usize, ends: bool)
             Assign(_, _, _) -> !ends
             Elem(_, _, _, _) -> !ends
             Scan(_, _) -> !ends
+            ScanOpened -> !ends
+            ScanClosed(_, _) -> !ends
 
         if keep
             v.trail.set(kept, u)
