@@ -32,9 +32,21 @@ full suite is green on the commit being merged, and a release is `stable` fast-f
 a tag, and a GitHub release. **Implementation notes go in `CLAUDE.md`**, which is never committed;
 **the language goes in `docs/`**; the history goes in the git log.
 
-**The module is a directory and its name comes from a domain**, a sysl rule — and the executable is
-named `funl` after the package, so nothing at the root may be called `funl` (slate's
-`dev.slatelang.slate` exists for exactly this reason).
+**The module is a directory and its name comes from a domain**, a sysl rule (slate's
+`dev.slatelang.slate` exists for the same reason).
+
+**The repository is a workspace: the machine is a library at the root, and each executable is a
+member over it.** A package whose root carries an entry file brings that file into every program
+depending on it, and a program has one `main`, so neither driver can live in the library:
+
+| member | builds | what it is |
+|---|---|---|
+| the root, package `funl-vm` | — | the module `io.github.edadma.funl`: the machine, both front ends, every test |
+| `funl/` | `sysl build -p funl` → `funl/funl` | `main.sysl`: FunL programs, and `.pl` files through FunL's driver |
+| `prolog/` | `sysl build -p prolog` → `prolog/prolog` | `main.sysl`: the standalone Prolog top level, over linenoise ([prolog.md](prolog.md)) |
+
+The library is not called `funl` because the member that builds the `funl` executable is, and two
+members may not share a name. `sysl test .` at the root tests all three.
 
 **The module path is `io.github.edadma.funl`**, the repository's address `github.com/edadma/funl`
 reversed, as every other edadma project spells its package. This document writes paths without the
@@ -49,7 +61,7 @@ however even the halves look. The first layout, to be revisited by counting once
 
 | subject | files |
 |---|---|
-| the driver | `main.sysl` (arguments, the top level, a status), `repl.sysl` |
+| the drivers | `funl/main.sysl` and `prolog/main.sysl`, members of the workspace; `toplevel.sysl` (the standalone Prolog's ISO top level) |
 | the scanner tier | `lex.sysl` (FunL tokens over `sh.sysl.parsing`'s cursor, interpolation, regex literals), `tok.sysl` (the token kinds and their binding powers) |
 | FunL parsing | `parse.sysl` (the `Parser`, statements, declarations), `parse_expr.sysl` (the `pratt` callbacks), `parse_def.sysl` (clauses, guards, `where`, facts and rules), `parse_loop.sysl` (the loops, their labels, `for` heads), `pattern.sysl` (parameter and `for` patterns), `regex_parse.sysl` (regex literal syntax to a pattern tree), `regex_tree.sysl` (the pattern tree and its character classes) |
 | the tree | `ast.sysl` |

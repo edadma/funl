@@ -2,17 +2,28 @@
 // one backtracking machine, written in sysl.
 //
 // The module is `io.github.edadma.funl`, the repository's address `github.com/edadma/funl` reversed.
-// The executable is named for the package, so nothing at the root may be called `funl`: the prefix
-// is what lets `main.sysl` live inside the module rather than beside a directory of the same name.
+//
+// **This root is the machine, a library; the two executables are workspace members over it.** A
+// program has one `main`, and a package whose root carries an entry file brings that file into every
+// program depending on it -- so the drivers live beside the library rather than in it:
+//
+//     funl/     the `funl` executable: FunL programs, and Prolog files through FunL's driver
+//     prolog/   the `prolog` executable: an ISO top level that knows standard Prolog and no FunL
+//
+// `sysl build -p funl` and `sysl build -p prolog` write `funl/funl` and `prolog/prolog`; `sysl test .`
+// at the root tests every member. The library is named `funl-vm` because the `funl` member is called
+// `funl`, after the executable it builds, and two members may not share a name.
 
 package {
-  name    = "funl"
+  name    = "funl-vm"
   version = "0.0.1"
 
   // The first released compiler of the self-hosted line. The floor moves only when something here
   // genuinely needs a newer compiler, never to track the newest release.
   sysl = "0.1.0-alpha.1"
 }
+
+workspace = ["funl", "prolog"]
 
 // **`gc` is the heap.** Every FunL value that points anywhere is a collected object -- a logic
 // variable, a compound term, a frame -- and the machine's control entries, saved operand cells and

@@ -46,6 +46,32 @@ which front ends are linked in, never of a second VM or a bridge. It knows only 
 no FunL syntax, no FunL builtins, no FunL value kinds reachable from it. The same Prolog program
 runs identically in it and through `funl family.pl`; the difference is only what else is loaded.
 
+**It is the `prolog` executable, a workspace member of this repository.** The machine is a library
+at the repository root (package `funl-vm`, module `io.github.edadma.funl`), and the two drivers are
+members over it — `funl/` and `prolog/`, each a `main.sysl` and a manifest — because a program has
+one `main` and a package whose root carried an entry file would bring it into every program that
+depends on it. `sysl build -p prolog` writes `prolog/prolog` (`sysl build -p funl`, `funl/funl`), and
+`sysl test .` at the root tests every member. The top level itself is `toplevel.sysl` in the library,
+over a machine made by `prolog_vm()`, whose `funl_front_end` is off: there `:- import(File)` is no
+directive, and a goal `import(File)` is an unknown procedure. `prolog/main.sysl` only supplies the
+terminal — lines through `sh.sysl.linenoise`, plain lines with no prompt from a pipe.
+
+```
+$ prolog family.pl
+?- parent(tom, X).
+X = bob
+;
+X = liz.
+?- X is 1 / 0.
+uncaught exception: error(evaluation_error(zero_divisor),_)
+?- halt.
+```
+
+A query runs under `catch/3` as a chunk that ends in `Halt` with its variables on the operand stack
+(`compile_toplevel`); `;` fails back into the same run (`resume`). An answer with no choice point
+left ends in `.` and asks for nothing; anything but `;` stops at the answer given. `halt.` and
+`halt(N).` end the session with that status, as does the end of input with 0.
+
 ## The reader
 
 **The reader is an operator-precedence parser over an operator table that changes at run time**,

@@ -180,6 +180,46 @@ compile_query(name: string, c: ReadClause) -> Result[Emit, PlError]
     e.code.set(0, Frame(cx.slots))
     Ok(e)
 
+// A query typed at the top level, `?- G.`, as a chunk run as the top of a run (`toplevel.sysl`):
+// `catch(G, Ball, true)`, then `Ball` and the variable of each index in `shown` pushed, and `Halt`.
+// So every solution stops the run with what it answers on the operand stack -- the ball first,
+// unbound unless `G` raised it -- and failing back into the run (`resume`) looks for the next.
+compile_toplevel(c: ReadClause, shown: []usize) -> Result[Emit, PlError]
+    val at = c.t.span
+    val ball = term(TVar(c.names.len()), at)
+    var catch_args: Buf[&Term] = buf()
+
+    catch_args.push(c.t)
+    catch_args.push(ball)
+    catch_args.push(term(TAtom(intern("true")), at))
+
+    val caught = term(TComp(intern("catch"), catch_args), at)
+    var parts: Buf[&Term] = buf()
+
+    parts.push(caught)
+    parts.push(ball)
+
+    for i in shown
+        parts.push(term(TVar(i), at))
+
+    // Counted as one term, so a variable the query writes once and the top level reads afterwards
+    // still has a slot to be read from.
+    var cx = clause_ctx(c.names.len() + 1, term(TComp(intern("$toplevel"), parts), at))
+    var e = emit("toplevel")
+
+    e.op(Frame(0))
+    fresh_vars(&e, &cx)
+    goal(&e, &cx, caught, false, ToClause)?
+    e.op(Pop)
+
+    for i in 1..<parts.len()
+        build(&e, &cx, parts.at(i))?
+
+    e.op(Halt)
+    e.code.set(0, Frame(cx.slots))
+    Ok(e)
+end compile_toplevel
+
 // A fresh variable in the slot of every variable the head left unset and the body reads more than
 // once.
 private fresh_vars(e: *Emit, cx: *ClauseCtx)

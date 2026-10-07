@@ -1,0 +1,18 @@
+// `funl` -- the driver: `funl program.fl` compiles and runs a FunL program, `funl file.pl` loads a
+// Prolog file through FunL's driver. The machine is the library at the repository root (`funl-vm`);
+// the executable is named for this package.
+
+package {
+  name    = "funl"
+  version = "0.0.1"
+  sysl    = "0.1.0-alpha.1"
+}
+
+dependencies {
+  funl-vm { workspace = true }
+  parsing { git = "github.com/sysl-lang/parsing", version = "0.11.0" }
+}
+
+requires {
+  heap = true
+}

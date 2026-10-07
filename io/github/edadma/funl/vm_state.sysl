@@ -10,6 +10,12 @@ import sysl.container.{Map, map}
 // census in `tests_vm_state.sysl` refuses a module-level `var` that is not `the_vm` or marked
 // process-wide with a reason. A second VM in the same process is then a second `Vm` and an `enter`.
 
+// The heap a program runs in, and the collector's schedule over it: what both executables, `funl`
+// and `prolog`, give their machine. The benchmark tests run on it too.
+const HeapBytes: usize = 268435456
+const CollectFloor: usize = 4194304
+const Growth: usize = 2
+
 // The innermost-mark register's value when no mark is open.
 const NoMark: usize = 4294967295
 
@@ -126,6 +132,13 @@ struct Vm
     // The most entries the control stack has held at once: what shows that a recursion the index
     // made deterministic runs in constant control space.
     control_peak: usize
+
+    // -- front ends -----------------------------------------------------------------------------------
+
+    // Whether a Prolog file may bring in the FunL front end with `:- import(File)`. False on the
+    // standalone Prolog's machine (`prolog_vm`), which knows standard Prolog and nothing else: there
+    // `import/1` is an ordinary goal, and no predicate of that name exists.
+    funl_front_end: bool
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -154,7 +167,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
         buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), pl_flags(),
-        block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0)
+        block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true)
 
     install_natives(&v)
     install_ops(&v)

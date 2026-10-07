@@ -45,6 +45,18 @@ private run_loop(v: *Vm, chunk: usize) -> Outcome
     v.ip = 0
     v.mark = NoMark
 
+    drive(v)
+
+// Fail back into the run that last reached `Halt`, and run on from whatever resumes: the next
+// solution of a top-level query (`toplevel.sysl`). `Failed` when nothing is left to resume.
+resume(v: *Vm) -> Outcome
+    val outcome = if fail(v) then drive(v) else Failed
+
+    end_line(v)
+    outcome
+
+// The instruction loop proper, from `v.ip` in `v.code`.
+private drive(v: *Vm) -> Outcome
     loop
         maybe_collect(v)
 
@@ -68,7 +80,7 @@ private run_loop(v: *Vm, chunk: usize) -> Outcome
                     Ok(true) -> ()
                     Ok(false) -> return Faulted(said)
                     Err(e) -> return Faulted(e)
-end run_loop
+end drive
 
 private fails_if(ok: bool) -> Flow = if ok then Next else Fails
 

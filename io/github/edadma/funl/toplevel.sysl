@@ -1,0 +1,244 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.{full_report, point, source_of}
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, join}
+
+// The standalone Prolog's ISO top level (`prolog.md` § "A Prolog with no FunL in it"): the machine
+// with the Prolog reader and the Prolog builtins, and no FunL front end.
+//
+//     ?- member(X, [a, b]).
+//     X = a
+//     ;
+//     X = b.
+//
+// **A query is read, compiled and run on the machine as any directive is** -- the reader, the clause
+// compiler, `catch/3` and the writer are the ones a consulted file goes through. A solution stops the
+// run at `Halt` with the query's variables on the operand stack (`compile_toplevel`); the bindings are
+// written, and a `;` fails back into the same run for the next. **An answer with nothing left to
+// resume ends in `.` and asks nothing.**
+//
+// Lines come from `line` and everything said goes to `say`, a line at a time, so the driver chooses
+// the terminal (`prolog/main.sysl` reads through linenoise) and a test hands in a script.
+
+const QueryPrompt: string = "?- "
+const MorePrompt: string = "|    "
+
+// The machine the standalone Prolog runs on: every builtin a Prolog program can name, and no way to
+// bring in FunL.
+prolog_vm() -> Vm
+    var v = new_vm(HeapBytes, CollectFloor, Growth)
+
+    v.funl_front_end = false
+    v
+
+// A whole session: consult `files` in order, then answer queries until `halt.` or the end of input.
+// Answers the status to exit with -- `halt(N)`'s `N`, and otherwise 0.
+toplevel(files: []string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit) -> int
+    var v = prolog_vm()
+    val was = enter(&v)
+    var status = 0
+
+    for f in files
+        consult_named(&v, f, say)
+
+    loop
+        val text = read_query(line) match
+            Some(t) -> t
+            None -> break
+
+        if text.trim().is_empty() then continue
+
+        query(&v, text, line, say) match
+            Some(code) ->
+                status = code
+                break
+            None -> ()
+
+    dispose_vm(&v)
+    leave(was)
+    status
+end toplevel
+
+// One query's text: lines read until one ends in `.`, the first under `?- ` and the rest under a
+// continuation prompt. `None` at the end of input.
+private read_query(line: &Fn(string) -> Option[string]) -> Option[string]
+    var text = ""
+    var prompt = QueryPrompt
+
+    loop
+        val got = line(prompt) match
+            Some(l) -> l
+            None -> return None
+
+        text = if text.is_empty() then got else text + "\n" + got
+
+        val t = text.trim()
+
+        if t.is_empty() || t.ends_with(".") then return Some(text)
+
+        prompt = MorePrompt
+
+// Consult the file named `file`, as `consult/1` from the top level would, saying only what goes wrong.
+private consult_named(v: *Vm, file: string, say: &Fn(string) -> unit)
+    val at = point(0)
+    var args: Buf[&Term] = buf()
+
+    args.push(term(TAtom(intern(file)), at))
+    solve(v, ReadClause(term(TComp(intern("consult"), args), at), buf()), buf(), (p) -> None, say, true)
+
+// Answer the query `text`. `Some(status)` where it was `halt` or `halt(N)`, ending the session.
+private query(v: *Vm, text: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit) -> Option[int]
+    val src = source_of("user", text)
+    var report = full_report()
+    var r = pl_reader(src, &report)
+
+    val c = next_clause(&r) match
+        Clause(c) -> c
+        _ ->
+            if !report.is_empty() then say(report.render(src).trim())
+            return None
+
+    if report.has_errors()
+        say(report.render(src).trim())
+        return None
+
+    halt_status(c.t) match
+        Some(n) -> return Some(n)
+        None -> ()
+
+    // The variables an answer shows: every one the query named, `_`-prefixed ones aside.
+    var shown: Buf[usize] = buf()
+
+    for i in 0..<c.names.len()
+        if !c.names.at(i).starts_with("_") then shown.push(i)
+
+    solve(v, c, shown, line, say, false)
+    None
+end query
+
+// `halt` and `halt(N)`, which end the session rather than run.
+private halt_status(t: &Term) -> Option[int]
+    t.kind match
+        TAtom(id) -> if atom_name(id) == "halt" then return Some(0)
+        TComp(f, args) ->
+            if atom_name(f) == "halt" && args.len() == 1
+                args.at(0).kind match
+                    TInt(n) -> return Some(int(n))
+                    _ -> ()
+        _ -> ()
+
+    None
+
+// Run `c` and say its answers, the variables of `shown` bound in each. `quiet` says nothing of a
+// success and asks for no second one: what consulting a file at start-up wants.
+private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, quiet: bool)
+    val chunk = compile_toplevel(c, shown.view()) match
+        Ok(e) -> finish(e) match
+            Ok(at) -> at
+            Err(m) ->
+                say(s"error: $m")
+                return
+        Err(p) ->
+            say(s"error: ${p.message}")
+            return
+
+    var outcome = run(v, chunk)
+
+    loop
+        said(v, say)
+
+        outcome match
+            Failed ->
+                say(if quiet then s"Warning: ${render(term_value_of(c))} failed" else "false.")
+                break
+            Faulted(m) ->
+                say(s"error: $m")
+                break
+            Succeeded ->
+                val top = v.stack.len()
+                val base = top - shown.len() - 1
+                val ball = deref(v.stack.at(base))
+
+                ball match
+                    Var(_) -> ()
+                    _ ->
+                        say(s"uncaught exception: ${exception_text(ball)}")
+                        break
+
+                if quiet then break
+
+                var parts: Buf[string] = buf()
+
+                for j in 0..<shown.len()
+                    val x = deref(v.stack.at(base + 1 + j))
+
+                    x match
+                        Var(_) -> ()
+                        _ -> parts.push(s"${c.names.at(shown.at(j))} = ${answer_text(x)}")
+
+                val answer = if parts.len() == 0 then "true" else join(parts.view(), ",\n")
+
+                if !resumable(v)
+                    say(answer + ".")
+                    break
+
+                say(answer)
+
+                val reply = line("") match
+                    Some(l) -> l.trim()
+                    None -> break
+
+                if reply != ";" then break
+
+                outcome = resume(v)
+    end loop
+
+    settle(v)
+end solve
+
+// The goal a quiet run was handed, for a warning.
+private term_value_of(c: ReadClause) -> Value
+    var vars: Buf[Value] = buf()
+
+    term_value(c.t, &vars).unwrap_or(Undefined)
+
+// What a variable's binding is written as: quoted, so it reads back as the same term.
+private answer_text(x: Value) -> string = term_text(x, write_opts(true, false, true))
+
+// An uncaught ball in ISO form: `error(Formal, _)` for an error term -- its context is the machine's
+// message, which is not part of the standard term -- and the ball itself for anything else.
+private exception_text(ball: Value) -> string
+    deref(ball) match
+        Compound(e) ->
+            if atom_name(e.functor) == "error" && e.args.len() == 2
+                return s"error(${answer_text(e.args.at(0))},_)"
+        _ -> ()
+
+    answer_text(ball)
+
+// Whether failing back into the run could find another solution: a choice point, or a mark with
+// somewhere to go, is still on the control stack.
+private resumable(v: *Vm) -> bool
+    for i in 0..<v.control.len()
+        val k = v.control.at(i).kind
+
+        if k == Choice || k == Mark then return true
+
+    false
+
+// What the run wrote, said and forgotten.
+private said(v: *Vm, say: &Fn(string) -> unit)
+    for l in v.output.view()
+        say(l)
+
+    v.output.truncate(0)
+
+// Commit to the answer the session stopped at: nothing the query left can be resumed, and nothing it
+// bound will be undone, so the machine is empty for the next query.
+private settle(v: *Vm)
+    cut_to(v, 0, true)
+    v.trail.truncate(0)
+    v.saved.truncate(0)
+    v.stack.truncate(0)
+    v.mark = NoMark

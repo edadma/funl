@@ -490,7 +490,10 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
                 inits.push(ReadClause(args.at(0), c.names))
                 return why
 
-            if n == "import" && args.len() == 1 then return import_directive(src, report, args.at(0), goals, why)
+            // Only where the FunL front end is linked in: on the standalone Prolog's machine an
+            // `import/1` directive is a goal like any other, and fails as an unknown procedure.
+            if n == "import" && args.len() == 1 && current().funl_front_end
+                return import_directive(src, report, args.at(0), goals, why)
 
             // `set_prolog_flag/2` is carried out now, so `double_quotes` governs the clauses after it.
             if n == "set_prolog_flag" && args.len() == 2

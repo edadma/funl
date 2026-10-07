@@ -1,0 +1,148 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, join}
+
+// The standalone Prolog's top level (`toplevel.sysl`), driven end to end: a script of lines in, the
+// session's transcript out -- each line read written after the prompt it was read under, then what
+// the top level said -- and the status it ends with. This is the `prolog` executable with its
+// terminal swapped for the script.
+
+private const Family: string = "tests/prolog/toplevel_family.pl"
+
+private struct Session
+    script: Buf[string]
+    at: usize
+    said: Buf[string]
+
+// The transcript of a session over `files` reading `lines`, and its status after `status:`.
+private session(files: []string, lines: []string) -> string
+    var script: Buf[string] = buf()
+
+    for l in lines
+        script.push(l)
+
+    val s: &Session = Session(script, 0, buf())
+
+    val status = toplevel(files, (prompt) -> next_line(s, prompt), (text) -> s.said.push(text))
+
+    s.said.push(s"status: $status")
+    join(s.said.view(), "\n")
+
+private next_line(s: &Session, prompt: string) -> Option[string]
+    if s.at >= s.script.len() then return None
+
+    val l = s.script.at(s.at)
+
+    s.at += 1
+    s.said.push(prompt + l)
+    Some(l)
+
+@test
+A_QUERY_WITH_SEVERAL_SOLUTIONS_GIVES_THE_NEXT_FOR_EACH_SEMICOLON_AND_ENDS_WHERE_NOTHING_IS_LEFT()
+    assert_eq(session([], ["member(X, [a, b, c]).", ";", ";"]),
+        "?- member(X, [a, b, c]).\nX = a\n;\nX = b\n;\nX = c.\nstatus: 0")
+
+@test
+ANYTHING_BUT_A_SEMICOLON_STOPS_AT_THE_ANSWER_GIVEN()
+    assert_eq(session([], ["member(X, [a, b]).", "", "X = 1."]),
+        "?- member(X, [a, b]).\nX = a\n\n?- X = 1.\nX = 1.\nstatus: 0")
+
+@test
+A_SEMICOLON_PAST_THE_LAST_SOLUTION_IS_FALSE()
+    assert_eq(session([], ["(X = 1 ; fail).", ";"]), "?- (X = 1 ; fail).\nX = 1\n;\nfalse.\nstatus: 0")
+
+@test
+A_QUERY_THAT_BINDS_NOTHING_IS_TRUE_OR_FALSE()
+    assert_eq(session([], ["1 < 2.", "2 < 1.", "atom(_Hidden)."]),
+        "?- 1 < 2.\ntrue.\n?- 2 < 1.\nfalse.\n?- atom(_Hidden).\nfalse.\nstatus: 0")
+
+@test
+EVERY_BINDING_OF_AN_ANSWER_IS_SHOWN_QUOTED_AND_UNBOUND_ONES_ARE_LEFT_OUT()
+    assert_eq(session([], ["X = 'A b', Y is 2 + 3, Z = Z."]), "?- X = 'A b', Y is 2 + 3, Z = Z.\nX = 'A b',\nY = 5.\nstatus: 0")
+
+@test
+A_FILE_NAMED_ON_THE_COMMAND_LINE_IS_CONSULTED_BEFORE_THE_FIRST_QUERY()
+    assert_eq(session([Family], ["grandparent(tom, W).", ";", "parent(tom, C).", ";"]),
+        "loaded\n?- grandparent(tom, W).\nW = ann\n;\nfalse.\n?- parent(tom, C).\nC = bob\n;\nC = liz.\nstatus: 0")
+
+@test
+CONSULT_FROM_THE_TOP_LEVEL_LOADS_A_FILE_TOO()
+    assert_eq(session([], ["consult('tests/prolog/toplevel_family.pl').", "parent(bob, A)."]),
+        "?- consult('tests/prolog/toplevel_family.pl').\nloaded\ntrue.\n?- parent(bob, A).\nA = ann.\nstatus: 0")
+
+@test
+WHAT_A_QUERY_WRITES_COMES_BEFORE_ITS_ANSWER()
+    assert_eq(session([], ["write(hello), nl, X = 1."]), "?- write(hello), nl, X = 1.\nhello\nX = 1.\nstatus: 0")
+
+@test
+A_QUERY_GOES_ON_OVER_LINES_UNTIL_ONE_ENDS_IN_A_FULL_STOP()
+    assert_eq(session([], ["X = f(a,", "  b)."]), "?- X = f(a,\n|      b).\nX = f(a,b).\nstatus: 0")
+
+@test
+HALT_ENDS_THE_SESSION_AND_NOTHING_AFTER_IT_IS_READ()
+    assert_eq(session([], ["halt.", "X = 1."]), "?- halt.\nstatus: 0")
+
+@test
+HALT_WITH_A_STATUS_ENDS_THE_SESSION_WITH_IT()
+    assert_eq(session([], ["halt(3)."]), "?- halt(3).\nstatus: 3")
+
+@test
+THE_END_OF_INPUT_ENDS_THE_SESSION()
+    assert_eq(session([], ["X = 1."]), "?- X = 1.\nX = 1.\nstatus: 0")
+
+@test
+THE_END_OF_INPUT_WHILE_AN_ANSWER_WAITS_ENDS_THE_SESSION()
+    assert_eq(session([], ["member(X, [a, b])."]), "?- member(X, [a, b]).\nX = a\nstatus: 0")
+
+@test
+AN_UNCAUGHT_ERROR_IS_REPORTED_IN_ISO_FORM_AND_THE_SESSION_GOES_ON()
+    assert_eq(session([], ["X is 1 / 0.", "atom_length(X, L).", "X = 1."]),
+        "?- X is 1 / 0.\nuncaught exception: error(evaluation_error(zero_divisor),_)\n" +
+        "?- atom_length(X, L).\nuncaught exception: error(instantiation_error,_)\n?- X = 1.\nX = 1.\nstatus: 0")
+
+@test
+A_BALL_THAT_IS_NOT_AN_ERROR_TERM_IS_REPORTED_AS_ITSELF()
+    assert_eq(session([], ["throw(my_ball).", "catch(throw(b), B, true)."]),
+        "?- throw(my_ball).\nuncaught exception: my_ball\n?- catch(throw(b), B, true).\nB = b.\nstatus: 0")
+
+@test
+AN_ERROR_RAISED_AFTER_A_FIRST_ANSWER_IS_REPORTED_WHEN_THE_SEMICOLON_REACHES_IT()
+    assert_eq(session([], ["(X = 1 ; X is foo + 1).", ";"]),
+        "?- (X = 1 ; X is foo + 1).\nX = 1\n;\nuncaught exception: error(type_error(evaluable,foo/0),_)\nstatus: 0")
+
+@test
+A_QUERY_THAT_DOES_NOT_READ_IS_REPORTED_AND_THE_SESSION_GOES_ON()
+    val said = session([], ["X = .", "X = 2."])
+
+    assert(said.starts_with("?- X = .\nerror: "), said)
+    assert(said.ends_with("?- X = 2.\nX = 2.\nstatus: 0"), said)
+
+@test
+A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR_AND_THE_SESSION_STARTS_ALL_THE_SAME()
+    assert_eq(session(["tests/prolog/no_such_file.pl"], ["X = 1."]),
+        "uncaught exception: error(existence_error(source_sink,'tests/prolog/no_such_file.pl'),_)\n?- X = 1.\nX = 1.\nstatus: 0")
+
+// -- It knows standard Prolog and no FunL ---------------------------------------------------------
+
+@test
+A_FUNL_BUILTIN_IS_NO_PREDICATE_THERE()
+    assert_eq(session([], ["println(hi).", "abs(-1)."]),
+        "?- println(hi).\nuncaught exception: error(existence_error(procedure,println/1),_)\n" +
+        "?- abs(-1).\nuncaught exception: error(existence_error(procedure,abs/1),_)\nstatus: 0")
+
+@test
+A_PROLOG_FILE_CANNOT_IMPORT_FUNL_THERE()
+    // `shapes.pl` imports `geometry.fl` and defines `area/2` over its `scaled` function
+    // (`tests_prolog_import.sysl` runs it through `funl`, where it works). Here `import/1` is an
+    // unknown procedure, so the directive warns and nothing the FunL file would have defined exists.
+    val said = session(["tests/prolog/shapes.pl"], ["area(4, A)."])
+
+    assert(said.contains("unknown procedure import/1"), said)
+    assert(said.ends_with("?- area(4, A).\nuncaught exception: error(existence_error(procedure,scaled/2),_)\nstatus: 0"), said)
+
+@test
+AN_IMPORT_QUERY_IS_AN_UNKNOWN_PROCEDURE_THERE()
+    assert_eq(session([], ["import(\"tests/prolog/geometry.fl\")."]),
+        "?- import(\"tests/prolog/geometry.fl\").\nuncaught exception: error(existence_error(procedure,import/1),_)\nstatus: 0")

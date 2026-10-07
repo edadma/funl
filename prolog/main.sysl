@@ -1,0 +1,27 @@
+import io.github.edadma.funl.toplevel
+import sh.sysl.linenoise.{history_add, history_set_max_len, read}
+import sysl.text.Search
+
+// `prolog [file.pl ...]`: consult each file, then the ISO top level -- `?- goal.`, `;` for the next
+// answer, `halt.` or the end of input to leave. The machine is FunL's, with its Prolog front end and
+// nothing else (`toplevel.sysl`).
+//
+// Lines are read through linenoise: the arrow keys and history at a terminal, and plain lines, with no
+// prompt, from a pipe.
+
+main(args: []string)
+    history_set_max_len(500)
+
+    val status = toplevel(args[1..], (prompt) -> line(prompt), (text) -> print(text))
+
+    exit(status)
+
+// A line, remembered for the arrow keys unless it is blank.
+private line(prompt: string) -> Option[string]
+    val got = read(prompt)
+
+    got match
+        Some(l) -> if !l.trim().is_empty() then history_add(l)
+        None -> ()
+
+    got
