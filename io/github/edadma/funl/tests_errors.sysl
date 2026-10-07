@@ -7,8 +7,36 @@ import sysl.text.Search
 // Prolog `catch/3` and its formal term written; a Prolog error crossing FunL frames; and what an
 // error nothing catches prints.
 
-private const Program: string = "import \"tests/prolog/errors.pl\"\n" +
-    "def divide( a, b ) = a / b\n" +
+// Prolog catching what FunL code raises, and a Prolog error crossing FunL frames. Each FunL function
+// named here is a predicate one argument longer, its last argument the function's value; `through/2`
+// is the FunL function `through/1`, which calls `boom/1`.
+private const ErrorsPl: string = "try(Goal) :- catch((Goal, Formal = none), error(Formal, _), true), write(Formal), nl.\n" +
+    "divide_by_zero :- try(divide(1, 0, _)).\n" +
+    "floor_divide_by_zero :- try(floor_divide(1, 0, _)).\n" +
+    "too_large :- try(power(2, 100000000000, _)).\n" +
+    "not_an_integer :- try(divides(2.5, 5, _)).\n" +
+    "not_a_number :- try(subtract(1, a, _)).\n" +
+    "unbound :- try(add(_, 1, _)).\n" +
+    "pattern_unbound :- try(head(_, _)).\n" +
+    "no_clause :- try(head([], _)).\n" +
+    "index_out_of_range :- try(element([1, 2], 5, _)).\n" +
+    "missing_key :- try(lookup(b, _)).\n" +
+    "raised :- try(raise(boom, _)).\n" +
+    "not_a_collection :- try(contains(3, 5, _)).\n" +
+    "immutable :- try(store(x, _)).\n" +
+    "wrong_count :- try(call_with_two(x, _)).\n" +
+    "negative_size :- try(make_array(1, _)).\n" +
+    "no_field :- try(field_z(point(3, 4), _)).\n" +
+    "no_scan :- try(tab_outside(1, _)).\n" +
+    "exact_quotient :- divide(7, 2, Q), write(Q), nl, X is Q * 2, write(X), nl.\n" +
+    "grown_sum :- add(9223372036854775807, 1, S), write(S), nl, integer(S).\n" +
+    "real_sum :- add(1, 2.5, S), write(S), nl, float(S), X is S * 2, write(X), nl.\n" +
+    "boom(_) :- throw(deep).\n" +
+    "crossing(R) :- catch(through(1, R), E, R = caught(E)).\n" +
+    "escape(X) :- through(X, _).\n"
+
+// The FunL functions `ErrorsPl` calls, each raising when called as it does.
+private const Program: string = "def divide( a, b ) = a / b\n" +
     "def floor_divide( a, b ) = a // b\n" +
     "def add( a, b ) = a + b\n" +
     "def subtract( a, b ) = a - b\n" +
@@ -30,8 +58,17 @@ private const Program: string = "import \"tests/prolog/errors.pl\"\n" +
     "def field_z( p ) = p.z\n" +
     "def tab_outside( n ) = tab( n )\n"
 
+// The transcript of `Program`, importing `ErrorsPl`, followed by `rest`.
+private ran_program(rest: string) -> string
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, "errors.pl", ErrorsPl)
+
+    ran_funl(s"import \"$file\"\n" + Program + rest)
+
 // What the Prolog predicate `goal`, run from FunL, writes: the formal term it caught.
-private formal(goal: string) -> string = ran_funl(Program + s"$goal()\n")
+private formal(goal: string) -> string = ran_program(s"$goal()\n")
 
 @test
 DIVIDING_BY_ZERO_IS_AN_EVALUATION_ERROR()
@@ -95,11 +132,11 @@ A_MISSING_FIELD_AND_A_SCAN_THAT_IS_NOT_RUNNING_ARE_EXISTENCE_ERRORS()
 
 @test
 A_PROLOG_ERROR_THROWN_INSIDE_A_FUNL_FUNCTION_IS_CAUGHT_BY_THE_PROLOG_CATCH_AROUND_IT()
-    assert_eq(ran_funl(Program + "free r\nif crossing( r ) then write( r )\n"), "caught(deep)\nsucceeded")
+    assert_eq(ran_program("free r\nif crossing( r ) then write( r )\n"), "caught(deep)\nsucceeded")
 
 @test
 A_BALL_NOTHING_CATCHES_ENDS_THE_RUN_AS_A_FAULT_NAMING_THE_BALL()
-    assert_eq(unplaced(ran_funl(Program + "write( #before )\nescape( 1 )\nwrite( #after )\n")),
+    assert_eq(unplaced(ran_program("write( #before )\nescape( 1 )\nwrite( #after )\n")),
         "before\nfault: boom/1: uncaught exception: deep")
 
 @test

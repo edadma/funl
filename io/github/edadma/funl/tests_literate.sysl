@@ -1,7 +1,6 @@
 module io.github.edadma.funl
 @tests
 
-import sysl.fs.{remove_file, write_text}
 import sysl.text.{Search, parse_int, split}
 
 // Literate FunL: a `.lfunl` file is tangled before it is compiled, through the driver's
@@ -13,15 +12,11 @@ private file_chunk(file: string) -> Result[usize, string] = compile_file(file) m
     Refused(said) -> Err(said)
     CannotRead(why) -> Err(s"cannot read: $why")
 
-// The transcript of the file holding `text`, written to `file` for the run and removed after.
-private ran_file(file: string, text: string) -> string
-    write_text(file, text).unwrap()
+// The transcript of the file holding `text`, written to `name` in scratch directory `dir`.
+private ran_file(dir: string, name: string, text: string) -> string
+    val file = put(dir, name, text)
 
-    val said = ran(() -> file_chunk(file))
-
-    remove_file(file).unwrap()
-    said
-end ran_file
+    ran(() -> file_chunk(file))
 
 // The `-->` line of a rendered report: the file, line and column it names.
 private where_said(said: string) -> string
@@ -35,82 +30,97 @@ end where_said
 
 @test
 A_LITERATE_PROGRAM_RUNS_ITS_INDENTED_BLOCKS_WITH_PROSE_BETWEEN_THEM()
+    val d = scratch()
+    defer scrap(d)
+
     val text = "# Next\n\nThe function first.\n\n    def next(n) = n + 1\n\n" +
         "A paragraph between two blocks ends nothing.\n\n    write( next(9) )\n"
 
-    assert_eq(ran_file("tests/prolog/lit_next.lfunl", text), "10\nsucceeded")
+    assert_eq(ran_file(d, "next.lfunl", text), "10\nsucceeded")
 
 @test
 A_FENCED_BLOCK_IN_A_LITERATE_PROGRAM_IS_NOT_RUN()
+    val d = scratch()
+    defer scrap(d)
+
     val text = "Shown, not run:\n\n```\n    write( #wrong )\n```\n\n    write( #right )\n"
 
-    assert_eq(ran_file("tests/prolog/lit_fence.lfunl", text), "right\nsucceeded")
+    assert_eq(ran_file(d, "fence.lfunl", text), "right\nsucceeded")
 
 @test
 A_FUNL_FILE_IS_READ_AS_IT_STANDS_HOWEVER_IT_IS_INDENTED()
+    val d = scratch()
+    defer scrap(d)
+
     // The name decides: a `.funl` file's prose is a syntax error, not something to blank.
-    val said = ran_file("tests/prolog/lit_plain.funl", "Prose.\n\n    write( 1 )\n")
+    val said = ran_file(d, "plain.funl", "Prose.\n\n    write( 1 )\n")
 
     assert(said.starts_with("assembly: "), said)
 
 @test
 AN_ERROR_IN_A_LITERATE_PROGRAM_NAMES_THE_DOCUMENTS_LINE_AND_COLUMN()
+    val d = scratch()
+    defer scrap(d)
+
     // The same program as plain FunL and as literate FunL, on the same lines and four columns further
     // in: the literate report names the document's position, not the tangled one.
-    val plain = ran_file("tests/prolog/lit_error.funl", "\n\nwrite( 1 )\nwrite( 1 + )\n")
-    val literate = ran_file("tests/prolog/lit_error.lfunl", "Prose.\n\n    write( 1 )\n    write( 1 + )\n")
+    val plain = ran_file(d, "error.funl", "\n\nwrite( 1 )\nwrite( 1 + )\n")
+    val literate = ran_file(d, "error.lfunl", "Prose.\n\n    write( 1 )\n    write( 1 + )\n")
     val p = split(where_said(plain), ":")
     val l = split(where_said(literate), ":")
 
     assert_eq(p.len, 3, plain)
     assert_eq(l.len, 3, literate)
-    assert_eq(l[0], "tests/prolog/lit_error.lfunl")
+    assert_eq(l[0], s"$d/error.lfunl")
     assert_eq(l[1], "4")
     assert_eq(p[1], "4")
     assert_eq(parse_int(l[2]).unwrap(), parse_int(p[2]).unwrap() + 4)
 
 @test
 A_LITERATE_DOCUMENT_THE_TANGLE_REFUSES_IS_REPORTED_AT_THE_FENCE()
-    val said = ran_file("tests/prolog/lit_open.lfunl", "    write( 1 )\n\n~~~\n    write( 2 )\n")
+    val d = scratch()
+    defer scrap(d)
+
+    val said = ran_file(d, "open.lfunl", "    write( 1 )\n\n~~~\n    write( 2 )\n")
 
     assert(said.contains("this fence is never closed"), said)
-    assert_eq(where_said(said), "tests/prolog/lit_open.lfunl:3:1")
+    assert_eq(where_said(said), s"$d/open.lfunl:3:1")
 
 @test
 A_FILE_THAT_CANNOT_BE_READ_IS_SAID_SO()
-    val said = ran(() -> file_chunk("tests/prolog/lit_nowhere.lfunl"))
+    val d = scratch()
+    defer scrap(d)
+
+    val said = ran(() -> file_chunk(s"$d/nowhere.lfunl"))
 
     assert(said.starts_with("assembly: cannot read: "), said)
 
 @test
 A_PROLOG_FILE_IMPORTS_A_LITERATE_FUNL_FILE()
-    val file = "tests/prolog/lit_geometry.lfunl"
+    val d = scratch()
+    defer scrap(d)
 
-    write_text(file, "The scale every function reads.\n\n    val scale = 10\n\n" +
-        "And the one Prolog calls.\n\n    def scaled(n) = n * scale\n").unwrap()
+    val file = put(d, "geometry.lfunl", "The scale every function reads.\n\n    val scale = 10\n\n" +
+        "And the one Prolog calls.\n\n    def scaled(n) = n * scale\n")
 
     val said = ran_prolog(s":- import(\"$file\").\n:- scaled(2, X), write(X), nl.\n")
 
     // A key the FunL file took is named at the document's own line and column.
     val clash = prolog_complaints(s":- import(\"$file\").\nscaled(_, 0).\n")
 
-    remove_file(file).unwrap()
-
     assert_eq(said, "20\nsucceeded")
     assert(clash.contains(s"the FunL function `scaled` at $file:7:9,"), clash)
 
 @test
 A_PROLOG_IMPORT_OF_A_LITERATE_FILE_THAT_CANNOT_BE_READ_OR_TANGLED_IS_REFUSED()
-    val missing = prolog_complaints(":- import(\"tests/prolog/lit_nowhere.lfunl\").\n")
+    val d = scratch()
+    defer scrap(d)
 
-    assert(missing.contains("`tests/prolog/lit_nowhere.lfunl` cannot be read"), missing)
+    val missing = prolog_complaints(s":- import(\"$d/nowhere.lfunl\").\n")
 
-    val file = "tests/prolog/lit_unclosed.lfunl"
+    assert(missing.contains(s"`$d/nowhere.lfunl` cannot be read"), missing)
 
-    write_text(file, "```\n    def f(n) = n\n").unwrap()
-
+    val file = put(d, "unclosed.lfunl", "```\n    def f(n) = n\n")
     val unclosed = prolog_complaints(s":- import(\"$file\").\n")
-
-    remove_file(file).unwrap()
 
     assert(unclosed.contains(s"`$file` could not be loaded"), unclosed)

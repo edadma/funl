@@ -1,7 +1,6 @@
 module io.github.edadma.funl
 @tests
 
-import sysl.fs.read_text
 import sysl.text.Search
 
 // FunL programs, compiled from source and run on both heaps: the family tree, the machine's
@@ -9,9 +8,22 @@ import sysl.text.Search
 
 @test
 THE_FAMILY_TREE_PRINTS_EVERY_ANSWER_THE_LOGIC_CHAPTER_GIVES_DUPLICATES_INCLUDED()
-    val text = read_text("examples/family_tree.fl") match
-        Ok(t) -> t
-        Err(e) -> panic(s"cannot read examples/family_tree.fl (run the suite from the project root): $e")
+    val text = "def\n" +
+        "  female(#anne)\n  female(#rosie)\n  female(#emma)\n  female(#olivia)\n  female(#mia)\n" +
+        "  male(#randy)\n  male(#don)\n  male(#liam)\n  male(#logan)\n  male(#aiden)\n" +
+        "  parent(#don, #randy)\n  parent(#don, #anne)\n  parent(#rosie, #randy)\n  parent(#rosie, #anne)\n" +
+        "  parent(#liam, #don)\n  parent(#olivia, #don)\n  parent(#liam, #mia)\n  parent(#olivia, #mia)\n" +
+        "  parent(#emma, #rosie)\n  parent(#logan, #rosie)\n  parent(#emma, #aiden)\n  parent(#logan, #aiden)\n" +
+        "def\n" +
+        "  father(x, y) :- male(x) & parent(x, y)\n" +
+        "  siblings(x, y) :- parent(p, x) & parent(p, y) & x != y\n" +
+        "  uncle(u, n) :- male(u) & siblings(u, p) & parent(p, n)\n" +
+        "  grandparent(x, y) :- parent(x, p) & parent(p, y)\n" +
+        "free who\n" +
+        "every father(who, _) do write(who)\n" +
+        "every grandparent(who, #randy) do write(who)\n" +
+        "every uncle(who, #randy) do write(who)\n" +
+        "if father(who, #mia) then write(who)\n"
 
     val want = "don\ndon\nliam\nliam\nlogan\nlogan\n" +
         "liam\nolivia\nemma\nlogan\n" +

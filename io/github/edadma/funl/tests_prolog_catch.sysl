@@ -114,8 +114,11 @@ OP_RUN_AS_A_GOAL_RAISES_THE_ISO_ERRORS()
 @test
 CONSULTING_A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR()
     // `writeq`, so the file name is seen to be the string it was given.
-    assert_eq(ran_prolog(":- catch(consult(\"tests/prolog/missing.pl\"), error(F, _), true), writeq(F), nl.\n"),
-        "existence_error(source_sink,\"tests/prolog/missing.pl\")\nsucceeded")
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(ran_prolog(s":- catch(consult(\"$d/missing.pl\"), error(F, _), true), writeq(F), nl.\n"),
+        s"existence_error(source_sink,\"$d/missing.pl\")\nsucceeded")
 
 // A directive's error nothing inside it catches is the load's warning (`tests_prolog_control.sysl`);
 // a call from FunL that raises one ends the run with it.

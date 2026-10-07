@@ -1,7 +1,6 @@
 module io.github.edadma.funl
 @tests
 
-import sysl.fs.read_text
 import sysl.text.Search
 
 // Prolog's control constructs, compiled onto the machine's own instructions: conjunction and
@@ -17,13 +16,38 @@ private every(defs: string, goal: string) -> string =
 
 @test
 THE_FAMILY_TREE_IN_PROLOG_PRINTS_WHAT_THE_FUNL_ONE_PRINTS()
-    val pl = read_text("examples/family_tree.pl") match
-        Ok(t) -> t
-        Err(e) -> panic(s"cannot read examples/family_tree.pl (run the suite from the project root): $e")
+    val pl = "female(anne).\nfemale(rosie).\nfemale(emma).\nfemale(olivia).\nfemale(mia).\n" +
+        "male(randy).\nmale(don).\nmale(liam).\nmale(logan).\nmale(aiden).\n" +
+        "parent(don, randy).\nparent(don, anne).\nparent(rosie, randy).\nparent(rosie, anne).\n" +
+        "parent(liam, don).\nparent(olivia, don).\nparent(liam, mia).\nparent(olivia, mia).\n" +
+        "parent(emma, rosie).\nparent(logan, rosie).\nparent(emma, aiden).\nparent(logan, aiden).\n" +
+        "father(X, Y) :- male(X), parent(X, Y).\n" +
+        "siblings(X, Y) :- parent(P, X), parent(P, Y), X \\= Y.\n" +
+        "uncle(U, N) :- male(U), siblings(U, P), parent(P, N).\n" +
+        "grandparent(X, Y) :- parent(X, P), parent(P, Y).\n" +
+        "main :-\n" +
+        "    forall(father(Who, _), (write(Who), nl)),\n" +
+        "    forall(grandparent(Who, randy), (write(Who), nl)),\n" +
+        "    forall(uncle(Who, randy), (write(Who), nl)),\n" +
+        "    ( father(Who, mia) -> write(Who), nl ; true ).\n" +
+        ":- initialization(main).\n"
 
-    val fl = read_text("examples/family_tree.fl") match
-        Ok(t) -> t
-        Err(e) -> panic(s"cannot read examples/family_tree.fl (run the suite from the project root): $e")
+    val fl = "def\n" +
+        "  female(#anne)\n  female(#rosie)\n  female(#emma)\n  female(#olivia)\n  female(#mia)\n" +
+        "  male(#randy)\n  male(#don)\n  male(#liam)\n  male(#logan)\n  male(#aiden)\n" +
+        "  parent(#don, #randy)\n  parent(#don, #anne)\n  parent(#rosie, #randy)\n  parent(#rosie, #anne)\n" +
+        "  parent(#liam, #don)\n  parent(#olivia, #don)\n  parent(#liam, #mia)\n  parent(#olivia, #mia)\n" +
+        "  parent(#emma, #rosie)\n  parent(#logan, #rosie)\n  parent(#emma, #aiden)\n  parent(#logan, #aiden)\n" +
+        "def\n" +
+        "  father(x, y) :- male(x) & parent(x, y)\n" +
+        "  siblings(x, y) :- parent(p, x) & parent(p, y) & x != y\n" +
+        "  uncle(u, n) :- male(u) & siblings(u, p) & parent(p, n)\n" +
+        "  grandparent(x, y) :- parent(x, p) & parent(p, y)\n" +
+        "free who\n" +
+        "every father(who, _) do write(who)\n" +
+        "every grandparent(who, #randy) do write(who)\n" +
+        "every uncle(who, #randy) do write(who)\n" +
+        "if father(who, #mia) then write(who)\n"
 
     val want = "don\ndon\nliam\nliam\nlogan\nlogan\n" +
         "liam\nolivia\nemma\nlogan\n" +
