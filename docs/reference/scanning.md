@@ -209,7 +209,6 @@ def g()
     move(1)
     yield move(1)
     yield tab(0)
-  yield 'done'
 
 'outer' ? (tab(2) & every write( g(), tab(0) ))
 ```
@@ -217,7 +216,6 @@ def g()
 ```output
 b, uter
 bc, uter
-done, uter
 ```
 
 ## `?=`
