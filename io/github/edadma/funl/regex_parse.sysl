@@ -7,8 +7,7 @@ import sysl.text.{chars_of, from_utf8_unchecked}
 // Regex literal syntax, read into a pattern tree (`regex_tree.sysl`): the tree the pattern
 // combinators build too, and the one `compile_regex.sysl` turns into the machine's instructions.
 //
-// **The syntax is Perl's, as PCRE2 reads it**, because PCRE2 is the oracle the patterns are checked
-// against: groups numbered by their opening parenthesis, named groups, `(?:`, lookahead, atomic groups,
+// **The syntax is Perl's**: groups numbered by their opening parenthesis, named groups, `(?:`, lookahead, atomic groups,
 // greedy, lazy and possessive quantifiers, backreferences, `\Q...\E`, and the flags `i`, `m`, `s` and
 // `x`. A position in an error is a byte offset into the pattern's text, which the lexer hands over
 // exactly as written, so it is also an offset from the literal's first character in the source.
@@ -18,7 +17,7 @@ import sysl.text.{chars_of, from_utf8_unchecked}
 // the flags in force where it was written made of it: a character that ignores case, a dot that
 // matches a newline, an anchor that knows about lines.
 
-// The largest count a quantifier may write, as in PCRE2.
+// The largest count a quantifier may write.
 private const MaxRepeat: usize = 65535
 
 // A refusal: what is wrong, at bytes `at ..< at + len` of the pattern.
@@ -393,7 +392,7 @@ private flag_group(p: *RxParser, open: usize, fold: bool, multiline: bool, dotal
         elif (f >= u8('a') && f <= u8('z')) || (f >= u8('A') && f <= u8('Z'))
             return fail_at(p.at, 1, s"`${from_utf8_unchecked(p.text.bytes[p.at..<p.at + 1])}` is not a flag", "the flags are `i` (ignore case), `m` (multiline), `s` (dot matches newline) and `x` (extended)")
         else
-            return fail_at(open, p.at + 1 - open, "this kind of group is not supported", "the groups are `(p)`, `(?<name>p)`, `(?:p)`, `(?=p)`, `(?!p)`, `(?>p)` and the flag groups")
+            return fail_at(open, p.at + 1 - open, "this kind of group is not supported", "the groups are `(p)`, `(?<name>p)`, `(?:p)`, `(?=p)`, `(?!p)`, `(?<=p)`, `(?<!p)`, `(?>p)`, the flag groups and `(?#...)`")
 
         p.at += 1
 end flag_group

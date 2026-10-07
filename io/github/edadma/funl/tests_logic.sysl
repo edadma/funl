@@ -258,3 +258,65 @@ A_CONSTRUCTOR_GIVEN_THE_WRONG_NUMBER_OF_FIELDS_IN_A_RELATION_BODY_IS_REFUSED()
     val text = "data point(x, y)\ndef p(z) :- z ~ point(1)\n"
 
     assert_eq(complaints(text), "error 2:17 the constructor `point` takes 2 fields, and this call gives 1\n")
+
+// -- a relation sees the top level's `val`s (`logic.md` § "Variables in a relation", rule 2) ----------
+
+@test
+A_TOP_LEVEL_VAL_IN_A_RULE_BODY_MEANS_ITS_VALUE()
+    val text = "val limit = 10\n" +
+        "val origin = (0, 0)\n" +
+        "def under(x) :- x < limit\n" +
+        "def at_origin(p) :- p ~ origin\n" +
+        "free q\n" +
+        "if under(3) then write(#yes) else write(#no)\n" +
+        "if under(30) then write(#yes) else write(#no)\n" +
+        "if at_origin(q) then write(q)\n"
+
+    assert_eq(complaints(text), "")
+    assert_eq(ran_funl(text), "yes\nno\n(0, 0)\nsucceeded")
+
+@test
+A_HEAD_PARAMETER_NAMED_LIKE_A_TOP_LEVEL_VAL_IS_STILL_A_CLAUSE_VARIABLE()
+    val text = "val limit = 10\ndef positive(limit) :- limit > 0\n" +
+        "if positive(3) then write(#yes) else write(#no)\n" +
+        "if positive(-3) then write(#yes) else write(#no)\n"
+
+    assert_eq(complaints(text), "")
+    assert_eq(ran_funl(text), "yes\nno\nsucceeded")
+
+// Only what the top level fixes is seen: a `var` may change, so its name in a rule body is a fresh
+// clause variable, warned about when written once and unbound when the goal needs a value.
+@test
+A_TOP_LEVEL_VAR_IN_A_RULE_BODY_STAYS_A_CLAUSE_VARIABLE()
+    val text = "var n = 5\ndef small(x) :- x < n\nif small(3) then write(#yes)\n"
+
+    assert_eq(complaints(text), "warning 2:21 `n` appears only once in this clause of `small`\n")
+
+    val said = ran_funl(text)
+
+    assert(said.contains("instantiation error: '<' was given an unbound variable"), said)
+
+@test
+A_NAME_NO_VAL_DECLARES_IN_A_RULE_BODY_IS_STILL_A_FRESH_UNBOUND_VARIABLE()
+    val text = "val limit = 10\ndef under(x) :- x < limt\nif under(3) then write(#yes)\n"
+
+    assert_eq(complaints(text), "warning 2:21 `limt` appears only once in this clause of `under`\n")
+
+    val said = ran_funl(text)
+
+    assert(said.contains("instantiation error: '<' was given an unbound variable"), said)
+
+// The frame a relation of an imported FunL file reads its `val` from is that file's top level, not
+// the importing program's.
+@test
+A_RELATION_IN_AN_IMPORTED_FUNL_FILE_SEES_THAT_FILES_VAL()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "limits.funl", "val scale = 10\ndef big(n) :- n > scale\n")
+
+    val text = s":- import(\"$d/limits.funl\").\n" +
+        ":- (big(20) -> write(yes) ; write(no)), nl.\n" +
+        ":- (big(5) -> write(yes) ; write(no)), nl.\n"
+
+    assert_eq(ran_prolog(text), "yes\nno\nsucceeded")

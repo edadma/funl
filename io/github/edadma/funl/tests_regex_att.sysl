@@ -12,7 +12,7 @@ import sysl.text.{fields, split, str_builder}
 //    engine's leftmost-first agree on it;
 // 3. **every capture span**, on every line not in `tests/regex/exclusions.txt`.
 //
-// The data is POSIX's, and this engine is Perl's and PCRE2's, so where the two semantics differ the
+// The data is POSIX's, and this engine is leftmost-first, as Perl's is, so where the two semantics differ the
 // exclusion list says so, a line at a time, with the reason: `span` where they disagree about the
 // whole match, `captures` where they agree about it and disagree about a group. An exclusion a line
 // no longer needs is a failure too, so the list cannot outlive what it excuses.
