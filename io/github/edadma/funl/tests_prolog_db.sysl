@@ -253,6 +253,18 @@ A_PROGRAMS_OWN_DEFINITION_REPLACES_THE_LIBRARYS()
     assert_eq(holds("(dynamic(last/2), assertz(last(_, me)), last([a], X), X == me)"), ok("yes"))
 
 @test
+GLOBAL_VARIABLES_HOLD_A_VALUE_BY_NAME()
+    assert_eq(ran_prolog(":- nb_setval(k, f(1)), nb_getval(k, X), write(X), nl.\n"), ok("f(1)"))
+
+    // `nb_setval` stores a copy and survives failure; `b_setval` is undone by it.
+    assert_eq(ran_prolog(":- nb_setval(k, 0), (nb_setval(k, 1), fail ; true), nb_getval(k, X), write(X), nl.\n"), ok("1"))
+    assert_eq(ran_prolog(":- b_setval(k, 0), (b_setval(k, 1), b_getval(k, Y), write(Y), nl, fail ; true), b_getval(k, X), write(X), nl.\n"), ok("1\n0"))
+    assert_eq(ran_prolog(":- nb_setval(k, f(Y)), Y = 1, nb_getval(k, f(Z)), (var(Z) -> write(copied) ; write(Z)), nl.\n"), ok("copied"))
+    assert_eq(holds("nb_getval(nothing, _)"), ok("existence_error(variable,nothing)"))
+    assert_eq(holds("nb_setval(_, 1)"), ok("instantiation_error"))
+    assert_eq(holds("b_setval(1, 1)"), ok("type_error(atom,1)"))
+
+@test
 VARIANT_IS_ALIKE_BUT_FOR_A_RENAMING()
     assert_eq(holds("f(A, B, A) =@= f(X, Y, X)"), ok("yes"))
     assert_eq(holds("f(A, B, A) =@= f(X, Y, Y)"), ok("no"))

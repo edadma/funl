@@ -229,6 +229,9 @@ roots(h: *gc.Heap)
     // The clauses of the dynamic predicates, as `clause/2` and `retract/1` read them.
     for c in v.db.clauses.view()
         mark_value(h, c.term)
+
+    // Prolog's global variables.
+    mark_value(h, v.pl_globals)
 end roots
 
 // Collect if enough has been allocated since the last collection.

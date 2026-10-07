@@ -15,6 +15,9 @@ import sysl.slices.sort_by
 // unify with `H :- B`, with a reference to each; `'$erase'(Ref)` retracts the one referred to, and
 // fails when something has retracted it first. `retract/1` is the two in turn, so it retracts only a
 // clause that unified, and a failure after it backtracks to the next.
+//
+// Also here: SWI-Prolog's global variables, `nb_setval/2`, `b_setval/2`, `nb_getval/2` and
+// `b_getval/2`, and the variant test `=@=/2` with `\=@=/2`, which `bagof/3` groups witnesses by.
 
 install_prolog_db(v: *Vm)
     register(v, "assert/1", 1, (b, n) -> assert_clause(arg(b, 0), false, "assert/1"))
@@ -27,6 +30,10 @@ install_prolog_db(v: *Vm)
     register(v, "abolish/1", 1, pl_abolish)
     register(v, "dynamic/1", 1, pl_dynamic)
     register_generator(v, "$user_predicates/1", 1, pl_user_predicates)
+    register(v, "nb_setval/2", 2, (b, n) -> set_global(arg(b, 0), arg(b, 1), false, "nb_setval/2"))
+    register(v, "b_setval/2", 2, (b, n) -> set_global(arg(b, 0), arg(b, 1), true, "b_setval/2"))
+    register_generator(v, "nb_getval/2", 2, (b, n, c) -> get_global(arg(b, 0), arg(b, 1), "nb_getval/2"))
+    register_generator(v, "b_getval/2", 2, (b, n, c) -> get_global(arg(b, 0), arg(b, 1), "b_getval/2"))
     register_generator(v, "=@=/2", 2, (b, n, c) -> answer(variant(arg(b, 0), arg(b, 1))))
     register_generator(v, "\\=@=/2", 2, (b, n, c) -> answer(!variant(arg(b, 0), arg(b, 1))))
 
@@ -366,6 +373,43 @@ private key_arity(k: string) -> usize
         scale *= 10
 
     n
+
+// -- Global variables ---------------------------------------------------------------------------------
+
+// The name of a global variable: an atom.
+private global_name(k: Value, who: string) -> Result[Value, Fault]
+    val x = deref(k)
+
+    x match
+        Atom(_) -> Ok(x)
+        _ -> Err(kind_error(x, "atom", s"$who names a global variable by an atom, and was given ${described(x)}"))
+
+// `nb_setval(K, V)` stores a copy of `V`, which failure does not undo; `b_setval(K, V)` (`back`)
+// stores `V` itself, and failure back past it puts back what was there.
+private set_global(k: Value, x: Value, back: bool, who: string) -> Result[Value, Fault]
+    val key = global_name(k, who)?
+    val v = current()
+
+    v.pl_globals match
+        Undefined -> v.pl_globals = MutMap(new_map()?)
+        _ -> ()
+
+    element_set(v.pl_globals, key, false, if back then x else copy_term(x)?, back)?
+    Ok(Unit)
+
+// `nb_getval(K, V)` and `b_getval(K, V)`: `V` unifies with what `K` holds;
+// `existence_error(variable, K)` when nothing has set it.
+private get_global(k: Value, x: Value, who: string) -> Result[Answer, Fault]
+    val key = global_name(k, who)?
+
+    current().pl_globals match
+        MutMap(m) ->
+            map_find(m, key)? match
+                Some(i) -> return unified(x, m.vals.at(i))
+                None -> ()
+        _ -> ()
+
+    Err(existence_error("variable", key, s"$who found no global variable ${render(key)}"))
 
 // Whether `a` and `b` are variants: alike but for a one-to-one renaming of their variables (`=@=`).
 variant(a: Value, b: Value) -> bool
