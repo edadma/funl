@@ -133,7 +133,12 @@ evens(L) :- findall(X, (between(1, 10, X), even(X, true)), L).
 **Prolog and FunL share one namespace keyed by name and arity**, and a function of `n` parameters
 occupies the key `name/(n+1)`. A Prolog predicate and a FunL function that would occupy the same key
 are refused when the second is loaded, naming both — the alternative is one silently shadowing the
-other, and which one depends on load order.
+other, and which one depends on load order. A file that loads again replaces what it defined itself,
+as consulting a file again does, and a file imported twice is loaded once. The library written in
+Prolog gives way to a program's own definition in either language. A builtin's key is never
+redefined: a Prolog file's clauses for one are refused, as ISO's `permission_error(modify,
+static_procedure, …)` has it, while a FunL function on a builtin's key stays FunL's own under its
+name and Prolog keeps the builtin — no load order can change which one either side sees.
 
 A FunL function's arguments are dereferenced before the call and must be bound where its patterns
 look inside them; an unbound one is an `instantiation_error` naming the function, raised as an
