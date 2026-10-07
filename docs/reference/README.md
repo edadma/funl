@@ -13,6 +13,7 @@ the language cannot disagree for long.
 | page | what it covers |
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Data](data.md) | tuples, lists, maps, sets, comprehensions, arrays, buffers, maps with a default, records, `undefined`, types and `is` |
 
 ## How a page is checked
 
