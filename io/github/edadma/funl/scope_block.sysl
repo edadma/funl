@@ -148,7 +148,7 @@ updated(w: *Walk, n: string, at: Span)
                 w.sc.used(n)
         Unknown ->
             w.report.add(error(at, s"`$n` is not defined")
-                .with_note("an update changes a variable that is already declared: `var $n = 0`"))
+                .with_note(s"an update changes a variable that is already declared: `var $n = 0`"))
         Gone ->
             w.report.add(error(at, s"`$n` is not defined here")
                 .with_note("the block that declared it has ended"))

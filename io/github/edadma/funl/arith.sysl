@@ -21,11 +21,11 @@ enum BinOp
     // `/`: exact division.
     Quo
 
-    // `\`: integer division, rounding down.
+    // `\`: integer division, which floors: the quotient rounded toward negative infinity, never
+    // toward zero, so `-7 \ 2` is `-4`.
     IntQuo
 
-    // `//`: floor division, the quotient rounded toward negative infinity -- today the same quotient
-    // as `\`.
+    // `//`: floor division, the same quotient as `\`.
     FloorQuo
 
     // `%`: the remainder, with the sign of the dividend.
