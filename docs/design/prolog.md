@@ -28,6 +28,24 @@ and from the command line, `funl family.pl` reads a file by its extension and st
 interactive top level, or runs `:- initialization(main).` if the file has one. **A Prolog file's
 directives run at load time** (`:- dynamic`, `:- op`, `:- initialization`), exactly as in any Prolog.
 
+## A Prolog with no FunL in it
+
+**There is one machine, and a standalone Prolog is a second front end to it.** The VM is unified:
+one instruction set and single-level dispatch — one match over the instruction kind in one run loop,
+as slate's interpreter does it. Some instructions are emitted only for Prolog code (clause
+indexing, cut to a clause's barrier), some only for FunL (generators, scanning, regex) and most are
+shared (choice points, the trail, frames, calls, unification); all of them live in the same enum and
+the same loop, with no layering and no extension seam.
+
+**The standalone Prolog is that machine with the Prolog reader, the Prolog builtins and an ISO top
+level** (`?- goal.`, `;` for the next answer, `consult/1`); its front end never emits a FunL-only
+instruction. **Later it also runs FunL**: `:- import("geometry.fl")` from a Prolog file or the top
+level brings in the FunL front end and the file's functions become predicates, as [Calling FunL from
+Prolog](#calling-funl-from-prolog) describes. Because the machine is one machine, that is a matter of
+which front ends are linked in, never of a second VM or a bridge. It knows only standard Prolog:
+no FunL syntax, no FunL builtins, no FunL value kinds reachable from it. The same Prolog program
+runs identically in it and through `funl family.pl`; the difference is only what else is loaded.
+
 ## The reader
 
 **The reader is an operator-precedence parser over an operator table that changes at run time**,
