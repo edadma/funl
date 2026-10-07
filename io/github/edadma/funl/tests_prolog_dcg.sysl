@@ -1,0 +1,168 @@
+module io.github.edadma.funl
+@tests
+
+// Grammar rules (`pl_dcg.sysl`): each body construct, pushback, `phrase/2-3`,
+// `dcg_translate_rule/2`, the clause a rule loads as, two whole grammars, and the ISO errors.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Every solution of `goal` with `grammar` loaded, `X` written by `writeq`, one a line; or the formal
+// term of its error.
+private every(grammar: string, goal: string) -> string =
+    ran_prolog(grammar + s":- catch(forall($goal, (writeq(X), nl)), error(F, _), (writeq(F), nl)).\n")
+
+private yes(grammar: string, goal: string) -> string = every(grammar, s"(($goal) -> X = yes ; X = no)")
+
+// Binds each variable of a term to a capital letter, in the order they are first met, so a clause
+// prints the same whatever numbers its variables were given.
+private const Lettered: string = "lettered(T) :- term_variables(T, Vs), letter(Vs, 0'A).\n" +
+    "letter([], _).\nletter([V|Vs], C) :- char_code(V, C), C1 is C + 1, letter(Vs, C1).\n"
+
+// What `goal` binds `X` to, its variables lettered; or the formal term of its error.
+private shown(grammar: string, goal: string) -> string =
+    ran_prolog(Lettered + grammar + s":- catch(forall($goal, (lettered(X), write(X), nl)), error(F, _), (writeq(F), nl)).\n")
+
+// The clause rule `r` stands for.
+private translated(r: string) -> string = shown("", s"dcg_translate_rule(($r), X)")
+
+@test
+TERMINALS_NON_TERMINALS_AND_THE_EMPTY_BODY()
+    val g = "greeting --> [hello], name.\nname --> [world].\nname --> [prolog, world].\nnothing --> [].\n"
+
+    assert_eq(yes(g, "phrase(greeting, [hello, world])"), ok("yes"))
+    assert_eq(yes(g, "phrase(greeting, [hello])"), ok("no"))
+    assert_eq(every(g, "phrase(greeting, X)"), ok("[hello,world]\n[hello,prolog,world]"))
+    assert_eq(yes(g, "phrase(nothing, [])"), ok("yes"))
+    assert_eq(yes(g, "phrase(nothing, [a])"), ok("no"))
+    assert_eq(translated("a --> [x, y]"), ok("a(A,B):-A=[x,y|B]"))
+    assert_eq(translated("a --> b, c(1)"), ok("a(A,B):-b(A,C),c(1,C,B)"))
+
+@test
+A_STRING_IS_THE_LIST_OF_ITS_CODES()
+    val g = "ab --> \"ab\".\n"
+
+    assert_eq(every(g, "phrase(ab, X)"), ok("[97,98]"))
+    assert_eq(every("", "phrase(\"hi\", X)"), ok("[104,105]"))
+    assert_eq(translated("a --> \"x\""), ok("a(A,B):-A=[120|B]"))
+
+@test
+BRACES_CUT_AND_NEGATION_CONSUME_NOTHING()
+    val g = "num(N) --> [N], {integer(N)}.\nfirst(X) --> [X], !.\nfirst(none) --> [].\n" +
+        "not_a --> \\+ [a], [_].\ngoal(G) --> {G}.\n"
+
+    assert_eq(every(g, "phrase(num(X), [3])"), ok("3"))
+    assert_eq(yes(g, "phrase(num(_), [a])"), ok("no"))
+    assert_eq(every(g, "phrase(first(X), [a], _)"), ok("a"))
+    assert_eq(yes(g, "phrase(not_a, [b])"), ok("yes"))
+    assert_eq(yes(g, "phrase(not_a, [a])"), ok("no"))
+    assert_eq(every(g, "phrase(goal(X = 1), [])"), ok("1"))
+    assert_eq(translated("a --> {b}, !, \\+ c"),
+        ok("a(A,B):-(b,A=C),(!,C=D),\\+c(D,E),D=B"))
+    assert_eq(translated("a --> {G}"), ok("a(A,B):-call(C),A=B"))
+
+@test
+DISJUNCTION_BAR_AND_IF_THEN_ELSE()
+    val g = "ab --> [a] ; [b].\nbar --> [a] | [b].\nite(X) --> ([a] -> {X = got_a} ; {X = other}), [_].\n"
+
+    assert_eq(every(g, "phrase(ab, X)"), ok("[a]\n[b]"))
+    assert_eq(every(g, "phrase(bar, X)"), ok("[a]\n[b]"))
+    assert_eq(every(g, "phrase(ite(X), [a, z], _)"), ok("got_a"))
+    assert_eq(every(g, "phrase(ite(X), [b, z], _)"), ok("other"))
+    assert_eq(translated("a --> b -> c ; d"), ok("a(A,B):-b(A,C)->c(C,B);d(A,B)"))
+    assert_eq(translated("a --> b | c"), ok("a(A,B):-b(A,B);c(A,B)"))
+
+@test
+A_VARIABLE_BODY_AND_CALL_N()
+    val g = "twice(G) --> G, G.\nwrap(G) --> call(G, x).\nx(X, [X|S], S).\n"
+
+    assert_eq(every(g, "phrase(twice([a]), X)"), ok("[a,a]"))
+    assert_eq(every(g, "phrase(wrap(x), X)"), ok("[x]"))
+    assert_eq(translated("a --> call(p, 1)"), ok("a(A,B):-call(p,1,A,B)"))
+    assert_eq(translated("a(G) --> G"), ok("a(A,B,C):-phrase(A,B,C)"))
+
+@test
+PUSHBACK_PUTS_TERMINALS_BACK()
+    val g = "peek(X), [X] --> [X].\nswap, [b, a] --> [a, b].\n"
+
+    assert_eq(every(g, "phrase(peek(X), [q, r], _)"), ok("q"))
+    assert_eq(every(g, "phrase(peek(_), [q, r], X)"), ok("[q,r]"))
+    assert_eq(every(g, "phrase(swap, [a, b, c], X)"), ok("[b,a,c]"))
+    assert_eq(translated("a, [x] --> b"), ok("a(A,B):-b(A,C),B=[x|C]"))
+
+@test
+PHRASE_3_LEAVES_THE_REMAINDER()
+    val g = "word --> [w].\nwords --> [].\nwords --> word, words.\n"
+
+    assert_eq(every(g, "phrase(word, [w, x, y], X)"), ok("[x,y]"))
+    assert_eq(every(g, "phrase(words, [w, w, z], X)"), ok("[w,w,z]\n[w,z]\n[z]"))
+    assert_eq(every(g, "phrase(([a], [b]), [a, b, c], X)"), ok("[c]"))
+    assert_eq(every(g, "phrase(\"ab\", X, [])"), ok("[97,98]"))
+
+@test
+A_DYNAMIC_GRAMMAR_PREDICATE_SHOWS_ITS_TRANSLATED_CLAUSE()
+    val g = ":- dynamic(greet/2).\ngreet --> [hi], {true}.\n"
+
+    assert_eq(shown(g, "(clause(greet(A, B), Body), X = (greet(A, B) :- Body))"), ok("greet(A,B):-A=[hi|C],true,C=B"))
+    assert_eq(yes(g, "phrase(greet, [hi])"), ok("yes"))
+
+// Arithmetic expressions read from text into a tree: precedence and left association by the
+// grammar's shape, a cut committing to an operator once it is seen.
+private const ExprGrammar: string =
+    "expr(T) --> term(L), expr_rest(L, T).\n" +
+    "expr_rest(L, T) --> \"+\", !, term(R), expr_rest(L+R, T).\n" +
+    "expr_rest(L, T) --> \"-\", !, term(R), expr_rest(L-R, T).\n" +
+    "expr_rest(T, T) --> [].\n" +
+    "term(T) --> factor(L), term_rest(L, T).\n" +
+    "term_rest(L, T) --> \"*\", !, factor(R), term_rest(L*R, T).\n" +
+    "term_rest(T, T) --> [].\n" +
+    "factor(T) --> \"(\", !, expr(T), \")\".\n" +
+    "factor(N) --> digits(Ds), {number_codes(N, Ds)}.\n" +
+    "digits([D|T]) --> digit(D), digits(T).\n" +
+    "digits([D]) --> digit(D).\n" +
+    "digit(D) --> [D], {D >= 0'0, D =< 0'9}.\n" +
+    "parse(S, T) :- atom_codes(S, Cs), phrase(expr(T), Cs).\n"
+
+@test
+A_GRAMMAR_PARSES_ARITHMETIC_INTO_A_TREE()
+    assert_eq(every(ExprGrammar, "parse('2*(3+4)-5', X)"), ok("2*(3+4)-5"))
+    assert_eq(every(ExprGrammar, "(parse('1-2-3', T), T = (A - _), X = A)"), ok("1-2"))
+    assert_eq(every(ExprGrammar, "(parse('12+3*4', T), X is T)"), ok("24"))
+    assert_eq(yes(ExprGrammar, "parse('2*', _)"), ok("no"))
+
+// Balanced brackets, run backwards: every string of each length, shortest first.
+@test
+A_RECOGNISER_GENERATES_BALANCED_BRACKETS_IN_ORDER()
+    val g = "bal --> [].\nbal --> ['('], bal, [')'], bal.\n"
+
+    assert_eq(every(g, "(between(0, 6, N), length(L, N), phrase(bal, L), atom_chars(X, L))"),
+        ok("''\n'()'\n'()()'\n'(())'\n'()()()'\n'()(())'\n'(())()'\n'(()())'\n'((()))'"))
+    assert_eq(yes(g, "phrase(bal, ['(', ')', ')'])"), ok("no"))
+
+@test
+PHRASE_RAISES_ISO_ERRORS()
+    assert_eq(every("", "phrase(_, [])"), ok("instantiation_error"))
+    assert_eq(every("", "phrase(_, [], [])"), ok("instantiation_error"))
+    assert_eq(every("", "phrase(1, [])"), ok("type_error(callable,1)"))
+    assert_eq(every("", "phrase((a, 1), [])"), ok("type_error(callable,1)"))
+    assert_eq(every("", "phrase([a], foo)"), ok("type_error(list,foo)"))
+    assert_eq(every("", "phrase([a], [a], foo)"), ok("type_error(list,foo)"))
+    assert_eq(every("", "phrase([a|_], [a])"), ok("instantiation_error"))
+    assert_eq(every("", "phrase([a], \"a\")"), ok("type_error(list,\"a\")"))
+    assert_eq(every("", "phrase({1}, [])"), ok("type_error(callable,1)"))
+    assert_eq(every("", "phrase(undefined_nt, [])"), ok("existence_error(procedure,undefined_nt/2)"))
+    assert_eq(every("", "(phrase(([a], !, [b] ; [c]), [a, b]), X = cut_is_local)"), ok("cut_is_local"))
+    assert_eq(every("", "dcg_translate_rule((_ --> a), _)"), ok("instantiation_error"))
+    assert_eq(every("", "dcg_translate_rule((1 --> a), _)"), ok("type_error(callable,1)"))
+    assert_eq(every("", "dcg_translate_rule((a, b --> c), _)"), ok("type_error(list,b)"))
+    assert_eq(every("", "dcg_translate_rule(_, _)"), ok("instantiation_error"))
+
+@test
+A_BAD_RULE_IS_REPORTED_WHERE_IT_IS_WRITTEN()
+    assert_eq(prolog_complaints("a --> b, 3.\n"),
+        "error 1:10 a grammar body is made of non-terminals, terminal lists, strings and control constructs, and this is none of them\n")
+    assert_eq(prolog_complaints("X --> a.\n"), "error 1:1 a grammar rule's head is an unbound variable\n")
+    assert_eq(prolog_complaints("1 --> a.\n"),
+        "error 1:1 a grammar rule's head is a non-terminal -- an atom or a compound term -- and this is not\n")
+    assert_eq(prolog_complaints("a, b --> c.\n"), "error 1:4 a grammar rule's pushback has to be a list\n")
+    assert_eq(prolog_complaints("a --> [x|_].\n"), "error 1:7 a terminal list is a partial list, and has to be a whole one\n")
+    assert_eq(prolog_complaints("a --> {1}.\n"), "error 1:8 this is not a goal: a goal is an atom, a compound or a variable\n")

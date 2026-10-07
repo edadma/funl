@@ -115,6 +115,24 @@ private is_int_value(x: Value) -> bool = x match
 
 // The library, as Prolog source.
 private library_text() -> string = raw"""
+    % -- Grammar rules ------------------------------------------------------------------------
+
+    % phrase/2-3: the body is translated as a rule's would be (pl_dcg.sysl) and called, so a cut
+    % in it is local to the phrase.
+    phrase(G, L) :-
+        '$phrase'(G, L, [], phrase/2).
+
+    phrase(G, L, R) :-
+        '$phrase'(G, L, R, phrase/3).
+
+    '$phrase'(G, L, R, Who) :-
+        '$dcg_body'(G, S0, S, Goal),
+        '$must_be'(list_or_partial_list, L, Who),
+        '$must_be'(list_or_partial_list, R, Who),
+        S0 = L,
+        S = R,
+        call(Goal).
+
     % -- All solutions ------------------------------------------------------------------------
 
     findall(T, G, L) :-

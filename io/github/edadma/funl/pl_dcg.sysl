@@ -1,0 +1,364 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.text.chars_of
+
+// Grammar rules: `Head --> Body` and the clause it stands for, `phrase/2-3` and
+// `dcg_translate_rule/2` (`prolog.md` § "The builtin set").
+//
+// **A non-terminal is a predicate with two more arguments**: the list before it, and what is left of
+// that list once it has been parsed. A rule threads the two through its body, each part's remainder
+// the next part's input:
+//
+//     greeting --> [hello], name.        greeting(S0, S) :- S0 = [hello|S1], name(S1, S).
+//
+// The translation is SWI-Prolog's: a terminal list unifies the input with the list and its tail, a
+// string is the list of its codes, `{G}` runs `G` and passes the input through, `!` and `\+` likewise
+// consume nothing, `,` `;` `|` and `->` keep their meaning, a variable is called by `phrase/3`, and
+// any other callable term is a non-terminal. `Head, Pushback --> Body` puts the list `Pushback` back
+// in front of what the body left.
+//
+// **The translation is of reader terms**, so a file's rule is translated as it loads and a mistake in
+// it is reported where it was written; `phrase/3` and `dcg_translate_rule/2` turn the machine value
+// they are given into the same shape first.
+
+// What a rule or a body is not: `kind` is the ISO error -- `instantiation`, `callable` or `list` --
+// and `at` the part that is wrong.
+struct DcgFault
+    kind: string
+    at: &Term
+    what: string
+
+private dcg_fault(kind: string, at: &Term, what: string) -> DcgFault = DcgFault(kind, at, what)
+
+private dcg_atom(name: string, at: Span) -> &Term = term(TAtom(intern(name)), at)
+
+private dcg_compound(name: string, args: Buf[&Term], at: Span) -> &Term = term(TComp(intern(name), args), at)
+
+private dcg_pair(name: string, a: &Term, b: &Term, at: Span) -> &Term
+    var args: Buf[&Term] = buf()
+
+    args.push(a)
+    args.push(b)
+    dcg_compound(name, args, at)
+
+// A variable no part of the rule names yet.
+private dcg_fresh(fresh: *usize, at: Span) -> &Term
+    val n = *fresh
+
+    *fresh = n + 1
+    term(TVar(n), at)
+
+private dcg_unify(a: &Term, b: &Term, at: Span) -> &Term = dcg_pair("=", a, b, at)
+
+private dcg_and(a: &Term, b: &Term, at: Span) -> &Term = dcg_pair(",", a, b, at)
+
+// Rule `Head --> Body` as the clause `Head' :- Body'`; `fresh` is the next free variable number.
+dcg_rule(rule: &Term, fresh: *usize) -> Result[&Term, DcgFault]
+    val (head, body) = rule.kind match
+        TComp(f, args) ->
+            if args.len() != 2 || atom_name(f) != "-->" then return Err(dcg_fault("callable", rule, "a grammar rule is `Head --> Body`"))
+
+            (args.at(0), args.at(1))
+        _ -> return Err(dcg_fault("callable", rule, "a grammar rule is `Head --> Body`"))
+
+    var nt = head
+    var pushback: Option[&Term] = None
+
+    head.kind match
+        TComp(f, args) ->
+            if args.len() == 2 && atom_name(f) == ","
+                nt = args.at(0)
+                pushback = Some(args.at(1))
+        _ -> ()
+
+    val s0 = dcg_fresh(fresh, rule.span)
+    val s = dcg_fresh(fresh, rule.span)
+    val h = dcg_non_terminal(nt, s0, s, "a grammar rule's head")?
+
+    val goal = pushback match
+        None -> dcg_body(body, s0, s, fresh)?
+        Some(pb) ->
+            val mid = dcg_fresh(fresh, rule.span)
+            val parsed = dcg_body(body, s0, mid, fresh)?
+
+            dcg_and(parsed, dcg_terminals(pb, s, mid, "a grammar rule's pushback")?, rule.span)
+
+    Ok(dcg_pair(":-", h, goal, rule.span))
+end dcg_rule
+
+// Non-terminal `t` called with the list `s0` and its remainder `s`.
+private dcg_non_terminal(t: &Term, s0: &Term, s: &Term, what: string) -> Result[&Term, DcgFault]
+    t.kind match
+        TVar(_) -> Err(dcg_fault("instantiation", t, s"$what is an unbound variable"))
+        TAtom(id) ->
+            var args: Buf[&Term] = buf()
+
+            args.push(s0)
+            args.push(s)
+            Ok(term(TComp(id, args), t.span))
+        TComp(f, args) ->
+            var more: Buf[&Term] = buf()
+
+            for a in args.view()
+                more.push(a)
+
+            more.push(s0)
+            more.push(s)
+            Ok(term(TComp(f, more), t.span))
+        _ -> Err(dcg_fault("callable", t, s"$what is a non-terminal -- an atom or a compound term -- and this is not"))
+
+// Body `b` as a goal that parses `s0`, leaving `s`.
+dcg_body(b: &Term, s0: &Term, s: &Term, fresh: *usize) -> Result[&Term, DcgFault]
+    val at = b.span
+
+    b.kind match
+        TVar(_) ->
+            var args: Buf[&Term] = buf()
+
+            args.push(b)
+            args.push(s0)
+            args.push(s)
+            Ok(dcg_compound("phrase", args, at))
+        TNil -> Ok(dcg_unify(s0, s, at))
+        TCons(_, _) -> dcg_terminals(b, s0, s, "a terminal list")
+        TStr(text) ->
+            var codes: Buf[&Term] = buf()
+
+            for c in chars_of(text.bytes)
+                codes.push(term(TInt(long(u32(c))), at))
+
+            var l = s
+
+            for i in 0..<codes.len()
+                l = term(TCons(codes.at(codes.len() - 1 - i), l), at)
+
+            Ok(dcg_unify(s0, l, at))
+        TAtom(id) ->
+            if atom_name(id) == "!" then return Ok(dcg_and(b, dcg_unify(s0, s, at), at))
+
+            dcg_non_terminal(b, s0, s, "a grammar body")
+        TComp(f, args) ->
+            val name = atom_name(f)
+            val n = args.len()
+
+            if n == 2 && name == ","
+                val mid = dcg_fresh(fresh, at)
+                val first = dcg_body(args.at(0), s0, mid, fresh)?
+
+                return Ok(dcg_and(first, dcg_body(args.at(1), mid, s, fresh)?, at))
+
+            if n == 2 && (name == ";" || name == "|")
+                val left = dcg_body(args.at(0), s0, s, fresh)?
+
+                return Ok(dcg_pair(";", left, dcg_body(args.at(1), s0, s, fresh)?, at))
+
+            if n == 2 && name == "->"
+                val mid = dcg_fresh(fresh, at)
+                val cond = dcg_body(args.at(0), s0, mid, fresh)?
+
+                return Ok(dcg_pair("->", cond, dcg_body(args.at(1), mid, s, fresh)?, at))
+
+            if n == 1 && name == "\\+"
+                var neg: Buf[&Term] = buf()
+
+                neg.push(dcg_body(args.at(0), s0, dcg_fresh(fresh, at), fresh)?)
+                return Ok(dcg_and(dcg_compound("\\+", neg, at), dcg_unify(s0, s, at), at))
+
+            if n == 1 && name == "{}"
+                val g = args.at(0)
+
+                val goal = g.kind match
+                    TVar(_) ->
+                        var one: Buf[&Term] = buf()
+
+                        one.push(g)
+                        dcg_compound("call", one, g.span)
+                    _ -> g
+
+                return Ok(dcg_and(goal, dcg_unify(s0, s, at), at))
+
+            dcg_non_terminal(b, s0, s, "a grammar body")
+        _ -> Err(dcg_fault("callable", b, "a grammar body is made of non-terminals, terminal lists, strings and control constructs, and this is none of them"))
+end dcg_body
+
+// `s0 = [t1, ..., tn|s]` for the terminal list `l`, which must be a whole list.
+private dcg_terminals(l: &Term, s0: &Term, s: &Term, what: string) -> Result[&Term, DcgFault]
+    var items: Buf[&Term] = buf()
+    var rest = l
+
+    loop
+        rest.kind match
+            TNil -> break
+            TCons(h, t) ->
+                items.push(h)
+                rest = t
+            TVar(_) -> return Err(dcg_fault("instantiation", l, s"$what is a partial list, and has to be a whole one"))
+            _ -> return Err(dcg_fault("list", l, s"$what has to be a list"))
+    end loop
+
+    var out = s
+
+    for i in 0..<items.len()
+        out = term(TCons(items.at(items.len() - 1 - i), out), l.span)
+
+    Ok(dcg_unify(s0, out, l.span))
+
+// -- Reading a file's rules ----------------------------------------------------------------------------
+
+// Whether clause `t` is a grammar rule.
+is_dcg_rule(t: &Term) -> bool = t.kind match
+    TComp(f, args) -> args.len() == 2 && atom_name(f) == "-->"
+    _ -> false
+
+// Grammar rule `c` as the clause it stands for, its new variables named `_`; or the mistake in it,
+// reported.
+dcg_read_clause(c: ReadClause, report: *Report) -> Option[ReadClause]
+    var fresh = c.names.len()
+
+    dcg_rule(c.t, &fresh) match
+        Ok(t) ->
+            var names: Buf[string] = buf()
+
+            for n in c.names.view()
+                names.push(n)
+
+            while names.len() < fresh
+                names.push("_")
+
+            Some(ReadClause(t, names))
+        Err(f) ->
+            report.add(error(f.at.span, f.what))
+            None
+
+// -- Translating at run time ---------------------------------------------------------------------------
+
+install_prolog_dcg(v: *Vm)
+    register_generator(v, "$dcg_body/4", 4, (b, n, c) -> pl_dcg_body(b))
+    register_generator(v, "dcg_translate_rule/2", 2, (b, n, c) -> pl_dcg_translate_rule(b))
+
+// Value `x` in a body's place as a reader term: the control constructs and terminal lists keep their
+// shape, a variable is a variable -- numbered by its place in `vars`, which holds it -- and everything
+// a non-terminal or a goal takes as an argument stands as the value it is, so its variables are the
+// caller's.
+private body_term(x: Value, vars: *Buf[Value]) -> &Term
+    val y = deref(x)
+    val at = point(0)
+
+    y match
+        Var(_) ->
+            vars.push(y)
+            term(TVar(vars.len() - 1), at)
+        Atom(id) -> term(TAtom(id), at)
+        Nil -> term(TNil, at)
+        Str(p) -> term(TStr(p.s), at)
+        Cons(c) -> term(TCons(term(TConst(c.head), at), list_term(c.tail, vars)), at)
+        Compound(c) ->
+            val name = atom_name(c.functor)
+            val n = c.args.len()
+            val control = (n == 2 && (name == "," || name == ";" || name == "|" || name == "->")) || (n == 1 && name == "\\+")
+            var args: Buf[&Term] = buf()
+
+            for a in c.args.view()
+                if control
+                    args.push(body_term(a, vars))
+                elif n == 1 && name == "{}" && is_unbound(a)
+                    vars.push(deref(a))
+                    args.push(term(TVar(vars.len() - 1), at))
+                else
+                    args.push(term(TConst(a), at))
+
+            term(TComp(c.functor, args), at)
+        _ -> term(TConst(y), at)
+
+// The tail of a terminal list, as `body_term` reads one.
+private list_term(x: Value, vars: *Buf[Value]) -> &Term
+    val y = deref(x)
+    val at = point(0)
+
+    y match
+        Var(_) ->
+            vars.push(y)
+            term(TVar(vars.len() - 1), at)
+        Nil -> term(TNil, at)
+        Cons(c) -> term(TCons(term(TConst(c.head), at), list_term(c.tail, vars)), at)
+        _ -> term(TConst(y), at)
+
+// A head, `Head` or `Head, Pushback`, as `body_term` reads one.
+private head_term(x: Value, vars: *Buf[Value]) -> &Term
+    val y = deref(x)
+    val at = point(0)
+
+    y match
+        Var(_) ->
+            vars.push(y)
+            term(TVar(vars.len() - 1), at)
+        Atom(id) -> term(TAtom(id), at)
+        Compound(c) ->
+            var args: Buf[&Term] = buf()
+
+            if c.args.len() == 2 && atom_name(c.functor) == ","
+                args.push(head_term(c.args.at(0), vars))
+                args.push(list_term(c.args.at(1), vars))
+            else
+                for a in c.args.view()
+                    args.push(term(TConst(a), at))
+
+            term(TComp(c.functor, args), at)
+        _ -> term(TConst(y), at)
+
+// A translation's fault as the ISO error it raises.
+private dcg_error(f: DcgFault, vars: *Buf[Value], who: string) -> Fault
+    if f.kind == "instantiation" then return instantiation_error(s"instantiation error: $who: ${f.what}")
+
+    term_value(f.at, vars) match
+        Ok(x) -> type_error(f.kind, x, s"type error: $who: ${f.what}, and was given ${described(x)}")
+        Err(m) -> Broken(m)
+
+// `'$dcg_body'(Body, S0, S, Goal)`: `Goal` parses `S0` by `Body`, leaving `S`.
+private pl_dcg_body(base: usize) -> Result[Answer, Fault]
+    if is_unbound(arg(base, 0)) then return Err(instantiation_error("instantiation error: phrase/3 was given an unbound variable for its body"))
+
+    var vars: Buf[Value] = buf()
+    val b = body_term(arg(base, 0), &vars)
+    val s0 = term(TConst(arg(base, 1)), point(0))
+    val s = term(TConst(arg(base, 2)), point(0))
+    var fresh = vars.len()
+
+    val goal = dcg_body(b, s0, s, &fresh) match
+        Ok(g) -> g
+        Err(f) -> return Err(dcg_error(f, &vars, "phrase/3"))
+
+    term_value(goal, &vars) match
+        Ok(x) -> unified(arg(base, 3), x)
+        Err(m) -> Err(Broken(m))
+
+// `dcg_translate_rule(Rule, Clause)`: `Clause` is what grammar rule `Rule` stands for.
+private pl_dcg_translate_rule(base: usize) -> Result[Answer, Fault]
+    val r = deref(arg(base, 0))
+
+    val (head, body) = r match
+        Var(_) -> return Err(instantiation_error("instantiation error: dcg_translate_rule/2 was given an unbound variable"))
+        Compound(c) ->
+            if c.args.len() != 2 || atom_name(c.functor) != "-->" then return Ok(Refuses)
+
+            (c.args.at(0), c.args.at(1))
+        _ -> return Ok(Refuses)
+
+    var vars: Buf[Value] = buf()
+    var args: Buf[&Term] = buf()
+
+    args.push(head_term(head, &vars))
+    args.push(body_term(body, &vars))
+
+    val rule = dcg_compound("-->", args, point(0))
+    var fresh = vars.len()
+
+    val clause = dcg_rule(rule, &fresh) match
+        Ok(t) -> t
+        Err(f) -> return Err(dcg_error(f, &vars, "dcg_translate_rule/2"))
+
+    term_value(clause, &vars) match
+        Ok(x) -> unified(arg(base, 1), x)
+        Err(m) -> Err(Broken(m))

@@ -322,7 +322,15 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
                 continue
             None -> ()
 
-        val (head, _) = clause_parts(c.t)
+        // A grammar rule is filed as the clause it stands for.
+        var cl = c
+
+        if is_dcg_rule(c.t)
+            cl = dcg_read_clause(c, report) match
+                Some(t) -> t
+                None -> continue
+
+        val (head, _) = clause_parts(cl.t)
 
         val (f, n) = callable_key(head) match
             Some(k) -> k
@@ -348,12 +356,12 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
             Some(i) ->
                 var g = groups.at(i)
 
-                g.clauses.push(c)
+                g.clauses.push(cl)
                 groups.set(i, g)
             None ->
                 var cs: Buf[ReadClause] = buf()
 
-                cs.push(c)
+                cs.push(cl)
                 by_key.put(key, groups.len())
                 groups.push(Group(name, n, cs))
     end loop
