@@ -30,7 +30,7 @@ it stands.
 
 This document is a program:
 
-````markdown
+````lfunl greeting.lfunl
 # Greeting
 
 This document is a program. The indented lines run:
@@ -54,13 +54,13 @@ write( 'not run' )
 
 Saved as `greeting.lfunl`, it runs with `funl greeting.lfunl` and prints
 
-```
+```output
 hello, world
 ```
 
 A mistake in a literate file is reported at its place in the document. In
 
-````markdown
+````lfunl mistake.lfunl
 # A mistake
 
 Some prose.
@@ -71,15 +71,45 @@ Some prose.
 
 the undefined `y` is reported at line 6, column 12, where it stands in the file:
 
-```
+```error
 error: `y` is not defined
  --> mistake.lfunl:6:12
 ```
 
-A Prolog program reads a literate FunL file too, with `:- import`, and calls its functions as
-relations whose last argument is the result. With `scaling.lfunl`
+A tab in the indentation is refused:
 
-````markdown
+````lfunl tabs.lfunl
+# Tabs
+
+	write( 'indented by a tab' )
+````
+
+```error
+error: a tab in the indentation of a literate file — what makes a line program text is four columns of indent, and a tab is as wide as whatever happens to be displaying it, so this line is code in one editor and prose in another
+ --> tabs.lfunl:3:1
+```
+
+So is a fence that is never closed:
+
+````lfunl open.lfunl
+# An open fence
+
+    write( 'runs' )
+
+```
+write( 'shown' )
+````
+
+```error
+error: this fence is never closed, so everything below it is an illustration and none of it is compiled — close it, or indent the lines that are meant to run
+ --> open.lfunl:5:1
+```
+
+A Prolog program reads a literate FunL file too, with `:- import`, and calls its functions as
+relations whose last argument is the result. That takes two files, so the two below are shown rather
+than run here. With `scaling.lfunl`
+
+````lfunl scaling.lfunl
 # Scaling
 
 The scale every function reads.
@@ -93,7 +123,7 @@ And the one Prolog calls.
 
 this Prolog program, run with `funl main.pl`, prints `20`:
 
-```
+```prolog
 :- import("scaling.lfunl").
 :- scaled(2, X), write(X), nl.
 ```
