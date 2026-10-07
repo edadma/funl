@@ -147,3 +147,62 @@ A_CONSULTED_FILES_PREDICATES_ARE_CALLABLE_FROM_PROLOG_LOADED_LATER()
         ":- greeting(X), write(X), nl.\n"
 
     assert_eq(ran_prolog(text), "hello\nworld\nhello\nsucceeded")
+
+// FunL's `true` and `false` are Prolog's atoms `true` and `false` (`prolog.md` § "The term mapping"):
+// one value, so unification, the type tests, the atom builtins, `=..`, the standard order and
+// printing all agree, and the control constructs `true/0` and `false/0` are what a boolean calls.
+private const BooleansFunl: string = "def yes() = true\ndef no() = false\n"
+
+@test
+A_FUNL_BOOLEAN_IS_THE_PROLOG_ATOM_TO_UNIFICATION_AND_THE_ATOM_BUILTINS()
+    val d = scratch()
+    defer scrap(d)
+
+    val booleans = put(d, "booleans.funl", BooleansFunl)
+    val text = s":- import(\"$booleans\").\n" +
+        ":- yes(T), (T = true -> write(unifies) ; write(differs)), nl.\n" +
+        ":- yes(T), (true = T -> write(unifies) ; write(differs)), nl.\n" +
+        ":- yes(T), (T == true -> write(identical) ; write(different)), nl.\n" +
+        ":- yes(T), (atom(T) -> write(atom) ; write(not_atom)), nl.\n" +
+        ":- no(F), atom_length(F, N), atom_chars(F, Cs), write(N-Cs), nl.\n" +
+        ":- yes(T), T =.. L, functor(T, Name, A), write(L-Name/A), nl.\n" +
+        ":- yes(T), no(F), compare(O, T, F), msort([b, T, a, F], S), write(O-S), nl.\n" +
+        ":- yes(T), no(F), writeq(T/F), nl.\n" +
+        ":- yes(T), call(T), write(called), nl.\n"
+
+    assert_eq(ran_prolog(text), "unifies\nunifies\nidentical\natom\n5-[f,a,l,s,e]\n[true]-true/0\n(>)-[a,b,false,true]\ntrue/false\ncalled\nsucceeded")
+
+@test
+A_FUNL_FALSE_IS_ONLY_THE_ATOM_FALSE_AND_A_NUMBER_IS_STILL_NO_ATOM()
+    val d = scratch()
+    defer scrap(d)
+
+    val booleans = put(d, "booleans.funl", BooleansFunl)
+    val text = s":- import(\"$booleans\").\n" +
+        ":- no(F), (F = true -> write(unifies) ; write(differs)), nl.\n" +
+        ":- no(F), (F = false -> write(unifies) ; write(differs)), nl.\n" +
+        ":- (atom(1) -> write(atom) ; write(not_atom)), nl.\n" +
+        ":- no(F), (call(F) -> write(succeeded) ; write(failed)), nl.\n"
+
+    assert_eq(ran_prolog(text), "differs\nunifies\nnot_atom\nfailed\nsucceeded")
+
+// `flag/1` answers the atoms `true` and `false`; `same_as_true/1` unifies its argument with `true`.
+private const BooleansPl: string = "flag(true).\nflag(false).\nsame_as_true(X) :- X = true.\n"
+
+@test
+THE_PROLOG_ATOMS_TRUE_AND_FALSE_ARE_FUNL_BOOLEANS_IN_A_CONDITION()
+    val d = scratch()
+    defer scrap(d)
+
+    val booleans = put(d, "booleans.pl", BooleansPl)
+    val text = s"import \"$booleans\"\n" +
+        "free f\n" +
+        "every flag(f) do if f then write(#on) else write(#off)\n" +
+        "every flag(f) do write(f is boolean)\n" +
+        "if #maybe is boolean then write(#boolean) else write(#not_boolean)\n" +
+        "if same_as_true(true) then write(#unifies) else write(#differs)\n" +
+        "if same_as_true(false) then write(#unifies) else write(#differs)\n" +
+        "if true == #true then write(#same) else write(#different)\n" +
+        "if 1 == true then write(#same) else write(#different)\n"
+
+    assert_eq(ran_funl(text), "on\noff\ntrue\nfalse\nnot_boolean\nunifies\ndiffers\nsame\ndifferent\nsucceeded")

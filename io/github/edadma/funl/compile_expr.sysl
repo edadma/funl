@@ -103,7 +103,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         IntE(n) -> e.op(PushInt(n))
         NumE(text) -> e.op(PushConst(e.constant(literal_value(text)?)))
         StrE(s) -> e.op(PushConst(e.constant(new_str(s)?)))
-        BoolE(b) -> e.op(PushConst(e.constant(Bool(b))))
+        BoolE(b) -> e.op(PushConst(e.constant(boolean(b))))
         TupleE(items) ->
             for a in items.view()
                 compile_value(e, c, a)?
