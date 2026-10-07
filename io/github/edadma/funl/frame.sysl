@@ -41,7 +41,7 @@ call(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault] = open_frame(v, 
 // Call function chunk `target`, whose static link is the frame `up` names (see `link`).
 call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] = open_frame(v, target, argc, link(v, up)?)
 
-// The frame a `MakeClosure` or a `CallFn` names: `up` static links above the running frame, the
+// The frame a `MakeClosure`, a `CallFn` or a `LoadSlot` names: `up` static links above the running frame, the
 // top level's frame for `TopUp`, or that of a FunL file Prolog imported for `file_up(m)`.
 link(v: *Vm, up: usize) -> Result[*FrameObj, string]
     if up == TopUp then return Ok(v.globals)

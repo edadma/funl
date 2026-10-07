@@ -25,7 +25,8 @@ the language cannot disagree for long.
 
 ## How a page is checked
 
-A fenced block tagged `funl` (or `prolog`) is a program, and what follows it says what kind:
+A fenced block tagged `funl` (or `prolog`, or `lfunl`) is a program, and what follows it says what
+kind:
 
 - followed by an `output` block, it is run and must print exactly that;
 - followed by an `error` block, it must be refused — at compile time or by a fault — with a message
@@ -34,3 +35,10 @@ A fenced block tagged `funl` (or `prolog`) is a program, and what follows it say
 
 The claim for a program is the first `output` or `error` block after it and before the next program,
 so a page may put other blocks between a program and what it prints.
+
+A block tagged `lfunl` is a whole literate document, compiled exactly as `funl` compiles a `.lfunl`
+file. The word after `lfunl` is the document's file name (`document.lfunl` if there is none), and an
+`error` block quotes positions as lines and columns of the document itself. A literate document has
+fences of its own, so its outer fence is longer than any inside it — four backticks around inner
+fences of three — and the block ends only at a fence at least as long as the one that opened it,
+with nothing after it.

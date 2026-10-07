@@ -22,7 +22,11 @@ import sysl.text.{Search, replace_all, split, str_builder}
 //     required to contain that text;
 //   - a `funl` block with neither under it is a fragment, quoted for its shape, and is not run.
 //
-// A `prolog` block follows the same three rules and is loaded as a whole Prolog program.
+// A `prolog` block follows the same three rules and is loaded as a whole Prolog program, and an
+// `lfunl` block is a whole literate document, compiled exactly as the `funl` driver compiles a
+// `.lfunl` file. Its name is the word after `lfunl` (`document.lfunl` without one), so a diagnostic
+// in its `error` block names the document's own line and column. A document holds fences of its own,
+// so its outer fence is longer than any inside it, as Markdown has it.
 //
 // **A fragment is as unverified as the prose beside it and looks exactly like a checked block to a
 // reader.** `DocBlockCensus` is what keeps that hole from widening: the counts are written down per
@@ -41,26 +45,38 @@ private enum Claim
     // A fragment, quoted to make a point about shape. Nothing is asserted about it.
     Quoted
 
-// A fenced block as the markdown holds it: the word after the backticks, the body, and the line the
-// opening fence is on.
+// A fenced block as the markdown holds it: the word after the backticks, the word after that (or
+// `""`), the body, and the line the opening fence is on.
 private struct Fence
     lang: string
+    name: string
     body: string
     line: usize
 
 // One program block, with where it came from -- a failure names the page and the line of the block,
-// because a reader of the failure has only the page to go and fix.
+// because a reader of the failure has only the page to go and fix. `file` is the name the program is
+// compiled under: the page itself, or a literate document's own name.
 private struct Block
     page: string
     lang: string
     line: usize
+    file: string
     source: string
     claim: Claim
 
     display(self) -> string = s"${self.page}:${self.line}, ${self.lang} block"
 
 // Whether a fence's word makes it a program.
-private is_program(lang: string) -> bool = lang == "funl" || lang == "prolog"
+private is_program(lang: string) -> bool = lang == "funl" || lang == "prolog" || lang == "lfunl"
+
+// The name a literate block is compiled under when its fence names none.
+private const UnnamedDocument: string = "document.lfunl"
+
+// The name block fence `f` on `page` is compiled under.
+private file_of(page: string, f: Fence) -> string
+    if f.lang != "lfunl" then return page
+
+    if f.name == "" then UnnamedDocument else f.name
 
 // -- reading the pages -------------------------------------------------------------------------------
 
@@ -93,36 +109,54 @@ private pages_in(dir: string, out: *Buf[string])
 //
 // **Only a fence at the left margin opens a block.** An indented one is inside a list item or a
 // block quote, where the prose owns it.
+//
+// **A block is closed only by a fence at least as long as the one that opened it, with nothing after
+// it**, as in Markdown. So a block opened with four backticks holds three-backtick fences as text --
+// which is how a page quotes a literate document, fences and all.
 private fences_of(text: string) -> Buf[Fence]
     var out: Buf[Fence] = buf()
     val lines = split(text, "\n")
     var open = false
+    var length: usize = 0
     var lang = ""
+    var name = ""
     var at: usize = 0
     var body = str_builder()
 
     for i in 0..<lines.len
         val line = lines[i]
+        val ticks = backticks_at_start(line)
 
-        if line.starts_with("```")
-            if open
-                out.push(Fence(lang, body.finish(), at))
-                body = str_builder()
-                open = false
-            else
-                // The word after the backticks and nothing else.
-                val info = line.slice(3, line.len).trim()
-                val cut = info.index_of(" ")
-
-                lang = if cut.is_none() then info else info.slice(0, cut.unwrap())
-                at = i + 1
-                open = true
+        if open && ticks >= length && line.slice(ticks, line.len).trim() == ""
+            out.push(Fence(lang, name, body.finish(), at))
+            body = str_builder()
+            open = false
         elif open
             body.push(line)
             body.push("\n")
+        elif ticks >= 3
+            // The first two words after the backticks: the language, and a literate document's name.
+            val words = split(line.slice(ticks, line.len).trim(), " ")
+
+            lang = words[0]
+            name = if words.len > 1 then words[1] else ""
+            length = ticks
+            at = i + 1
+            open = true
 
     out
 end fences_of
+
+// How many backticks `line` starts with.
+private backticks_at_start(line: string) -> usize
+    var n: usize = 0
+
+    // Sliced from `n` onwards, never one byte at a time: the line may start with a character wider
+    // than a byte, and `n` is only ever past backticks.
+    while line.slice(n, line.len).starts_with("`")
+        n += 1
+
+    n
 
 // The program blocks of a page's `text`, each paired with what the page claims about it.
 private blocks_of_text(page: string, text: string) -> Buf[Block]
@@ -132,7 +166,8 @@ private blocks_of_text(page: string, text: string) -> Buf[Block]
     for i in 0..<fences.len()
         val f = fences.at(i)
 
-        if is_program(f.lang) then out.push(Block(page, f.lang, f.line, f.body, claim_after(fences, i + 1)))
+        if is_program(f.lang)
+            out.push(Block(page, f.lang, f.line, file_of(page, f), f.body, claim_after(fences, i + 1)))
 
     out
 
@@ -174,8 +209,19 @@ private loaded_block(page: string, text: string) -> Result[usize, string]
         Some(chunk) -> Ok(chunk)
         None -> Err(r.render(src))
 
-private built(is_funl: bool, page: string, text: string) -> Result[usize, string] =
-    if is_funl then compiled_block(page, text) else loaded_block(page, text)
+// Compile a literate block as the `funl` driver compiles a `.lfunl` file named `file`.
+private literate_block(file: string, text: string) -> Result[usize, string] = compile_text(file, text) match
+    Ready(at, _) -> Ok(at)
+    Refused(said) -> Err(said)
+    CannotRead(why) -> Err(why)
+
+private built(lang: string, file: string, text: string) -> Result[usize, string] =
+    if lang == "funl"
+        compiled_block(file, text)
+    elif lang == "lfunl"
+        literate_block(file, text)
+    else
+        loaded_block(file, text)
 
 // What running a block came to: what it printed, and how it ended -- `succeeded`, `failed`,
 // `fault: <message>`, or `assembly: <diagnostics>` for a program refused before it ran.
@@ -204,11 +250,11 @@ private cut_transcript(text: string) -> Ran
 // Run block `b` on a roomy heap and on one collected at every step, answering the run or the
 // complaint that the two disagreed.
 private run_block(b: Block) -> Result[Ran, string]
-    val page = b.page
+    val lang = b.lang
+    val file = b.file
     val source = b.source
-    val is_funl = b.lang == "funl"
-    val calm = roomy(() -> built(is_funl, page, source))
-    val tight = stressed(() -> built(is_funl, page, source))
+    val calm = roomy(() -> built(lang, file, source))
+    val tight = stressed(() -> built(lang, file, source))
 
     if calm.text != tight.text
         return Err(s"${b.display()}: it said something different on a heap collected at every step:\n" +
@@ -350,9 +396,9 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0\n" +
     "docs/reference/generators.md 18 5 0\n" +
     "docs/reference/numbers.md 13 6 0\n" +
     "docs/reference/regex.md 19 8 0\n" +
-    "docs/reference/relations.md 16 5 0\n" +
+    "docs/reference/relations.md 17 6 0\n" +
     "docs/reference/scanning.md 15 3 0\n" +
-    "docs/reference/source-files.md 0 0 0\n" +
+    "docs/reference/source-files.md 1 3 2\n" +
     "docs/reference/success-and-failure.md 8 2 0\n"
 
 // -- the runner itself -------------------------------------------------------------------------------
@@ -412,6 +458,52 @@ A_PROLOG_BLOCK_IS_LOADED_AND_RUN()
         "```prolog\n:- write(hello), nl.\n```\n\n```output\ngoodbye\n```\n"
 
     assert(complaints_about(text).starts_with("page.md:9, prolog block: what it printed is not what the page says."))
+
+// A literate document quoted on a page: four backticks outside, its own three-backtick fence inside.
+private val ShownDocument: string = "````lfunl\n# Doc\n\n    x = 'shown'\n\n```\nwrite( 'fenced' )\n```\n\n" +
+    "    write( x )\n````\n\n"
+
+@test
+A_LITERATE_BLOCK_RUNS_AS_A_DOCUMENT_AND_ITS_INNER_FENCE_IS_ITS_OWN()
+    // The inner fence neither ends the block nor runs: the document prints only what is indented.
+    val text = ShownDocument + "```output\nshown\n```\n"
+    val blocks = blocks_of_text("page.md", text)
+
+    assert_eq(census_line("page.md", blocks), "page.md 1 0 0")
+    assert_eq(blocks.at(0).file, "document.lfunl")
+    assert_eq(complaints_about(text), "")
+
+@test
+A_LITERATE_BLOCK_IS_REFUSED_AT_ITS_PLACE_IN_THE_DOCUMENT()
+    // The block's name and lines are the document's, not the page's and not the tangled program's.
+    val text = "Prose first.\n\n````lfunl mistake.lfunl\n# A mistake\n\n    x = 1\n    write( y )\n````\n\n" +
+        "```error\n`y` is not defined\n --> mistake.lfunl:4:12\n```\n"
+
+    assert_eq(complaints_about(text), "")
+
+    val misplaced = replace_all(text, ":4:12", ":4:8")
+
+    assert(complaints_about(misplaced).starts_with("page.md:3, lfunl block: it was refused, but not in the words"))
+
+@test
+A_LITERATE_BLOCK_THAT_PRINTS_OTHER_THAN_ITS_OUTPUT_BLOCK_IS_A_COMPLAINT()
+    val text = ShownDocument + "```output\nfenced\n```\n"
+
+    assert_eq(complaints_about(text), "page.md:1, lfunl block: what it printed is not what the page says.\n" +
+        "page:\n    fenced\n    \nprogram:\n    shown\n    \n")
+
+@test
+A_LITERATE_BLOCK_REFUSED_BY_THE_TANGLE_MATCHES_AN_ERROR_BLOCK()
+    val text = "````lfunl\n\twrite( 1 )\n````\n\n```error\na tab in the indentation of a literate file\n```\n"
+
+    assert_eq(complaints_about(text), "")
+
+@test
+A_LINE_STARTING_WITH_A_WIDE_CHARACTER_IS_READ_AS_PROSE()
+    val text = "— a dash first\n\n```funl\nwrite( 'é' )\n```\n\n“quoted”\n\n```output\né\n```\n"
+
+    assert_eq(census_line("page.md", blocks_of_text("page.md", text)), "page.md 1 0 0")
+    assert_eq(complaints_about(text), "")
 
 @test
 A_CLAIM_BELONGS_TO_THE_PROGRAM_BEFORE_IT_AND_NEVER_TO_AN_EARLIER_ONE()
