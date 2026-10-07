@@ -418,7 +418,7 @@ def q(x) :- p(x) & !
 ```
 
 ```error
-expected an expression
+a FunL relation has no cut
 ```
 
 ## Collecting all solutions
