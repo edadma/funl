@@ -145,6 +145,11 @@ evaluation_error(what: string, msg: string) -> Fault = raised(term1("evaluation_
 // SWI-Prolog raises it.
 format_error(msg: string) -> Fault = raised(term1("format", atom(msg)), msg)
 
+// An argument of the wrong kind for format directive `~D`: `format_argument_type(D, Culprit)`, as
+// SWI-Prolog raises it.
+format_argument_error(directive: string, culprit: Value, msg: string) -> Fault =
+    raised(term2("format_argument_type", atom(directive), culprit), msg)
+
 // An answer the machine has no way to hold: `representation_error(What)`.
 representation_error(what: string, msg: string) -> Fault = raised(term1("representation_error", atom(what)), msg)
 

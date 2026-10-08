@@ -127,6 +127,20 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
             out.push("cset(\"")
             out.push(p.set.text())
             out.push("\")")
+        Bytes(p) ->
+            // As `bytes` would make it, from the list of its bytes.
+            out.push("bytes([")
+
+            for i in 0..<p.b.len()
+                if i > 0 then out.push(", ")
+
+                out.push_int(long(p.b.at(i)))
+
+            out.push("])")
+        Handle(p) ->
+            out.push(if p.closed then "<closed " else "<")
+            out.push(handle_kind_name(p))
+            out.push(" handle>")
 end write_value
 
 // A map's entries, `key: value`, keys and values written as elements are.

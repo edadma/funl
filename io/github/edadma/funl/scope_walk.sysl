@@ -270,6 +270,7 @@ walk(w: *Walk, e: &Expr)
             for x in items.view()
                 walk(w, x)
         ScanE(s, body) -> walk_two(w, s, body)
+        CatchE(id, s, pat, guard, r) -> walk_catch(w, id, s, pat, guard, r)
         RegexE(_, _) -> ()
         SetElemE(c, k, x, _) ->
             walk_two(w, c, k)
@@ -683,6 +684,9 @@ hoist_expr(w: *Walk, e: &Expr)
             for x in items.view()
                 hoist_expr(w, x)
         ScanE(s, body) -> hoist_two(w, s, body)
+        CatchE(_, s, _, guard, r) ->
+            hoist_two(w, s, r)
+            hoist_maybe(w, guard)
         RegexE(_, _) -> ()
         SetElemE(c, k, x, _) ->
             hoist_two(w, c, k)

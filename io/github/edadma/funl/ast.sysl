@@ -196,6 +196,12 @@ enum ExprKind
     // its value is `e`'s. `x ?= e` is `x = x ? e`.
     ScanE(subject: &Expr, body: &Expr)
 
+    // `e catch p -> r`, `e catch p | g -> r`: `e`'s values, and where a fault is raised while `e` is
+    // evaluated -- or resumed -- the error term matched against `p`, `g` tried, and `r`'s values in
+    // place of `e`'s; a fault `p` or `g` refuses is raised again. `p`'s names are in block `id`, which
+    // also holds the slot the control-stack height is kept in (`catch.sysl`).
+    CatchE(id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr], recovery: &Expr)
+
     // `` `a(b|c)*` ``: a regex, read into its pattern tree, which numbers `groups` capture groups. It
     // matches at the scan position, and its value is the text it matched.
     RegexE(pat: &Pat, groups: usize)

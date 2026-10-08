@@ -30,6 +30,21 @@ struct NumObj
 struct CSetObj
     set: CharSet
 
+// A byte string's bytes, which nothing changes once it is made.
+struct BytesObj
+    b: Buf[u8]
+
+// A handle: the kind that made it (an index into `Vm.handle_kinds`), whether it has been closed, and
+// whatever the kind keeps in it. `res` is the native resource, owned by the handle and given back by
+// the kind's release hook; `n` is a word of state the kind uses as it likes (a position, a count);
+// `vals` are values the handle keeps alive, which the collector traces.
+struct HandleObj
+    kind: u32
+    closed: bool
+    res: *u8
+    n: long
+    vals: Buf[Value]
+
 struct CompoundObj
     functor: u32
     args: Buf[Value]
@@ -160,6 +175,23 @@ new_cset(set: CharSet) -> Result[Value, string]
     o.set = set
     v.allocated += set.wide.len() * sizeof(u32)
     Ok(CSet(o))
+
+// A byte string of `bytes`, which the new object takes.
+new_bytes(bytes: Buf[u8]) -> Result[Value, string]
+    val v = current()
+    val o: *BytesObj = ptr_cast(take(v, sizeof(BytesObj), &bytes_kind)?)
+
+    v.allocated += bytes.len()
+    o.b = bytes
+    Ok(Bytes(o))
+
+// A fresh, open handle of kind `kind`, holding no resource until its maker stores one.
+new_handle(kind: u32) -> Result[*HandleObj, string]
+    val v = current()
+    val o: *HandleObj = ptr_cast(take(v, sizeof(HandleObj), &handle_kind)?)
+
+    o.kind = kind
+    Ok(o)
 
 new_tuple(n: usize) -> Result[*TupleObj, string]
     val v = current()

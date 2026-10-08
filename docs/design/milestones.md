@@ -129,7 +129,8 @@ the module path and the tap all wait on.
 ## 9. Modules and native modules
 
 **Rests on:** [modules and native modules as slate does](modules.md) (user, 2026-10-08); **answers
-needed first:** the [open questions](modules.md#open-questions) 1–8.
+needed first:** none; the [eleven questions](modules.md#questions-decided) are decided, and the
+[prelude's four](modules.md#the-prelude--the-first-module-written-in-funl) are open.
 
 - Module files: `export`, the three import forms, `import * as`, the module as an immutable map,
   exports as a snapshot, once per machine; the refusals (a circle, a name not exported, a name
@@ -141,6 +142,11 @@ needed first:** the [open questions](modules.md#open-questions) 1–8.
 - `funl:fs`, `funl:json`, `funl:process`, `funl:time`, `funl:sqlite` in the core; `funl:http` behind
   the `http` feature, with `left_out_module`; a FunL `catch` before `funl:http`.
 - Packages: the manifest, the cache, the lock, `funl add`, `funl vendor`.
+- [The prelude](modules.md#the-prelude--the-first-module-written-in-funl), the first module written
+  in FunL: the Haskell-style list library as a source module carried in the binary and auto-imported
+  (shadowable by a program's own names), the natives for speed (`reverse`, `sort`, …), and the
+  `take`/`map`/`filter` rule of a collection in and a list out, a thunk in and a generator out; its
+  four open questions are answered first.
 
 **Done when:** every refusal and every module has unit tests whose programs are string literals (a
 test writes its module files to a scratch directory first); `sysl test .` and `sysl test .
@@ -151,7 +157,7 @@ names nothing beyond the system's own libraries and SQLite.
 ## 10. `async` and `await`
 
 **Rests on:** [`async` and `await` as slate does](modules.md#async-and-await) (user, 2026-10-08);
-milestone 9, whose native modules supply the I/O; **answers needed first:** open questions 9–11.
+milestone 9, whose native modules supply the I/O; **answers needed first:** none; decided questions 9–11 of [modules](modules.md#questions-decided).
 
 - Tasks: a parked `Machine` per suspended call, `start_async` from both call paths, `Await` parking
   with the promise left on the operand stack, every parked machine a collector root.

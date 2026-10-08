@@ -341,6 +341,74 @@ write( map(5, 0) )
 'map' wants a list and reached the integer 5
 ```
 
+## Bytes
+
+A **byte string** is an immutable run of bytes, each an integer from 0 to 255: binary data, as
+opposed to text. `bytes(c)` makes one from a collection of integers, and it prints as that call. It
+is indexed from 0 like every collection: `b(i)` is a byte, `b(r)` a slice of a range of indexes,
+`!b` and `x <- b` generate each byte in turn, and `b.length` counts them. An index that is not there
+fails, as it does for a list. `+` joins two byte strings.
+
+```funl
+b = bytes([104, 105, 255])
+write( b )
+write( b(0), b(2), b(1..2), b.length )
+write( [x | x <- b], b(3) | 'none' )
+write( b + bytes([0]), bytes(1..4) )
+```
+
+```output
+bytes([104, 105, 255])
+104, 255, bytes([105, 255]), 3
+[104, 105, 255], none
+bytes([104, 105, 255, 0]), bytes([1, 2, 3, 4])
+```
+
+Two byte strings are equal when they hold the same bytes, and they order byte by byte, a shorter one
+before a longer one it begins. `x is bytes` tests for one, and `in` looks for a byte.
+
+```funl
+write( bytes([1, 2]) == bytes([1, 2]), bytes([1, 2]) < bytes([1, 3]), bytes([1]) < bytes([1, 0]) )
+write( bytes([1]) is bytes, 'a' is bytes | 'not bytes' )
+write( 104 in bytes([104, 105]), {bytes([1]), bytes([1])} )
+```
+
+```output
+bytes([1, 2]), bytes([1, 3]), bytes([1, 0])
+bytes([1]), not bytes
+104, {bytes([1])}
+```
+
+A value that is not a byte is an error, and so is joining a byte string to anything but another.
+
+```funl
+write( bytes([1, 256]) )
+```
+
+```error
+a byte is an integer from 0 to 255, and 'bytes' was given the integer 256
+```
+
+```funl
+write( bytes([1]) + 'a' )
+```
+
+```error
+'+' joins a byte string to another, and was given the string 'a'
+```
+
+Text and bytes never turn into each other by themselves: `bytes(s)` encodes a string as UTF-8, and
+`decode(b)` reads UTF-8 back as a string ([Strings](strings.md#bytes-and-decode)).
+
+## Handles
+
+A **handle** is a live resource a built-in module gives a program -- an open connection, a
+statement, a running process. It is opaque: it prints as `<kind handle>`, is equal only to itself,
+and is reached only through its methods, called as `h.name(args)`. Every handle has `close()`, which
+gives the resource back at once; closing it again does nothing, and calling any other method of a
+closed handle is an error. A handle the program never closes is closed when nothing can reach it any
+more. `x is handle` tests for one.
+
 ## Records
 
 `data point(x, y)` declares a record constructor, and `data shape = circle(r) | square(s) | blank`
@@ -442,6 +510,8 @@ The type names are these:
 | `array` | `array(n)` |
 | `buffer` | `buffer()` |
 | `cset` | `cset('aeiou')`, `letters` |
+| `bytes` | a byte string, `bytes([1, 2])` |
+| `handle` | a resource a built-in module gives, such as an open connection |
 | `function` | a function or a lambda, and a constructor with fields |
 | `record` | a record, and any other compound term |
 | `undefined` | `undefined` |

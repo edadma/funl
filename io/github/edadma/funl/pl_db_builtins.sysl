@@ -135,7 +135,7 @@ private as_body(x: Value) -> Result[Option[Value], string]
         Compound(c) ->
             val n = atom_name(c.functor)
 
-            if c.args.len() != 2 || !(n == "," || n == ";" || n == "->" || n == "*->") then return Ok(Some(y))
+            if c.args.len() != 2 || !(n == "," || n == ";" || n == "|" || n == "->" || n == "*->") then return Ok(Some(y))
 
             val a = as_body(c.args.at(0))? match
                 Some(g) -> g

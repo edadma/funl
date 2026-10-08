@@ -1,0 +1,196 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.text.Search
+
+// Handles and native generators over them, through a kind registered by these tests alone: a
+// `counter` handle that owns a block of native memory and counts from 0 up to its limit.
+//
+// `counter(n)` makes one; its methods are `next()` (the next count, failing past the limit),
+// `limit()` and `skip(k)`. `count_up(n)` generates 0 to n-1 from a fresh counter per call.
+// `released()` answers how many counters have been released, and `collect()` runs the collector
+// now. Every program runs on both heaps.
+
+// process-wide for these tests: the counter kind's id on the VM being run, and how many counters
+// have been made and released since `with_counter` last installed it.
+private var counter_kind: u32 = 0
+private var counters_made: long = 0
+private var counters_released: long = 0
+
+// Install the counter kind and its builtins on the running VM, then compile `text`.
+private with_counter(text: string) -> Result[usize, string]
+    val v = current()
+
+    counters_made = 0
+    counters_released = 0
+    counter_kind = register_handle_kind(v, "counter", release_counter)
+    register(v, "counter", 1, make_counter)
+    register_stepping(v, "count_up", 1, start_count, step_count)
+    register(v, "released", 0, released_count)
+    register(v, "collect", 0, collect_here)
+    register_method(v, counter_kind, "next", 0, counter_next)
+    register_method(v, counter_kind, "limit", 0, counter_limit)
+    register_method(v, counter_kind, "skip", 1, counter_skip)
+    compiled_text(text)
+
+private counted(text: string) -> string = ran(() -> with_counter(text))
+
+// The native resource is a block of memory, given back exactly once.
+private release_counter(h: *HandleObj)
+    assert(h.res != null, "a counter was released twice")
+    free(h.res)
+    counters_released += 1
+
+// A fresh counter up to `n`: its position in `n` and its limit in `vals`.
+private new_counter(x: Value) -> Result[Value, Fault]
+    val limit = deref(x) match
+        Int(n) -> n
+        y -> return Err(kind_error(y, "integer", s"a counter counts up to an integer, not ${described(y)}"))
+
+    val h = new_handle(counter_kind)?
+
+    h.res = malloc(16)
+    h.vals.push(Int(limit))
+    counters_made += 1
+    Ok(Handle(h))
+
+private make_counter(base: usize, argc: usize) -> Result[Value, Fault] = new_counter(arg(base, 0))
+
+private counter_next(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val h = open_handle(base, 0, counter_kind, "'next'")?
+
+    val limit = h.vals.at(0) match
+        Int(n) -> n
+        _ -> 0
+
+    if h.n >= limit then return Ok(None)
+
+    h.n += 1
+    Ok(Some(Int(h.n - 1)))
+
+private counter_limit(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val h = open_handle(base, 0, counter_kind, "'limit'")?
+
+    Ok(Some(h.vals.at(0)))
+
+private counter_skip(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val h = open_handle(base, 0, counter_kind, "'skip'")?
+
+    deref(arg(base, 1)) match
+        Int(k) -> h.n += k
+        y -> return Err(kind_error(y, "integer", s"'skip' skips an integer count, not ${described(y)}"))
+
+    Ok(Some(Unit))
+
+// `count_up(n)`: nothing to count when `n` is not positive, so the call fails at once.
+private start_count(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    deref(arg(base, 0)) match
+        Int(n) -> if n <= 0 then return Ok(None)
+        _ -> ()
+
+    Ok(Some(new_counter(arg(base, 0))?))
+
+private step_count(h: *HandleObj) -> Result[Option[Value], Fault]
+    val limit = h.vals.at(0) match
+        Int(n) -> n
+        _ -> 0
+
+    if h.n >= limit then return Ok(None)
+
+    h.n += 1
+    Ok(Some(Int(h.n - 1)))
+
+private released_count(base: usize, argc: usize) -> Result[Value, Fault] = Ok(Int(counters_released))
+
+private collect_here(base: usize, argc: usize) -> Result[Value, Fault]
+    collect_now(current())
+    Ok(Unit)
+
+private faults_with(text: string, want: string)
+    val said = counted(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- handles -----------------------------------------------------------------------------------------
+
+@test
+A_HANDLE_IS_REACHED_THROUGH_ITS_KINDS_METHODS()
+    assert_eq(counted("val c = counter(3)\nwrite( c.next(), c.next(), c.limit() )\nc.skip(5)\nwrite( c )\n"),
+        "0, 1, 3\n<counter handle>\nsucceeded")
+
+@test
+A_METHOD_MAY_FAIL()
+    assert_eq(counted("val c = counter(1)\nc.next()\nwrite( c.next() | \"done\" )\nwrite( if c.next() then \"more\" else \"none\" )\n"),
+        "done\nnone\nsucceeded")
+
+@test
+A_METHOD_CALL_ON_ANYTHING_ELSE_CALLS_ITS_FIELD()
+    assert_eq(counted("def inc(x) = x + 1\nval m = {f: inc}\nwrite( m.f(2) )\nwrite( m.g(write(9)) | \"no g\" )\n"),
+        "3\nno g\nsucceeded")
+    faults_with("write( 3.f(1) )\n", "the integer 3 has no field 'f'")
+
+@test
+CLOSE_RELEASES_AT_ONCE_AND_AGAIN_DOES_NOTHING()
+    assert_eq(counted("val c = counter(2)\nwrite( released() )\nc.close()\nc.close()\nwrite( c, released() )\n"),
+        "0\n<closed counter handle>, 1\nsucceeded")
+
+@test
+A_METHOD_OF_A_CLOSED_HANDLE_IS_A_FAULT()
+    faults_with("val c = counter(2)\nc.close()\nwrite( c.next() )\n", "'next' was called on the handle <closed counter handle>")
+    faults_with("val c = counter(2)\nc.close()\nc.skip(1)\n", "'skip' was called on the handle <closed counter handle>")
+
+@test
+AN_UNKNOWN_METHOD_OR_A_WRONG_COUNT_IS_A_FAULT()
+    faults_with("val c = counter(2)\nwrite( c.frob() )\n", "the handle <counter handle> has no method 'frob'")
+    faults_with("val c = counter(2)\nwrite( c.skip() )\n", "'skip' of the handle <counter handle> takes 1 arguments and was given 0")
+    faults_with("val c = counter(2)\nc.close(1)\n", "takes no arguments and was given 1")
+    faults_with("val c = counter(2)\nwrite( c.limit )\n", "has no field 'limit'")
+
+@test
+A_HANDLE_IS_A_TYPE_AND_EQUAL_ONLY_TO_ITSELF()
+    assert_eq(counted("val c = counter(1)\nval d = counter(1)\nwrite( c is handle, 3 is handle | \"no\" )\nwrite( c == c | \"no\", c == d | \"no\" )\n"),
+        "<counter handle>, no\n<counter handle>, no\nsucceeded")
+    assert_eq(counted("val c = counter(1)\nval d = counter(1)\nwrite( if c ~ c then \"same\" else \"differ\", if c ~ d then \"same\" else \"differ\" )\n"),
+        "same, differ\nsucceeded")
+    assert_eq(counted("val c = counter(1)\nval d = counter(1)\nwrite( {c, d, c}.length )\n"), "2\nsucceeded")
+
+@test
+THE_FINALIZER_RELEASES_A_HANDLE_NOTHING_REACHES()
+    assert_eq(counted("counter(5)\ncounter(6)\ncollect()\nwrite( released() )\n"), "2\nsucceeded")
+
+    // What the program never closed, and the collector never reached, the heap's disposal releases.
+    counted("val c = counter(5)\nwrite( c.next() )\n")
+    assert_eq(counters_released, counters_made)
+
+// -- native generators over handles -----------------------------------------------------------------
+
+@test
+A_NATIVE_GENERATOR_STEPS_ITS_HANDLE_ON_BACKTRACKING()
+    assert_eq(counted("for x <- count_up(3) do write( x )\nwrite( [x * 10 | x <- count_up(4)] )\n"),
+        "0\n1\n2\n[0, 10, 20, 30]\nsucceeded")
+    assert_eq(counted("write( 2 < count_up(9) )\n"), "3\nsucceeded")
+
+@test
+RUNNING_OUT_IS_FAILURE_AND_RELEASES_AT_ONCE()
+    assert_eq(counted("every write( count_up(2) )\nwrite( released() )\nwrite( count_up(0) | \"empty\" )\nwrite( 9 < count_up(3) | \"none\", released() )\n"),
+        "0\n1\n1\nempty\nnone, 2\nsucceeded")
+
+@test
+EACH_CALL_STARTS_AFRESH()
+    assert_eq(counted("write( [(x, y) | x <- count_up(2), y <- count_up(2)] )\n"),
+        "[(0, 0), (0, 1), (1, 0), (1, 1)]\nsucceeded")
+    assert_eq(counted("def twice() = count_up(2)\nevery write( twice() )\nevery write( twice() )\n"),
+        "0\n1\n0\n1\nsucceeded")
+
+@test
+A_COMMIT_ABANDONS_THE_STATE_AND_THE_FINALIZER_RELEASES_IT()
+    assert_eq(counted("val x = 1 < count_up(9)\nwrite( x )\ncollect()\nwrite( released() )\n"), "2\n1\nsucceeded")
+
+    counted("write( count_up(9) )\n")
+    assert_eq(counters_released, counters_made)
+
+@test
+A_NATIVE_GENERATORS_ARGUMENT_IS_CHECKED_BY_ITS_START()
+    faults_with("write( count_up(\"a\") )\n", "a counter counts up to an integer, not the string 'a'")

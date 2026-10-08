@@ -229,12 +229,11 @@ private pl_univ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
         return unified(t, head)
 
+    // A name that is no atom, a compound among them, is `type_error(atom, H)` where arguments follow,
+    // as GNU Prolog and SWI-Prolog raise it.
     val f = atomic_name(head) match
         Some(f) -> f
-        None ->
-            if compound_parts(head).is_some() then return Err(type_error("atomic", head, s"=../2 wants an atomic name, and was given ${described(head)}"))
-
-            return Err(type_error("atom", head, s"=../2 names a compound by an atom, and was given ${described(head)}"))
+        None -> return Err(type_error("atom", head, s"=../2 names a compound by an atom, and was given ${described(head)}"))
 
     if long(items.len() - 1) > MaxArity then return Err(representation_error("max_arity", s"=../2 builds terms of at most $MaxArity arguments"))
 
@@ -357,17 +356,39 @@ end subsumes
 // `unifiable(X, Y, Unifier)`: `X` and `Y` unify, and `Unifier` is the list of `Var = Value` bindings
 // that unification makes. Binds nothing in `X` or `Y`.
 //
-// **The bindings are listed in the order unification made them**, which visits a compound's arguments
-// right to left: `unifiable(f(X, Y), f(a, b), U)` gives `U = [Y=b, X=a]`, the order SWI-Prolog lists
-// them in.
+// **The bindings are listed last made first**, as SWI-Prolog lists them: unification visits a
+// compound's arguments left to right and binds the younger of two variables to the older, so
+// `unifiable(f(X, Y), f(a, b), U)` gives `U = [Y=b, X=a]` and `unifiable(f(X, X), f(a, Y), U)` gives
+// `U = [Y=a, X=a]`. A variable given as either term whole is bound to the other: `unifiable(X, Y, U)`
+// gives `U = [X=Y]`.
 private pl_unifiable(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
-    val (ok, bound) = trial_unify(arg(base, 0), arg(base, 1))
+    val a = deref(arg(base, 0))
+    val b = deref(arg(base, 1))
+    var pairs: Buf[Value] = buf()
+
+    if is_unbound(a) || is_unbound(b)
+        val same = (a, b) match
+            (Var(p), Var(q)) -> p == q
+            _ -> false
+
+        if !same
+            var parts: Buf[Value] = buf()
+
+            parts.push(if is_unbound(a) then a else b)
+            parts.push(if is_unbound(a) then b else a)
+            pairs.push(build_compound(intern("="), parts)?)
+
+        return unified(arg(base, 2), list_of(&pairs, Nil)?)
+
+    val (ok, bound) = trial_unify(a, b)
 
     if !ok then return answer(false)
 
-    var pairs: Buf[Value] = buf()
+    var i = bound.len()
 
-    for i in 0..<bound.len()
+    while i > 0
+        i -= 1
+
         val (x, value) = bound.at(i)
         var parts: Buf[Value] = buf()
 

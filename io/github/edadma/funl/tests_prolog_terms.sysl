@@ -91,7 +91,8 @@ UNIV_RAISES_THE_ISO_ERRORS()
     assert_eq(holds("_ =.. [_, a]"), ok("instantiation_error"))
     assert_eq(holds("_ =.. []"), ok("domain_error(non_empty_list,[])"))
     assert_eq(holds("_ =.. foo"), ok("type_error(list,foo)"))
-    assert_eq(holds("_ =.. [f(a), b]"), ok("type_error(atomic,f(a))"))
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree: with arguments the name must be an atom.
+    assert_eq(holds("_ =.. [f(a), b]"), ok("type_error(atom,f(a))"))
     assert_eq(holds("_ =.. [f(a)]"), ok("type_error(atomic,f(a))"))
     assert_eq(holds("_ =.. [1, b]"), ok("type_error(atom,1)"))
 
@@ -147,6 +148,26 @@ UNIFIABLE_LISTS_THE_BINDINGS_WITHOUT_MAKING_THEM()
     assert_eq(gives("unifiable(f(a), f(a), X)"), ok("[]"))
     assert_eq(holds("unifiable(a, b, _)"), ok("no"))
     assert_eq(holds("A = f(A), B = f(B), unifiable(A, B, [])"), ok("yes"))
+
+@test
+THE_STANDARD_ORDER_PUTS_STRINGS_BEFORE_ATOMS_AND_THE_EMPTY_LIST_FIRST_AMONG_ATOMS()
+    // SWI-Prolog 10.0.2's order.
+    assert_eq(gives("msort([b, \"a\", 1.0, 1, \"b\", f(x), a, []], X)"), ok("[1.0,1,\"a\",\"b\",[],a,b,f(x)]"))
+    assert_eq(gives("msort([zebra, \"apple\", \"zoo\", apple], X)"), ok("[\"apple\",\"zoo\",apple,zebra]"))
+    assert_eq(gives("msort([a, [], !, '[]'], X)"), ok("[[],!,'[]',a]"))
+    assert_eq(gives("compare(X, \"z\", a)"), ok("<"))
+
+@test
+UNIFIABLE_LISTS_THE_BINDINGS_IN_SWI_PROLOGS_ORDER()
+    // SWI-Prolog 10.0.2's answers, each variable named by binding it afterwards.
+    assert_eq(gives("unifiable(X0, Y0, X), X0 = x, Y0 = y"), ok("[x=y]"))
+    assert_eq(gives("unifiable(Y0, X0, X), X0 = x, Y0 = y"), ok("[y=x]"))
+    assert_eq(gives("unifiable(f(Y0), X0, X), X0 = x, Y0 = y"), ok("[x=f(y)]"))
+    assert_eq(gives("unifiable(X0, X0, X)"), ok("[]"))
+    assert_eq(gives("unifiable(f(X0, Y0, Z0), f(Z0, X0, Y0), X), X0 = x, Y0 = y, Z0 = z"), ok("[y=x,z=x]"))
+    assert_eq(gives("unifiable(f(X0, X0), f(a, Y0), X), X0 = x, Y0 = y"), ok("[y=a,x=a]"))
+    assert_eq(gives("unifiable(f(X0, g(Y0)), f(g(Z0), X0), X), X0 = x, Y0 = y, Z0 = z"), ok("[z=y,x=g(z)]"))
+    assert_eq(gives("unifiable([X0, Y0], [Y0, a], X), X0 = x, Y0 = y"), ok("[x=a,y=x]"))
 
 @test
 DECIDED_IS_IDENTITY_OR_A_SURE_MISMATCH()

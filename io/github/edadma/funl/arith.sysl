@@ -76,6 +76,13 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], Fault]
         Add ->
             if is_seq(x) then return Ok(Some(list_add(x, y)?))
 
+            x match
+                Bytes(p) -> y match
+                    Bytes(q) -> return Ok(Some(bytes_concat(p, q)?))
+                    Var(_) -> return Err(unbound_operand(o))
+                    _ -> return Err(type_error("bytes", y, s"'+' joins a byte string to another, and was given ${described(y)}"))
+                _ -> ()
+
             if combines(x) then return Ok(Some(combined(x, y)?))
 
             if is_str(x) || is_str(y) then return Ok(Some(new_str(render(x) + render(y))?))
@@ -198,6 +205,8 @@ described(x: Value) -> string
         Range(_) -> s"the range ${render(x)}"
         Ctor(_) -> "a record constructor"
         CSet(_) -> "a cset"
+        Bytes(_) -> s"the byte string ${render(x)}"
+        Handle(_) -> s"the handle ${render(x)}"
         Var(_) -> "an unbound variable"
         y -> render(y)
 
@@ -209,8 +218,8 @@ private holds(o: BinOp, c: int) -> bool
         Gt -> c == 1
         _ -> c == 0 || c == 1
 
-// An ordering: numbers by value across kinds, exactly, and strings by their bytes. A NaN is in no
-// order with anything, so every ordering of one fails.
+// An ordering: numbers by value across kinds, exactly, and strings and byte strings by their bytes.
+// A NaN is in no order with anything, so every ordering of one fails.
 private ordered(o: BinOp, x: Value, y: Value) -> Result[Option[Value], Fault]
     val c: int = x match
         Int(n) -> y match
@@ -219,6 +228,9 @@ private ordered(o: BinOp, x: Value, y: Value) -> Result[Option[Value], Fault]
         Str(p) -> y match
             Str(q) -> if p.s < q.s then -1 elif p.s > q.s then 1 else 0
             _ -> return Err(mismatch(o, x, y, "string", y))
+        Bytes(p) -> y match
+            Bytes(q) -> bytes_order(p, q)
+            _ -> return Err(mismatch(o, x, y, "bytes", y))
         Var(_) -> return Err(unbound_operand(o))
         _ -> num_order(o, x, y)?
 

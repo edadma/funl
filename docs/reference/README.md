@@ -12,15 +12,15 @@ the language cannot disagree for long.
 
 | page | what it covers |
 |---|---|
-| [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out, catching faults |
 | [Generators](generators.md) | expressions with many values, backtracking, `!`, `\|`, `to`, ranges, `&`, searches, bounded expressions, `every`, `for`, `break`/`continue` and labels |
 | [Assignment and scope](assignment.md) | `=`, compound assignment, `++`/`--`, multiple assignment, `val` and `var`, block scope, reversible assignment `<-`, `in` and `not in` |
-| [Data](data.md) | tuples, lists, maps, sets, comprehensions, slices, arrays, buffers, maps with a default, records, `undefined`, types and `is` |
+| [Data](data.md) | tuples, lists, maps, sets, comprehensions, slices, arrays, buffers, maps with a default, byte strings, handles, records, `undefined`, types and `is` |
 | [Functions](functions.md) | `def`, lambdas, operator sections, clauses and guards, patterns, `where`, generator functions, `yield` and `return`, partial function literals |
 | [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max`; `sqrt`, `exp`, `log`, trigonometry, roundings, `pi` |
 | [Relations](relations.md) | logic variables, unification `~`, atoms, facts and rules, two-way head unification, calling between functions and relations, negation, `findall`/`bagof`/`setof` |
 | [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
-| [String functions](strings.md) | slices, `split`, `join`, `trim`, `trim_start`, `trim_end`, `upper`, `lower`, `replace`, the tests `starts_with`, `ends_with` and `contains`, and `find` outside a scan |
+| [String functions](strings.md) | slices, `split`, `join`, `trim`, `trim_start`, `trim_end`, `upper`, `lower`, `replace`, the tests `starts_with`, `ends_with` and `contains`, `find` outside a scan, and `bytes` and `decode` |
 | [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |
 | [Modules](modules.md) | a file is a module, `export`, `import { ... } from`, `import * as`, qualified names, imports resolved first and run once, exports as a snapshot, circles of imports, what Prolog sees of a module |
 | [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |

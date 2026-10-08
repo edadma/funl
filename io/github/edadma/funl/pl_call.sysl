@@ -90,7 +90,7 @@ private body_callable(x: Value) -> bool = deref(x) match
     Compound(c) ->
         val n = atom_name(c.functor)
 
-        if c.args.len() == 2 && (n == "," || n == ";" || n == "->" || n == "*->")
+        if c.args.len() == 2 && (n == "," || n == ";" || n == "|" || n == "->" || n == "*->")
             body_callable(c.args.at(0)) && body_callable(c.args.at(1))
         else
             true

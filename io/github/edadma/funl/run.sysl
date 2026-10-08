@@ -372,6 +372,23 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
                     v.stack.push(y)
                     Ok(Next)
                 None -> Ok(Fails)
+        MethodOf(name) ->
+            val x = pop(v)?
+
+            deref(x) match
+                Handle(_) ->
+                    v.stack.push(x)
+                    v.stack.push(Unit)
+                    return Ok(Next)
+                _ -> ()
+
+            field_of(x, name)? match
+                Some(y) ->
+                    v.stack.push(Unit)
+                    v.stack.push(y)
+                    Ok(Next)
+                None -> Ok(Fails)
+        CallMethod(name, argc, tail) -> Ok(fails_if(call_method(v, name, argc, tail)?))
         StoreBack(depth, slot) ->
             val x = pop(v)?
 
@@ -528,6 +545,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         ExitCatch(slot) ->
             exit_catch(v, slot)?
             Ok(Next)
+        PushTrap(to) ->
+            push_trap(v, to)
+            Ok(Next)
+        ExitTrap(slot) ->
+            exit_trap(v, slot)?
+            Ok(Next)
+        Rethrow -> Err(Thrown(pop(v)?))
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it
@@ -587,7 +611,7 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[unit, Fault]
     val go = n.how match
         Plain(g) -> g
         Constant(g) -> g
-        Generating(_) -> return Err(Broken(s"'${n.name}' may fail or generate, and is run by `NativeGen`"))
+        _ -> return Err(Broken(s"'${n.name}' may fail or generate, and is run by `NativeGen`"))
 
     val base = top - argc
     val answer = go(base, argc)?
@@ -606,6 +630,7 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
 
     val go = n.how match
         Generating(g) -> g
+        Stepping(start, step) -> return call_stepping(v, n.name, start, step, argc, top)
         _ -> return Err(Broken(s"'${n.name}' is not run by `NativeGen`"))
 
     val cursor = v.stack.at(top - 1) match
@@ -636,6 +661,45 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
             v.stack.truncate(base)
             v.stack.push(x)
             Ok(if unified_pairs(pairs) then Next else Fails)
+
+// Run a generator over a handle, its `argc` arguments under the cursor cell on top of the stack.
+//
+// **The cursor cell holds the call's state handle once it has one**: the first run finds `0` there,
+// has `start` make the handle, and stores it in the cell, so the collector sees it from then on --
+// on the stack while the call runs, and in the cells the choice point saves while it waits. Each
+// value `step` gives leaves a choice point that re-runs this instruction over the same cells, which
+// steps the same handle again. **Each call starts afresh**, since every call pushes its own `0`.
+// When `step` runs out the handle is closed at once and the call fails; a context that commits
+// abandons the choice point instead, and the finalizer closes the handle once nothing reaches it.
+// A state handle closed from outside -- by the handle it came from -- has nothing more to give.
+private call_stepping(v: *Vm, name: string, start: StartGo, step: StepGo, argc: usize, top: usize) -> Result[Flow, Fault]
+    val base = top - 1 - argc
+
+    val state = v.stack.at(top - 1) match
+        Int(_) ->
+            val made = start(base, argc)? match
+                Some(x) -> x
+                None -> return Ok(Fails)
+
+            v.stack.set(top - 1, made)
+            made
+        x -> x
+
+    val h = state match
+        Handle(p) -> p
+        _ -> return Err(Broken(s"'$name' keeps its state in something other than a handle"))
+
+    if h.closed then return Ok(Fails)
+
+    step(h)? match
+        Some(x) ->
+            push_choice(v, v.ip - 1)
+            v.stack.truncate(base)
+            v.stack.push(x)
+            Ok(Next)
+        None ->
+            close_handle(h)
+            Ok(Fails)
 
 // Whether every pair a generating builtin asked to unify does.
 private unified_pairs(pairs: Buf[Value]) -> bool

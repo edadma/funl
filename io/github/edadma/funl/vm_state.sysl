@@ -172,6 +172,11 @@ struct Vm
     // Whether every binding goes on the trail, however young its variable, so that a unification
     // tried only to see what it would bind can be taken back whole.
     trailing_all: bool
+
+    // -- handles (`handle.sysl`) ------------------------------------------------------------------------
+
+    // Every kind of handle registered, by the id a `HandleObj` carries.
+    handle_kinds: Buf[HandleKind]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -201,7 +206,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
         buf(), map(), buf(), buf(), buf(), map(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
-        rng(0, 0), false, (prompt) -> stdin_line(), "", false)
+        rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

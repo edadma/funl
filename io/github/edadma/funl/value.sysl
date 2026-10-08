@@ -81,6 +81,14 @@ enum Value
 
     // A set of characters, `cset('aeiou')`, `letters`: what `upto`, `many` and `any` look for.
     CSet(p: *CSetObj)
+
+    // An immutable string of bytes, each an integer from 0 to 255: what a binary file, a BLOB or a
+    // network body is before it is decoded as text. Two are equal when their bytes are.
+    Bytes(p: *BytesObj)
+
+    // A native resource -- a connection, a statement, an iterator's state -- opaque to the program
+    // and reached only through its kind's methods (`handle.sysl`). Equal only to itself.
+    Handle(p: *HandleObj)
 end Value
 
 // Follow bound variables until reaching something that is not one.

@@ -18,8 +18,8 @@ import sysl.text.{from_utf8_unchecked, is_char_boundary}
 // element has been produced has left nothing on the control stack.
 //
 // The cursor of `!c` is two cells: what is left of the collection, and a position in it. A list's
-// position stays 0 and its cell moves down the list; a tuple's, a set's, an array's, a buffer's and a
-// map's position is an index, a string's a byte offset and a range's its next element, the collection
+// position stays 0 and its cell moves down the list; a tuple's, a set's, an array's, a buffer's, a
+// byte string's and a map's position is an index, a string's a byte offset and a range's its next element, the collection
 // itself staying put. A map produces its entries as pairs `(key, value)`.
 
 // `GenStart`: the collection on top becomes its first cursor. Under `draw` (a binding `p <- e`) any
@@ -38,6 +38,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
         Cons(_) -> ()
         Tuple(_) -> ()
         Str(_) -> ()
+        Bytes(_) -> ()
         Set(_) -> ()
         MutSet(_) -> ()
         Array(_) -> ()
@@ -56,7 +57,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
                 v.stack.push(Int(0))
                 return Ok(())
 
-            val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map or a string, and was given ${described(c)}"
+            val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map, a string or a byte string, and was given ${described(c)}"
 
             return Err(type_error("collection", c, msg))
 
@@ -188,6 +189,17 @@ gen_next(v: *Vm) -> Result[bool, Fault]
             rest = v.stack.at(top - 2)
             next = long(end)
             spent = end == n
+        Bytes(p) ->
+            val n = long(p.b.len())
+
+            if at >= n
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = Int(long(p.b.at(usize(at))))
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next == n
         Var(_) -> return Err(instantiation_error("instantiation error: `!` reached an unbound tail of a list"))
         x -> return Err(type_error("list", x, s"`!` reached the end of a list that ends in ${described(x)} rather than `[]`"))
 

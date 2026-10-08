@@ -70,6 +70,25 @@ walk_comprehension(w: *Walk, id: usize, elem: &Expr, gens: Buf[ForGen], at: Span
     walk(w, elem)
     w.blk = outer
 
+// `e catch p | g -> r`: `e` is read where the `catch` is; `p` declares its names in a block of its
+// own, which `g` and `r` are read inside, and which holds the hidden slot the catch keeps its
+// control-stack height in.
+walk_catch(w: *Walk, id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr], recovery: &Expr)
+    walk(w, subject)
+
+    val outer = w.blk
+
+    w.blk = w.sc.open(outer)
+    w.res.blocks.put(id, w.blk)
+    w.sc.declare(w.blk, trap_name(id), pat.span, 0, false)
+    declare_pattern(w, pat, pat.span.end, false)
+    walk_maybe(w, guard)
+    walk(w, recovery)
+    w.blk = outer
+
+// The hidden name of the slot catch `id` keeps its control-stack height in.
+trap_name(id: usize) -> string = "$trap" + s"$id"
+
 // The hidden name of the slot comprehension `id` collects its values in, which no program can write.
 collected_name(id: usize) -> string = "$collected" + s"$id"
 

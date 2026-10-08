@@ -183,8 +183,8 @@ printed with the goal that raised it.
 **Every runtime error is an ISO error term**: `error(type_error(evaluable, foo/0), context(is/2,
 _))`, `error(instantiation_error, …)`, `error(existence_error(procedure, foo/2), …)`. FunL's own
 runtime errors are raised as the same terms, so a Prolog `catch` around a call into FunL catches a
-FunL type error. Whether FunL grows a `catch` of its own is a separate question this design leaves
-for the user; the machinery it would use is the `Catch` entry already here.
+FunL type error. FunL grows a `catch` of its own, slate's postfix `e catch err -> recovery` (decided,
+user, 2026-10-08, in [modules](modules.md#questions-decided)); it uses the `Catch` entry already here.
 
 ## Arithmetic and order
 
