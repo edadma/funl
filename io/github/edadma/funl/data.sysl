@@ -166,13 +166,13 @@ same_map(p: *MapObj, q: *MapObj) -> Result[bool, Fault]
 
 // -- reaching an element -------------------------------------------------------------------------------
 
-// The element key `key` names in `c`: `c(key)`, or `c[key]` when `bracket`. An array, a buffer, a list,
+// The element key `key` names in `c`, `c(key)`. An array, a buffer, a list,
 // a range, a tuple, a string or a record is indexed by an integer, and a record also by its field's
 // name; a map is looked up by its key. **`None` where there is nothing there** -- a key the map does not
 // hold, a field the record lacks, an index past the end -- which is failure, not an error. A key of
 // the wrong kind is still a type error. `c(r)` for a range `r` is a slice of a string, a list, a range,
 // a tuple, an array or a buffer, and a map's key like any other.
-element_get(c: Value, key: Value, bracket: bool) -> Result[Option[Value], Fault]
+element_get(c: Value, key: Value) -> Result[Option[Value], Fault]
     val x = deref(c)
 
     x match
@@ -188,17 +188,11 @@ element_get(c: Value, key: Value, bracket: bool) -> Result[Option[Value], Fault]
         _ -> ()
 
     // `c(r)` for a range `r` is a slice.
-    if !bracket
-        deref(key) match
-            Range(r) -> if sliceable(x) then return slice_of(x, r)
-            _ -> ()
+    deref(key) match
+        Range(r) -> if sliceable(x) then return slice_of(x, r)
+        _ -> ()
 
-    var i = integer(key)?
-
-    if bracket
-        position_of(x, i)? match
-            Some(p) -> i = p
-            None -> return Ok(None)
+    val i = integer(key)?
 
     x match
         Array(a) -> Ok(if in_range(i, a.items.len()) then Some(a.items.at(usize(i))) else None)
@@ -233,32 +227,6 @@ private checked_index(x: Value, i: long, n: usize) -> Result[usize, Fault]
         return Err(existence_error("index", Int(i), s"index $i is out of range for ${described(x)}, which has ${counted(n, "element")}"))
 
     Ok(usize(i))
-
-// Where position `i` of `x` is, counting from 0: `[i]` counts from 1, and from -1 at the end, so
-// position 0 is no element at all. `None` where there is no such position.
-private position_of(x: Value, i: long) -> Result[Option[long], Fault]
-    val endless = x match
-        Range(r) -> r.endless
-        _ -> false
-
-    if endless && i > 0 then return Ok(Some(i - 1))
-
-    val n = length_of(x)?
-
-    if i >= 1 && i <= n then return Ok(Some(i - 1))
-
-    if i <= -1 && i >= -n then return Ok(Some(n + i))
-
-    Ok(None)
-
-// Where position `i` of `x` is, for a store: no such position is an error.
-private position(x: Value, i: long) -> Result[long, Fault]
-    position_of(x, i)? match
-        Some(p) -> Ok(p)
-        None ->
-            val msg = s"position $i is out of range for ${described(x)}, which has ${counted(usize(length_of(x)?), "element")}: `[i]` counts from 1, and from -1 at the end"
-
-            Err(existence_error("index", Int(i), msg))
 
 // Which of a record's fields is called `name`. A term that unification or Prolog made is a record
 // when a constructor has its functor and number of fields, and its fields are that constructor's.
@@ -311,14 +279,14 @@ private named_key(m: *MapObj, n: string) -> Result[Option[Value], Fault]
 
 // -- writing an element --------------------------------------------------------------------------------
 
-// Write `x` into the element `key` names in `c` -- `c(key) = x`, or `c[key] = x` when `bracket` --
-// recording what it held on the trail when `back`, for failure to put back.
-element_set(c: Value, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, Fault]
+// Write `x` into the element `key` names in `c` -- `c(key) = x` -- recording what it held on the
+// trail when `back`, for failure to put back.
+element_set(c: Value, key: Value, x: Value, back: bool) -> Result[unit, Fault]
     val col = deref(c)
 
     col match
-        Array(a) -> set_item(col, a, key, bracket, x, back)
-        Buffer(a) -> set_item(col, a, key, bracket, x, back)
+        Array(a) -> set_item(col, a, key, x, back)
+        Buffer(a) -> set_item(col, a, key, x, back)
         MutMap(m) ->
             map_find(m, key)? match
                 Some(i) ->
@@ -345,11 +313,8 @@ element_set(c: Value, key: Value, bracket: bool, x: Value, back: bool) -> Result
             Err(type_error("mutable_collection", col, msg))
 end element_set
 
-private set_item(col: Value, a: *ArrayObj, key: Value, bracket: bool, x: Value, back: bool) -> Result[unit, Fault]
-    var i = integer(key)?
-
-    if bracket then i = position(col, i)?
-
+private set_item(col: Value, a: *ArrayObj, key: Value, x: Value, back: bool) -> Result[unit, Fault]
+    val i = integer(key)?
     val at = checked_index(col, i, a.items.len())?
 
     if back then trailed(col, Int(long(at)), a.items.at(at), true)
@@ -389,7 +354,7 @@ private put_item_back(a: *ArrayObj, key: Value, old: Value)
 
 // `SwapElems`: the two elements named by the top four cells -- a collection and a key, twice --
 // exchanged. False, with nothing exchanged, where either element is not there: the swap fails.
-swap_elements(v: *Vm, first: bool, second: bool) -> Result[bool, Fault]
+swap_elements(v: *Vm) -> Result[bool, Fault]
     val top = v.stack.len()
 
     if top < 4 then return Err(Broken("a swap wants two collections and two keys, and the stack holds fewer"))
@@ -399,16 +364,16 @@ swap_elements(v: *Vm, first: bool, second: bool) -> Result[bool, Fault]
     val c2 = v.stack.at(top - 2)
     val k2 = v.stack.at(top - 1)
 
-    val x1 = element_get(c1, k1, first)? match
+    val x1 = element_get(c1, k1)? match
         Some(x) -> x
         None -> return Ok(false)
 
-    val x2 = element_get(c2, k2, second)? match
+    val x2 = element_get(c2, k2)? match
         Some(x) -> x
         None -> return Ok(false)
 
-    element_set(c1, k1, first, x2, false)?
-    element_set(c2, k2, second, x1, false)?
+    element_set(c1, k1, x2, false)?
+    element_set(c2, k2, x1, false)?
     v.stack.truncate(top - 4)
     v.stack.push(Unit)
     Ok(true)
@@ -447,8 +412,8 @@ in_place(o: BinOp, held: Value, x: Value) -> Result[Value, Fault]
 
 // `UpdateElem`: `c(key) op= x`, the element read, combined with `x`, and written back; `None` when
 // the operation fails. An element holding a buffer or a mutable set is changed in place.
-update_element(c: Value, key: Value, bracket: bool, o: BinOp, x: Value) -> Result[Option[Value], Fault]
-    val held = element_get(c, key, bracket)? match
+update_element(c: Value, key: Value, o: BinOp, x: Value) -> Result[Option[Value], Fault]
+    val held = element_get(c, key)? match
         Some(h) -> h
         None -> return Ok(None)
 
@@ -456,7 +421,7 @@ update_element(c: Value, key: Value, bracket: bool, o: BinOp, x: Value) -> Resul
 
     arith(o, held, x)? match
         Some(y) ->
-            element_set(c, key, bracket, y, false)?
+            element_set(c, key, y, false)?
             Ok(Some(y))
         None -> Ok(None)
 

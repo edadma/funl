@@ -53,7 +53,7 @@ AN_ENDLESS_RANGE_IS_ITERATED_UNTIL_SOMETHING_STOPS_IT()
 // `a.. by k` is the endless range with a step: a lazy list made one element at a time.
 @test
 AN_ENDLESS_RANGE_TAKES_A_STEP()
-    assert_eq(ran_funl("val r = 1.. by 2\nval h:t = r\nwrite( r, h, t, r(3), r[2], 7 in r, 10.. by -3 )\nfor x <- r\n  if x > 7 then break\n  write( x )\nif 4 in r then write( #yes ) else write( #no )\nwrite( (0.. by -5)(2), -10 in 0.. by -5 )\n"),
+    assert_eq(ran_funl("val r = 1.. by 2\nval h:t = r\nwrite( r, h, t, r(3), r(1), 7 in r, 10.. by -3 )\nfor x <- r\n  if x > 7 then break\n  write( x )\nif 4 in r then write( #yes ) else write( #no )\nwrite( (0.. by -5)(2), -10 in 0.. by -5 )\n"),
         "1.. by 2, 1, 3.. by 2, 7, 3, 7, 10.. by -3\n1\n3\n5\n7\nno\n-10, -10\nsucceeded")
     assert_eq(unplaced(ran_funl("write( 1.. by 0 )\n")), "fault: main: a range from 1 by 0 would never move: a step cannot be zero")
     assert_eq(unplaced(ran_funl("write( (1.. by 2).length )\n")), "fault: main: the range 1.. by 2 has no end, and no length")

@@ -411,7 +411,7 @@ private set_global(k: Value, x: Value, back: bool, who: string) -> Result[Value,
                     None -> v.trail.push(Global(key, Undefined, false))
             _ -> ()
 
-    element_set(v.pl_globals, key, false, if back then x else copy_term(x)?, false)?
+    element_set(v.pl_globals, key, if back then x else copy_term(x)?, false)?
     Ok(Unit)
 
 // `nb_getval(K, V)` and `b_getval(K, V)`: `V` unifies with what `K` holds;

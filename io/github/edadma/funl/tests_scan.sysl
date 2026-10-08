@@ -82,7 +82,7 @@ A_NAMED_CSET_IS_NOT_CALLED()
 // Positions are characters, not bytes, forward and back.
 @test
 POSITIONS_COUNT_CHARACTERS()
-    assert_eq(ran_funl("write('héllo' ? (tab(3) & move(2)), '日本語' ? find('語'), 'héllo'[2], 'héllo'.length)\nwrite('héllo' ? (tab(0) & move(-4)), 'aé日' ? (tab(0) & tab(2)))\n"),
+    assert_eq(ran_funl("write('héllo' ? (tab(3) & move(2)), '日本語' ? find('語'), 'héllo'(1), 'héllo'.length)\nwrite('héllo' ? (tab(0) & move(-4)), 'aé日' ? (tab(0) & tab(2)))\n"),
         "ll, 3, é, 5\néllo, é日\nsucceeded")
 
 @test

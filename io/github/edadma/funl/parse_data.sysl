@@ -7,28 +7,27 @@ import sysl.buf.{Buf, buf}
 // declarations. Map and set literals are read with the other bracketed forms in `parse_expr.sysl`.
 
 // The element `target` names, given the value written into it -- with `=`, or with `<-` (`back`):
-// `name(k)`, `c(k)`, `c[k]` or `c.name`. `None` for a target that is not an element.
+// `name(k)`, `c(k)` or `c.name`. `None` for a target that is not an element.
 element_target(target: &Expr, value: &Expr, back: bool, at: Span) -> Option[&Expr]
     target.kind match
         CallE(n, ns, args) ->
             if args.len() != 1 then return None
 
-            Some(expr(SetElemE(expr(Ref(n), ns), args.at(0), false, value, back), at))
+            Some(expr(SetElemE(expr(Ref(n), ns), args.at(0), value, back), at))
         ApplyE(f, args) ->
             if args.len() != 1 then return None
 
-            Some(expr(SetElemE(f, args.at(0), false, value, back), at))
-        IndexE(c, k) -> Some(expr(SetElemE(c, k, true, value, back), at))
-        FieldE(c, n) -> Some(expr(SetElemE(c, expr(StrE(n), target.span), false, value, back), at))
+            Some(expr(SetElemE(f, args.at(0), value, back), at))
+        FieldE(c, n) -> Some(expr(SetElemE(c, expr(StrE(n), target.span), value, back), at))
         _ -> None
 
-// The element `target` names updated through `o` with `value`: `name(k) op= e`, `c(k) op= e`,
-// `c[k] op= e` or `c.name op= e`. `None` for a target that is not an element.
+// The element `target` names updated through `o` with `value`: `name(k) op= e`, `c(k) op= e` or
+// `c.name op= e`. `None` for a target that is not an element.
 element_update(target: &Expr, o: BinOp, value: &Expr, at: Span) -> Option[&Expr]
     element_target(target, value, false, at) match
         Some(x) ->
             x.kind match
-                SetElemE(c, k, bracket, _, _) -> Some(expr(UpdateElemE(c, k, bracket, o, value), at))
+                SetElemE(c, k, _, _) -> Some(expr(UpdateElemE(c, k, o, value), at))
                 _ -> None
         None -> None
 

@@ -180,17 +180,14 @@ enum ExprKind
     // `{a, b, ...}`: a set of the items' values.
     SetE(items: Buf[&Expr])
 
-    // `c[i]`: an element counted from 1, or from -1 at the end; for a map, the value under key `i`.
-    IndexE(c: &Expr, key: &Expr)
+    // An element written: `c(k) = e`, `c.name = e`, or with `<-` (`back`), when backtracking puts the
+    // old element back. `key` is the index, the map key, or the field's name as a string. Produces
+    // `e`'s value.
+    SetElemE(c: &Expr, key: &Expr, e: &Expr, back: bool)
 
-    // An element written: `c(k) = e`, `c.name = e`, `c[k] = e` (`bracket`), or with `<-` (`back`), when
-    // backtracking puts the old element back. `key` is the index, the map key, or the field's name as
-    // a string. Produces `e`'s value.
-    SetElemE(c: &Expr, key: &Expr, bracket: bool, e: &Expr, back: bool)
-
-    // `c(k) op= e`, `c.name op= e`, `c[k] op= e` (`bracket`): the collection and key made once, then
-    // each of `e`'s values combined into the element through `op`, which is stored and produced.
-    UpdateElemE(c: &Expr, key: &Expr, bracket: bool, op: BinOp, e: &Expr)
+    // `c(k) op= e`, `c.name op= e`: the collection and key made once, then each of `e`'s values
+    // combined into the element through `op`, which is stored and produced.
+    UpdateElemE(c: &Expr, key: &Expr, op: BinOp, e: &Expr)
 
     // `"text $name ${e} text"`: the parts in order, text and holes, each rendered and joined.
     InterpE(parts: Buf[&Expr])

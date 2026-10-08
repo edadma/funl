@@ -517,11 +517,16 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
         Dot -> return field(p, left)
         Is -> return type_name(p, left)
         LBracket ->
-            val key = parse_expr(p, 0)
+            // `c[i]` is not FunL: it is read through its `]` only to be refused with the spelling that is.
+            parse_expr(p, 0)
 
             if !p.expect(RBracket, "`]`") then p.skip_line()
 
-            return expr(IndexE(left, key), left.span.to(p.toks.previous()))
+            val at = left.span.to(p.toks.previous())
+
+            p.report.add(error(at, "`[...]` after a value is not indexing: an element is reached with `c(i)`, counting from 0")
+                .with_note("`c(i)` is the element at index `i`, `c(a..b)` a slice, and `m(k)` or `m.k` a map's value"))
+            return expr(BadE, at)
         PlusPlus -> return postfix_step(p, left, t.span, 1)
         MinusMinus -> return postfix_step(p, left, t.span, -1)
         Question ->

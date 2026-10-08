@@ -14,6 +14,23 @@ position, and every movement is undone when the program backtracks past it.
 A position falls between two characters. Position `1` is before the first character, and position
 `0` is after the last; a negative position counts back from the end. A scan starts at `1`.
 
+A position is not an element index. An index names a character and counts from `0`, so `s(0)` is
+the first character; a position names the gap before one, so the first character is the text
+between positions `1` and `2`:
+
+```funl
+val s = 'hello'
+write( s(0), s ? tab(2) )
+write( s(1), s ? (tab(2) & tab(3)) )
+write( s(4), s ? (tab(-1) & tab(0)) )
+```
+
+```output
+h, h
+e, e
+o, o
+```
+
 `move(n)` moves `n` characters and produces the text it passed over. `tab(i)` moves to position `i`
 and produces the text between. Each fails when the position it names is outside the subject.
 

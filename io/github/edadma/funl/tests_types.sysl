@@ -75,7 +75,7 @@ private ran_made_points(rest: string) -> string
 
 @test
 A_TERM_PROLOG_MADE_IN_A_RECORDS_SHAPE_IS_THAT_RECORD_AND_HAS_ITS_FIELDS()
-    assert_eq(ran_made_points("free p\nmade(p)\nwrite( p is point, p is record, p.x, p['y'], sum(p) )\n"),
+    assert_eq(ran_made_points("free p\nmade(p)\nwrite( p is point, p is record, p.x, p('y'), sum(p) )\n"),
         "point(1, 2), point(1, 2), 1, 2, 3\nsucceeded")
     assert_eq(ran_made_points("free p\nuniv(p)\nwrite( p is point, p.x, p.y, sum(p) )\n"), "point(3, 4), 3, 4, 7\nsucceeded")
     assert_eq(ran_made_points("free p\nbuilt(p)\nwrite( p is point, p.x, p.y, sum(p) )\n"), "point(5, 6), 5, 6, 11\nsucceeded")

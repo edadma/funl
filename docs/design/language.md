@@ -300,7 +300,7 @@ every counts( !split(text) ) += 1    ;; each word of the string text; a new word
 write( counts("zzz") )               ;; 0, and "zzz" is still not a key
 ```
 
-- **Reading a missing key gives the default and adds nothing**: `m(k)`, `m[k]` and `m.k` alike.
+- **Reading a missing key gives the default and adds nothing**: `m(k)` and `m.k` alike.
   `m.length` is still the size, since a collection's `length` is answered before the default.
 - **Assigning adds the key**, and an update such as `+=` or `-=` is a read and an assignment, so it
   starts from the default and adds the key.
@@ -325,7 +325,13 @@ write( counts("zzz") )               ;; 0, and "zzz" is still not a key
 > array's or buffer's slice is a copy, and a string is sliced by characters through its cursor. **A
 > slice naming any index that is not there fails**, as a single index does, rather than clamping; an
 > open-ended `a..` runs to the end and may start at the length. A map is not sliced: the range is a
-> key like any other. `c[r]` is not a slice and is refused.
+> key like any other.
+
+> **Decided (user, 2026-10-08) — how many ways are there to index?** **Decision: one.** An element
+> is `c(i)`, counting from 0, and `c(r)` is a slice; a map's value is `m(k)` or `m.k`. There is no
+> `c[i]`: brackets after a value are refused at compile time, with a message naming `c(i)`, counting
+> from 0. A negative index names no element, so `c(-1)` fails as an index past the end does.
+> Scanning's positions are a different thing and stay Icon's (see [String scanning](#string-scanning)).
 
 **`undefined` is the value of a declared variable that was never assigned**, and two prefix
 operators test it: `\x` succeeds if `x` is defined and `/x` if it is undefined. Both are
@@ -502,6 +508,12 @@ Alternation backtracks the position, which is the whole point:
 
 prints nothing for `"asdf,"` (there is nothing after the comma and no `.`), `z` for `"asdf,zxvc."`,
 and `asdf` for `"asdf."`. `line ?= e` scans `line` and assigns the result back to it.
+
+> **Decided (user, 2026-10-08) — scanning positions stay Icon's.** A position falls *between*
+> characters: `1` is before the first, `0` is the end, and a negative position counts back from the
+> end. This is what `tab`, `move`, `pos`, `upto`, `many`, `any`, `match` and `find` read and
+> produce, and it is not an element index: `s(0)` is the first character, `s ? tab(2)` the text
+> before position 2, which is the same character.
 
 ### Patterns inside scanning
 

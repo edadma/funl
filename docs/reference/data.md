@@ -139,6 +139,27 @@ write( 'done' )
 done
 ```
 
+A negative index names no element, so it fails as an index past the end does.
+
+```funl
+write( [3, 4, 5](-1) )
+write( 'done' )
+```
+
+```output
+done
+```
+
+Calling is the only way to index. Brackets after a value are refused:
+
+```funl
+write( [3, 4, 5][1] )
+```
+
+```error
+`[...]` after a value is not indexing: an element is reached with `c(i)`, counting from 0
+```
+
 ### Slices
 
 Called with a range, a string, a list, a range, a tuple, an array or a buffer gives its **slice**:

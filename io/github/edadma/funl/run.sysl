@@ -392,29 +392,20 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         MakeRecord(ctor, n) ->
             make_record(v, ctor, n)?
             Ok(Next)
-        Index ->
-            val key = pop(v)?
-            val c = pop(v)?
-
-            element_get(c, key, true)? match
-                Some(x) ->
-                    v.stack.push(x)
-                    Ok(Next)
-                None -> Ok(Fails)
-        StoreElem(bracket, back) ->
+        StoreElem(back) ->
             val x = pop(v)?
             val key = pop(v)?
             val c = pop(v)?
 
-            element_set(c, key, bracket, x, back)?
+            element_set(c, key, x, back)?
             v.stack.push(x)
             Ok(Next)
-        UpdateElem(bracket, o) ->
+        UpdateElem(o) ->
             val x = pop(v)?
             val key = pop(v)?
             val c = pop(v)?
 
-            update_element(c, key, bracket, o, x)? match
+            update_element(c, key, o, x)? match
                 Some(y) ->
                     v.stack.push(y)
                     Ok(Next)
@@ -424,8 +415,8 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             v.stack.push(in_place(o, slot_of(frame_up(v, depth)?, slot)?, x)?)
             Ok(Next)
-        SwapElems(first, second) ->
-            Ok(fails_if(swap_elements(v, first, second)?))
+        SwapElems ->
+            Ok(fails_if(swap_elements(v)?))
         Concat(n) ->
             concat(v, n)?
             Ok(Next)

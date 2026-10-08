@@ -288,9 +288,8 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         UndefE -> e.op(PushConst(e.constant(Undefined)))
         MapE(keys, vals) -> compile_map(e, c, keys, vals)?
         SetE(items) -> compile_set(e, c, items)?
-        IndexE(coll, k) -> binary(e, c, coll, k, Index)?
-        SetElemE(coll, k, bracket, a, back) -> compile_store(e, c, coll, k, bracket, a, back)?
-        UpdateElemE(coll, k, bracket, o, a) -> compile_update(e, c, coll, k, bracket, o, a)?
+        SetElemE(coll, k, a, back) -> compile_store(e, c, coll, k, a, back)?
+        UpdateElemE(coll, k, o, a) -> compile_update(e, c, coll, k, o, a)?
         InterpE(parts) -> compile_interp(e, c, parts)?
         ScanE(s, body) ->
             compile_value(e, c, s)?
@@ -551,7 +550,7 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
             // `name(k) = x` with `name` a variable writes into an element, as the resolver decided.
             if !fixed && writes_element(pat, c.meaning(call_name(pat), pat.span.start))
                 pat.kind match
-                    CallE(n, at, args) -> compile_store(e, c, expr(Ref(n), at), args.at(0), false, x, false)?
+                    CallE(n, at, args) -> compile_store(e, c, expr(Ref(n), at), args.at(0), x, false)?
                     _ -> ()
             else
                 compile_value(e, c, x)?

@@ -145,7 +145,7 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[bool, Fault]
             if argc != 1
                 return Err(domain_error("one_key", callee, s"${described(callee)} is indexed by one key, and was given $argc arguments"))
 
-            val found = element_get(callee, v.stack.at(n - 1), false)?
+            val found = element_get(callee, v.stack.at(n - 1))?
 
             v.stack.truncate(n - 2)
 

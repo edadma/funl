@@ -6,7 +6,6 @@ import sysl.buf.Buf
 //
 //     {k: v, ...}            k; v; ...; MakeMap(n)
 //     {a, b, ...}            a; b; ...; MakeSet(n)
-//     c[i]                   c; i; Index
 //     c(k) = e               c; k; e; StoreElem              -- `<-` trails the old element
 //     c(k) op= e             c; k; e; UpdateElem(op)
 //     "a $x b"               "a "; x; " b"; Concat(3)
@@ -43,48 +42,44 @@ compile_interp(e: *Emit, c: Ctx, parts: Buf[&Expr]) -> Result[unit, string]
     Ok(())
 
 // An element written: the collection, the key, the value, and the store.
-compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, bracket: bool, x: &Expr, back: bool) -> Result[unit, string]
+compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, x: &Expr, back: bool) -> Result[unit, string]
     compile_value(e, c, coll)?
     compile_value(e, c, key)?
     compile_value(e, c, x)?
-    e.op(StoreElem(bracket, back))
+    e.op(StoreElem(back))
     Ok(())
 
 // An element updated through an operator: the collection, the key, the operand, and the update.
-compile_update(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, bracket: bool, o: BinOp, x: &Expr) -> Result[unit, string]
+compile_update(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, o: BinOp, x: &Expr) -> Result[unit, string]
     compile_value(e, c, coll)?
     compile_value(e, c, key)?
     compile_value(e, c, x)?
-    e.op(UpdateElem(bracket, o))
+    e.op(UpdateElem(o))
     Ok(())
 
 // `swap(a, b)`: both elements' collections and keys, then the exchange.
 compile_swap(e: *Emit, c: Ctx, args: Buf[&Expr]) -> Result[unit, string]
     if args.len() != 2 then return Err("a swap the resolver refused reached the compiler")
 
-    val first = place(e, c, args.at(0))?
-    val second = place(e, c, args.at(1))?
+    place(e, c, args.at(0))?
+    place(e, c, args.at(1))?
 
-    e.op(SwapElems(first, second))
+    e.op(SwapElems)
     Ok(())
 
-// Push the collection and the key an element names; whether it counts from 1, `c[k]`.
-private place(e: *Emit, c: Ctx, a: &Expr) -> Result[bool, string]
+// Push the collection and the key an element names.
+private place(e: *Emit, c: Ctx, a: &Expr) -> Result[unit, string]
     a.kind match
         CallE(n, at, args) ->
             compile_value(e, c, expr(Ref(n), at))?
             compile_value(e, c, args.at(0))?
-            Ok(false)
+            Ok(())
         ApplyE(f, args) ->
             compile_value(e, c, f)?
             compile_value(e, c, args.at(0))?
-            Ok(false)
-        IndexE(coll, k) ->
-            compile_value(e, c, coll)?
-            compile_value(e, c, k)?
-            Ok(true)
+            Ok(())
         FieldE(coll, n) ->
             compile_value(e, c, coll)?
             compile_value(e, c, expr(StrE(n), a.span))?
-            Ok(false)
+            Ok(())
         _ -> Err("a swap of something that is not an element reached the compiler")

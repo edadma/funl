@@ -264,10 +264,9 @@ walk(w: *Walk, e: &Expr)
         SetE(items) ->
             for x in items.view()
                 walk(w, x)
-        IndexE(c, k) -> walk_two(w, c, k)
         ScanE(s, body) -> walk_two(w, s, body)
         RegexE(_, _) -> ()
-        SetElemE(c, k, _, x, _) ->
+        SetElemE(c, k, x, _) ->
             walk_two(w, c, k)
             walk(w, x)
         InterpE(parts) ->
@@ -372,7 +371,7 @@ walk(w: *Walk, e: &Expr)
             walk(w, x)
 
             if !changes_val(o, w.meaning(n, e.span.start)) then updated(w, n, e.span)
-        UpdateElemE(c, k, _, _, x) ->
+        UpdateElemE(c, k, _, x) ->
             walk_two(w, c, k)
             walk(w, x)
         StepE(n, _, _) -> updated(w, n, e.span)
@@ -633,13 +632,12 @@ hoist_expr(w: *Walk, e: &Expr)
         SetE(items) ->
             for x in items.view()
                 hoist_expr(w, x)
-        IndexE(c, k) -> hoist_two(w, c, k)
         ScanE(s, body) -> hoist_two(w, s, body)
         RegexE(_, _) -> ()
-        SetElemE(c, k, _, x, _) ->
+        SetElemE(c, k, x, _) ->
             hoist_two(w, c, k)
             hoist_expr(w, x)
-        UpdateElemE(c, k, _, _, x) ->
+        UpdateElemE(c, k, _, x) ->
             hoist_two(w, c, k)
             hoist_expr(w, x)
         InterpE(parts) ->

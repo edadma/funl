@@ -92,7 +92,7 @@ A_REAL_UNTIL_RANGE_COMPUTES_EACH_VALUE_FROM_THE_START()
 
 @test
 A_REAL_RANGE_IS_THE_SAME_INSIDE_AN_EXPRESSION()
-    val text = "val xs = [x | x <- 0 to 1 by 0.1]\nwrite( xs.length )\nwrite( xs[4] )\nwrite( xs[11] )\n"
+    val text = "val xs = [x | x <- 0 to 1 by 0.1]\nwrite( xs.length )\nwrite( xs(3) )\nwrite( xs(10) )\n"
 
     assert_eq(ran_funl(text), "11\n0.30000000000000004\n1.0\nsucceeded")
 

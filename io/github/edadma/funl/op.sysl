@@ -262,27 +262,23 @@ enum Op
     // Pop `n` values, the first deepest; push the record constructor `ctor` makes of them.
     MakeRecord(ctor: usize, n: usize)
 
-    // Pop a key, pop a collection; push `c[key]`, counting from 1.
-    Index
+    // Pop a value, a key and a collection; write the value into the element the key names, recording
+    // the old element on the trail when `back`; push the value.
+    StoreElem(back: bool)
 
-    // Pop a value, a key and a collection; write the value into the element the key names -- counting
-    // from 1 when `bracket` -- recording the old element on the trail when `back`; push the value.
-    StoreElem(bracket: bool, back: bool)
-
-    // Pop a value, a key and a collection; store `x op value` into the element the key names --
-    // counting from 1 when `bracket` -- `x` being what the element holds, and push it; or fail,
-    // leaving the element alone, for an ordering that does not hold. `+=` onto an element holding a
-    // buffer or a mutable set adds to it in place, as `Update` does.
-    UpdateElem(bracket: bool, o: BinOp)
+    // Pop a value, a key and a collection; store `x op value` into the element the key names, `x`
+    // being what the element holds, and push it; or fail, leaving the element alone, for an ordering
+    // that does not hold. `+=` onto an element holding a buffer or a mutable set adds to it in place,
+    // as `Update` does.
+    UpdateElem(o: BinOp)
 
     // Pop `x`; add it to (`+`) or take it out of (`-`) the buffer or mutable set slot `slot` of the
     // frame `depth` static links up holds, and push the collection: `b += x` and `s -= x` where the
     // name is a `val`, which nothing can assign.
     InPlace(depth: usize, slot: usize, o: BinOp)
 
-    // Pop a key and a collection twice; exchange the two elements they name, the first counting from
-    // 1 when `first`, the second when `second`; push `()`.
-    SwapElems(first: bool, second: bool)
+    // Pop a key and a collection twice; exchange the two elements they name; push `()`.
+    SwapElems
 
     // Pop `n` values, the first deepest; push the string of them rendered one after another.
     Concat(n: usize)
