@@ -77,7 +77,9 @@ CSETS_ARE_MADE_NAMED_AND_COMPARED()
 
 @test
 A_NAMED_CSET_IS_NOT_CALLED()
-    assert_eq(complaints("write(letters(1))\n"), "error 1:7 `letters` is a value, and is used without calling it\n")
+    assert_eq(complaints("write(letters(1))\n"), "")
+    faults_with("write(letters(1))\n", "a cset is not a function, and cannot be called")
+    faults_with("c = letters\nwrite(c(1))\n", "a cset is not a function, and cannot be called")
 
 // Positions are characters, not bytes, forward and back.
 @test

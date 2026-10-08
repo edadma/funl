@@ -273,7 +273,8 @@ if r.status != 0 then exit( 1 )
 so `|` gives the default.
 
 > **Built — what the sketch left open.** `args` is a value, as the sketch writes it: a constant
-> builtin (`register_constant`), the list of the driver's arguments after the program's name, which
+> builtin (`register_constant`), the list of the driver's arguments after the program's name (applying a constant, `args(0)`, is applying
+> its value, as it is for a variable holding the same value), which
 > `run_source` puts on the machine before compiling. `run(program, args?, options?)` captures both
 > streams and gives a map of `out`, `err` and exactly one of `status`, `signal` or `timed_out`, so the
 > two ways a child can end without a status are failures to read rather than sentinels; a program

@@ -32,11 +32,21 @@ ARGS_IS_THE_LIST_OF_WHAT_FOLLOWED_THE_PROGRAMS_NAME()
         "[\"one\", \"two words\"]\none\ntwo words\ntwo words\nsucceeded")
     assert_eq(given_args([], "write( args )\nxs = args\nwrite( xs(0) | #none )\n"), "[]\nnone\nsucceeded")
 
+// A constant builtin applied is its value applied: `args(i)` indexes the list as `xs(i)` does.
 @test
-ARGS_IS_A_VALUE_AND_CALLING_IT_IS_REFUSED()
-    assert_eq(complaints("import { args } from funl:process\nwrite( args() )\n"),
-        "error 2:8 `args` is a value, and is used without calling it\n")
+ARGS_APPLIED_INDEXES_THE_LIST()
+    assert_eq(given_args(["one", "two words"], "write( args(0), args(1) )\nxs = args\nwrite( xs(1) )\n"),
+        "one, two words\ntwo words\nsucceeded")
+    assert_eq(given_args(["a"], "write( args(1) | #none )\n"), "none\nsucceeded")
+    assert_eq(given_args(["a"], "write( args(1) )\n"), given_args(["a"], "xs = args\nwrite( xs(1) )\n"))
     assert_eq(ran_funl("import * as p from funl:process\nwrite( p.args )\n"), "[]\nsucceeded")
+
+@test
+A_CONSTANT_THAT_IS_NOT_APPLICABLE_FAULTS_AS_A_VARIABLE_DOES()
+    assert_eq(complaints("import { args } from funl:process\nwrite( args() )\n"), "")
+    assert(ran_funl("write( letters(1) )\n").contains("a cset is not a function, and cannot be called"), "constant")
+    assert(ran_funl("c = letters\nwrite( c(1) )\n").contains("a cset is not a function, and cannot be called"), "variable")
+    assert(ran_funl("import { args } from funl:process\nwrite( args() )\n").contains("indexed by one key"), "no index")
 
 @test
 ENV_READS_A_VARIABLE_AND_AN_UNSET_ONE_FAILS()

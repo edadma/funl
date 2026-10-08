@@ -498,7 +498,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/library/fs.md 13 2 0 0\n" +
     HttpCensus +
     "docs/library/json.md 7 1 0 0\n" +
-    "docs/library/process.md 13 4 0 0\n" +
+    "docs/library/process.md 14 4 0 0\n" +
     "docs/library/sqlite.md 10 1 0 0\n" +
     "docs/library/time.md 8 1 0 0\n"
 

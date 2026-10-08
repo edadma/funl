@@ -507,8 +507,14 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
         Unknown -> c.res.aliases.get(n)
         _ -> None
 
+    // A constant builtin applied is its value applied, as a variable holding that value is.
+    val constant = m match
+        Builtin(id) -> is_constant(id)
+        _ -> false
+
     m match
         Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
+        Builtin(id) -> if constant then push_builtin(e, id, n)?
         _ ->
             module_map match
                 Some(index) -> push_module_map(e, index)?
@@ -519,7 +525,7 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
 
     val argc = args.len()
 
-    if module_map.is_some()
+    if module_map.is_some() || constant
         e.op(if tail then TailCallValue(argc) else CallValue(argc))
 
         if tail then e.op(Return)
