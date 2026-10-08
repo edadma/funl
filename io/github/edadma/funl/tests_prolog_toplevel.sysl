@@ -54,6 +54,32 @@ ANYTHING_BUT_A_SEMICOLON_STOPS_AT_THE_ANSWER_GIVEN()
     assert_eq(session([], ["member(X, [a, b]).", "", "X = 1."]),
         "?- member(X, [a, b]).\nX = a\n\n?- X = 1.\nX = 1.\nstatus: 0")
 
+// The answers of the three below are swipl 10.0.2's for the same queries, character for character.
+@test
+AN_UNBOUND_VARIABLE_IN_AN_ANSWER_IS_NAMED_AS_SWI_PROLOG_NAMES_IT()
+    assert_eq(session([], ["X = f(Y).", "X = f(_).", "length(L, 2).", "copy_term(f(A, A, B), T).",
+            "copy_term(f(A, B, A, B), T), copy_term(g(C, D, D), U).", "copy_term([A, B, C], L), L = [_|T]."]),
+        "?- X = f(Y).\nX = f(Y).\n?- X = f(_).\nX = f(_).\n?- length(L, 2).\nL = [_, _].\n" +
+        "?- copy_term(f(A, A, B), T).\nT = f(_A, _A, _).\n" +
+        "?- copy_term(f(A, B, A, B), T), copy_term(g(C, D, D), U).\nT = f(_A, _B, _A, _B),\nU = g(_, _C, _C).\n" +
+        "?- copy_term([A, B, C], L), L = [_|T].\nL = [_, _A, _B],\nT = [_A, _B].\nstatus: 0")
+
+@test
+A_GENERATED_NAME_SKIPS_THE_QUERYS_OWN_AND_AN_UNDERSCORED_ONE_IS_KEPT()
+    assert_eq(session([], ["X = f(_A), copy_term(g(C, C), Y).", "_A = 1, copy_term(f(C, C), Y).", "X = f(_Y).",
+            "_X = 1.", "X = f(_G1, _G1)."]),
+        "?- X = f(_A), copy_term(g(C, C), Y).\nX = f(_A),\nY = g(_B, _B).\n" +
+        "?- _A = 1, copy_term(f(C, C), Y).\nY = f(_B, _B).\n?- X = f(_Y).\nX = f(_Y).\n?- _X = 1.\ntrue.\n" +
+        "?- X = f(_G1, _G1).\nX = f(_G1, _G1).\nstatus: 0")
+
+@test
+VARIABLES_WITH_ONE_VALUE_ARE_WRITTEN_AS_ONE_CHAIN()
+    assert_eq(session([], ["X = Y.", "X = Y, Y = Z.", "X = f(Y), Z = Y.", "X = f(A), Y = A, Z = A.", "X = a, Y = a.",
+            "X = Y, _Z = Y.", "X = f(Y), Y = _Z.", "X = Y, Z = W."]),
+        "?- X = Y.\nX = Y.\n?- X = Y, Y = Z.\nX = Y, Y = Z.\n?- X = f(Y), Z = Y.\nX = f(Z),\nY = Z.\n" +
+        "?- X = f(A), Y = A, Z = A.\nX = f(Z),\nA = Y, Y = Z.\n?- X = a, Y = a.\nX = Y, Y = a.\n" +
+        "?- X = Y, _Z = Y.\nX = Y, Y = _Z.\n?- X = f(Y), Y = _Z.\nX = f(_Z),\nY = _Z.\n?- X = Y, Z = W.\nX = Y,\nZ = W.\nstatus: 0")
+
 @test
 A_BINDING_THAT_IS_ITS_OWN_CYCLE_IS_WRITTEN_WITH_ITS_OWN_NAME()
     assert_eq(session([], ["X = f(X).", "X = [a | X].", "X = f(g(X))."]),
@@ -223,7 +249,8 @@ READ_TERM_NAMES_THE_VARIABLES_AND_FINDS_THE_SINGLETONS()
 @test
 READ_TERM_AT_THE_END_OF_THE_INPUT_GIVES_EMPTY_LISTS()
     assert_eq(session([], ["read_term(T, [variable_names(V), singletons(S)])."]),
-        "?- read_term(T, [variable_names(V), singletons(S)]).\nT = end_of_file,\nV = [],\nS = [].\nstatus: 0")
+        // As swipl 10.0.2 writes it: two variables with the same value are one chain.
+        "?- read_term(T, [variable_names(V), singletons(S)]).\nT = end_of_file,\nV = S, S = [].\nstatus: 0")
 
 @test
 READ_OF_TEXT_THAT_DOES_NOT_READ_IS_A_SYNTAX_ERROR_SAYING_WHERE()

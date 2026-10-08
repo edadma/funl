@@ -292,6 +292,12 @@ private library_text() -> string = raw"""
         '$ops'(P, T, Op, Ops),
         member(op(P, T, Op), Ops).
 
+    % -- Text -----------------------------------------------------------------------------------
+
+    % string_to_atom/2: SWI-Prolog's older spelling of atom_string/2, its arguments the other way.
+    string_to_atom(S, A) :-
+        atom_string(A, S).
+
     % -- Lists ----------------------------------------------------------------------------------
 
     append([], L, L).
