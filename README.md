@@ -27,7 +27,7 @@ With Homebrew:
 brew install edadma/tap/funl
 ```
 
-Or build from source. You need `sysl` 0.1.0-alpha.2 or later:
+Or build from source. You need `sysl` 0.1.0-alpha.4 or later:
 
 ```
 brew install sysl-lang/tap/sysl
@@ -89,6 +89,21 @@ aiden
 The complete example, with more relations and queries, is
 [`examples/family_tree.funl`](examples/family_tree.funl) (run it with `./funl/funl`). The same
 family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tree.pl).
+
+## What FunL brings with it
+
+- [`docs/library/`](docs/library/README.md) documents the modules, each imported by a name beginning
+  `funl:`: `funl:fs`, `funl:process`, `funl:json`, `funl:time`, `funl:sqlite`, `funl:async` and
+  `funl:http` (`fetch`, which needs libcurl on the machine). Prolog reaches them too.
+- The prelude is a list library every program sees: folds, `map` and the other transformers,
+  slicing, zipping, `any`, `all`, `elem` and `lookup`. A program's own names shadow it.
+- `async def` and `await` run tasks as parked machines on one loop, with promises from `funl:async`;
+  failure and backtracking carry across an `await`.
+- A builtin named without calling it is a function value, variadic ones included, and a generating
+  builtin still generates when called through the value.
+- A binding `x <- e` draws a string, a tuple or a map whole; `!` draws their parts.
+- Prolog reads and writes `1.0Inf` and `1.5NaN`, has SWI's `float_overflow`, `float_zero_div` and
+  `float_undefined` flags, and reads integers in any radix.
 
 ## More
 
