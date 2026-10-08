@@ -58,8 +58,9 @@ end install_fs
 // The exports of `funl:fs`.
 fs_exports() -> Buf[ModExport] = native_exports("fs", FsNames)
 
-// The exports of built-in module `owner`, each of `names` the native `owner.name`.
-private native_exports(owner: string, names: []const string) -> Buf[ModExport]
+// The exports of built-in module `owner`, each of `names` the native `owner.name`. Not `private`:
+// every native module's export list is made by it.
+native_exports(owner: string, names: []const string) -> Buf[ModExport]
     var out: Buf[ModExport] = buf()
 
     for n in names

@@ -12,3 +12,4 @@ on these pages is run by the test suite, exactly as the [reference](../reference
 | page | what it covers |
 |---|---|
 | [`funl:fs`](fs.md) | reading and writing whole files and bytes, the lines of a file and the names in a directory as generators, `exists`, `stat`, making, removing and renaming, paths, what fails and what faults, the module from Prolog |
+| [`funl:json`](json.md) | `parse` and `stringify`: JSON text read into maps, lists, strings, numbers, booleans and `undefined`, values written compactly or with an indent, what fails and what faults, the module from Prolog |

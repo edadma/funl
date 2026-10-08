@@ -97,6 +97,7 @@ builtin_modules() -> Buf[ModuleProvider]
     var out: Buf[ModuleProvider] = buf()
 
     out.push(ModuleProvider("fs", fs_exports))
+    out.push(ModuleProvider("json", json_exports))
     out
 
 // The provider of `funl:name`, if FunL has one.
@@ -574,35 +575,38 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
             ExNative(id) -> id
             _ -> continue
 
-        val arity = current().natives.at(id).arity
-        val key = pred_key(s"$name:${x.name}", arity + 1)
+        val nat = current().natives.at(id)
 
-        if pred_defined(key) then continue
+        // A builtin whose trailing arguments are optional is one predicate per count it takes.
+        for arity in nat.least..nat.arity
+            val key = pred_key(s"$name:${x.name}", arity + 1)
 
-        var e = emit(key)
+            if pred_defined(key) then continue
 
-        for k in 0..<arity
-            e.op(LoadArg(k))
+            var e = emit(key)
 
-        if is_generator(id)
-            e.op(PushInt(0))
-            e.op(NativeGen(id, arity))
-        else
-            e.op(Native(id, arity))
+            for k in 0..<arity
+                e.op(LoadArg(k))
 
-        e.op(LoadArg(arity))
-        e.op(Unify)
-        e.op(Pop)
-        e.op(PushUnit)
-        e.op(Return)
+            if is_generator(id)
+                e.op(PushInt(0))
+                e.op(NativeGen(id, arity))
+            else
+                e.op(Native(id, arity))
 
-        define_predicate(key, e, Origin(s"funl:$name", x.what)) match
-            Ok(_) -> ()
-            Err(m) ->
-                val now = refusal(why, report, Unreadable)
+            e.op(LoadArg(arity))
+            e.op(Unify)
+            e.op(Pop)
+            e.op(PushUnit)
+            e.op(Return)
 
-                report.add(error(at, s"the compiler failed: $m"))
-                return now
+            define_predicate(key, e, Origin(s"funl:$name", x.what)) match
+                Ok(_) -> ()
+                Err(m) ->
+                    val now = refusal(why, report, Unreadable)
+
+                    report.add(error(at, s"the compiler failed: $m"))
+                    return now
 
     why
 end prolog_builtin_module

@@ -594,7 +594,15 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
                     .with_label("called here"))
                 return
 
-            current().natives.at(id).arity
+            val nat = current().natives.at(id)
+
+            if nat.least != nat.arity
+                if !takes_count(nat, argc)
+                    w.report.add(error(at, s"`$n` takes ${takes_text(nat)}, and this call gives $argc"))
+
+                return
+
+            nat.arity
         Predicate(_) ->
             if !pred_defined(pred_key(n, argc))
                 w.report.add(error(at, s"the Prolog predicate `$n` has no clauses of ${counted(argc, "argument")}")

@@ -250,6 +250,13 @@ if not parse( "{oops" ) then write( #malformed )
 An object is a map, an array a list, `null` `undefined`. `sysl-lang/json` is pure sysl, with no C
 library, so it costs no link line.
 
+> **Built — what the sketch left open.** `stringify(v, indent)` lays the text out (0 to 16 spaces;
+> 0 is compact), so a native may take a bounded range of arguments (`register_between`), and Prolog
+> sees one predicate per count, `json:stringify/2` and `/3`. A list, a tuple, a range with an end, an
+> array and a buffer write as an array; a rational as the nearest real; a map's keys must be strings
+> (or atoms). Malformed text fails, as the third decided question says, so `parse` carries no
+> position; a function, a set, another atom, an endless range or a value holding itself faults.
+
 ### `funl:process` — core, over `sysl.process`, `sysl.env`, `sysl.args`
 
 ```

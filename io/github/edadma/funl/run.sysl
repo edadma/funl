@@ -597,7 +597,7 @@ private native_called(v: *Vm, id: usize, argc: usize, extra: usize) -> Result[Na
     val n = v.natives.at(id)
     val top = v.stack.len()
 
-    if n.arity != Variadic && argc != n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
+    if !takes_count(n, argc) then return Err(s"'${n.name}' takes ${takes_text(n)} and was given $argc")
 
     if argc + extra > top then return Err(s"'${n.name}' wants ${argc + extra} operands and the stack holds $top")
 
