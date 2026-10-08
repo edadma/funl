@@ -51,7 +51,7 @@ FUNL_EQUALITY_ENDS_ON_CYCLIC_TERMS()
 
 @test
 A_CYCLIC_TERMS_COPY_IS_CYCLIC_WITH_THE_SAME_SHAPE_AND_FRESH_VARIABLES()
-    assert_eq(gives("A = f(A), copy_term(A, X)"), ok("@(_S1,[_S1=f(_S1)])"))
+    assert_eq(gives("A = f(A), copy_term(A, X)"), ok("@(S_1,[S_1=f(S_1)])"))
     assert_eq(holds("X = f(X, Z), copy_term(X-Z, Y-W), Y = f(Y, W), W \\== Z"), ok("yes"))
 
 @test
@@ -62,7 +62,7 @@ GROUND_AND_TERM_VARIABLES_END_ON_CYCLIC_TERMS()
 
 @test
 UNIV_AND_FUNCTOR_TAKE_A_CYCLIC_TERM_APART()
-    assert_eq(gives("T = f(T), T =.. [F | As], functor(T, G, A), X = F/As/G/A"), ok("@(f/[_S1]/f/1,[_S1=f(_S1)])"))
+    assert_eq(gives("T = f(T), T =.. [F | As], functor(T, G, A), X = F/As/G/A"), ok("@(f/[S_1]/f/1,[S_1=f(S_1)])"))
 
 @test
 UNIFY_WITH_OCCURS_CHECK_REFUSES_TO_MAKE_A_CYCLIC_TERM()
@@ -81,18 +81,19 @@ A_CYCLIC_LIST_IS_NOT_A_LIST_AND_HAS_NO_LENGTH()
 
 @test
 WRITE_WRITES_A_CYCLIC_TERM_AS_A_TEMPLATE_AND_SUBSTITUTIONS()
+    // SWI-Prolog 10.0.2's text: `S_1` under numbervars, a variable for `write_canonical/1`.
     assert_eq(ran_prolog(":- X = f(X), write(X), nl, print(X), nl, writeq(X), nl, write_canonical(X), nl.\n"),
-        ok("@(_S1,[_S1=f(_S1)])\n@(_S1,[_S1=f(_S1)])\n@(_S1,[_S1=f(_S1)])\n@(_S1,[=(_S1,f(_S1))])"))
-    assert_eq(ran_prolog(":- X = f(Y), Y = g(Y), write(X), nl.\n"), ok("@(f(_S1),[_S1=g(_S1)])"))
+        ok("@(S_1,[S_1=f(S_1)])\n@(S_1,[S_1=f(S_1)])\n@(S_1,[S_1=f(S_1)])\n@(_S1,[=(_S1,f(_S1))])"))
+    assert_eq(ran_prolog(":- X = f(Y), Y = g(Y), write(X), nl.\n"), ok("@(f(S_1),[S_1=g(S_1)])"))
     assert_eq(ran_prolog(":- X = f(A, B), A = g(A), B = h(B, A), write(X), nl.\n"),
-        ok("@(f(_S1,_S2),[_S1=g(_S1),_S2=h(_S2,_S1)])"))
-    assert_eq(ran_prolog(":- X = [a, b | X], write(X), nl.\n"), ok("@(_S1,[_S1=[a,b|_S1]])"))
+        ok("@(f(S_1,S_2),[S_1=g(S_1),S_2=h(S_2,S_1)])"))
+    assert_eq(ran_prolog(":- X = [a, b | X], write(X), nl.\n"), ok("@(S_1,[S_1=[a,b|S_1]])"))
 
 @test
 A_CYCLIC_HEAD_IS_AN_OPERAND_THAT_NEEDS_NO_BRACKETS()
-    assert_eq(ran_prolog(":- X = 'A' + X, write(X), nl, writeq(X), nl.\n"), ok("@(_S1,[_S1=A+_S1])\n@(_S1,[_S1='A'+_S1])"))
-    assert_eq(ran_prolog(":- X = -X, write(X), nl.\n"), ok("@(_S1,[_S1= -_S1])"))
-    assert_eq(ran_prolog(":- X = (X + 1), write(X), nl.\n"), ok("@(_S1,[_S1=_S1+1])"))
+    assert_eq(ran_prolog(":- X = 'A' + X, write(X), nl, writeq(X), nl.\n"), ok("@(S_1,[S_1=A+S_1])\n@(S_1,[S_1='A'+S_1])"))
+    assert_eq(ran_prolog(":- X = -X, write(X), nl.\n"), ok("@(S_1,[S_1= -S_1])"))
+    assert_eq(ran_prolog(":- X = (X + 1), write(X), nl.\n"), ok("@(S_1,[S_1=S_1+1])"))
 
 @test
 FUNL_WRITES_A_CYCLIC_TERM_AS_A_TEMPLATE_AND_SUBSTITUTIONS()

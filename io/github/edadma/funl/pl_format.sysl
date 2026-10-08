@@ -8,7 +8,10 @@ import sysl.text.{char_from_u32, chars_of, str_builder}
 
 // Prolog's `format/1` and `format/2`, in SWI-Prolog's meaning.
 //
-// **The text is built whole and then written**, so a format that raises writes nothing. Column
+// **The text is built and then written**; a format that raises writes what it made before the
+// directive that failed, as SWI-Prolog does. A numeric directive (`~d ~D ~e ~f ~g ~r ~R ~*`) takes an
+// arithmetic expression and writes its value; an argument of the wrong kind is
+// `format_argument_type(Directive, Argument)`. Column
 // stops (`~t`, `~|`, `~+`) work on the text since the last stop: the fill points the segment holds
 // say where the padding goes, and the column the line is at when the call begins is what `~N|` and
 // `~N+` count from.
@@ -45,14 +48,22 @@ private pl_format(fmt: Value, args: Value) -> Result[Value, Fault]
     val cs = format_chars(fmt)?
     var p = Pen("", "", buf(), char_count(current().line), args_list(args)?, 0)
 
-    run(&p, cs)?
+    // What was made before a directive failed is written before the error is raised, as in
+    // SWI-Prolog.
+    run(&p, cs) match
+        Ok(_) -> ()
+        Err(e) ->
+            put_text(p.done + p.seg)
+            return Err(e)
+
+    put_text(p.done + p.seg)
 
     if p.next < p.args.len() then return Err(format_error("too many arguments"))
 
-    put_text(p.done + p.seg)
     Ok(Unit)
 
-// The arguments: a list is the list, and any other term is the one argument.
+// The arguments: a list is the list, and any other term is the one argument. A list not yet whole
+// is `type_error(list, L)`, as in SWI-Prolog.
 private args_list(a: Value) -> Result[Buf[Value], Fault]
     val x = deref(a)
 
@@ -60,7 +71,7 @@ private args_list(a: Value) -> Result[Buf[Value], Fault]
         Nil -> Ok(buf())
         Cons(_) ->
             if is_proper_list(x) then return list_items(x, "format/2")
-            if is_partial_list(x) then return list_items(x, "format/2")
+            if is_partial_list(x) then return Err(type_error("list", x, s"format's arguments are a list not yet whole: ${described(x)}"))
 
             single(x)
         _ -> single(x)
@@ -88,7 +99,11 @@ private format_text(x: Value) -> Result[string, Fault]
         Atom(id) -> Ok(atom_name(id))
         Nil -> Ok("")
         Str(p) -> Ok(p.s)
-        Cons(_) -> list_chars(y, "format/2")
+        // A list that does not spell text -- partial, or holding what is no character -- is
+        // `type_error(text, L)`, as in SWI-Prolog.
+        Cons(_) -> list_chars(y, "format/2") match
+            Ok(s) -> Ok(s)
+            Err(_) -> Err(type_error("text", y, s"format wants an atom, a string or a list of characters, and was given ${described(y)}"))
         Var(_) -> Err(instantiation_error("instantiation error: format was given an unbound format"))
         _ -> Err(type_error("text", y, s"format wants an atom, a string or a list of characters, and was given ${described(y)}"))
 
@@ -145,7 +160,7 @@ private run(p: *Pen, cs: Buf[char]) -> Result[unit, Fault]
             put(p, text_of_char(c))
             continue
 
-        if i >= cs.len() then return Err(format_error("truncated format specification"))
+        if i >= cs.len() then return Err(no_directive('\0'))
 
         // The numeric argument.
         var have = false
@@ -155,17 +170,17 @@ private run(p: *Pen, cs: Buf[char]) -> Result[unit, Fault]
         if first == '*'
             val x = take(p)?
 
-            x match
+            eval(x)? match
                 Int(k) ->
-                    if k < 0 then return Err(type_error("not_less_than_zero", x, "format's ~* wants a count that is not negative"))
+                    if k < 0 then return Err(format_argument_error("*", x, "format's ~* wants a count that is not negative"))
 
                     num = k
-                _ -> return Err(kind_error(x, "integer", s"format's ~* wants an integer, and was given ${described(x)}"))
+                _ -> return Err(format_argument_error("*", x, s"format's ~* wants an integer, and was given ${described(x)}"))
 
             have = true
             i += 1
         elif first == '`'
-            if i + 1 >= cs.len() then return Err(format_error("truncated format specification"))
+            if i + 1 >= cs.len() then return Err(no_directive('\0'))
 
             num = long(u32(cs.at(i + 1)))
             have = true
@@ -177,7 +192,11 @@ private run(p: *Pen, cs: Buf[char]) -> Result[unit, Fault]
 
             have = true
 
-        if i >= cs.len() then return Err(format_error("truncated format specification"))
+            // Digits that end the format name their last digit as the missing directive, as
+            // SWI-Prolog reports it.
+            if i >= cs.len() then return Err(no_directive(cs.at(i - 1)))
+
+        if i >= cs.len() then return Err(no_directive('\0'))
 
         val d = cs.at(i)
 
@@ -216,7 +235,7 @@ private directive(p: *Pen, d: char, have: bool, num: long) -> Result[unit, Fault
         val x = take(p)?
         val code = x match
             Int(k) -> k
-            _ -> return Err(kind_error(x, "integer", s"format's ~c wants a character code, and was given ${described(x)}"))
+            _ -> return Err(format_argument_error("c", x, s"format's ~c wants a character code, and was given ${described(x)}"))
         val ch = code_to_char(x, code)?
         var k = if have then num else 1
 
@@ -224,10 +243,12 @@ private directive(p: *Pen, d: char, have: bool, num: long) -> Result[unit, Fault
             put(p, text_of_char(ch))
             k -= 1
     elif d == 'r' || d == 'R'
-        if !have then return Err(format_error("~r requires a radix argument"))
-        if num < 2 || num > 36 then return Err(format_error("the radix of ~r must be between 2 and 36"))
+        // Without a numeric argument the radix is 8, as in SWI-Prolog.
+        val radix = if have then num else 8
 
-        put(p, radix_text(take(p)?, int(num), d == 'R')?)
+        if radix < 2 || radix > 36 then return Err(domain_error("radix", Int(radix), s"the radix of ~r is from 2 to 36, and was given $radix"))
+
+        put(p, radix_text(take(p)?, int(radix), d)?)
     elif d == '~'
         put(p, "~")
     elif d == 'i'
@@ -241,17 +262,24 @@ private directive(p: *Pen, d: char, have: bool, num: long) -> Result[unit, Fault
     elif d == '+'
         stop_at(p, p.stop + (if have then usize(num) else 8))
     else
-        return Err(existence_error("format_character", atom(text_of_char(d)), s"format has no directive ~${text_of_char(d)}"))
+        return Err(no_directive(d))
 
     Ok(())
 end directive
 
+// `~` followed by `d`, which names no directive: `existence_error(format_character, D)`. A format that
+// ends where a directive was due names the character `'\0'`, as SWI-Prolog does.
+private no_directive(d: char) -> Fault
+    val what = if d == '\0' then "format ends where a directive was due" else s"format has no directive ~${text_of_char(d)}"
+
+    existence_error("format_character", atom(text_of_char(d)), what)
+
 private code_to_char(x: Value, code: long) -> Result[char, Fault]
-    if code < 0 || code > 1114111 then return Err(type_error("character_code", x, s"format was given $code, which is not a character code"))
+    if code < 0 || code > 1114111 then return Err(format_argument_error("c", x, s"format was given $code, which is not a character code"))
 
     char_from_u32(u32(code)) match
         Some(c) -> Ok(c)
-        None -> Err(type_error("character_code", x, s"format was given $code, which is not a character code"))
+        None -> Err(format_argument_error("c", x, s"format was given $code, which is not a character code"))
 
 // Text onto the segment. A newline ends the line, so the column starts again after it.
 private put(p: *Pen, t: string)
@@ -332,33 +360,37 @@ private repeated(c: char, n: usize) -> string
     out.finish()
 
 // `~a`: the text of an atomic value.
+// `~a`: an atom or a string. Anything else, a number or `[]` among it, is
+// `format_argument_type(a, X)`, as in SWI-Prolog.
 private atomic_text(x: Value) -> Result[string, Fault]
     x match
         Atom(id) -> Ok(atom_name(id))
-        Nil -> Ok("[]")
         Str(p) -> Ok(p.s)
-        Var(_) -> Err(instantiation_error("instantiation error: format's ~a was given an unbound variable"))
-        _ ->
-            if is_num(x) then return Ok(written_number(x))
+        _ -> Err(format_argument_error("a", x, s"format's ~a wants an atom or a string, and was given ${described(x)}"))
 
-            Err(type_error("atomic", x, s"format's ~a wants an atomic value, and was given ${described(x)}"))
-
-// `~s`: a string, or a list of character codes or characters.
+// `~s`: a string, an atom, or a list of character codes or characters. Anything else is
+// `format_argument_type(s, X)`.
 private string_text(x: Value) -> Result[string, Fault]
     x match
         Str(p) -> Ok(p.s)
+        Atom(id) -> Ok(atom_name(id))
         Nil -> Ok("")
-        Cons(_) -> list_chars(x, "format's ~s")
-        Var(_) -> Err(instantiation_error("instantiation error: format's ~s was given an unbound variable"))
-        _ -> Err(type_error("text", x, s"format's ~s wants a string or a list of characters, and was given ${described(x)}"))
+        Cons(_) ->
+            list_chars(x, "format's ~s") match
+                Ok(s) -> Ok(s)
+                Err(_) -> Err(format_argument_error("s", x, s"format's ~s wants a list of characters or codes, and was given ${described(x)}"))
+        _ -> Err(format_argument_error("s", x, s"format's ~s wants a string or a list of characters, and was given ${described(x)}"))
 
-// `~Nd` and `~ND`: an integer, with a decimal point `places` digits from the right, and for `~D`
-// its integer part in groups of three.
+// `~Nd` and `~ND`: the integer expression `x` evaluates to, with a decimal point `places` digits from
+// the right, and for `~D` its integer part in groups of three. An expression whose value is not an
+// integer is `format_argument_type(d, X)`.
 private integer_text(x: Value, places: long, grouped: bool, d: char) -> Result[string, Fault]
-    if !is_int(x)
-        return Err(kind_error(x, "integer", s"format's ~${text_of_char(d)} wants an integer, and was given ${described(x)}"))
+    val n = eval(x)?
 
-    val whole = written_number(x)
+    if !is_int(n)
+        return Err(format_argument_error(text_of_char(d), x, s"format's ~${text_of_char(d)} wants an integer, and was given ${described(x)}"))
+
+    val whole = written_number(n)
     val neg = whole.bytes[0] == u8('-')
     var digits = if neg then whole[1..<whole.bytes.len] else whole
     val want = usize(places)
@@ -401,10 +433,10 @@ private grouped_text(digits: string) -> string
 
     out.finish()
 
-// `~Ne`, `~Nf` and `~Ng`: a number with `places` digits. An integer is written exactly by `~f`.
-private float_text(x: Value, kind: char, places: long) -> Result[string, Fault]
-    if !is_num(x)
-        return Err(kind_error(x, "number", s"format's ~${text_of_char(kind)} wants a number, and was given ${described(x)}"))
+// `~Ne`, `~Nf` and `~Ng`: the number expression `e` evaluates to, with `places` digits. An integer is
+// written exactly by `~f`.
+private float_text(e: Value, kind: char, places: long) -> Result[string, Fault]
+    val x = eval(e)?
 
     if places > 1000 then return Err(format_error("the precision of ~e, ~f and ~g is at most 1000"))
 
@@ -435,10 +467,13 @@ private real_text(kind: char, places: int, r: real) -> string
 
     b.finish()
 
-// `~Nr` and `~NR`: an integer in radix `radix`, in capitals for `~R`.
-private radix_text(x: Value, radix: int, capitals: bool) -> Result[string, Fault]
+// `~Nr` and `~NR`: the integer expression `e` evaluates to, in radix `radix`, in capitals for `~R`.
+private radix_text(e: Value, radix: int, d: char) -> Result[string, Fault]
+    val capitals = d == 'R'
+    val x = eval(e)?
+
     if !is_int(x)
-        return Err(kind_error(x, "integer", s"format's ~r wants an integer, and was given ${described(x)}"))
+        return Err(format_argument_error(text_of_char(d), e, s"format's ~${text_of_char(d)} wants an integer, and was given ${described(e)}"))
 
     val n = num_of(x).unwrap() match
         Number.Int(k) -> big.from_int(k)

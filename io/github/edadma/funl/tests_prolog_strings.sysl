@@ -4,6 +4,7 @@ module io.github.edadma.funl
 // The Prolog builtins over strings, with SWI-Prolog's meaning: `atom_string/2`, `string_chars/2`,
 // `string_codes/2`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`,
 // `upcase_atom/2`, `downcase_atom/2`, `string_upper/2` and `string_lower/2`, each with its errors.
+// Every expected answer is what SWI-Prolog 10.0.2 gives for the same goal.
 
 private ok(text: string) -> string = text + "\nsucceeded"
 
@@ -32,6 +33,9 @@ ATOM_STRING_GOES_BOTH_WAYS()
 ATOM_STRING_WANTS_ONE_SIDE_AND_AN_ATOMIC_ONE()
     assert_eq(holds("atom_string(_, _)"), ok("instantiation_error"))
     assert_eq(holds("atom_string(f(x), _)"), ok("type_error(atom,f(x))"))
+    assert_eq(holds("atom_string(_, f(x))"), ok("type_error(string,f(x))"))
+    assert_eq(holds("catch(atom_string(_, [0'h | _]), error(type_error(K, [104 | T]), _), true), K == string, var(T)"), ok("yes"))
+    assert_eq(gives("atom_string([], X)"), ok("\"\""))
 
 @test
 STRING_CHARS_AND_STRING_CODES_GO_BOTH_WAYS()
@@ -46,16 +50,15 @@ STRING_CHARS_AND_STRING_CODES_GO_BOTH_WAYS()
 STRING_CHARS_AND_STRING_CODES_REFUSE_WHAT_IS_NOT_TEXT()
     assert_eq(holds("string_chars(_, _)"), ok("instantiation_error"))
     assert_eq(holds("string_codes(_, [0'a | _])"), ok("instantiation_error"))
-    assert_eq(holds("string_chars(f(x), _)"), ok("type_error(string,f(x))"))
-    assert_eq(holds("string_chars(_, [ab])"), ok("type_error(character,ab)"))
+    assert_eq(holds("string_chars(f(x), _)"), ok("type_error(text,f(x))"))
+    assert_eq(holds("string_codes(f(x), _)"), ok("type_error(text,f(x))"))
+    assert_eq(holds("string_chars(_, [ab])"), ok("type_error(character_code,ab)"))
+    assert_eq(holds("string_chars(_, [a, bc])"), ok("type_error(character,bc)"))
     assert_eq(holds("string_codes(_, [f(x)])"), ok("type_error(character_code,f(x))"))
     assert_eq(holds("string_codes(_, [0'a, b])"), ok("type_error(character_code,b)"))
 
 @test
 STRING_BUILTINS_READ_CODE_LISTS_AND_CHARACTER_LISTS_AS_TEXT()
-    assert_eq(gives("string_concat([0'a], \"b\", X)"), ok("\"ab\""))
-    assert_eq(gives("string_concat([a], [b, c], X)"), ok("\"abc\""))
-    assert_eq(gives("string_concat(X, \"c\", [a, b, c])"), ok("\"ab\""))
     assert_eq(gives("atom_string(X, [h, i])"), ok("hi"))
     assert_eq(gives("atom_string(X, [0'h, 0'i])"), ok("hi"))
     assert_eq(holds("atom_string(hi, [h, i])"), ok("yes"))
@@ -68,25 +71,32 @@ STRING_BUILTINS_READ_CODE_LISTS_AND_CHARACTER_LISTS_AS_TEXT()
     assert_eq(gives("string_codes([h, i], X)"), ok("[104,105]"))
     assert_eq(gives("string_codes(X, [h, i])"), ok("\"hi\""))
     assert_eq(gives("string_chars(X, [0'h, 0'i])"), ok("\"hi\""))
-    assert_eq(gives("sub_string([a, b, c], 1, 1, _, X)"), ok("\"b\""))
-    assert_eq(gives("sub_string(\"abc\", X, _, _, [b])"), ok("1"))
-    assert_eq(gives("upcase_atom([0'a, 0'b], X)"), ok("'AB'"))
-    assert_eq(gives("downcase_atom([0'A], X)"), ok("a"))
-    assert_eq(gives("string_upper([a], X)"), ok("\"A\""))
-    assert_eq(gives("string_lower([0'A], X)"), ok("\"a\""))
+    assert_eq(gives("string_codes(X, \"hi\")"), ok("\"hi\""))
+
+@test
+STRING_CONCAT_SUB_STRING_AND_CASE_CONVERSION_TAKE_NO_LIST()
+    assert_eq(holds("string_concat([0'a], \"b\", _)"), ok("type_error(atomic,[97])"))
+    assert_eq(holds("string_concat([a], [b, c], _)"), ok("type_error(atomic,[a])"))
+    assert_eq(holds("string_concat(_, \"c\", [a, b, c])"), ok("type_error(atomic,[a,b,c])"))
+    assert_eq(holds("string_concat([a, b], c, _)"), ok("type_error(atomic,[a,b])"))
+    assert_eq(holds("string_concat([], a, _)"), ok("type_error(atom,[])"))
+    assert_eq(holds("sub_string([a, b, c], 1, 1, _, _)"), ok("type_error(string,[a,b,c])"))
+    assert_eq(holds("sub_string(\"abc\", _, _, _, [b])"), ok("type_error(string,[b])"))
+    assert_eq(holds("upcase_atom([0'a, 0'b], _)"), ok("type_error(atomic,[97,98])"))
+    assert_eq(holds("downcase_atom([0'A], _)"), ok("type_error(atomic,[65])"))
+    assert_eq(holds("string_upper([a], _)"), ok("type_error(atomic,[a])"))
+    assert_eq(holds("string_lower([0'A], _)"), ok("type_error(atomic,[65])"))
 
 @test
 TEXT_LISTS_THAT_ARE_PARTIAL_OR_HOLD_A_NON_CHARACTER_ARE_REFUSED()
     assert_eq(holds("string_length([0'a | _], _)"), ok("instantiation_error"))
-    assert_eq(holds("string_concat([a, _], b, _)"), ok("instantiation_error"))
-    assert_eq(holds("atom_string(_, [0'h | _])"), ok("instantiation_error"))
     assert_eq(holds("string_length([0'a, b], _)"), ok("type_error(character_code,b)"))
     assert_eq(holds("string_length([a, 0'b], _)"), ok("type_error(character,98)"))
-    assert_eq(holds("string_length([ab], _)"), ok("type_error(character,ab)"))
+    assert_eq(holds("string_length([ab], _)"), ok("type_error(character_code,ab)"))
     assert_eq(holds("split_string([f(x)], \"\", \"\", _)"), ok("type_error(character_code,f(x))"))
-    assert_eq(holds("upcase_atom([0'a | b], _)"), ok("type_error(atom,[97|b])"))
-    assert_eq(holds("string_upper([0'a | b], _)"), ok("type_error(string,[97|b])"))
-    assert_eq(holds("string_length([-1], _)"), ok("representation_error(character_code)"))
+    assert_eq(holds("upcase_atom([0'a | b], _)"), ok("type_error(atomic,[97|b])"))
+    assert_eq(holds("string_upper([0'a | b], _)"), ok("type_error(atomic,[97|b])"))
+    assert_eq(holds("string_length([-1], _)"), ok("type_error(character_code,-1)"))
 
 @test
 ISO_ATOM_BUILTINS_STILL_REFUSE_LISTS()
@@ -98,12 +108,41 @@ ISO_ATOM_BUILTINS_STILL_REFUSE_LISTS()
     assert_eq(holds("atom_codes(_, [a])"), ok("type_error(integer,a)"))
 
 @test
+ISO_TEXT_BUILTINS_READ_A_STRING_AS_ITS_TEXT()
+    assert_eq(gives("number_codes(X, \"12\")"), ok("12"))
+    assert_eq(gives("number_chars(X, \"12\")"), ok("12"))
+    assert_eq(gives("atom_codes(X, \"12\")"), ok("'12'"))
+    assert_eq(gives("atom_chars(X, \"ab\")"), ok("ab"))
+    assert_eq(holds("number_codes(_, \"foo\")"), ok("syntax_error(illegal_number)"))
+    assert_eq(gives("atom_concat(X, \"b\", ab)"), ok("a"))
+    assert_eq(holds("atom_concat(a, b, \"ab\")"), ok("yes"))
+    // ISO's error, as GNU Prolog 1.5.0 raises it; SWI-Prolog names the type `atomic`.
+    assert_eq(holds("atom_concat(a, b, f(x))"), ok("type_error(atom,f(x))"))
+    assert_eq(gives("sub_atom(abc, X, _, _, \"b\")"), ok("1"))
+    assert_eq(holds("sub_atom(abc, _, _, _, [b])"), ok("type_error(atom,[b])"))
+
+@test
+SUB_ATOM_AND_SUB_STRING_REFUSE_A_NEGATIVE_COUNT()
+    assert_eq(holds("sub_atom(abc, -1, _, _, _)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("sub_atom(abc, 1, -1, _, _)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("sub_atom(abc, _, _, -1, _)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("sub_string(\"abc\", -1, 1, _, _)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("sub_string(\"abc\", 1, _, -2, _)"), ok("domain_error(not_less_than_zero,-2)"))
+    assert_eq(holds("sub_atom(abc, 4, _, _, _)"), ok("no"))
+
+@test
+ATOM_NUMBER_ALLOWS_NO_LAYOUT_BEFORE_THE_NUMBER()
+    assert_eq(holds("atom_number(' 12', _)"), ok("no"))
+    assert_eq(holds("atom_number('12x', _)"), ok("no"))
+    assert_eq(gives("atom_number('0x1F', X)"), ok("31"))
+
+@test
 STRING_LENGTH_COUNTS_CHARACTERS()
     assert_eq(gives("string_length(\"héllo\", X)"), ok("5"))
     assert_eq(gives("string_length(abc, X)"), ok("3"))
     assert_eq(gives("string_length(\"\", X)"), ok("0"))
     assert_eq(holds("string_length(_, _)"), ok("instantiation_error"))
-    assert_eq(holds("string_length(f(x), _)"), ok("type_error(string,f(x))"))
+    assert_eq(holds("string_length(f(x), _)"), ok("type_error(text,f(x))"))
     assert_eq(holds("string_length(\"a\", a)"), ok("type_error(integer,a)"))
 
 @test
@@ -120,7 +159,7 @@ STRING_CONCAT_JOINS_AND_CUTS()
 STRING_CONCAT_REFUSES_WHAT_IS_NOT_TEXT()
     assert_eq(holds("string_concat(_, _, _)"), ok("instantiation_error"))
     assert_eq(holds("string_concat(a, _, _)"), ok("instantiation_error"))
-    assert_eq(holds("string_concat(f(x), a, _)"), ok("type_error(string,f(x))"))
+    assert_eq(holds("string_concat(f(x), a, _)"), ok("type_error(atomic,f(x))"))
 
 @test
 SUB_STRING_ENUMERATES_EVERY_PLACE()
@@ -160,7 +199,9 @@ SPLIT_STRING_REFUSES_WHAT_IS_NOT_TEXT()
     assert_eq(holds("split_string(_, \"\", \"\", _)"), ok("instantiation_error"))
     assert_eq(holds("split_string(\"a\", _, \"\", _)"), ok("instantiation_error"))
     assert_eq(holds("split_string(\"a\", \"\", _, _)"), ok("instantiation_error"))
-    assert_eq(holds("split_string(\"a\", f(x), \"\", _)"), ok("type_error(string,f(x))"))
+    assert_eq(holds("split_string(\"a\", f(x), \"\", _)"), ok("type_error(text,f(x))"))
+    assert_eq(holds("split_string(1, \"\", \"\", _)"), ok("type_error(text,1)"))
+    assert_eq(holds("split_string(\"abc\", 1, \"\", _)"), ok("type_error(text,1)"))
 
 @test
 CASE_CONVERSION_MAKES_ATOMS_OR_STRINGS()
@@ -175,6 +216,6 @@ CASE_CONVERSION_MAKES_ATOMS_OR_STRINGS()
 @test
 CASE_CONVERSION_REFUSES_WHAT_IS_NOT_TEXT()
     assert_eq(holds("upcase_atom(_, _)"), ok("instantiation_error"))
-    assert_eq(holds("downcase_atom(f(x), _)"), ok("type_error(atom,f(x))"))
+    assert_eq(holds("downcase_atom(f(x), _)"), ok("type_error(atomic,f(x))"))
     assert_eq(holds("string_upper(_, _)"), ok("instantiation_error"))
-    assert_eq(holds("string_lower(f(x), _)"), ok("type_error(string,f(x))"))
+    assert_eq(holds("string_lower(f(x), _)"), ok("type_error(atomic,f(x))"))

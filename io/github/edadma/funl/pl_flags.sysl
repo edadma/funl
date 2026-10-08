@@ -93,6 +93,11 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
     if read_only(name)
         return Err(permission_error("modify", "flag", f, s"$who: flag $name describes the machine and cannot be changed"))
 
+    // SWI-Prolog's own flag is a boolean, and refuses anything else as SWI-Prolog does; an ISO flag's
+    // wrong value is ISO's `domain_error(flag_value, Flag+Value)`.
+    if name == "prefer_rationals" && !settable(name, text)
+        return Err(type_error("bool", x, s"$who: flag $name is true or false, and was given ${render(x)}"))
+
     if !settable(name, text)
         var args: Buf[Value] = buf()
 
