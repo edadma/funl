@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 
 import sh.sysl.dal
-import sh.sysl.dal.Number
+import sh.sysl.dal.{Number, NumberError}
 import sysl.math.bigint.BigInt
 import sysl.math.bigint as big
 import sysl.math.{Float, checked_add, checked_mul, checked_sub}
@@ -104,11 +104,14 @@ eval(x: Value) -> Result[Value, Fault]
                 n -> Err(not_evaluable(name, n))
         _ -> Err(type_error("evaluable", y, s"${described(y)} is not an arithmetic expression"))
 
-// The evaluable atoms: `pi`, `e` and `epsilon`, the gap between 1.0 and the next double above it.
+// The evaluable atoms: `pi`, `e`, `epsilon`, the gap between 1.0 and the next double above it, and
+// SWI-Prolog's `inf` and `nan`, which are the infinity and the NaN whatever the float flags say.
 private constant(name: string) -> Result[Value, Fault]
     if name == "pi" then return Ok(Real(3.141592653589793))
     if name == "e" then return Ok(Real(2.718281828459045))
     if name == "epsilon" then return Ok(Real(2.220446049250313e-16))
+    if name == "inf" then return Ok(Real(real.infinity()))
+    if name == "nan" then return Ok(Real(real.nan()))
 
     Err(not_evaluable(name, 0))
 
@@ -126,9 +129,9 @@ private n_of(a: Value) -> Number = num_of(a).unwrap()
 private unary(name: string, a: Value) -> Result[Value, Fault]
     val p = prolog_policy()
 
-    if name == "-" then return num_answer1(p.neg(n_of(a)), name, a)
+    if name == "-" then return float_answer1(p.neg(n_of(a)), name, a)
     if name == "+" then return Ok(a)
-    if name == "abs" then return num_answer1(p.abs(n_of(a)), name, a)
+    if name == "abs" then return float_answer1(p.abs(n_of(a)), name, a)
 
     if name == "sign"
         val s = dal.sign(n_of(a))
@@ -177,34 +180,23 @@ private unary(name: string, a: Value) -> Result[Value, Fault]
     if name == "tanh" then return real_of(r.tanh(), name, a)
     if name == "asinh" then return real_of(r.asinh(), name, a)
 
-    // `acosh` wants at least 1, and `atanh` a number from -1 to 1.
-    if name == "acosh"
-        if r < 1.0 then return Err(evaluation_error("undefined", s"acosh(${render(a)}) has no value"))
-
-        return real_of(r.acosh(), name, a)
-
-    // `atanh(1)` and `atanh(-1)` are infinite, `float_overflow` as GNU Prolog and SWI-Prolog raise it.
-    if name == "atanh"
-        if r == -1.0 || r == 1.0 then return Err(evaluation_error("float_overflow", s"atanh(${render(a)}) is too large for a float"))
-        if r < -1.0 || r > 1.0 then return Err(evaluation_error("undefined", s"atanh(${render(a)}) has no value"))
-
-        return real_of(r.atanh(), name, a)
+    // `acosh` below 1 and `atanh` beyond -1 to 1 have no value, and `atanh(1)` and `atanh(-1)` are
+    // infinite, `float_overflow` as GNU Prolog and SWI-Prolog raise it: the double each comes to says
+    // which.
+    if name == "acosh" then return real_of(r.acosh(), name, a)
+    if name == "atanh" then return real_of(r.atanh(), name, a)
 
     // `cot(0)` has no value; `acot(x)` is the angle whose cotangent is `x`, so `acot(0)` is pi / 2.
     if name == "cot"
-        if r == 0.0 then return Err(evaluation_error("undefined", s"cot(${render(a)}) has no value"))
+        if r == 0.0 then return no_value(s"cot(${render(a)})")
 
         return real_of(1.0 / r.tan(), name, a)
 
     if name == "acot" then return real_of(1.0.atan2(r), name, a)
 
-    // The logarithm of 0 is `float_overflow`, as GNU Prolog and SWI-Prolog both raise it, and of a
-    // negative number has no value.
-    if name == "log" || name == "log2"
-        if r == 0.0 then return Err(evaluation_error("float_overflow", s"$name(${render(a)}) is too large for a float"))
-        if r < 0.0 then return Err(evaluation_error("undefined", s"$name(${render(a)}) has no value"))
-
-        return real_of(if name == "log" then r.ln() else r.log2(), name, a)
+    // The logarithm of 0 is minus infinity, `float_overflow` as GNU Prolog and SWI-Prolog both raise
+    // it, and of a negative number has no value.
+    if name == "log" || name == "log2" then return real_of(if name == "log" then r.ln() else r.log2(), name, a)
 
     Err(not_evaluable(name, 1))
 end unary
@@ -247,10 +239,10 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
 
     val p = prolog_policy()
 
-    if name == "+" then return num_answer(p.add(n_of(a), n_of(b)), name, a, b)
-    if name == "-" then return num_answer(p.sub(n_of(a), n_of(b)), name, a, b)
-    if name == "*" then return num_answer(p.mul(n_of(a), n_of(b)), name, a, b)
-    if name == "/" then return num_answer(p.div(n_of(a), n_of(b)), name, a, b)
+    if name == "+" then return float_answer(p.add(n_of(a), n_of(b)), name, a, b)
+    if name == "-" then return float_answer(p.sub(n_of(a), n_of(b)), name, a, b)
+    if name == "*" then return float_answer(p.mul(n_of(a), n_of(b)), name, a, b)
+    if name == "/" then return float_answer(p.div(n_of(a), n_of(b)), name, a, b)
     if name == "//" then return num_answer(p.quot(n_of(a), n_of(b)), name, a, b)
     if name == "mod" then return num_answer(p.modulo(n_of(a), n_of(b)), name, a, b)
     if name == "rem" then return num_answer(p.rem(n_of(a), n_of(b)), name, a, b)
@@ -264,23 +256,34 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
 
         return num_answer(dal.iso_prolog(true).div(n_of(a), n_of(b)), name, a, b)
 
-    // Of two equal numbers of different kinds, the first.
-    if name == "min" then return Ok(if dal.compare(n_of(b), n_of(a)) == Some(-1) then b else a)
-    if name == "max" then return Ok(if dal.compare(n_of(b), n_of(a)) == Some(1) then b else a)
+    // Of two equal numbers of different kinds, the first; of a NaN and anything, the NaN, as in
+    // SWI-Prolog.
+    if name == "min" || name == "max"
+        if is_nan_value(a) then return Ok(a)
+        if is_nan_value(b) then return Ok(b)
+
+        val want: int = if name == "min" then -1 else 1
+
+        return Ok(if dal.compare(n_of(b), n_of(a)) == Some(want) then b else a)
 
     // `^` is the exact power on two integers and a float one where either is a float; `**` is
     // always a float.
     if name == "^"
-        if is_float(a) || is_float(b) then return real_of2(dal.to_real(n_of(a)).pow(dal.to_real(n_of(b))), name, a, b)
+        if is_float(a) || is_float(b) then return power(a, b, name)
 
         // A fractional exponent is the culprit when there is one, and the base otherwise.
         val blamed = if is_int(b) then a else b
 
         return p.pow(n_of(a), n_of(b)) match
             Ok(n) -> num_result(Ok(n), "", blamed)
-            Err(e) -> Err(num_fault(e, s"${render(a)} ^ ${render(b)}", blamed))
+            Err(e) ->
+                // `0 ^ -1` divides by zero, and is infinite under `float_zero_div`, as in SWI-Prolog.
+                if divides_by_zero(e) && current().flags.float_zero_div == "infinity"
+                    return Ok(Real(dal.to_real(n_of(a)).pow(dal.to_real(n_of(b)))))
 
-    if name == "**" then return real_of2(dal.to_real(n_of(a)).pow(dal.to_real(n_of(b))), name, a, b)
+                Err(num_fault(e, s"${render(a)} ^ ${render(b)}", blamed))
+
+    if name == "**" then return power(a, b, name)
 
     if name == "atan2" || name == "atan"
         val y = dal.to_real(n_of(a))
@@ -294,7 +297,7 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
         val base = dal.to_real(n_of(a))
         val x = dal.to_real(n_of(b))
 
-        if base <= 0.0 || base == 1.0 || x <= 0.0 then return Err(evaluation_error("undefined", s"log(${render(a)}, ${render(b)}) has no value"))
+        if base <= 0.0 || base == 1.0 || x <= 0.0 then return no_value(s"log(${render(a)}, ${render(b)})")
 
         return real_of2(x.ln() / base.ln(), name, a, b)
 
@@ -337,18 +340,100 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
     Err(not_evaluable(name, 2))
 end binary
 
-// A double as the answer of `name(a)`: a finite one is a float, an infinite one
-// `evaluation_error(float_overflow)` and a NaN `evaluation_error(undefined)`. The message is
-// written only for a refusal.
+// A double as the answer of `name(a)`: a finite one is a float, and one that is not is what the
+// float flags make of it (`non_finite`). The message is written only for a refusal.
 private real_of(r: real, name: string, a: Value) -> Result[Value, Fault] =
-    if r.is_finite() then Ok(Real(r)) else real_refused(r, s"$name(${render(a)})")
+    if r.is_finite() then Ok(Real(r)) else non_finite(r, false, s"$name(${render(a)})")
 
 // A double as the answer of `a name b`, likewise.
 private real_of2(r: real, name: string, a: Value, b: Value) -> Result[Value, Fault] =
-    if r.is_finite() then Ok(Real(r)) else real_refused(r, s"${render(a)} $name ${render(b)}")
+    if r.is_finite() then Ok(Real(r)) else non_finite(r, false, s"${render(a)} $name ${render(b)}")
 
-private real_refused(r: real, what: string) -> Result[Value, Fault] =
-    num_result(prolog_policy().admit(Number.Real(r)), what, Real(r))
+// `a ** b`, or `a ^ b` with a float among them: a float, where a zero base with a negative exponent
+// divides by zero, as SWI-Prolog has it.
+private power(a: Value, b: Value, name: string) -> Result[Value, Fault]
+    val x = dal.to_real(n_of(a))
+    val y = dal.to_real(n_of(b))
+    val r = x.pow(y)
+
+    if r.is_finite() then return Ok(Real(r))
+
+    non_finite(r, x == 0.0 && y < 0.0, s"${render(a)} $name ${render(b)}")
+
+// A double that is not finite, as SWI-Prolog's three float flags have it: a NaN is
+// `evaluation_error(undefined)`, or itself under `float_undefined` `nan`; an infinity that comes of
+// dividing by zero (`by_zero`) is `evaluation_error(zero_divisor)`, or itself under
+// `float_zero_div` `infinity`; and any other infinity `evaluation_error(float_overflow)`, or itself
+// under `float_overflow` `infinity`. `what` is the operation as a refusal's message shows it.
+private non_finite(r: real, by_zero: bool, what: string) -> Result[Value, Fault]
+    val f = current().flags
+
+    if r.is_finite() then return Ok(Real(r))
+
+    if r.is_nan()
+        if f.float_undefined == "nan" then return Ok(Real(r))
+
+        return Err(evaluation_error("undefined", s"$what has no value"))
+
+    if by_zero
+        if f.float_zero_div == "infinity" then return Ok(Real(r))
+
+        return Err(evaluation_error("zero_divisor", s"$what divides by zero"))
+
+    if f.float_overflow == "infinity" then return Ok(Real(r))
+
+    Err(evaluation_error("float_overflow", s"$what is too large for a float"))
+
+// An operation with no value: `evaluation_error(undefined)`, or a NaN under `float_undefined` `nan`.
+private no_value(what: string) -> Result[Value, Fault] = non_finite(real.nan(), false, what)
+
+// The answer of `a op b`, for `op` one of `+`, `-`, `*` and `/`. Where the policy refuses a float
+// that is not finite, or a division by zero, the double the operation comes to is what the float
+// flags make of it -- but two integers' `0 / 0` is `zero_divisor` unless `float_undefined` is
+// `nan`, as in SWI-Prolog.
+private float_answer(r: Result[Number, NumberError], op: string, a: Value, b: Value) -> Result[Value, Fault]
+    r match
+        Ok(_) -> return num_answer(r, op, a, b)
+        Err(e) ->
+            val by_zero = divides_by_zero(e)
+
+            if by_zero || not_finite(e)
+                val x = dal.to_real(n_of(a))
+                val y = dal.to_real(n_of(b))
+                val raw = if op == "+" then x + y elif op == "-" then x - y elif op == "*" then x * y else x / y
+                val integers_zero = by_zero && raw.is_nan() && is_rational(a) && is_rational(b)
+
+                if !integers_zero || current().flags.float_undefined == "nan"
+                    return non_finite(raw, by_zero && !raw.is_nan(), s"${render(a)} $op ${render(b)}")
+
+            num_answer(r, op, a, b)
+
+// The answer of `name(a)`, for `-` and `abs`: of an infinity or a NaN, another, whatever the float
+// flags say, as SWI-Prolog has it -- neither operation makes a float that is not finite out of one
+// that is.
+private float_answer1(r: Result[Number, NumberError], name: string, a: Value) -> Result[Value, Fault]
+    r match
+        Ok(_) -> return num_answer1(r, name, a)
+        Err(e) ->
+            if not_finite(e)
+                val x = dal.to_real(n_of(a))
+
+                return Ok(Real(if name == "-" then -x else x.abs()))
+
+            num_answer1(r, name, a)
+
+private divides_by_zero(e: NumberError) -> bool = e match
+    NumberError.DivisionByZero -> true
+    _ -> false
+
+private not_finite(e: NumberError) -> bool = e match
+    NumberError.FloatOverflow -> true
+    NumberError.Undefined -> true
+    _ -> false
+
+private is_nan_value(x: Value) -> bool = x match
+    Real(r) -> r.is_nan()
+    _ -> false
 
 // A big integer as an answer, demoted to 64 bits where it fits; with big integers on, the policy
 // refuses none.

@@ -250,6 +250,13 @@ if not parse( "{oops" ) then write( #malformed )
 An object is a map, an array a list, `null` `undefined`. `sysl-lang/json` is pure sysl, with no C
 library, so it costs no link line.
 
+> **Built — what the sketch left open.** `stringify(v, indent)` lays the text out (0 to 16 spaces;
+> 0 is compact), so a native may take a bounded range of arguments (`register_between`), and Prolog
+> sees one predicate per count, `json:stringify/2` and `/3`. A list, a tuple, a range with an end, an
+> array and a buffer write as an array; a rational as the nearest real; a map's keys must be strings
+> (or atoms). Malformed text fails, as the third decided question says, so `parse` carries no
+> position; a function, a set, another atom, an endless range or a value holding itself faults.
+
 ### `funl:process` — core, over `sysl.process`, `sysl.env`, `sysl.args`
 
 ```
@@ -274,8 +281,8 @@ so `|` gives the default.
 > P)`. The options are `cwd`, `env` and `timeout`, and **`env` adds to this program's environment
 > rather than replacing it**, which is `sysl.process`'s rule (slate's replaces). `run_lines` is
 > `run`'s standard output as a generator of lines. `exit(status)` is `halt/1`'s `Exits`, 0 to 255,
-> uncaught by `catch`. A `Variadic` builtin may be bounded (`bound_counts`): the compiler then refuses
-> any other count, and Prolog's `:- import` defines one predicate per count (`process:run/2..4`).
+> uncaught by `catch`. `run` and `run_lines` take one to three arguments (`optional_past`, the
+> generating twin of `register_between`), so Prolog sees `process:run/2`, `/3` and `/4`.
 > **Not built: reading the whole environment** — `sysl.env` reads one name and cannot enumerate, so
 > an `env()` of every variable waits on sysl.
 
@@ -290,6 +297,13 @@ write( now() )
 ```
 
 slate's instant, duration and calendar kinds come later, on the same `sysl.time`.
+
+> **Decided — what `funl:time` is before it has kinds.** A point in time is a whole number of
+> milliseconds since 1970 (`now()`, the argument of `format` and `fields`, the answer of `parse` and
+> `make`); `monotonic()` is milliseconds as a real from an unnamed origin; `sleep(ms)` blocks. An offset
+> is whole minutes east of UTC and, left out, is UTC. The surface is `now monotonic sleep format parse
+> fields make local_offset`; `parse` of text that is not a timestamp and `make` of a date that does not
+> exist fail; a wrong-kind argument is a fault. The page is `docs/library/time.md`.
 
 ### `funl:http` — the `http` feature, over `sysl-lang/curl`
 
@@ -324,6 +338,16 @@ slate's surface: `sqlite(path)` answers the database, everything else is a metho
 **`query` is a generator of rows**, so a search over a table is an ordinary FunL search, and a query
 with no rows fails. **Not a feature, as in slate**: SQLite is the system's own library on macOS and a
 standard package elsewhere, and slate carries it unconditionally for that reason.
+
+> **Built — what the decision left open.** The handle is a `sqlite database`; `exec(sql)` runs every
+> statement in the text and answers `()`; `run` answers `{changes, last_insert_rowid}`. Every error
+> SQLite reports is `system_error` with SQLite's sentence; a parameter SQLite cannot hold is
+> `type_error(sql_value, X)`, an integer past 64 bits `representation_error(max_integer)`, the wrong
+> number of parameters `domain_error(sql_parameters, N)`; `true`/`false` bind as 1/0. Closing the
+> database ends every query still running over it. **A row is a map, and `x <- e` draws a map's
+> entries**, so the example's `for row <- db.query(...)` is written `for row <- [db.query(...)]` (or
+> `every write( db.query(...).title )`). Prolog cannot call a handle's methods, so the module is
+> FunL's alone for now.
 
 ## `async` and `await`
 
@@ -561,10 +585,8 @@ native check it against this source on the same inputs.
   question below.
 - **`any` is a builtin of one argument** (the scanning charset `any(c)`); the prelude's `any(p, xs)`
   has two, and the name/arity namespace keeps them apart. **`all`, `elem` and `lookup`** are free.
-- **Builtins are not values**: `foldl(max, 0, xs)` is refused, because `max` "is a relation or a
-  builtin, which is called rather than used as a value". The prelude's own source wraps them, as in
-  `(a, b) -> max(a, b)`, and a program does the same until the last prelude question below is
-  decided.
+- **A builtin is a value** (P4, decided below): `filter(odd, xs)` and `foldl(max, 0, xs)` work,
+  a variadic builtin's value passing on however many arguments it is given.
 - **`repeat` and `break` are keywords**, so Haskell's `repeat` is `forever` and Haskell's `break`
   is `spanNot`.
 - **`length` is the field `.length`**, not a function, so the prelude defines no `length`;
@@ -598,10 +620,18 @@ native check it against this source on the same inputs.
 > value is a tuple**, and only an unmatched value is iterated. Until then no prelude function yields
 > tuples.
 
-> **Open question P4 — builtins as values.** **Recommendation:** a builtin named without a call is a
-> function value when it has one arity (`max`, `odd`, `abs`), so `foldl(max, 0, xs)` and
-> `filter(odd, xs)` work, and is refused with today's message when it has several (`map`). It is a
-> language change, outside the prelude, and it waits for the user.
+> **Decided (user, 2026-10-08) — P4, builtins as values.** **Decision:** a builtin named without a
+> call is a function value when it takes a fixed number of arguments (`abs`, `odd`, `sum`, every
+> function of a built-in module), so `filter(odd, xs)` works. The value calls the builtin with its
+> arguments as a direct call would; a generating builtin still generates and fails through it, and a
+> call through it with the wrong number of arguments faults as any function value's does
+> (`'abs' takes 1 argument and was given 2`), where a direct call is refused when compiled. **It
+> follows that `import * as fs from funl:fs` names a value**: the map from each export to its
+> value, as a FunL module's is (§ "A module is a value"). A builtin that takes any number of
+> arguments (`max`, `min`, `map`, `write`, `find`) is a value too: the value passes on however many
+> arguments it is given, and the builtin's own run-time count check answers (the same fault as a
+> direct call's), so `foldl(max, 0, xs)` works. A name that is not a value (a relation, Prolog's
+> `consult`) keeps the "called rather than used as a value" refusal.
 
 ## Questions decided
 

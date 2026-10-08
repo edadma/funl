@@ -112,6 +112,28 @@ A_SET_IS_WRITTEN_AS_ITS_ELEMENTS_EACH_KEPT_ONCE()
     assert_eq(complaints("write( {1, a: 2} )\n"), "error 1:12 a set's items are values, and this is a map's `key: value`\n")
     assert_eq(complaints("write( {a: 1, 2} )\n"), "error 1:15 a map's entries are each written `key: value`\n")
 
+// `{f: (x) -> e}` is a map: the lambda's cons-headed parameter is taken apart at its `:` into the key
+// and a lambda over what follows it. A set holds such a lambda only in parentheses.
+@test
+A_LAMBDA_AFTER_A_KEY_IN_BRACES_IS_A_MAP_ENTRY()
+    assert_eq(ran_funl("val m = {f: (x) -> x + 1, g: (a, b) -> a * b, h: () -> 7, i: x -> x - 1, j: n | n > 0 -> #pos}\nwrite( m is map, m.length, m.f(2), m.g(3, 4), m.h(), m.i(10), m.j(5) )\n"),
+        "{\"f\": <function lambda>, \"g\": <function lambda>, \"h\": <function lambda>, \"i\": <function lambda>, \"j\": <function lambda>}, 5, 3, 12, 7, 9, pos\nsucceeded")
+    assert_eq(ran_funl("val s = {(x:xs -> x)}\nval t = {(x:xs) -> x}\nwrite( s.length, t.length )\nfor f <- s do write( f([4, 5]) )\nfor f <- t do write( f([6]) )\n"),
+        "1, 1\n4\n6\nsucceeded")
+    assert_eq(complaints("write( {1, f: (x) -> x} )\n"),
+        "error 1:12 a set's items are values, and this is a map's `key: value`; a lambda whose parameter is a cons goes in a set in parentheses, `(x:xs -> x)`\n")
+    assert_eq(complaints("write( {f: (x) -> x, 2} )\n"), "error 1:22 a map's entries are each written `key: value`\n")
+
+// `()` is the unit value and the tuple of nothing, one value: a tuple of length 0.
+@test
+UNIT_IS_THE_EMPTY_TUPLE()
+    assert_eq(ran_funl("write( (), () is tuple, () is unit, ().length, (1, 2)(1..<1), ()(0..<0) )\nwrite( [x | x <- ()], sum(()), () == (), not (1 in ()), not ()(0) )\n"),
+        "(), (), (), 0, (), ()\n[], 0, (), (), ()\nsucceeded")
+    assert_eq(ran_funl("def k( () ) = 'unit'\ndef k( (a, b) ) = 'pair'\nwrite( k(()), k((1, 2)) )\n"),
+        "unit, pair\nsucceeded")
+    assert_eq(ran_funl("write( ((1, 2) is unit) | 'no' )\nevery write( !() )\nwrite( 'none' )\n"), "no\nnone\nsucceeded")
+    faults_with("def two( (a, b) ) = a + b\nwrite( two(()) )\n", "argument match not found: no clause of 'two' matches (())")
+
 // `set(c)` copies; `+=` adds an element -- or each of a set's -- and `-=` takes out, in place.
 @test
 A_MUTABLE_SET_CHANGES_IN_PLACE_BY_PLUS_AND_MINUS_EQUALS()

@@ -1,0 +1,179 @@
+module io.github.edadma.funl
+
+// **The package is imported whole rather than its names lifted**, because its `Json` variants are
+// `Int`, `Big`, `Real` and `Str` -- every one of which is also a `Value` variant -- and its `parse`
+// is a word of FunL's own front end. Qualifying keeps the two vocabularies apart in a file whose whole
+// job is to translate between them.
+import sh.sysl.json
+import sh.sysl.dal
+import sh.sysl.parsing.source_of
+import sysl.buf.{Buf, buf}
+import sysl.math.bigint as big
+
+// `funl:json`: JSON text read into FunL values and FunL values written as JSON text, over the org's
+// `sh.sysl.json`, which is pure sysl and costs no link line.
+//
+// **Every native here is registered as `json.name`** and exported under the short name, as
+// `funl:fs`'s are: `parse` is a word programs and other modules want for their own.
+//
+// **The values cross as `modules.md` maps them**: an object is an immutable map keyed by strings,
+// an array a list, `null` `undefined`, `true` and `false` the atoms, a number the kind of number it
+// reads as -- an integer past 64 bits a big integer, a number with a point or an exponent a real.
+//
+// **Text that is not JSON is failure, and a value JSON cannot hold is a fault** (`modules.md`,
+// failure or fault): malformed text is an answer about something that came from outside, tested with
+// `if` and `|`; a function, a set or a cycle handed to `stringify` is a mistake the program made, and
+// faults with `type_error(json, Culprit)`.
+
+// What `funl:json` exports, each name the short form of a native `install_json` registered as
+// `json.name`.
+private val JsonNames: [2]string = ["parse", "stringify"]
+
+// The widest indent `stringify` lays a document out with.
+private const MostIndent: long = 16
+
+install_json(v: *Vm)
+    register_generator(v, "json.parse", 1, do_parse)
+    register_between(v, "json.stringify", 1, 2, do_stringify)
+
+// The exports of `funl:json`.
+json_exports() -> Buf[ModExport] = native_exports("json", JsonNames)
+
+// -- reading -------------------------------------------------------------------------------------
+
+// `parse(text)`: the value the JSON document `text` holds. Fails when `text` is not one JSON value,
+// whitespace aside.
+private do_parse(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+
+    val text = x match
+        Str(p) -> p.s
+        Atom(id) -> atom_name(id)
+        _ -> return Err(kind_error(x, "string", s"'parse' wants JSON text, a string, and was given ${described(x)}"))
+
+    json.parse(source_of("json", text)) match
+        Ok(j) -> Ok(Gives(funl_of_json(j)?))
+        Err(_) -> Ok(Refuses)
+
+// The FunL value of the JSON value `j`.
+private funl_of_json(j: json.Json) -> Result[Value, Fault]
+    j match
+        json.Json.Null -> Ok(Undefined)
+        json.Json.Bool(b) -> Ok(boolean(b))
+        json.Json.Int(n) -> Ok(Int(n))
+        json.Json.Big(digits) ->
+            big.parse_radix(digits, 10) match
+                Some(n) -> Ok(num_value(dal.Number.Big(n))?)
+                None -> Err(system_error(s"'parse' read the integer $digits and could not make a number of it"))
+        json.Json.Real(r) -> Ok(Real(r))
+        json.Json.Str(s) -> Ok(new_str(s)?)
+        json.Json.Arr(items) ->
+            var vals: Buf[Value] = buf()
+
+            for i in 0..<items.len()
+                vals.push(funl_of_json(items.at(i))?)
+
+            Ok(list_of(&vals, Nil)?)
+        json.Json.Obj(members) ->
+            val m = new_map()?
+
+            for i in 0..<members.len()
+                val mem = members.at(i)
+
+                map_put(m, new_str(mem.key)?, funl_of_json(mem.value)?)?
+
+            Ok(Map(m))
+
+// -- writing -------------------------------------------------------------------------------------
+
+// `stringify(value)` and `stringify(value, indent)`: `value` as JSON text, compact, or laid out one
+// member or element to a line, `indent` spaces a level. An indent of 0 is the compact form.
+private do_stringify(base: usize, argc: usize) -> Result[Value, Fault]
+    val indent = if argc == 2 then indent_of(deref(arg(base, 1)))? else 0
+    var path: Buf[usize] = buf()
+    val j = json_of_funl(arg(base, 0), &path)?
+
+    Ok(new_str(if indent == 0 then s"$j" else json.pretty(j, usize(indent)))?)
+
+// The indent `x` asks for: an integer from 0 to `MostIndent`.
+private indent_of(x: Value) -> Result[long, Fault]
+    x match
+        Int(n) ->
+            if n < 0 || n > MostIndent
+                return Err(domain_error("json_indent", x, s"'stringify' indents by 0 to $MostIndent spaces, and was asked for $n"))
+
+            Ok(n)
+        _ -> Err(kind_error(x, "integer", s"'stringify' wants an indent, an integer, and was given ${described(x)}"))
+
+// The JSON value of the FunL value `x`. `path` holds the changeable containers being written, so one
+// that holds itself is refused rather than written for ever.
+private json_of_funl(x: Value, path: *Buf[usize]) -> Result[json.Json, Fault]
+    val y = deref(x)
+
+    y match
+        Undefined -> Ok(json.Json.Null)
+        Atom(id) ->
+            if is_boolean_atom(id) then return Ok(json.Json.Bool(id == TrueAtom))
+
+            Err(unwritable(y))
+        Int(n) -> Ok(json.Json.Int(n))
+        Big(p) -> Ok(json.Json.Big(num_text(p.n)))
+        // JSON has no fractions, so an exact rational is written as the nearest double.
+        Rat(p) -> Ok(json.Json.Real(dal.to_real(p.n)))
+        Real(r) -> Ok(json.Json.Real(r))
+        Str(p) -> Ok(json.Json.Str(p.s))
+        Nil -> array_of(y, path)
+        Cons(_) -> array_of(y, path)
+        Tuple(_) -> array_of(y, path)
+        Range(_) -> array_of(y, path)
+        Array(p) -> inside(usize(p), path, () -> array_of(y, path))
+        Buffer(p) -> inside(usize(p), path, () -> array_of(y, path))
+        Map(m) -> object_of(m, path)
+        MutMap(m) -> inside(usize(m), path, () -> object_of(m, path))
+        Var(_) -> Err(instantiation_error("'stringify' reached an unbound variable, which JSON cannot hold"))
+        _ -> Err(unwritable(y))
+
+// `go` run with the changeable container at `addr` on the path, refused when it is already there.
+private inside(addr: usize, path: *Buf[usize], go: () -> Result[json.Json, Fault]) -> Result[json.Json, Fault]
+    for a in path.view()
+        if a == addr then return Err(system_error("'stringify' was given a value that holds itself, which JSON cannot write"))
+
+    path.push(addr)
+
+    val out = go()
+
+    path.pop()
+    out
+
+// A list, a tuple, a range with an end, an array or a buffer as a JSON array.
+private array_of(x: Value, path: *Buf[usize]) -> Result[json.Json, Fault]
+    var vals: Buf[Value] = buf()
+
+    elements(x, "'stringify'", &vals)?
+
+    var items: Buf[json.Json] = buf()
+
+    for v in vals.view()
+        items.push(json_of_funl(v, path)?)
+
+    Ok(json.Json.Arr(items))
+
+// A map as a JSON object, its keys strings or atoms, in the order the map holds them.
+private object_of(m: *MapObj, path: *Buf[usize]) -> Result[json.Json, Fault]
+    var members: Buf[json.Member] = buf()
+
+    for i in 0..<m.keys.len()
+        val k = deref(m.keys.at(i))
+
+        val key = k match
+            Str(p) -> p.s
+            Atom(id) -> atom_name(id)
+            _ -> return Err(type_error("json_key", k, s"'stringify' writes a map whose keys are strings, and this one has the key ${render(k)}"))
+
+        members.push(json.Member(key, json_of_funl(m.vals.at(i), path)?))
+
+    Ok(json.Json.Obj(members))
+
+// The fault for a value JSON has no way to write.
+private unwritable(x: Value) -> Fault =
+    type_error("json", x, s"'stringify' cannot write ${described(x)} as JSON, which holds maps, lists, strings, numbers, booleans and undefined")

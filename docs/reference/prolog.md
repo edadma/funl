@@ -158,8 +158,9 @@ after
 
 Tokens are ISO's. A variable begins with a capital letter or `_`. An atom is a name beginning with a
 lower-case letter, a run of symbol characters, a quoted `'atom'`, or one of `[]`, `{}`, `!`, `;` and
-`,`. Integers are unbounded, and may be written `0'c` (a character's code), `0x1F`, `0o17` or
-`0b101`. `%` begins a comment to the end of the line, and `/* */` encloses one.
+`,`. Integers are unbounded, and may be written `0'c` (a character's code), `0x1F`, `0o17`,
+`0b101`, or `16'1F` in any base from 2 to 36. `%` begins a comment to the end of the line, and
+`/* */` encloses one.
 
 ```prolog
 :- X = 0'a, write(X), nl.
@@ -207,6 +208,50 @@ list of character codes.
 7r2
 4
 [97,98,99]
+```
+
+The digits of an integer may be grouped: one space between two digits, or a `_`, which may be
+followed by layout and comments, joins them. A float's fraction and exponent take no groups.
+
+```prolog
+:- X = 1 000 000, write(X), nl.
+:- X = 1_000_000, write(X), nl.
+:- X = 16'ff_ff, write(X), nl.
+:- X = 1_000.5, write(X), nl.
+:- X = 1_/* thousands */000, write(X), nl.
+:- X = 36'zz, write(X), nl.
+```
+
+```output
+1000000
+1000000
+65535
+1000.5
+1000
+1295
+```
+
+Two spaces do not join digits:
+
+```prolog
+:- X = 1  000, write(X), nl.
+```
+
+```error
+expected here
+```
+
+An infinity is written `1.0Inf` or `-1.0Inf`, and a NaN `1.5NaN`; each reads as the float it names.
+Arithmetic makes one only under the float flags (see [Arithmetic](#arithmetic)).
+
+```prolog
+:- X = 1.0Inf, float(X), writeq(X), nl.
+:- X = [-1.0Inf, 1.5NaN], writeq(X), nl.
+```
+
+```output
+1.0Inf
+[-1.0Inf,1.5NaN]
 ```
 
 ### Operators
@@ -769,7 +814,7 @@ The arithmetic functions:
 | conversion | `float`, `integer`, `float_integer_part`, `float_fractional_part`, `truncate`, `round`, `ceiling`, `floor` |
 | powers and roots | `sqrt`, `exp`, `log`, `log2`, `log/2` (`log(Base, X)`) |
 | trigonometry | `sin`, `cos`, `tan`, `cot`, `asin`, `acos`, `atan`, `acot`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` |
-| constants | `pi`, `e`, `epsilon` |
+| constants | `pi`, `e`, `epsilon`, `inf`, `nan` |
 | random | `random` |
 
 **`log(Base, X)`, `log2`, `cot`, `acot` and the hyperbolic functions are evaluable too.** Outside its
@@ -794,6 +839,67 @@ evaluation_error(undefined)
 evaluation_error(float_overflow)
 evaluation_error(float_overflow)
 0.0
+```
+
+### Infinities and NaN
+
+**A float that is not finite is an evaluation error by default**: one too large is
+`evaluation_error(float_overflow)`, a division by zero `evaluation_error(zero_divisor)`, and one with
+no value -- `sqrt(-1)`, `inf - inf` -- `evaluation_error(undefined)`. Three flags, each `error` by
+default, make arithmetic answer the float itself instead: `float_overflow` set to `infinity`,
+`float_zero_div` set to `infinity`, and `float_undefined` set to `nan`. An infinity is written
+`1.0Inf` or `-1.0Inf`, and a NaN `1.5NaN`. The constants `inf` and `nan` are the infinity and the NaN
+whatever the flags say.
+
+```prolog
+try(E) :- catch((X is E, writeq(E = X)), error(Err, _), writeq(E : Err)), nl.
+
+:- try(10 ** 400.0).
+:- try(1 / 0.0).
+:- try(sqrt(-1)).
+:- try(inf).
+:- set_prolog_flag(float_overflow, infinity).
+:- try(10 ** 400.0).
+:- try(log(0)).
+:- set_prolog_flag(float_zero_div, infinity).
+:- try(1 / 0.0).
+:- try(-1 / 0).
+:- set_prolog_flag(float_undefined, nan).
+:- try(sqrt(-1)).
+:- try(inf - inf).
+```
+
+```output
+10**400.0:evaluation_error(float_overflow)
+1/0.0:evaluation_error(zero_divisor)
+sqrt(-1):evaluation_error(undefined)
+inf=1.0Inf
+10**400.0=1.0Inf
+log(0)= -1.0Inf
+1/0.0=1.0Inf
+-1/0= -1.0Inf
+sqrt(-1)=1.5NaN
+inf-inf=1.5NaN
+```
+
+Integer division by zero -- `//`, `mod`, `rem`, `div`, `rdiv` -- is `zero_divisor` whatever the flags
+say, and so is `0 / 0` unless `float_undefined` is `nan`. Rounding an infinity or a NaN to an integer
+is `evaluation_error(undefined)`. A NaN is equal to nothing by `=:=`, itself included, and is less
+than every other number in the standard order of terms.
+
+```prolog
+:- set_prolog_flag(float_zero_div, infinity).
+:- catch((X is 1 // 0, writeq(X)), error(E, _), writeq(E)), nl.
+:- catch((X is truncate(inf), writeq(X)), error(E, _), writeq(E)), nl.
+:- X is nan, (X =:= X -> write(equal) ; write(unequal)), nl.
+:- msort([1, 1.5NaN, -1.0Inf, 1.0Inf], L), writeq(L), nl.
+```
+
+```output
+evaluation_error(zero_divisor)
+evaluation_error(undefined)
+unequal
+[1.5NaN,-1.0Inf,1,1.0Inf]
 ```
 
 **An integer meets a float as a float** in a comparison, so `9007199254740993 =:= 9007199254740992.0`;
@@ -1329,6 +1435,7 @@ syntax_error(end_of_string)
 The flags `set_prolog_flag/2` changes are `unknown` (`error`, `fail`, `warning`), `double_quotes`
 (`string`, `codes`, `chars`, `atom`), `back_quotes` (`codes`, `chars`, `string`, `symbol_char`, as
 SWI-Prolog has it: what `` `text` `` reads as, or a back quote as a symbol character),
-`prefer_rationals` (`false`, `true`) and `debug` (`off`, `on`).
-The others describe the machine and cannot be changed: `bounded` is `false`, `max_integer` and
+`prefer_rationals` (`false`, `true`), `float_overflow` and `float_zero_div` (`error`, `infinity`),
+`float_undefined` (`error`, `nan`) and `debug` (`off`, `on`); the first value named is each one's
+default. The others describe the machine and cannot be changed: `bounded` is `false`, `max_integer` and
 `min_integer` are the 64-bit range, `integer_rounding_function` is `toward_zero`, and `max_arity`.

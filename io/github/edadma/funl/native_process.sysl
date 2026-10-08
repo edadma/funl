@@ -33,8 +33,8 @@ install_process(v: *Vm)
     register_constant(v, "process.args", do_args)
     register_generator(v, "process.env", 1, do_env)
     register(v, "process.exit", 1, do_exit)
-    bound_counts(v, register_generator(v, "process.run", Variadic, do_run), 1, 3)
-    bound_counts(v, register_stepping(v, "process.run_lines", Variadic, start_run_lines, step_run_lines), 1, 3)
+    optional_past(v, register_generator(v, "process.run", 3, do_run), 1)
+    optional_past(v, register_stepping(v, "process.run_lines", 3, start_run_lines, step_run_lines), 1)
 end install_process
 
 // The exports of `funl:process`.

@@ -230,3 +230,38 @@ DIGIT_GROUPS_ARE_REFUSED_WHERE_SWI_PROLOG_REFUSES_THEM()
     assert_eq(prolog_complaints("p(1.5 5).\n"), "error 1:7 `,` or `)` was expected here\n")
     assert_eq(prolog_complaints("p(1_000e5).\n"), "error 1:8 `,` or `)` was expected here\n")
     assert_eq(prolog_complaints("p(1__000).\n"), "error 1:5 this number is malformed: not a digit\n")
+    assert_eq(prolog_complaints("p(1 /* c */000).\n"), "error 1:12 `,` or `)` was expected here\n")
+
+@test
+A_COMMENT_MAY_FOLLOW_THE_UNDERSCORE_OF_A_DIGIT_GROUP()
+    // Each result is what SWI-Prolog 10.0.2 reads.
+    assert_eq(shown("[1_/* c */000, 1_/* c */ 000, 16'f_/**/f]"), "[1000,1000,255]\nsucceeded")
+    assert_eq(ran_prolog(":- X = 1_% thousands\n000, write(X), nl.\n"), "1000\nsucceeded")
+
+@test
+RADIX_NOTATION_READS_AN_INTEGER_IN_ANY_BASE_FROM_2_TO_36()
+    // Each result is what SWI-Prolog 10.0.2 reads.
+    assert_eq(shown("[16'ff, 2'1010, 36'zz, 16'FF, 8'777, 16'ff_ff, -16'ff]"), "[255,10,1295,255,511,65535,-255]\nsucceeded")
+    assert_eq(shown("16'ffffffffffffffffffff"), "1208925819614629174706175\nsucceeded")
+    // A base outside 2 to 36 is no radix, so the quote begins a quoted atom.
+    assert_eq(prolog_complaints("p(1'a').\n"), "error 1:4 `,` or `)` was expected here\n")
+    // A digit outside the base is none of the number either: `2'3` is 2 and a quote left open, as in
+    // SWI-Prolog.
+    assert_eq(prolog_complaints("p(2'3).\n"), "error 1:4 this quoted atom is never closed\n")
+
+@test
+AN_INFINITY_AND_A_NAN_ARE_READ_AS_SWI_PROLOG_WRITES_THEM()
+    // Each result is what SWI-Prolog 10.0.2 reads.
+    assert_eq(shown("[1.0Inf, -1.0Inf, 1.5NaN, 2.0Inf, 0.5Inf, 1.9NaN]"), "[1.0Inf,-1.0Inf,1.5NaN,1.0Inf,1.0Inf,1.5NaN]\nsucceeded")
+    assert_eq(ran_prolog(":- X = 1.0Inf, float(X), Y = 1.5NaN, float(Y), write(yes), nl.\n"), "yes\nsucceeded")
+    assert_eq(shown("- 1.0Inf"), "-(1.0Inf)\nsucceeded")
+    assert_eq(shown("a - 1.0Inf"), "-(a,1.0Inf)\nsucceeded")
+
+@test
+AN_INF_OR_NAN_SUFFIX_IS_REFUSED_WHERE_SWI_PROLOG_REFUSES_IT()
+    assert_eq(prolog_complaints("p(1.0NaN).\n"), "error 1:3 a NaN is written with a mantissa above 1 and below 2, as 1.5NaN\n")
+    assert_eq(prolog_complaints("p(2.5NaN).\n"), "error 1:6 `,` or `)` was expected here\n")
+    assert_eq(prolog_complaints("p(1Inf).\n"), "error 1:4 `,` or `)` was expected here\n")
+    assert_eq(prolog_complaints("p(1.0e10Inf).\n"), "error 1:9 `,` or `)` was expected here\n")
+    assert_eq(prolog_complaints("p(1.0Infinity).\n"), "error 1:6 `,` or `)` was expected here\n")
+    assert_eq(prolog_complaints("p(1.0inf).\n"), "error 1:6 `,` or `)` was expected here\n")

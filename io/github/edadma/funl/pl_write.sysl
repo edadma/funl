@@ -3,6 +3,7 @@ module io.github.edadma.funl
 import sh.sysl.dal
 import sh.sysl.dal.Number
 import sysl.buf.{Buf, buf}
+import sysl.math.Float
 import sysl.text.{Search, StrBuilder, chars_of, str_builder}
 
 // How Prolog writes a term: operators as the current table declares them, atoms quoted where a
@@ -215,8 +216,9 @@ private put_term(w: *Writer, x: Value, max: u16, depth: long)
         // as a term.
         Rat(p) -> emit(w, prolog_num_text(p.n))
 
-        // A real always shows it is one -- `1.0`, never `1` -- so it reads back as a real.
-        Real(r) -> emit(w, num_text(Number.Real(r)))
+        // A real always shows it is one -- `1.0`, never `1`, and `1.0Inf` or `1.5NaN` for one that is
+        // not finite -- so it reads back as a real.
+        Real(r) -> emit(w, prolog_num_text(Number.Real(r)))
         Var(p) -> put_var(w, p)
         Atom(id) -> put_atom(w, atom_name(id), max < 1200)
         Nil -> emit(w, "[]")
@@ -514,7 +516,7 @@ private leads_with_digit(w: *Writer, x: Value) -> bool
         Int(n) -> n >= 0
         Big(p) -> dal.sign(p.n) >= 0
         Rat(p) -> dal.sign(p.n) >= 0
-        Real(r) -> r >= 0.0
+        Real(r) -> r >= 0.0 || r.is_nan()
         Compound(c) ->
             if is_op_atom(c.args.at(0)) then return false
 

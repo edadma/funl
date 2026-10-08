@@ -1,5 +1,7 @@
 module io.github.edadma.funl
 
+import sh.sysl.parsing.counted
+
 // The builtin registry.
 //
 // **Open from the start**: a builtin is `register(name, arity, go)` written in the file that
@@ -58,48 +60,59 @@ enum Impl
 // The arity of a builtin that takes any number of arguments.
 const Variadic: usize = 4294967295
 
+// **`least` is the fewest arguments a call may give and `arity` the most**: the two are equal for
+// every builtin but one whose trailing arguments are optional, `stringify(v)` and
+// `stringify(v, indent)`. Unlike `Variadic`, a range is bounded, so Prolog sees one predicate per
+// count it allows (`prolog_builtin_module`).
 struct Native
     name: string
+    least: usize
     arity: usize
     how: Impl
 
-    // How many arguments a call may give: `arity` both, for a builtin of fixed arity; for a
-    // `Variadic` one, 0 and `Variadic` unless `bound_counts` narrowed them.
-    fewest: usize
-    most: usize
-
-private native(name: string, arity: usize, how: Impl) -> Native =
-    Native(name, arity, how, if arity == Variadic then 0 else arity, arity)
-
 // Add a builtin to `v`'s table and answer its id.
 register(v: *Vm, name: string, arity: usize, go: NativeGo) -> usize
-    v.natives.push(native(name, arity, Plain(go)))
+    v.natives.push(Native(name, arity, arity, Plain(go)))
+    v.natives.len() - 1
+
+// Add a builtin taking from `least` to `most` arguments, the ones past `least` optional.
+register_between(v: *Vm, name: string, least: usize, most: usize, go: NativeGo) -> usize
+    v.natives.push(Native(name, least, most, Plain(go)))
     v.natives.len() - 1
 
 // Add a builtin that may fail or generate.
 register_generator(v: *Vm, name: string, arity: usize, go: GeneratorGo) -> usize
-    v.natives.push(native(name, arity, Generating(go)))
+    v.natives.push(Native(name, arity, arity, Generating(go)))
     v.natives.len() - 1
 
 // Add a generator over a handle: each call makes a fresh state handle with `start` and takes values
 // from it with `step`, one per resumption, until `step` runs out (see `call_stepping`).
 register_stepping(v: *Vm, name: string, arity: usize, start: StartGo, step: StepGo) -> usize
-    v.natives.push(native(name, arity, Stepping(start, step)))
+    v.natives.push(Native(name, arity, arity, Stepping(start, step)))
     v.natives.len() - 1
+
+// Let a call of builtin `id` leave out its arguments past the first `least`, as `register_between`
+// does for a plain builtin: for one that generates, `run(program)` beside `run(program, args)`.
+optional_past(v: *Vm, id: usize, least: usize)
+    var n = v.natives.at(id)
+
+    n.least = least
+    v.natives.set(id, n)
 
 // Add a name for the value `go` makes.
 register_constant(v: *Vm, name: string, go: NativeGo) -> usize
-    v.natives.push(native(name, 0, Constant(go)))
+    v.natives.push(Native(name, 0, 0, Constant(go)))
     v.natives.len() - 1
 
-// Narrow the `Variadic` builtin `id` to calls of `fewest` to `most` arguments: the compiler refuses
-// any other count, and Prolog's `:- import` of a built-in module defines one predicate per count.
-bound_counts(v: *Vm, id: usize, fewest: usize, most: usize)
-    var n = v.natives.at(id)
+// Whether a call of builtin `n` may give `argc` arguments.
+takes_count(n: Native, argc: usize) -> bool = n.arity == Variadic || (argc >= n.least && argc <= n.arity)
 
-    n.fewest = fewest
-    n.most = most
-    v.natives.set(id, n)
+// How many arguments builtin `n` takes, for a refusal: "2 arguments", "1 or 2 arguments".
+takes_text(n: Native) -> string
+    if n.least == n.arity then return counted(n.arity, "argument")
+    if n.least + 1 == n.arity then return s"${n.least} or ${n.arity} arguments"
+
+    s"${n.least} to ${n.arity} arguments"
 
 // Whether builtin `id` names a value rather than something to call.
 is_constant(id: usize) -> bool = current().natives.at(id).how match
@@ -111,6 +124,51 @@ is_generator(id: usize) -> bool = current().natives.at(id).how match
     Generating(_) -> true
     Stepping(_, _) -> true
     _ -> false
+
+// Whether builtin `id`, named without a call, is a function value: every builtin but Prolog's
+// `consult` and the constants.
+is_function_value(id: usize) -> bool
+    val n = current().natives.at(id)
+
+    n.how match
+        Constant(_) -> return false
+        _ -> ()
+
+    n.name != "consult"
+
+// The chunk a builtin's function value calls: its arguments passed to the builtin exactly as a call
+// written with them would pass them, and the builtin's answer returned -- each of a generator's
+// answers, as a generating function's are. A fixed-arity builtin's value has its arity, so a call
+// through it with any other count is refused as a call of a function value is; a variadic builtin's
+// value passes on whatever it is given, and the builtin's own count check answers. Made once per builtin.
+value_chunk(id: usize) -> Result[usize, string]
+    val v = current()
+
+    v.native_chunks.get(id) match
+        Some(c) -> return Ok(c)
+        None -> ()
+
+    val n = v.natives.at(id)
+    var e = emit_function(n.name, if n.arity == Variadic then AnyArity else n.arity)
+
+    if n.arity == Variadic
+        e.op(LoadArgs)
+    else
+        for i in 0..<n.arity
+            e.op(LoadArg(i))
+
+    if is_generator(id)
+        e.op(PushInt(0))
+        e.op(NativeGen(id, n.arity))
+    else
+        e.op(Native(id, n.arity))
+
+    e.op(Return)
+
+    val c = finish(e)?
+
+    v.native_chunks.put(id, c)
+    Ok(c)
 
 // The id of the builtin called `name`, if there is one.
 native_id(name: string) -> Option[usize]

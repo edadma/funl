@@ -109,7 +109,8 @@ enum Op
     // `Return`, discarding every entry the frame made first: a deterministic exit.
     ReturnCommit
 
-    // Call builtin `id` with the top `argc` values, which stay on the stack until it answers.
+    // Call builtin `id` with the top `argc` values, which stay on the stack until it answers. An `argc`
+    // of `Variadic` means as many as the running frame was called with (a builtin's function value).
     Native(id: usize, argc: usize)
 
     // -- head unification (`unify.sysl`) ------------------------------------------------------------
@@ -151,6 +152,9 @@ enum Op
 
     // Push the running frame's `i`th argument.
     LoadArg(i: usize)
+
+    // Push every argument the running frame was called with, in order.
+    LoadArgs
 
     // Pop into slot `slot` of the running frame.
     StoreSlot(slot: usize)

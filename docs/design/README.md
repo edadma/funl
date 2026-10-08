@@ -57,6 +57,7 @@ Each is argued where it arises; this is the list.
 |---|---|---|
 | Does `false` fail in a condition? | yes: a condition fails on failure *or* on `false` | [language](language.md#conditions-and-false) |
 | Is `return e` bounded? | yes: `return` takes the first result, a body expression passes every result through | [language](language.md#functions-are-generators-when-their-body-is) |
+| Does a loop ending a generator produce a trailing `()`? | no: a bare `break` out of the loop that ends a `yield`ing function fails, as running out does; `break (v)` still gives `v` (user, 2026-10-08) | [language](language.md#functions-are-generators-when-their-body-is) |
 | How is the operand stack restored on backtracking? | copy the bounded expression's slice into the choice point | [vm](vm.md#the-operand-stack-and-why-backtracking-has-to-copy-part-of-it) |
 | How are strings stored and indexed? | UTF-8 plus a character count and a forward cursor, as slate does | [vm](vm.md#strings) |
 | What is the unification operator? | `~` | [logic](logic.md#unification-has-its-own-operator) |
@@ -76,6 +77,8 @@ Each is argued where it arises; this is the list.
 | What does a relation body see of top-level names? | only `val`s, functions, relations, constructors; not `var`, `free` or assignment names (user, 2026-10-08) | [logic](logic.md#variables-in-a-relation) |
 | Can a real literal start with the point? | no: `.5` is a syntax error, `.` is field access (user, 2026-10-08) | [language](language.md#numbers) |
 | Can ordinary code build a compound term without `data`? | no: outside a relation head an undeclared functor is "not defined" (user, 2026-10-08) | [language](language.md#data) |
+| Are `()` and the empty tuple one value? | yes: `()` is a tuple of length 0, and `x is unit` still names it (user, 2026-10-08) | [language](language.md#data) |
+| Is `{f: (x) -> e}` a map or a set? | a map: the key `f` and the lambda `(x) -> e`; a set holds such a lambda in parentheses (user, 2026-10-08) | [language](language.md#data) |
 | How do modules and native modules work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md) |
 | How do `async` and `await` work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md#async-and-await) |
 | What is a handle? | an opaque `Handle` kind with a per-kind method table, explicit `close()`, a finalizer as backstop (user, 2026-10-08) | [modules](modules.md#questions-decided) |
@@ -90,6 +93,7 @@ Each is argued where it arises; this is the list.
 | Blocking or promise-shaped I/O? | both: blocking in each module, promise forms in `funl:async` (user, 2026-10-08) | [modules](modules.md#questions-decided) |
 | Which loop, and may two tasks share a logic variable? | kairos (`uv` behind an `async` feature); binding another task's variable is a fault (user, 2026-10-08) | [modules](modules.md#questions-decided) |
 | What is the prelude? | the first module written in FunL: a Haskell-style list library, auto-imported like Haskell's Prelude, shadowable by a program's own names (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| Builtins as values? | a builtin named without a call is a function value (a variadic one passes on however many arguments it is given), and `import * as` a module of FunL's own names the map of them (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 
 ## Open questions
 
@@ -100,4 +104,3 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | Prelude `map` against the builtin `map`? | one `map/2`; a function as first argument maps, anything else is the constructor | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Which prelude names are core natives? | `reverse`, `sort`, `sortBy`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, the `zip` family; the rest FunL source | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | A generator of tuples cannot be destructured by `<-` | a tuple pattern matches a generated tuple whole; until then `zip` answers lists | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
-| Builtins as values? | a one-arity builtin named without a call is a function value | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
