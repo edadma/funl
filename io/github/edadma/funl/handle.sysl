@@ -28,7 +28,8 @@ import sysl.buf.{Buf, buf}
 //
 // **A native generator keeps its state in a handle** (`register_stepping`, `call_stepping`): one per
 // call, released when the generator runs out, by `close()`, or by the finalizer once a commit has
-// abandoned it.
+// abandoned it. **A method may generate the same way** (`register_stepping_method`): `rows()` of a
+// statement, `stmt.rows()`, is a generator whose state is made from the statement.
 
 // What a kind's release hook is given: the handle whose resource it gives back.
 type ReleaseGo = &Fn(*HandleObj) -> unit
@@ -38,11 +39,20 @@ type ReleaseGo = &Fn(*HandleObj) -> unit
 // tests with `if` and `|` as it would a comparison.
 type MethodGo = &Fn(usize, usize) -> Result[Option[Value], Fault]
 
-// One method of a kind: its name, how many arguments it takes besides the handle, and the builtin.
+// How a method is run.
+enum MethodHow
+    // Called with its arguments; answers a value or fails.
+    Answers(go: MethodGo)
+
+    // A generator over a state handle, as `register_stepping`'s builtins are: `start` is called with
+    // the handle and the arguments and makes the state, `step` takes the next value from it.
+    Steps(start: StartGo, step: StepGo)
+
+// One method of a kind: its name, how many arguments it takes besides the handle, and how it runs.
 struct Method
     name: string
     arity: usize
-    go: MethodGo
+    how: MethodHow
 
 // A kind of handle: the name it prints with, its release hook and its methods.
 struct HandleKind
@@ -57,10 +67,18 @@ register_handle_kind(v: *Vm, name: string, release: ReleaseGo) -> u32
 
 // Give kind `kind` the method `name`, taking `arity` arguments besides the handle (`Variadic` for any
 // number). `go` sees the handle as argument 0, so it is called with `arity + 1`.
-register_method(v: *Vm, kind: u32, name: string, arity: usize, go: MethodGo)
+register_method(v: *Vm, kind: u32, name: string, arity: usize, go: MethodGo) = add_method(v, kind, Method(name, arity, Answers(go)))
+
+// Give kind `kind` the generating method `name`: each call `h.name(args)` makes a fresh state handle
+// with `start`, which sees `h` as argument 0, and takes values from it with `step`, one per
+// resumption, exactly as a builtin `register_stepping` made does (see `call_stepping`).
+register_stepping_method(v: *Vm, kind: u32, name: string, arity: usize, start: StartGo, step: StepGo) =
+    add_method(v, kind, Method(name, arity, Steps(start, step)))
+
+private add_method(v: *Vm, kind: u32, m: Method)
     var k = v.handle_kinds.at(usize(kind))
 
-    k.methods.push(Method(name, arity, go))
+    k.methods.push(m)
     v.handle_kinds.set(usize(kind), k)
 
 // The name of the kind of handle `h`.
@@ -94,6 +112,13 @@ private closed_handle(x: Value, what: string) -> Fault = existence_error("handle
 
 // `CallMethod(name, argc, tail)`: what `MethodOf(name)` left -- a handle and `()`, or `()` and a
 // callee -- under the top `argc` values. False where the call fails.
+//
+// **A generating method is resumed by running this instruction again**: its first run moves the
+// handle up into the `()` cell and puts the cursor where the handle was, so the arguments `start`
+// sees -- the handle, then the program's -- stand together, and `call_stepping` keeps the state
+// handle in the cursor cell. A run that finds a handle above a handle is such a resumption, since
+// `MethodOf` always leaves `()` above a handle. A handle closed while its method was generating has
+// nothing more to give: the state is closed and the call fails.
 call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
     val n = v.stack.len()
 
@@ -113,14 +138,21 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
             v.stack.truncate(n - 1)
             return call_value(v, argc, tail)
 
-    // The `()` goes; the handle becomes argument 0.
-    for i in first + 2..<n
-        v.stack.set(i - 1, v.stack.at(i))
-
-    v.stack.truncate(n - 1)
-
     val text = atom_name(name)
-    val kind = v.handle_kinds.at(usize(h.kind))
+
+    deref(v.stack.at(first + 1)) match
+        Handle(owner) ->
+            if owner.closed
+                close_handle(h)
+                return Ok(false)
+
+            val m = method_named(owner, name, deref(v.stack.at(first + 1)))?
+
+            return m.how match
+                Steps(start, step) -> call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
+                Answers(_) -> Err(Broken(s"'$text' was resumed, and does not generate"))
+        _ -> ()
+
     val shown = s"'$text' of ${described(recv)}"
 
     if text == "close"
@@ -131,21 +163,27 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
         v.stack.push(Unit)
         return Ok(true)
 
-    var found: Option[Method] = None
-
-    for m in kind.methods.view()
-        if m.name == text then found = Some(m)
-
-    val m = found match
-        Some(m) -> m
-        None -> return Err(existence_error("method", Atom(name), s"${described(recv)} has no method '$text'"))
+    val m = method_named(h, name, recv)?
 
     if h.closed then return Err(closed_handle(recv, s"'$text'"))
 
     if m.arity != Variadic && argc != m.arity
         return Err(wrong_count(text, argc, s"$shown takes ${m.arity} arguments and was given $argc"))
 
-    val answer = m.go(first, argc + 1)?
+    val go = m.how match
+        Answers(go) -> go
+        Steps(start, step) ->
+            v.stack.set(first + 1, v.stack.at(first))
+            v.stack.set(first, Int(0))
+            return call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
+
+    // The `()` goes; the handle becomes argument 0.
+    for i in first + 2..<n
+        v.stack.set(i - 1, v.stack.at(i))
+
+    v.stack.truncate(n - 1)
+
+    val answer = go(first, argc + 1)?
 
     v.stack.truncate(first)
 
@@ -155,3 +193,51 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
             Ok(true)
         None -> Ok(false)
 end call_method
+
+// The method `name` of the kind of handle `h`, which is `recv`.
+private method_named(h: *HandleObj, name: u32, recv: Value) -> Result[Method, Fault]
+    val text = atom_name(name)
+
+    for m in current().handle_kinds.at(usize(h.kind)).methods.view()
+        if m.name == text then return Ok(m)
+
+    Err(existence_error("method", Atom(name), s"${described(recv)} has no method '$text'"))
+
+// Run a generator over a handle: `start` and `step` are its builtins, its `argc` arguments stand
+// from `base`, and cell `cell` -- the cursor's -- holds its state.
+//
+// **The cursor cell holds the call's state handle once it has one**: the first run finds `0` there,
+// has `start` make the handle, and stores it in the cell, so the collector sees it from then on --
+// on the stack while the call runs, and in the cells the choice point saves while it waits. Each
+// value `step` gives leaves a choice point that re-runs this instruction over the same cells, which
+// steps the same handle again. **Each call starts afresh**, since every call pushes its own `0`.
+// When `step` runs out the handle is closed at once and the call fails; a context that commits
+// abandons the choice point instead, and the finalizer closes the handle once nothing reaches it.
+// A state handle closed from outside -- by the handle it came from -- has nothing more to give.
+// The cells from the lower of `base` and `cell` up give way to the value. False where the call fails.
+call_stepping(v: *Vm, name: string, start: StartGo, step: StepGo, base: usize, argc: usize, cell: usize) -> Result[bool, Fault]
+    val state = v.stack.at(cell) match
+        Int(_) ->
+            val made = start(base, argc)? match
+                Some(x) -> x
+                None -> return Ok(false)
+
+            v.stack.set(cell, made)
+            made
+        x -> x
+
+    val h = state match
+        Handle(p) -> p
+        _ -> return Err(Broken(s"$name keeps its state in something other than a handle"))
+
+    if h.closed then return Ok(false)
+
+    step(h)? match
+        Some(x) ->
+            push_choice(v, v.ip - 1)
+            v.stack.truncate(if cell < base then cell else base)
+            v.stack.push(x)
+            Ok(true)
+        None ->
+            close_handle(h)
+            Ok(false)

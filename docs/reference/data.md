@@ -407,7 +407,8 @@ statement, a running process. It is opaque: it prints as `<kind handle>`, is equ
 and is reached only through its methods, called as `h.name(args)`. Every handle has `close()`, which
 gives the resource back at once; closing it again does nothing, and calling any other method of a
 closed handle is an error. A handle the program never closes is closed when nothing can reach it any
-more. `x is handle` tests for one.
+more. `x is handle` tests for one. A method may fail, as a comparison does, and may generate, as
+any generator does: each call starts afresh and produces its values one at a time on backtracking.
 
 ## Records
 
