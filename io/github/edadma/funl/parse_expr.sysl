@@ -460,11 +460,12 @@ private field(p: *Parser, left: &Expr) -> &Expr
     expr(BadE, left.span)
 
 // `e is t`, the `is` already read: `t` is a type's name, never an expression. `undefined` is a
-// word of its own, and names its type too.
+// word of its own, and names its type too. `m.t` names the type or constructor `t` a module
+// imported as `m` exports.
 private type_name(p: *Parser, left: &Expr) -> &Expr
     p.peek_tok() match
         Some(k) ->
-            val n = k match
+            var n = k match
                 Name(s) -> s
                 UndefinedW -> "undefined"
                 _ -> ""
@@ -472,7 +473,18 @@ private type_name(p: *Parser, left: &Expr) -> &Expr
             if n != ""
                 p.take()
 
-                val at = p.toks.previous()
+                var at = p.toks.previous()
+
+                if p.at_tok(Dot)
+                    p.toks.peek_at(1) match
+                        Some(t) -> t.value match
+                            Name(s) ->
+                                p.take()
+                                p.take()
+                                n = s"$n.$s"
+                                at = at.to(p.toks.previous())
+                            _ -> ()
+                        None -> ()
 
                 return expr(IsE(left, n, at), left.span.to(at))
         None -> ()

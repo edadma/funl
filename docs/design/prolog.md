@@ -200,7 +200,7 @@ that is not an evaluable is a `type_error(evaluable, Name/Arity)`.
 
 **Standard order of terms** — what `@<`, `compare/3`, `sort/2` and `msort/2` use — is: variables
 (by age), then numbers (by value; an integer and a float of equal value put the float first), then
-atoms (by text), then strings (by text), then compounds (by arity, then name, then arguments left to
+strings (by text), then atoms (by text), as SWI-Prolog orders them, then compounds (by arity, then name, then arguments left to
 right). FunL-only kinds come after compounds, in a fixed order by kind and then by identity, so a
 sort of mixed terms is total and repeatable.
 

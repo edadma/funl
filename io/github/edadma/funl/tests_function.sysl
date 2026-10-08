@@ -41,7 +41,8 @@ A_NAME_WRITTEN_TWICE_IN_THE_PARAMETERS_MUST_SEE_EQUAL_ARGUMENTS()
 
 @test
 PARAMETERS_MATCH_TUPLES_TERMS_ALTERNATIONS_AND_NAMED_PATTERNS()
-    val text = "def\n" +
+    val text = "data point(x, y)\n" +
+        "def\n" +
         "  f( (a, b) ) = a + b\n" +
         "  f( point(x, y) ) = x * y\n" +
         "  f( #a | #b ) = #ab\n" +

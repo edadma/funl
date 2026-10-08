@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 @tests
 
-import sysl.fs.{make_dir, read_text}
+import sysl.fs.{make_dir, read_text, symlink}
 import sysl.text.Search
 
 // Modules (`modules.md`): a file is a module, and another file sees what it exports -- by name with
@@ -100,6 +100,38 @@ A_MODULE_IMPORTED_BY_SEVERAL_FILES_RUNS_ITS_TOP_LEVEL_ONCE_BEFORE_ITS_FIRST_IMPO
         "write( l, origin, r )\n"
 
     assert_eq(ran_funl(text), "base\nleft\nright\n-1, 0, 1\nsucceeded")
+
+@test
+A_PROLOG_FILE_IMPORTED_BY_SEVERAL_FILES_IS_LOADED_ONCE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "facts.pl", ":- write(loaded), nl.\nfact(1).\n")
+    put(d, "left.funl", "import \"facts.pl\"\nexport val l = 1\n")
+    make_dir(s"$d/sub").unwrap()
+    put(d, "sub/right.funl", "import \"../facts.pl\"\nexport val r = 2\n")
+
+    val text = s"import \"$d/facts.pl\"\n" +
+        s"import { l } from \"$d/left.funl\"\n" +
+        s"import { r } from \"$d/sub/right.funl\"\n" +
+        s"import \"$d/sub/../facts.pl\"\n" +
+        "free a\n" +
+        "every fact( a ) do write( a, l, r )\n"
+
+    assert_eq(ran_funl(text), "loaded\n1, 1, 2\nsucceeded")
+
+    // A program refused forgets the files it imported, whose directives never ran, so the next program
+    // on the same VM loads them again.
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+
+    assert_eq(compiled_text(s"import \"$d/facts.pl\"\nwrite( nope )\n").is_err(), true)
+    assert_eq(v.pl_imports.len(), 0)
+    assert_eq(compiled_text(s"import \"$d/facts.pl\"\nimport \"$d/sub/../facts.pl\"\n").is_ok(), true)
+    assert_eq(v.pl_imports.len(), 1)
+
+    dispose_vm(&v)
+    leave(was)
 
 @test
 A_MODULES_PATH_IS_READ_RELATIVE_TO_THE_FILE_IMPORTING_IT()
@@ -290,6 +322,146 @@ A_MODULE_FUNL_AND_PROLOG_BOTH_IMPORT_IS_ONE_MODULE_RUN_ONCE()
         "if area( 3, a ) then write( a, scaled(1) )\n"
 
     assert_eq(ran_funl(text), "geometry\n30, 10\nsucceeded")
+
+@test
+A_QUALIFIED_CONSTRUCTOR_IS_A_PATTERN_IN_EVERY_PATTERN_POSITION()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "hue.funl", "export data hue = red | green\nexport data box = box(x)\n")
+    val text = s"import * as h from \"$m\"\n" +
+        "def name( h.red ) = 'r'\n" +
+        "def name( h.green ) = 'g'\n" +
+        "def unbox( h.box(h.box(v)) ) = v\n" +
+        "def warm( h.red )\n" +
+        "def boxed( h.box(v), v )\n" +
+        "write( name(h.green), name(h.red), unbox(h.box(h.box(9))) )\n" +
+        "if warm( h.red ) then write( 'warm' )\n" +
+        "if not warm( h.green ) then write( 'cool' )\n" +
+        "free b\n" +
+        "if boxed( b, 4 ) then write( b )\n" +
+        "val h.box(w) = h.box(5)\n" +
+        "write( w )\n" +
+        "for h.box(x) <- [h.box(1), h.box(2)] do write( x )\n" +
+        "write( [y | h.box(y) <- [h.box(6), 7, h.box(8)]] )\n" +
+        "free z\n" +
+        "h.box(z) ~ h.box(3)\n" +
+        "write( z )\n"
+
+    assert_eq(ran_funl(text), "g, r, 9\nwarm\ncool\nbox(4)\n5\n1\n2\n[6, 8]\n3\nsucceeded")
+
+@test
+A_QUALIFIED_PATTERN_NAMES_AN_EXPORTED_CONSTRUCTOR_WITH_AS_MANY_FIELDS()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "hue.funl", "export data hue = red | green\nexport data box = box(x)\ndata secret = hidden(a)\nexport def r( x ) :- x > 0\n")
+    val im = s"import * as h from \"$m\"\n"
+
+    assert_eq(complaints(im + "def f( h.blue ) = 1\ndef f( h.hidden(a) ) = a\n"),
+        s"error 2:8 `$m` does not export `blue`\n" +
+        s"error 3:8 `$m` does not export `hidden`\n")
+    assert_eq(complaints(im + "val h.red(c) = 1\ndef f( h.box(a, b) ) = a\ndef f( h.box ) = 1\n"),
+        "error 2:5 the constructor `h.red` takes 0 fields, and this pattern gives 1\n" +
+        "error 3:8 the constructor `h.box` takes 1 field, and this pattern gives 2\n" +
+        "error 4:8 the constructor `h.box` takes 1 field, and this pattern gives none\n")
+    assert_eq(complaints(im + "def f( h.r(a) ) = a\n"), "error 2:8 `h.r` is not a constructor, so a pattern cannot match it\n")
+
+    // A relation's head is checked the same way.
+    assert_eq(complaints(im + "def g( h.box(a, b), a, b )\ndef g( h.nope, 1, 2 )\n"),
+        "error 2:8 the constructor `h.box` takes 1 field, and this pattern gives 2\n" +
+        s"error 3:8 `$m` does not export `nope`\n")
+
+@test
+AN_UNQUALIFIED_PATTERN_NAMES_A_CONSTRUCTOR_IN_SCOPE_WITH_AS_MANY_FIELDS()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "box.funl", "export data box = box(x)\nexport def r( x ) :- x > 0\n")
+    val own = "data pair = p(a, b)\n"
+
+    // In a function's parameters, a `val`, a `for` and a comprehension alike.
+    assert_eq(complaints(own + "val p(x, y, z) = p(1, 2)\nfor p(c) <- [p(1, 2)] do write( c )\n"),
+        "error 2:5 the constructor `p` takes 2 fields, and this pattern gives 3\n" +
+        "error 3:5 the constructor `p` takes 2 fields, and this pattern gives 1\n")
+    assert_eq(complaints(own + "def f( p(a) ) = a\n"), "error 2:8 the constructor `p` takes 2 fields, and this pattern gives 1\n")
+    assert_eq(complaints("val zork(y) = 1\nwrite( [w | zork(w) <- [1]] )\n"),
+        "error 1:5 `zork` is not defined\n" +
+        "error 2:13 `zork` is not defined\n")
+    assert_eq(complaints("def f( zork(x) ) = x\n"), "error 1:8 `zork` is not defined\n")
+    assert_eq(complaints("def f( write(x) ) = x\n"), "error 1:8 `write` is not a constructor, so a pattern cannot match it\n")
+
+    // An imported constructor is in scope as an own one is.
+    assert_eq(complaints(s"import { box, r } from \"$m\"\ndef f( box(a, b) ) = a\ndef g( r(a) ) = a\n"),
+        "error 2:8 the constructor `box` takes 1 field, and this pattern gives 2\n" +
+        "error 3:8 `r` is not a constructor, so a pattern cannot match it\n")
+
+    // The right number of fields matches.
+    assert_eq(ran_funl(own + s"import { box } from \"$m\"\n" +
+        "def f( p(a, b) ) = a + b\ndef f( box(x) ) = x\nval p(x, y) = p(3, 4)\n" +
+        "for box(c) <- [box(5)] do write( c )\nwrite( f(p(1, 2)), f(box(9)), x, y, [w | p(w, _) <- [p(6, 0), 7]] )\n"),
+        "5\n3, 9, 3, 4, [6]\nsucceeded")
+
+    // The same name with another number of fields is another constructor, which a call and a pattern
+    // reach whichever of the two the name means; a count neither has is refused.
+    val two = "data point(x)\ndata point(x, y)\n"
+
+    assert_eq(ran_funl(two + "def f( point(a) ) = a\ndef f( point(a, b) ) = a + b\nwrite( point(1), f(point(1)), f(point(1, 2)), point(5).x )\n"),
+        "point(1), 1, 3, 5\nsucceeded")
+    assert_eq(complaints(two + "def f( point(a, b, c) ) = a\nwrite( point(1, 2, 3) )\n"),
+        "error 4:8 the constructor `point` takes 2 fields, and this call gives 3\n" +
+        "error 3:8 the constructor `point` takes 2 fields, and this pattern gives 3\n")
+
+    // A relation's head may still write a term no `data` declares: it is a Prolog term. So may a
+    // `catch`'s pattern, which takes apart a thrown term.
+    assert_eq(ran_funl("def holds( foo(_x) )\ndef holds( bar(_x, _y) )\nfree a\nevery holds( a ) do write( a )\n"),
+        "foo(_G1)\nbar(_G2, _G3)\nsucceeded")
+    assert_eq(ran_funl("write( 1 + #a catch error(type_error(k, _), _) -> k )\n"), "number\nsucceeded")
+
+    // A name that is not a module's is no qualified name, and `x.f` is no pattern.
+    assert(has(rendered("def f( x ) = x\ndef k( p.q(1) ) = 1\n"), "this cannot be matched against anything"), "p.q(1)")
+
+@test
+A_MODULE_IS_KNOWN_BY_ITS_REAL_FILE_SO_A_LINK_CLOSES_A_CIRCLE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "a.funl", "import { b } from \"b.funl\"\nexport def a() = 1\n")
+    put(d, "b.funl", "import { a } from \"link.funl\"\nexport def b() = 2\n")
+    symlink("a.funl", s"$d/link.funl").unwrap()
+
+    val said = rendered(s"import { a } from \"$d/a.funl\"\n")
+
+    assert(has(said, s"this import closes a circle: `$d/a.funl` imports `$d/b.funl` imports `$d/link.funl`"), said)
+
+@test
+A_MODULE_IMPORTED_BY_TWO_SPELLINGS_RUNS_ONCE()
+    val d = scratch()
+    defer scrap(d)
+
+    val shapes = put_shapes(d)
+
+    make_dir(s"$d/sub").unwrap()
+    symlink("geometry.funl", s"$d/geo.funl").unwrap()
+
+    // FunL imports it through a link and by a roundabout path, Prolog's `:- import` by its own name.
+    val text = s"import { scaled } from \"$d/geo.funl\"\n" +
+        s"import { scaled as twice } from \"$d/sub/../geometry.funl\"\n" +
+        s"import \"$shapes\"\n" +
+        "free a\n" +
+        "if area( 3, a ) then write( a, scaled(1), twice(2) )\n"
+
+    assert_eq(ran_funl(text), "geometry\n30, 10, 20\nsucceeded")
+
+@test
+A_PROLOG_FILE_IMPORTED_BY_TWO_SPELLINGS_LOADS_ONCE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "hello.pl", HelloPl)
+    symlink("hello.pl", s"$d/hi.pl").unwrap()
+
+    assert_eq(ran_funl(s"import \"$d/hello.pl\"\nimport \"$d/hi.pl\"\nwrite( 'done' )\n"), "hello\nworld\ndone\nsucceeded")
 
 // The directive consulting `file`.
 private consulting_of(file: string) -> string = s":- consult(\"$file\").\n"

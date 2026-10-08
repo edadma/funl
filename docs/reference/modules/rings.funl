@@ -1,0 +1,3 @@
+;; A module declaring a constructor circle(r), as geometry.funl does.
+
+export data ring = circle(r)

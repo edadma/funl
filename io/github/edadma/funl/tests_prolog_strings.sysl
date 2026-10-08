@@ -3,7 +3,8 @@ module io.github.edadma.funl
 
 // The Prolog builtins over strings, with SWI-Prolog's meaning: `atom_string/2`, `string_chars/2`,
 // `string_codes/2`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`,
-// `upcase_atom/2`, `downcase_atom/2`, `string_upper/2` and `string_lower/2`, each with its errors.
+// `upcase_atom/2`, `downcase_atom/2`, `string_upper/2`, `string_lower/2`, `string_code/3`,
+// `string_to_atom/2`, `number_string/2`, `term_string/2` and `atom_to_term/3`, each with its errors.
 // Every expected answer is what SWI-Prolog 10.0.2 gives for the same goal.
 
 private ok(text: string) -> string = text + "\nsucceeded"
@@ -219,3 +220,97 @@ CASE_CONVERSION_REFUSES_WHAT_IS_NOT_TEXT()
     assert_eq(holds("downcase_atom(f(x), _)"), ok("type_error(atomic,f(x))"))
     assert_eq(holds("string_upper(_, _)"), ok("instantiation_error"))
     assert_eq(holds("string_lower(f(x), _)"), ok("type_error(atomic,f(x))"))
+
+// -- string_code/3, string_to_atom/2, number_string/2, term_string/2, atom_to_term/3 ------------------
+// Every expected answer below is what swipl 10.0.2 gives for the same goal.
+
+@test
+STRING_CODE_GIVES_THE_CODE_AT_AN_INDEX_FROM_1_OR_FAILS()
+    assert_eq(gives("string_code(1, \"abc\", X)"), ok("97"))
+    assert_eq(gives("string_code(3, abc, X)"), ok("99"))
+    assert_eq(gives("string_code(2, \"aé\", X)"), ok("233"))
+    assert_eq(gives("string_code(1, [0'a], X)"), ok("97"))
+    assert_eq(holds("string_code(4, \"abc\", _)"), ok("no"))
+    assert_eq(holds("string_code(0, \"abc\", _)"), ok("no"))
+    assert_eq(holds("string_code(1, \"\", _)"), ok("no"))
+    assert_eq(holds("string_code(1, \"abc\", x)"), ok("no"))
+    assert_eq(every("string_code(I, \"aba\", C), X = I-C"), "1-97\n2-98\n3-97\nsucceeded")
+    assert_eq(every("string_code(X, \"aba\", 0'a)"), "1\n3\nsucceeded")
+
+@test
+STRING_CODE_REFUSES_A_BAD_INDEX_OR_WHAT_IS_NOT_TEXT()
+    assert_eq(holds("string_code(-1, \"abc\", _)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("string_code(a, \"abc\", _)"), ok("type_error(integer,a)"))
+    assert_eq(holds("string_code(1.0, \"abc\", _)"), ok("type_error(integer,1.0)"))
+    assert_eq(holds("string_code(1, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("string_code(a, f(x), _)"), ok("type_error(text,f(x))"))
+    assert_eq(holds("string_code(1, 12, _)"), ok("type_error(text,12)"))
+
+@test
+STRING_TO_ATOM_IS_ATOM_STRING_THE_OTHER_WAY_ROUND()
+    assert_eq(gives("string_to_atom(\"abc\", X)"), ok("abc"))
+    assert_eq(gives("string_to_atom(X, abc)"), ok("\"abc\""))
+    assert_eq(gives("string_to_atom(X, 12)"), ok("\"12\""))
+    assert_eq(gives("string_to_atom(12, X)"), ok("'12'"))
+    assert_eq(gives("string_to_atom([0'a], X)"), ok("a"))
+    assert_eq(holds("string_to_atom(\"x\", y)"), ok("no"))
+    assert_eq(holds("string_to_atom(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("string_to_atom(f(x), _)"), ok("type_error(string,f(x))"))
+
+@test
+NUMBER_STRING_READS_A_NUMBER_OR_FAILS_AND_WRITES_ONE()
+    assert_eq(gives("number_string(X, \"42\")"), ok("42"))
+    assert_eq(gives("number_string(X, \"4.5e3\")"), ok("4500.0"))
+    assert_eq(gives("number_string(X, \"0x1F\")"), ok("31"))
+    assert_eq(gives("number_string(X, \"-12\")"), ok("-12"))
+    assert_eq(gives("number_string(X, \"+12\")"), ok("12"))
+    assert_eq(gives("number_string(X, \"1r3\")"), ok("1r3"))
+    assert_eq(gives("number_string(X, [0'1])"), ok("1"))
+    assert_eq(gives("number_string(42, X)"), ok("\"42\""))
+    assert_eq(holds("number_string(1, \"1\")"), ok("yes"))
+    assert_eq(holds("number_string(_, \"abc\")"), ok("no"))
+    assert_eq(holds("number_string(_, \" 42\")"), ok("no"))
+    assert_eq(holds("number_string(_, \"42 \")"), ok("no"))
+    assert_eq(holds("number_string(_, \"- 12\")"), ok("no"))
+
+@test
+NUMBER_STRING_REFUSES_WHAT_IS_NEITHER_A_NUMBER_NOR_A_STRING()
+    assert_eq(holds("number_string(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("number_string(a, _)"), ok("type_error(number,a)"))
+    assert_eq(holds("number_string(_, abc)"), ok("type_error(list,abc)"))
+    assert_eq(holds("number_string(_, '12')"), ok("type_error(list,'12')"))
+    assert_eq(holds("number_string(_, f(x))"), ok("type_error(list,f(x))"))
+
+@test
+TERM_STRING_READS_A_TERM_OR_WRITES_ONE()
+    assert_eq(gives("term_string(f(x, 'A', \"s\", [1, 2]), X)"), ok("\"f(x,'A',\\\"s\\\",[1,2])\""))
+    assert_eq(gives("term_string(1+2, X)"), ok("\"1+2\""))
+    assert_eq(gives("term_string(T, \"foo(A, B, A)\"), T = foo(P, Q, R), P == R, P \\== Q, var(Q), X = ok"), ok("ok"))
+    assert_eq(gives("term_string(X, 'bar(1)')"), ok("bar(1)"))
+    assert_eq(gives("term_string(X, 12)"), ok("12"))
+    assert_eq(gives("term_string(X, [0'a])"), ok("a"))
+    assert_eq(gives("term_string(X, \"x.\")"), ok("x"))
+    assert_eq(gives("term_string(X, \"a. b\")"), ok("a"))
+    assert_eq(holds("term_string(a+b, \"a+b\")"), ok("yes"))
+
+@test
+TERM_STRING_REFUSES_TEXT_WITH_NO_TERM_AND_WHAT_IS_NOT_TEXT()
+    assert_eq(holds("term_string(_, \"\")"), ok("syntax_error(end_of_string)"))
+    assert_eq(holds("term_string(_, \"  \")"), ok("syntax_error(end_of_string)"))
+    assert_eq(holds("term_string(_, f(x))"), ok("type_error(text,f(x))"))
+
+@test
+ATOM_TO_TERM_READS_A_TERM_AND_NAMES_ITS_VARIABLES()
+    assert_eq(gives("atom_to_term('foo(X, Y, X)', T, B), B = ['X' = V, 'Y' = W], T == foo(V, W, V), X = ok"), ok("ok"))
+    assert_eq(gives("atom_to_term('foo(_, _A, B)', T, B), T = foo(_, P, Q), B == ['_A' = P, 'B' = Q], X = ok"), ok("ok"))
+    assert_eq(gives("atom_to_term(abc, X, B), B == []"), ok("abc"))
+    assert_eq(gives("atom_to_term(\"p(Q)\", T, [N = V]), T == p(V), X = N"), ok("'Q'"))
+    assert_eq(gives("atom_to_term(12, X, [])"), ok("12"))
+
+@test
+ATOM_TO_TERM_WANTS_TEXT_HOLDING_A_TERM()
+    assert_eq(holds("atom_to_term(_, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("atom_to_term(_, f(x, y), _)"), ok("instantiation_error"))
+    assert_eq(holds("atom_to_term(f(x), _, _)"), ok("type_error(text,f(x))"))
+    assert_eq(holds("atom_to_term('', _, _)"), ok("syntax_error(end_of_string)"))
+    assert_eq(holds("atom_to_term([], _, _)"), ok("syntax_error(end_of_string)"))

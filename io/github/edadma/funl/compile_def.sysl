@@ -33,7 +33,7 @@ import sysl.path.{join, parent}
 // forgotten again, since their top levels will never run.
 compile_program(src: Source, report: *Report) -> Option[usize]
     val v = current()
-    val before = v.modules.len()
+    val before = load_mark()
 
     v.loading.push(src.name)
 
@@ -44,7 +44,7 @@ compile_program(src: Source, report: *Report) -> Option[usize]
     made match
         Ok(out) -> Some(out.chunk)
         Err(_) ->
-            forget_modules(before)
+            forget_since(before)
             None
 
 // The FunL module in `src`, loaded as number `m` (`module.sysl`), compiled into the running VM: its
@@ -100,16 +100,16 @@ end compile_funl
 
 // `import "file.pl"`: the Prolog file, read relative to the directory of the program importing it,
 // loaded into the VM; the chunk that runs its directives, or `None` with the reason reported at the
-// import. A file the program has already imported (`seen`) is loaded once, as any import is.
-imported(src: Source, i: Spanned[string], seen: *Buf[string], report: *Report) -> Option[usize]
-    val file = parent(src.name) match
-        Some(dir) -> join(dir, i.value)
-        None -> i.value
+// import. **A file is loaded once in the program**, known by its real path (`same_file`), however
+// many of the program's files import it, as a FunL module is.
+imported(src: Source, i: Spanned[string], report: *Report) -> Option[usize]
+    val v = current()
+    val file = module_path(src.name, i.value)
 
-    for f in seen.view()
-        if f == file then return None
+    for f in v.pl_imports.view()
+        if same_file(f, file) then return None
 
-    seen.push(file)
+    v.pl_imports.push(file)
 
     val text = read_text(file) match
         Ok(t) -> t

@@ -1,6 +1,7 @@
 module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
+import sysl.math.bigint as big
 import sysl.text.{Search, char_from_u32, chars_of, from_utf8_unchecked, str_builder}
 
 // Prolog's builtins over the text of atoms: `atom_codes/2`, `atom_chars/2`, `char_code/2`,
@@ -43,6 +44,8 @@ install_prolog_atoms(v: *Vm)
     register_generator(v, "downcase_atom/2", 2, (b, n, c) -> case_of(b, "downcase_atom/2", false, false))
     register_generator(v, "string_upper/2", 2, (b, n, c) -> case_of(b, "string_upper/2", true, true))
     register_generator(v, "string_lower/2", 2, (b, n, c) -> case_of(b, "string_lower/2", false, true))
+    register_generator(v, "string_code/3", 3, pl_string_code)
+    register_generator(v, "number_string/2", 2, pl_number_string)
 
 // How a builtin reads a text argument, as SWI-Prolog reads it:
 //
@@ -130,6 +133,10 @@ private text_in(x: Value, who: string, mode: TextMode) -> Result[Option[string],
             if numeral then return Ok(Some(written_number(y)))
 
             Err(not_text(y, who, mode))
+
+// The text of `x` read as `string_length/2` reads it -- an atom, a string, a number, a code list or a
+// character list, `[]` the empty text -- `None` when it is unbound.
+any_text(x: Value, who: string) -> Result[Option[string], Fault] = text_in(x, who, AnyText)
 
 private is_cons(y: Value) -> bool = y match
     Cons(_) -> true
@@ -567,6 +574,22 @@ parse_number(s: string) -> Result[Option[Value], Fault]
 
         if radix != 10 then i += 2
 
+    // Digit groups, as the reader takes them -- `1 000`, `1_000`, `0xff_ff`, `1r2_0` -- in an integer
+    // or a rational and nowhere else: a float with groups is no number here.
+    val run = digit_run(b[i..<b.len], int(radix))
+    val grouped_text = plain_groups(b[i..<i + run.len])
+    val tail = b[i + run.len..<b.len]
+    val rational = radix == 10 && tail.len > 1 && tail[0] == u8('r') && digit_run(tail[1..<tail.len], 10).len == tail.len - 1
+    val denominator_text = if rational then plain_groups(tail[1..<tail.len]) else ""
+
+    if grouped_text.bytes.len != run.len || (rational && denominator_text.bytes.len != tail.len - 1)
+        if tail.len > 0 && !rational then return Ok(None)
+
+        val rest = if rational then s"r$denominator_text" else ""
+        val prefix = from_utf8_unchecked(b[0..<i])
+
+        return parse_number(s"$prefix$grouped_text$rest")
+
     // A decimal number is the tower's to read -- an integer of any size, a float, or a rational
     // written `7r2`, which the tower reads as `7/2`; a `/` is no part of Prolog's number syntax.
     if radix == 10
@@ -586,30 +609,23 @@ parse_number(s: string) -> Result[Option[Value], Fault]
                 Err(e) -> Err(Broken(e))
             Err(_) -> Ok(None)
 
-    // Accumulated negatively, so the least `long` is reached without passing the largest.
-    var value: long = 0
-    var digits: usize = 0
+    // Any number of digits in the radix, an integer of any size.
+    if i >= b.len then return Ok(None)
 
-    while i < b.len
-        val d = digit_value(b[i])
+    for k in i..<b.len
+        if digit_value(b[k]) >= radix then return Ok(None)
 
-        if d >= radix then return Ok(None)
+    val digits = from_utf8_unchecked(b[i..<b.len])
 
-        if value < (-9223372036854775807 - 1 + d) / radix
-            return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, as an integer written in a radix has to"))
+    val whole = big.parse_radix(if negative then s"-$digits" else digits, int(radix)) match
+        Some(n) -> n
+        None -> return Ok(None)
 
-        value = value * radix - d
-        digits += 1
-        i += 1
-
-    if digits == 0 then return Ok(None)
-
-    if negative then return Ok(Some(Int(value)))
-
-    if value == -9223372036854775807 - 1
-        return Err(evaluation_error("int_overflow", s"$s does not fit in 64 bits, as an integer written in a radix has to"))
-
-    Ok(Some(Int(-value)))
+    prolog_policy().of_big(whole) match
+        Ok(n) -> num_value(n) match
+            Ok(x) -> Ok(Some(x))
+            Err(e) -> Err(Broken(e))
+        Err(_) -> Ok(None)
 end parse_number
 
 // `N/M` for text `NrM` -- digits, an `r`, and digits not all `0` -- and `None` for any other text.
@@ -702,6 +718,96 @@ private pl_atom_string(base: usize, argc: usize, cursor: long) -> Result[Answer,
     text_in(a, who, IsoAtom)? match
         Some(t) -> answer(same_text(arg(base, 1), t)?)
         None -> Err(instantiation_error("instantiation error: atom_string/2 wants its atom or its string"))
+
+// `string_code(I, S, C)`: `C` is the code of character `I` of `S`, counting from 1, as SWI-Prolog has
+// it. An index past either end fails, a negative one is a domain error, and an unbound one enumerates
+// the characters. `S` is any text but a number, a code list or a character list among it.
+private pl_string_code(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = "string_code/3"
+
+    val s = text_in(arg(base, 1), who, SplitText)? match
+        Some(t) -> t
+        None -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable where it wants text"))
+
+    var codes: Buf[long] = buf()
+
+    for c in chars_of(s.bytes)
+        codes.push(long(u32(c)))
+
+    val i = deref(arg(base, 0))
+
+    i match
+        Int(k) ->
+            if k < 0 then return Err(domain_error("not_less_than_zero", i, s"$who's index is 1 or more, and was given $k"))
+
+            if k == 0 || k > long(codes.len()) then return Ok(Refuses)
+
+            return unified(arg(base, 2), Int(codes.at(usize(k - 1))))
+        Var(_) -> ()
+        _ -> return Err(type_error("integer", i, s"$who wants an integer index, and was given ${described(i)}"))
+
+    // Enumerating: the characters from `cursor` on whose code unifies with `C`.
+    val c = deref(arg(base, 2))
+    var k = usize(cursor)
+
+    while k < codes.len() && !code_fits(c, codes.at(k))
+        k += 1
+
+    if k >= codes.len() then return Ok(Refuses)
+
+    unify_on_answer(arg(base, 0), Int(long(k + 1)))
+    unify_on_answer(arg(base, 2), Int(codes.at(k)))
+
+    var next = k + 1
+
+    while next < codes.len() && !code_fits(c, codes.at(next))
+        next += 1
+
+    Ok(if next >= codes.len() then Gives(Unit) else GivesMore(Unit, long(next)))
+end pl_string_code
+
+// Whether `c`, the code argument, could be `code`: unbound, or that integer.
+private code_fits(c: Value, code: long) -> bool = c match
+    Var(_) -> true
+    Int(k) -> k == code
+    _ -> false
+
+// `number_string(N, S)`: `S` read as a number, failing where it is none -- as SWI-Prolog has it, which
+// reads no layout around the number. `S` is a string, a code list or a character list; an atom is
+// `type_error(list, A)`. With `S` unbound, `N` written as a string.
+private pl_number_string(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = "number_string/2"
+    val n = deref(arg(base, 0))
+    val s = deref(arg(base, 1))
+
+    if !is_num(n) && !is_unbound(n) then return Err(type_error("number", n, s"$who wants a number, and was given ${described(n)}"))
+
+    s match
+        Var(_) ->
+            if is_num(n) then return unified(s, made_text(written_number(n), true)?)
+
+            return Err(instantiation_error(s"instantiation error: $who wants its number or its string"))
+        Str(_) -> ()
+        Nil -> ()
+        Cons(_) -> ()
+        _ -> return Err(type_error("list", s, s"$who wants a string or a list, and was given ${described(s)}"))
+
+    val text = text_in(s, who, SplitText)? match
+        Some(t) -> t
+        None -> return Err(instantiation_error(s"instantiation error: $who was given a list that is not yet whole"))
+
+    if text.bytes.len == 0 || is_layout_byte(text.bytes[0]) then return Ok(Refuses)
+
+    // A `+` before the digits is taken, as SWI-Prolog takes it here.
+    val digits = if text.bytes.len > 1 && text.bytes[0] == u8('+') && text.bytes[1] >= u8('0') && text.bytes[1] <= u8('9')
+        from_utf8_unchecked(text.bytes[1..<text.bytes.len])
+    else
+        text
+
+    parse_number(digits) match
+        Ok(Some(k)) -> unified(n, k)
+        _ -> Ok(Refuses)
+end pl_number_string
 
 // `upcase_atom/2`, `downcase_atom/2`, `string_upper/2` and `string_lower/2`: the text of the first
 // argument with every character in upper or lower case, made an atom or a string.

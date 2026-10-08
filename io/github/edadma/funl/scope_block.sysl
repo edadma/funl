@@ -81,7 +81,11 @@ walk_catch(w: *Walk, id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr]
     w.blk = w.sc.open(outer)
     w.res.blocks.put(id, w.blk)
     w.sc.declare(w.blk, trap_name(id), pat.span, 0, false)
+    val was_ball = w.ball
+
+    w.ball = true
     declare_pattern(w, pat, pat.span.end, false)
+    w.ball = was_ball
     walk_maybe(w, guard)
     walk(w, recovery)
     w.blk = outer

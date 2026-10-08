@@ -4,7 +4,8 @@ import sh.sysl.parsing.{Report, Source, full_report, source_of}
 import sysl.buf.{Buf, buf}
 import sysl.text.{Search, from_utf8_unchecked, str_builder}
 
-// Reading terms while a program runs: `read/1`, `read_term/2` and `term_to_atom/2`; and the operator
+// Reading terms while a program runs: `read/1`, `read_term/2`, `term_to_atom/2`, `term_string/2` and
+// `atom_to_term/3`; and the operator
 // table as `current_op/3` enumerates it.
 //
 // **Input is lines, from the machine's `input`**: the top level's own line source in the `prolog`
@@ -20,6 +21,8 @@ install_prolog_read(v: *Vm)
     register_generator(v, "read/1", 1, (b, n, c) -> read_term_from_input(arg(b, 0), Nil, "read/1"))
     register_generator(v, "read_term/2", 2, (b, n, c) -> read_term_from_input(arg(b, 0), arg(b, 1), "read_term/2"))
     register_generator(v, "term_to_atom/2", 2, (b, n, c) -> pl_term_to_atom(arg(b, 0), arg(b, 1)))
+    register_generator(v, "term_string/2", 2, (b, n, c) -> pl_term_string(arg(b, 0), arg(b, 1)))
+    register_generator(v, "atom_to_term/3", 3, (b, n, c) -> pl_atom_to_term(arg(b, 0), arg(b, 1), arg(b, 2)))
     register_generator(v, "$ops/4", 4, (b, n, c) -> pl_ops(arg(b, 0), arg(b, 1), arg(b, 2), arg(b, 3)))
 
 // -- Reading ----------------------------------------------------------------------------------------
@@ -193,6 +196,59 @@ private pl_term_to_atom(t: Value, a: Value) -> Result[Answer, Fault]
     var vars: Buf[Value] = buf()
 
     unified(t, term_value(c.t, &vars)?)
+
+// `term_string(T, S)`, as SWI-Prolog has it: `S` read as a term and unified with `T` when `S` is
+// bound -- any text, a code list among it -- and otherwise `T` written as `writeq/1` writes it, as a
+// string. Text with no term in it is `syntax_error(end_of_string)`.
+private pl_term_string(t: Value, s: Value) -> Result[Answer, Fault]
+    val who = "term_string/2"
+
+    val text = any_text(s, who)? match
+        Some(x) -> x
+        None ->
+            return new_str(term_text(t, write_opts(true, false, true))) match
+                Ok(x) -> unified(s, x)
+                Err(e) -> Err(Broken(e))
+
+    val c = read_text(text, who)?
+    var vars: Buf[Value] = buf()
+
+    unified(t, term_value(c.t, &vars)?)
+
+// `atom_to_term(A, T, Bindings)`, as SWI-Prolog has it: `A` read as a term, unified with `T`, and
+// `Bindings` the list `['X' = X, ...]` of its named variables in the order they were first written,
+// `_`-prefixed names among them and `_` aside. `A` is any text, and must be bound.
+private pl_atom_to_term(a: Value, t: Value, bindings: Value) -> Result[Answer, Fault]
+    val who = "atom_to_term/3"
+
+    val text = any_text(a, who)? match
+        Some(x) -> x
+        None -> return Err(instantiation_error(s"instantiation error: $who wants the text to read"))
+
+    val c = read_text(text, who)?
+    var vars: Buf[Value] = buf()
+    val x = term_value(c.t, &vars)?
+
+    while vars.len() < c.names.len()
+        vars.push(Undefined)
+
+    if !unify(t, x) then return answer(false)
+
+    unified(bindings, named_variables(c, &vars, false)?)
+
+// The first term `text` holds, its `.` optional, as SWI-Prolog reads it: a term ended by `.` is taken
+// whatever follows it. `syntax_error(end_of_string)` where the text holds no term.
+private read_text(text: string, who: string) -> Result[ReadClause, Fault]
+    read_one("string", text, false) match
+        Ok(one) ->
+            one.got match
+                Some(c) -> return Ok(c)
+                None -> ()
+        Err(_) -> ()
+
+    read_one("string", text, true)?.got match
+        Some(c) -> Ok(c)
+        None -> Err(syntax_error("end_of_string", s"$who: the text '$text' holds no term"))
 
 // -- The input ---------------------------------------------------------------------------------------
 

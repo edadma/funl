@@ -81,10 +81,9 @@ struct Vm
     // Every `data` constructor the program declares, by the id its `Ctor` values and records carry.
     ctors: Buf[CtorDef]
 
-    // Every `data` type declared with `data t = c1 | c2 ...`, by the id `TypeTest.Data` carries,
-    // and each name's latest declaration.
+    // Every `data` type declared with `data t = c1 | c2 ...`, by the id `TypeTest.Data` carries.
+    // Its name belongs to the file that declares it (`Resolved.own_types`).
     data_types: Buf[Buf[usize]]
-    data_ids: Map[string, usize]
 
     // What `write` printed, a line per call.
     output: Buf[string]
@@ -120,6 +119,10 @@ struct Vm
 
     // The files being compiled, each importing the next: what an import closing a circle names.
     loading: Buf[string]
+
+    // The Prolog files a FunL `import "x.pl"` has loaded, so each is loaded once in the program,
+    // whichever and however many files import it (`module.sysl`).
+    pl_imports: Buf[string]
 
     // The Prolog flags a program can change (`pl_flags.sysl`).
     flags: PlFlags
@@ -204,7 +207,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
 
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
-        buf(), map(), buf(), buf(), buf(), map(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), pl_flags(),
+        buf(), map(), buf(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf())
 

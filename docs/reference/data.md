@@ -407,7 +407,8 @@ statement, a running process. It is opaque: it prints as `<kind handle>`, is equ
 and is reached only through its methods, called as `h.name(args)`. Every handle has `close()`, which
 gives the resource back at once; closing it again does nothing, and calling any other method of a
 closed handle is an error. A handle the program never closes is closed when nothing can reach it any
-more. `x is handle` tests for one.
+more. `x is handle` tests for one. A method may fail, as a comparison does, and may generate, as
+any generator does: each call starts afresh and produces its values one at a time on backtracking.
 
 ## Records
 
@@ -567,6 +568,32 @@ blank
 point(1, 2)
 ```
 
+A type's name and its constructors belong to the file that declares them, and another file reaches
+them only by importing them ([Modules](modules.md#types-and-constructors)).
+[`modules/geometry.funl`](modules/geometry.funl) declares `export data shape = circle(r) | square(s)`:
+
+```funl
+import { circle, shape } from "modules/geometry.funl"
+
+write( circle(1) is shape )
+write( 3 is shape )
+```
+
+```output
+geometry is loaded
+circle(1)
+```
+
+```funl
+import { circle } from "modules/geometry.funl"
+
+write( circle(1) is shape )
+```
+
+```error
+`shape` is not a type
+```
+
 A record is known by its constructor's name and number of fields, so a term of that shape is that
 record however it was made: by a relation's head, by unification, or by Prolog. It is `is point`, it
 matches a `point(a, b)` pattern, and its fields are read by name. The examples load
@@ -627,17 +654,36 @@ data point(a, b)
 the constructor `point` of 2 fields is already declared at
 ```
 
-The same name with a different number of fields is a different constructor and is allowed:
+The same name with a different number of fields is a different constructor and is allowed. A call
+or a pattern reaches the one with as many fields as it gives:
 
 ```funl
 data point(x)
 data point(x, y)
 
-write( point(1, 2).y )
+def size( point(_) ) = 1
+def size( point(_, _) ) = 2
+
+write( point(1, 2).y, point(7).x )
+write( size(point(7)), size(point(1, 2)) )
 ```
 
 ```output
-2
+2, 7
+1, 2
+```
+
+A call or a pattern giving a number of fields no constructor of that name has is refused:
+
+```funl
+data point(x)
+data point(x, y)
+
+def size( point(_, _, _) ) = 3
+```
+
+```error
+the constructor `point` takes 2 fields, and this pattern gives 3
 ```
 
 A name is looked up first among the program's own `data` types, then among its constructors, and
