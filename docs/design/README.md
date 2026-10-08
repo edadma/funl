@@ -36,6 +36,7 @@ Read them in order; each leans on the one before it.
 | [Logic programming in FunL](logic.md) | logic variables, unification, facts and rules, clause selection, and how functions and relations call each other |
 | [Prolog on the same machine](prolog.md) | standard Prolog syntax compiled to the same instructions, the builtin set it aims for, and the failure modes of a Prolog engine its design rules out |
 | [The sysl implementation](implementation.md) | the repository and module layout, the parser, the collector and its roots, what is reused and what is written fresh, and how it is tested |
+| [Modules and native modules](modules.md) | modules and `import` as slate has them, `funl:` modules over sysl packages, features, values that cross, the first batch, and `async`/`await` |
 | [Milestones](milestones.md) | the order the work is done in, and what proves each step |
 
 ## Conventions on these pages
@@ -75,3 +76,23 @@ Each is argued where it arises; this is the list.
 | What does a relation body see of top-level names? | only `val`s, functions, relations, constructors; not `var`, `free` or assignment names (user, 2026-10-08) | [logic](logic.md#variables-in-a-relation) |
 | Can a real literal start with the point? | no: `.5` is a syntax error, `.` is field access (user, 2026-10-08) | [language](language.md#numbers) |
 | Can ordinary code build a compound term without `data`? | no: outside a relation head an undeclared functor is "not defined" (user, 2026-10-08) | [language](language.md#data) |
+| How do modules and native modules work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md) |
+| How do `async` and `await` work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md#async-and-await) |
+
+## Open questions
+
+Each has a recommendation in its chapter; the user decides them before the milestone that needs them.
+
+| question | recommendation | where |
+|---|---|---|
+| What is a handle? | an opaque `Handle` kind with a per-kind method table, explicit `close()`, a finalizer as backstop | [modules](modules.md#open-questions) |
+| How does a sysl iterator cross? | as a native generator over a per-call state handle; each call starts afresh | [modules](modules.md#open-questions) |
+| Failure or fault for a native's error? | failure for "no such thing", "no more", "not well-formed"; an ISO error fault for the rest | [modules](modules.md#open-questions) |
+| How does FunL catch a fault? | slate's postfix `e catch err -> recovery`, before `funl:http` | [modules](modules.md#open-questions) |
+| How are relations exported and imported? | `export` on any clause exports the procedure; an import brings every arity; qualified calls resolved statically | [modules](modules.md#open-questions) |
+| What does Prolog see of a module? | a FunL file's exports; built-in modules module-qualified, `json:parse(T, V)` | [modules](modules.md#open-questions) |
+| What becomes of `import "file.pl"`? | kept as the one form for a Prolog file | [modules](modules.md#open-questions) |
+| Is there a bytes kind? | yes, `Bytes`, in milestone 9 | [modules](modules.md#open-questions) |
+| Is `await` resumed by backtracking? | no: bounded, one value, never redone; a generator body may `await` | [modules](modules.md#open-questions) |
+| Blocking or promise-shaped I/O? | both: blocking in each module, promise forms in `funl:async` | [modules](modules.md#open-questions) |
+| Which loop, and may two tasks share a logic variable? | kairos (`uv` behind an `async` feature); binding another task's variable is a fault | [modules](modules.md#open-questions) |
