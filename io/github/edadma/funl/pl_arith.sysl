@@ -468,3 +468,13 @@ private pl_between(base: usize, argc: usize, cursor: long) -> Result[Answer, Fau
     unify_on_answer(arg(base, 2), Int(k))
     Ok(if k == high then Gives(Unit) else GivesMore(Unit, cursor + 1))
 end pl_between
+
+// The Prolog evaluable function `name` of one number, for FunL's math builtins: one code path, so
+// both languages round, refuse and fault alike.
+math_unary(name: string, a: Value) -> Result[Value, Fault] = unary(name, a)
+
+// The Prolog evaluable function `name` of two numbers.
+math_binary(name: string, a: Value, b: Value) -> Result[Value, Fault] = binary(name, a, b)
+
+// The value of the evaluable atom `name` (`pi`, `e`, `epsilon`).
+math_constant(name: string) -> Result[Value, Fault] = constant(name)

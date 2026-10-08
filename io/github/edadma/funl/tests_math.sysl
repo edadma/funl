@@ -1,0 +1,47 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// FunL's math builtins, which are the Prolog evaluable functions of the same names: what they
+// answer, which results stay exact, and what each refuses.
+
+private faulted_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+THE_ROOT_EXPONENTIAL_LOGARITHM_AND_TRIGONOMETRIC_FUNCTIONS_ANSWER_REALS()
+    assert_eq(ran_funl("write( sqrt(16), sqrt(2), sqrt(1/4) )\n"), "4.0, 1.4142135623730951, 0.5\nsucceeded")
+    assert_eq(ran_funl("write( exp(0), log(1), sin(0), cos(0), tan(0), asin(0), acos(1), atan(0) )\n"), "1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0\nsucceeded")
+    assert_eq(ran_funl("write( atan(1, 1), atan2(1, 1) )\n"), "0.7853981633974483, 0.7853981633974483\nsucceeded")
+
+@test
+THE_ROUNDINGS_ANSWER_EXACT_INTEGERS_AND_KEEP_INTEGERS()
+    assert_eq(ran_funl("write( floor(7/2), ceiling(7/2), round(7/2), truncate(-7/2), floor(-7/2) )\n"), "3, 4, 4, -3, -4\nsucceeded")
+    assert_eq(ran_funl("write( floor(2.5), round(-2.5), integer(2.5), floor(5), round(5) )\n"), "2, -3, 3, 5, 5\nsucceeded")
+    assert_eq(ran_funl("write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )\n"), "-1, 1.0, 0, 0.25, 3.0\nsucceeded")
+
+@test
+PI_AND_EPSILON_ARE_VALUES_AND_E_IS_LEFT_AS_A_NAME()
+    assert_eq(ran_funl("write( pi, epsilon, exp(1) )\n"), "3.141592653589793, 2.220446049250313e-16, 2.718281828459045\nsucceeded")
+    assert_eq(ran_funl("val e = 10\nwrite( e )\n"), "10\nsucceeded")
+    assert_eq(ran_funl("val f = pi -> pi + 1\nwrite( f(1) )\n"), "2\nsucceeded")
+
+@test
+A_MATH_FUNCTION_WITH_NO_VALUE_FAULTS()
+    faulted_with("write( sqrt(-1) )\n", "sqrt(-1) has no value")
+    faulted_with("write( log(0) )\n", "log(0) has no value")
+    faulted_with("write( log(-2) )\n", "log(-2) has no value")
+    faulted_with("write( asin(2) )\n", "asin(2) has no value")
+    faulted_with("write( atan(0, 0) )\n", "atan(0, 0) has no value")
+    faulted_with("write( exp(1000) )\n", "exp(1000) is too large for a float")
+
+@test
+A_MATH_FUNCTION_REFUSES_A_NON_NUMBER_AND_A_WRONG_COUNT()
+    faulted_with("write( sqrt('a') )\n", "'sqrt' wants a number and was given the string 'a'")
+    faulted_with("write( floor(#a) )\n", "'floor' wants a number and was given the atom a")
+    faulted_with("write( atan() )\n", "'atan' wants one or two arguments")
+    faulted_with("write( atan(1, 2, 3) )\n", "'atan' wants one or two arguments")
