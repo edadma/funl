@@ -567,6 +567,32 @@ blank
 point(1, 2)
 ```
 
+A type's name and its constructors belong to the file that declares them, and another file reaches
+them only by importing them ([Modules](modules.md#types-and-constructors)).
+[`modules/geometry.funl`](modules/geometry.funl) declares `export data shape = circle(r) | square(s)`:
+
+```funl
+import { circle, shape } from "modules/geometry.funl"
+
+write( circle(1) is shape )
+write( 3 is shape )
+```
+
+```output
+geometry is loaded
+circle(1)
+```
+
+```funl
+import { circle } from "modules/geometry.funl"
+
+write( circle(1) is shape )
+```
+
+```error
+`shape` is not a type
+```
+
 A record is known by its constructor's name and number of fields, so a term of that shape is that
 record however it was made: by a relation's head, by unification, or by Prolog. It is `is point`, it
 matches a `point(a, b)` pattern, and its fields are read by name. The examples load

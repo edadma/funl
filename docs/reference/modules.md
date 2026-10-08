@@ -160,6 +160,109 @@ write( geometry.sides )
 `geometry.sides` is a relation or a builtin, which is called rather than used as a value
 ```
 
+## Types and constructors
+
+A `data` type's name and its constructors belong to the file that declares them. Another file uses
+them by importing them, by name or qualified. After `is`, `m.name` names the type or constructor
+`name` that the module imported as `m` exports. A record prints with its constructor's own name,
+never a qualified one:
+
+```funl
+import * as geometry from "modules/geometry.funl"
+import { square } from "modules/geometry.funl"
+
+val c = geometry.circle(2)
+write( c is geometry.shape, c is geometry.circle )
+if c is square then write( "a square" ) else write( "not a square" )
+```
+
+```output
+geometry is loaded
+circle(2), circle(2)
+not a square
+```
+
+A type the file did not import is not a type there:
+
+```funl
+import { circle } from "modules/geometry.funl"
+
+write( circle(1) is shape )
+```
+
+```error
+`shape` is not a type
+```
+
+A constructor the file did not import is not defined there:
+
+```funl
+import { shape } from "modules/geometry.funl"
+
+write( square(1) )
+```
+
+```error
+`square` is not defined
+```
+
+After `is`, a qualified name the module does not export is refused:
+
+```funl
+import * as geometry from "modules/geometry.funl"
+
+write( 1 is geometry.oval )
+```
+
+```error
+`docs/reference/modules/geometry.funl` does not export `oval`
+```
+
+Two modules may each have a type of one name. [`modules/boxes.funl`](modules/boxes.funl) declares
+`export data shape = box(w, h)`, and its `shape` is a different type from `geometry.funl`'s:
+
+```funl
+import * as geometry from "modules/geometry.funl"
+import * as boxes from "modules/boxes.funl"
+
+val b = boxes.box(2, 3)
+write( b is boxes.shape, boxes.area(b) )
+if b is geometry.shape then write( "geometry" ) else write( "not geometry" )
+```
+
+```output
+geometry is loaded
+box(2, 3), 6
+not geometry
+```
+
+A file cannot declare a type of the name an import declares:
+
+```funl
+import { shape } from "modules/geometry.funl"
+
+data shape = dot
+```
+
+```error
+the type `shape` is imported, and this file cannot also declare it
+```
+
+Constructors are different. A record is known by its constructor's name and number of fields
+wherever it was made, Prolog included, so two constructors with one name and one number of fields
+cannot be declared anywhere in a program, in one file or in two
+([Data](data.md#data-types-and-constructors)). [`modules/rings.funl`](modules/rings.funl) declares
+`export data ring = circle(r)`, so it cannot be loaded beside `geometry.funl`:
+
+```funl
+import { area } from "modules/geometry.funl"
+import { ring } from "modules/rings.funl"
+```
+
+```error
+the constructor `circle` of 1 field is already declared at docs/reference/modules/geometry.funl
+```
+
 ## Imports run first, and once
 
 Every import is resolved before anything runs. Each imported module is compiled first, and its top

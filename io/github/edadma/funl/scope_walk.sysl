@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
-import sysl.text.Search
+import sysl.text.{Search, from_utf8_unchecked}
 
 // Reading one scope's code: each name looked up, declared or refused, each local function hoisted
 // and each lambda queued for its own scope.
@@ -118,7 +118,8 @@ walk_stmt(w: *Walk, s: Stmt)
         DefS(clauses) -> written_in_block(w, clauses)
 
         // Each constructor is a name of the block, which nothing can assign, from its declaration on.
-        // A data type's name is known to `is` from here on, wherever it is written.
+        // A data type's name is known to `is` from here on in this file, wherever it is written;
+        // another file knows it only by importing it.
         DataS(ctors, typ) ->
             var ids: Buf[usize] = buf()
 
@@ -142,7 +143,12 @@ walk_stmt(w: *Walk, s: Stmt)
                 w.sc.ctors.put(slot, id)
                 ids.push(id)
 
-            if typ != "" then declare_data_type(typ, ids)
+            if typ != ""
+                if w.res.imported_types.get(typ).is_some() && ctors.len() > 0
+                    w.report.add(error(ctors.at(0).at, s"the type `$typ` is imported, and this file cannot also declare it")
+                        .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
+                else
+                    w.res.own_types.put(typ, declare_data_type(ids))
 
 // The name a statement `name(k) = e` writes through, or "" for any other left side.
 call_name(pat: &Expr) -> string = pat.kind match
@@ -374,9 +380,8 @@ walk(w: *Walk, e: &Expr)
         IsE(x, t, at) ->
             walk(w, x)
 
-            if type_test(w.meaning(t, at.start), t).is_none()
-                w.report.add(error(at, s"`$t` is not a type")
-                    .with_note("`is` takes a type's name: `integer`, `string`, `list` and the rest, a `data` type, or a constructor"))
+            if type_test(w.res.data_type(t), w.res.qualified_or(t, w.meaning(t, at.start)), t).is_none()
+                w.report.add(not_a_type(w, t, at))
         FieldE(x, name) ->
             walk(w, x)
 
@@ -490,6 +495,20 @@ private ref_name(x: &Expr) -> string = x.kind match
     _ -> ""
 
 // The refusal of `x.name`, which the module `x` names does not export.
+// The refusal of `x is t` where `t` names no type: `m.t`, `m` a module alias, is refused as a name
+// the module does not export.
+private not_a_type(w: *Walk, t: string, at: Span) -> Diagnostic
+    t.index_of(".") match
+        Some(k) ->
+            val g = from_utf8_unchecked(t.bytes[0..<k])
+
+            if w.res.aliases.get(g).is_some() && w.res.qualified.get(t).is_none() && w.res.imported_types.get(t).is_none()
+                return not_exported(w.res, g, from_utf8_unchecked(t.bytes[k + 1..<t.bytes.len]), at)
+        None -> ()
+
+    error(at, s"`$t` is not a type")
+        .with_note("`is` takes a type's name: `integer`, `string`, `list` and the rest, a `data` type, or a constructor")
+
 private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
     x.kind match
         Ref(g) -> w.report.add(not_exported(w.res, g, name, at))

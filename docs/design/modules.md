@@ -43,6 +43,18 @@ def helper( x ) = x                    // no other file can reach this
 once, as slate's does: the constructors as values, and the declaration the resolver uses for
 patterns and `x is shape`.
 
+> **Decided (2026-10-07) — a `data` type's name is its file's.** A constructor was already a name of
+> the block declaring it; the type's name now is too, rather than one name for the whole machine.
+> **Decision:** `x is t` finds `t` among the file's own `data` types, then those it imported — by
+> name (`import { shape }`, `as` renaming it) or qualified, `x is geometry.shape` (and
+> `x is geometry.circle`) through `import * as geometry` — and a type the file neither declared nor
+> imported is "not a type". Two modules may each declare a type `shape`; a file may not declare a
+> type an import named. A record prints with its constructor's bare name, never qualified.
+> **Constructors stay unique across the program**: the [language chapter's
+> rule](language.md#data) that two constructors of one name and one number of fields are refused
+> wherever written still holds between modules, so a term Prolog made, known only by functor and
+> arity, always names one constructor and needs no scope to be read.
+
 A file takes what it needs by name, or takes the whole module under one name:
 
 ```

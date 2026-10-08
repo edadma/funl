@@ -284,7 +284,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         IsE(a, t, at) ->
             compile_value(e, c, a)?
 
-            type_test(c.meaning(t, at.start), t) match
+            type_test(c.res.data_type(t), c.res.qualified_or(t, c.meaning(t, at.start)), t) match
                 Some(test) -> e.op(TestType(test))
                 None -> return Err(s"`$t` is not a type, and the resolver let it through")
         DefinedE(a, defined) ->

@@ -265,6 +265,26 @@ struct Resolved
     aliases: Map[string, usize]
     qualified: Map[string, Meaning]
 
+    // The `data` types this file declares, and those its imports bring (by the name an
+    // `import { ... }` declares, or as `alias.name`), each as an index into `Vm.data_types`. A
+    // type's name is the file's own: another file sees it only by importing it.
+    own_types: Map[string, usize]
+    imported_types: Map[string, usize]
+
+    // The `data` type `name` means in this file, if any: its own first, then an imported one.
+    data_type(self, name: string) -> Option[usize]
+        self.own_types.get(name) match
+            Some(id) -> return Some(id)
+            None -> ()
+
+        self.imported_types.get(name)
+
+    // What the name after an `is` means, `local` being what it means where it is written: a
+    // qualified `alias.name` is what that module exports (no local name has a `.` in it).
+    qualified_or(self, name: string, local: Meaning) -> Meaning = self.qualified.get(name) match
+        Some(m) -> m
+        None -> local
+
     // What `name` means written at offset `pos` in block `blk` of scope `sid`, which is complete.
     meaning(self, sid: usize, blk: usize, pos: usize, name: string) -> Meaning
         val m = self.meaning_above(sid, blk, pos, 0, name)
@@ -367,7 +387,7 @@ end Resolved
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map())
 
     res.top = new_scope_id(&res)
 

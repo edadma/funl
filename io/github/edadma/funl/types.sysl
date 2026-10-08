@@ -80,10 +80,11 @@ builtin_type(name: string) -> Option[TypeTest]
 
     None
 
-// What `x is name` tests, `m` being what `name` means where it is written: a `data` type, a
-// constructor, a built-in type -- or nothing, when `name` is not a type.
-type_test(m: Meaning, name: string) -> Option[TypeTest]
-    current().data_ids.get(name) match
+// What `x is name` tests, `data` being the `data` type `name` names in the file it is written in
+// and `m` what `name` means there: a `data` type, a constructor, a built-in type -- or nothing,
+// when `name` is not a type.
+type_test(data: Option[usize], m: Meaning, name: string) -> Option[TypeTest]
+    data match
         Some(id) -> return Some(DataT(id))
         None -> ()
 
@@ -93,12 +94,12 @@ type_test(m: Meaning, name: string) -> Option[TypeTest]
 
     builtin_type(name)
 
-// Record `data` type `name` as the constructors `ctors`; a later declaration of the name replaces it.
-declare_data_type(name: string, ctors: Buf[usize])
+// Record a `data` type of the constructors `ctors`, answering its index into `Vm.data_types`.
+declare_data_type(ctors: Buf[usize]) -> usize
     val v = current()
 
     v.data_types.push(ctors)
-    v.data_ids.put(name, v.data_types.len() - 1)
+    v.data_types.len() - 1
 
 // Whether `x` is of the type `t`.
 of_type(v: *Vm, x: Value, t: TypeTest) -> bool
