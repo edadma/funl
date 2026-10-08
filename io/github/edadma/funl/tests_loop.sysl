@@ -63,10 +63,9 @@ A_GENERATING_FUNCTION_YIELDS_FROM_A_LOOP_AND_BREAKS_OUT_OF_IT()
     assert_eq(ran_funl("def evens( n )\n  for k <- 1..n if 2 div k do yield k\n\nevery write( evens(6) )\n"), "2\n4\n6\nsucceeded")
 
 @test
-FOR_ITERATES_RANGES_LISTS_AND_STRINGS_AND_FILTERS()
+FOR_ITERATES_RANGES_LISTS_AND_FILTERS()
     assert_eq(ran_funl("for x <- 1..<5 if x != 2 do write( x )\n"), "1\n3\n4\nsucceeded")
     assert_eq(ran_funl("for x <- 10 to 1 by -3 do write( x )\n"), "10\n7\n4\n1\nsucceeded")
-    assert_eq(ran_funl("for c <- \"ab\" do write( c )\n"), "a\nb\nsucceeded")
     assert_eq(ran_funl("if (for x <- [] do write( x )) then write( #yes ) else write( #spent )\n"), "spent\nsucceeded")
 
 @test

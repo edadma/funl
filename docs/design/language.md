@@ -108,9 +108,14 @@ lazy list.
 > is drawn as it is.** So `[x | x <- g()]` collects everything the generating function `g` produces,
 > `x <- [1, 2]` and `x <- 1..2` still give the elements, and `x <- [[1, 2], [3]]` still gives the two
 > lists. The rule is one step, per value, so a generator of collections is flattened:
-> `x <- ([1, 2] | [3])` gives 1, 2, 3, and a generator of strings gives their characters. Keeping
-> each value whole is `x <- [e]`, whose values are lists of one. An unbound variable is still
-> refused. **Rejected:** choosing by whether `e` generates (it cannot be told from one value: a
+> `x <- ([1, 2] | [3])` gives 1, 2, 3. Keeping each value whole is `x <- [e]`, whose values are
+> lists of one. An unbound variable is still refused.
+>
+> **Decided (2026-10-08): a string and a tuple are not collections to `<-`; each is drawn whole.**
+> So `x <- "abc"` gives `"abc"` once, a generator of strings gives the strings (`for line <-
+> lines(p)` gives lines, not characters), and `x <- (1, 2)` gives the tuple. Drawing a string's
+> characters or a tuple's elements is explicit: `x <- !s`, since `!` still generates them. **Rejected:**
+> refusing them, since `<-` draws every other non-collection value as it is. **Rejected:** choosing by whether `e` generates (it cannot be told from one value: a
 > generator's last value leaves no choice point, and an ordinary call may leave one), and refusing a
 > non-collection value (which was the old behaviour and made a generating function unusable in a
 > comprehension). This makes an iterator value unnecessary for drawing from a generator in a
