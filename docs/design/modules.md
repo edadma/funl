@@ -1,0 +1,476 @@
+---
+title: Modules and native modules
+weight: 55
+---
+
+# Modules and native modules
+
+**FunL takes slate's module system and slate's native modules whole, translated into FunL's
+syntax.** slate (`~/dev/slate-language/slate`) has already argued every question a module system
+raises — what a module is, how a name crosses, when an import is resolved, how a built-in module
+wraps a sysl package, which libraries go behind a feature — and has shipped the answers. FunL is a
+second language on the same compiler, the same `gc`, the same `parsing` and the same org packages, so
+nothing is gained by arguing them again. This chapter says what the translation is, and lists only
+the places where FunL is a different kind of language and cannot copy slate as it stands.
+
+> **Decided (user, 2026-10-08): modules and native modules as slate does.** Every rule below marked
+> "as slate does" is slate's own, from its `docs/reference/modules.md`, `docs/reference/packages.md`,
+> `docs/library/` and the module and feature sections of its `CLAUDE.md`. Revisiting one means
+> revisiting it in slate's terms first. The open questions at the end are the only parts not settled
+> by this decision.
+
+## A file is a module
+
+**As slate does: a file is a module, and what another file can see is what it writes `export` in
+front of.** A `.funl` file and a `.lfunl` file are both modules; the literate one is tangled first,
+exactly as when it is run.
+
+```
+// geometry.funl
+
+export data shape = circle(r) | square(s)
+
+export def area( circle(r) ) = 3 * r * r
+export def area( square(s) ) = s * s
+
+export def sides( #square, 4 )
+export def sides( #triangle, 3 )
+
+def helper( x ) = x                    // no other file can reach this
+```
+
+`export` goes in front of a `def`, a `val`, a `var` or a `data`. A `data` crosses as both halves at
+once, as slate's does: the constructors as values, and the declaration the resolver uses for
+patterns and `x is shape`.
+
+A file takes what it needs by name, or takes the whole module under one name:
+
+```
+import { area, circle, sides as edges } from "geometry.funl"
+import * as geometry from "geometry.funl"
+
+write( area(circle(2)), geometry.area(geometry.square(3)) )
+free n
+if edges(#square, n) then write( n )
+```
+
+**The import and export lines are the new syntax this chapter adds**; everything else in its
+sketches parses under the current grammar (each was run through `funl/funl`, which refused only the
+names nothing defines yet).
+
+## The three kinds of specifier
+
+**As slate does: a quoted path is a file, a bare word is a package, and `funl:name` is one of FunL's
+own.** They are different syntax rather than three readings of one string.
+
+```
+import { area } from "geometry.funl"     // a quoted path  -- a file
+import { parse_csv } from tabular        // a bare word    -- a package
+import { parse, stringify } from funl:json
+```
+
+- **A path is relative to the file the import is written in**, which is already how `import
+  "family.pl"` reads its path.
+- **The extension decides**: `.funl` and `.lfunl` are FunL modules, `.pl` is Prolog (see the open
+  question on Prolog files), and anything else is refused, slate's asset imports being a browser
+  concern FunL does not have.
+- **A bare `geometry.funl` is refused rather than guessed at**: an unquoted specifier is a package.
+
+## Imports are resolved before anything runs
+
+**As slate does: the machine never sees an import.** FunL already works this way for Prolog files —
+`compile_funl` loads every `import "file.pl"` before the resolver runs, so that the resolver knows
+the predicates by name. A FunL module joins the same pass: its file is parsed, resolved and compiled
+first, its top level runs once before the importing file's, and the importer's resolver sees its
+export list.
+
+**A module is instantiated once per machine** and runs its top level once however many files import
+it, as slate's does and as a Prolog file imported twice already is.
+
+## A module is a value
+
+**As slate does: a module is a value of a kind the language already has, so there is nothing new for
+the collector to trace.** slate's module is an object; **FunL's is an immutable map from export name
+to value**, so `geometry.area(...)` is the field selection FunL already has on a map whose keys are
+strings (`m.name` reads `m("name")` today). It follows, as in slate, that **a module's exports are a
+snapshot** taken when its file finishes: an `export var` the module changes afterwards is not seen
+changing from outside.
+
+## Names, and the builtin rule
+
+**An imported name is a top-level name of the importing file**, declared by the import. Two rules
+follow from decisions already made:
+
+- **It shadows a builtin of the same name** — the [shadowing rule](language.md#assignment-and-assignment-that-undoes-itself) treats an
+  import like a top-level `def`. A program that imports `parse` from `funl:json` has `parse` mean
+  that wherever the builtin would have answered.
+- **It may not also be defined by the file**, nor made a top-level variable: as slate refuses a
+  definition taking a name its own block declared, and as FunL already refuses ``parent/2` cannot be
+  defined twice` after `import "family.pl"`. `as` renames on the way in.
+
+## What is refused, and when
+
+All before the program runs, as slate does:
+
+- **A circle of imports**, with the chain named.
+- **Asking for a name a file does not export**, naming what it does export.
+- **A name nothing has bound.**
+- **Every complaint is drawn against the file it is about**, so an error inside `geometry.funl`
+  reports `geometry.funl`'s line, not the importer's.
+
+## Packages
+
+**As slate does**: a bare word names a package; the project is found by walking up from the entry
+file, and a file under no project is not an error; a package's entry file is its manifest's `main`,
+required for anything imported; a package exposes more modules only through its manifest's `modules`
+map, never by a search; the cache is `$HOME/.funl/pkg`, overridable by `FUNL_CACHE`; the lock file
+records the hash of the extracted tree; `funl add github.com/owner/repo[@version]` edits the manifest
+surgically and writes it last; `funl vendor` copies the resolved graph into `vendor/` in the cache's
+layout. The manifest is `package.funl`, read as data, as slate's `package.sl` is.
+
+**A package cannot carry a native**, as in slate: a package is FunL source, and a native is code in
+the `funl` binary. What this means for a third party is under [native modules](#who-can-add-one).
+
+## Built-in modules: `funl:name`
+
+**As slate does, there are two kinds, and they differ in one place.** A built-in module either has
+FunL source, carried in the binary as a `raw"""` block in a `*_source.sysl` file and loaded exactly as
+a file is, following its own imports; or it has none, and arrives as an export list over natives. The
+cycle check, the export-name check and its "did you mean" are the same for both.
+
+**The natives behind a module register where they are written**, through the open registry FunL
+already has (`native_fn.sysl`: `register`, `register_generator`, `register_constant`) and an
+`install_` line in `natives.sysl` per file. **The registry is keyed by name and the builtins are
+one scope**, so a module's natives are registered under a prefixed name — `json_parse`,
+`sqlite_open` — into the scope only built-in modules compile in, and the module exports them under
+the short names. That is slate's `slate:actor` arrangement, forced for slate's reason: `run`, `open`,
+`read` and `parse` are each wanted by more than one module and by programs.
+
+**A module rather than a global is decided by whether the word is one a program wants for its own**,
+as slate decides it. `read_file`, `now`, `run`, `env` and `parse` all are, so all live in modules and
+none is added to the global builtins.
+
+**What stays native is what FunL cannot do at all**, as slate's rule reads: a binding to a C library,
+or to sysl's standard library. Anything FunL code can express is written in FunL and carried as
+source.
+
+**A table in one file names the modules**: `builtin_module`, `builtin_module_names`,
+`builtin_has_source`, `builtin_source` and each module's export list, slate's `stdlib.sysl`. A test
+checks that every name an export list claims is one the scope actually has, since a module nobody
+imports is never compiled.
+
+### Features keep the core link line short
+
+**As slate does: a native module whose library is not on every machine is a package feature, named
+for the module it serves**, never for the library under it. Its dependency is `optional = true` in
+the root `package.hocon`; its files are `#if feature_x` after the `module` line; its `install_` line,
+its arm in the module table, its tests and its import strings in `tests_kit.sysl` are gated with it.
+**A link directive is never pruned**, so a library bound in the core would sit on the link line of
+every `funl` and `prolog` build whether a program used it or not; a feature is how it stays off.
+
+**`left_out_module` is the diagnostic**, as in slate: ``funl:http` is not in this build -- it is
+behind the `http` feature, so build with `--features http``, rather than "FunL has no module called".
+
+**Both shapes are gated**: `sysl test .` and `sysl test . --no-default-features`, the second being
+the one that finds a missed gate.
+
+**The release is unchanged by the features**: the shipped `funl` is built with `default`. The
+`prolog` member has no FunL front end and imports no `funl:` module, so it depends on no feature.
+
+### Who can add one
+
+**A native module is added to this repository**, as slate's are: a `*.sysl` file registering the
+natives, the wrapped org package in `package.hocon` (behind a feature if its library is not
+everywhere), the module table's rows, and tests. A third party writing **FunL** publishes a package; a
+third party needing a **C library** opens a pull request here, or first writes the sysl binding as an
+org package and then the native module over it. This is slate's line exactly, and slate's `pg` is the
+case that shows its cost: a package cannot open a door the language never opened.
+
+## Values that cross
+
+As slate does, with FunL's kinds in place of slate's:
+
+| sysl side | FunL value |
+|---|---|
+| integer, real, string, bool | `Int`/`Big`, `Real`, `Str`, `true`/`false` |
+| absent (`None`, SQL `NULL`, JSON `null`) | `undefined` |
+| a struct of plain data (a `stat`, a row, a response) | an immutable map keyed by field name, so `row.title` reads |
+| a list or slice | a list |
+| a JSON object, a header table | an immutable map |
+| a live resource (a connection, a statement, a child process) | a handle — see the first open question |
+| an iterator or stream (rows, lines, directory entries) | a generator — see the second |
+| bytes | see the eighth open question |
+
+A resource is closed by an explicit `close()`, as slate's are, and the collector's finalizer closes
+any the program forgot, as slate's do.
+
+## The first batch
+
+Each sketch is short; the module's page under `docs/library/` will carry the whole surface.
+
+### `funl:fs` — core, over sysl's `sysl.fs`
+
+```
+import { read_file, write_file, lines, read_dir, stat, exists, mkdir } from funl:fs
+
+text = read_file( "notes.txt" )
+write_file( "copy.txt", text )
+for line <- lines( "notes.txt" ) do write( line )
+for name <- read_dir( "docs" ) if stat( "docs/" + name ).kind == #file do write( name )
+if not exists( "cache" ) then mkdir( "cache" )
+if read_file( "missing.txt" ) then write( #there ) else write( #absent )
+```
+
+`lines` and `read_dir` are generators (the second open question); a missing file is failure (the
+third).
+
+### `funl:json` — core, over `sh.sysl.json`
+
+```
+import { parse, stringify } from funl:json
+
+v = parse( '{"name": "funl", "tags": ["vm", "prolog"]}' )
+write( v.name, v.tags(0) )
+write( stringify({name: "funl", version: [0, 0, 2]}) )
+if not parse( "{oops" ) then write( #malformed )
+```
+
+An object is a map, an array a list, `null` `undefined`. `sysl-lang/json` is pure sysl, with no C
+library, so it costs no link line.
+
+### `funl:process` — core, over `sysl.process`, `sysl.env`, `sysl.args`
+
+```
+import { args, env, run, exit } from funl:process
+
+for a <- args do write( a )
+home = env("HOME") | "/tmp"
+r = run( "git", ["status", "--short"] )
+write( r.status, r.out )
+if r.status != 0 then exit( 1 )
+```
+
+`env` and `args` are in `funl:process`, as they are in `slate:process`. An unset variable is failure,
+so `|` gives the default.
+
+### `funl:time` — core, over `sysl.time`
+
+```
+import { now, monotonic } from funl:time
+
+t0 = monotonic()
+write( monotonic() - t0 )
+write( now() )
+```
+
+slate's instant, duration and calendar kinds come later, on the same `sysl.time`.
+
+### `funl:http` — the `http` feature, over `sysl-lang/curl`
+
+```
+import { fetch } from funl:http
+import { parse, stringify } from funl:json
+
+resp = fetch( "https://example.com/data.json" )
+if resp.status == 200 then write( parse(resp.body).name )
+resp = fetch( "https://example.com/api", {method: "POST", body: stringify({q: 1})} )
+```
+
+`fetch` is slate's name. Here it blocks; the promise-answering form comes with
+[`async` and `await`](#async-and-await). **A feature because libcurl is not on every machine** a `funl` is built on, and its link
+line would otherwise sit under every build; on by default, so the release has it.
+
+### `funl:sqlite` — core, over `sysl-lang/sqlite3`
+
+```
+import { sqlite } from funl:sqlite
+
+db = sqlite( ":memory:" )
+db.exec( "create table notes (id integer primary key, title text)" )
+db.run( "insert into notes (title) values (?)", "a note" )
+for row <- db.query( "select id, title from notes order by id" ) do write( row.id, row.title )
+write( [row.title | row <- db.query("select title from notes")] )
+if db.query( "select 1 from notes where title = ?", "x" ) then write( #found )
+db.close()
+```
+
+slate's surface: `sqlite(path)` answers the database, everything else is a method on it.
+**`query` is a generator of rows**, so a search over a table is an ordinary FunL search, and a query
+with no rows fails. **Not a feature, as in slate**: SQLite is the system's own library on macOS and a
+standard package elsewhere, and slate carries it unconditionally for that reason.
+
+## `async` and `await`
+
+> **Decided (user, 2026-10-08): `async` and `await` as slate does**, from slate's
+> `docs/reference/asynchrony.md` and the coroutine section of its `CLAUDE.md`, translated to FunL.
+
+```
+import { sleep } from funl:async
+
+async def work( name, ms, turns ) =
+    i = 0
+    while i < turns do
+        await sleep( ms )
+        i += 1
+    name + " finished"
+
+async def main() =
+    a = work( "a", 8, 3 )
+    b = work( "b", 20, 2 )
+    write( "started both" )
+    write( await a )
+    write( await b )
+
+main()
+```
+
+As slate does:
+
+- **An `async` function answers a promise**, and `await p` waits for one. Everything above the first
+  `await` runs before the caller sees the promise; everything below runs after the caller has moved on.
+- **A program's own body is an async context**, so `await` is legal at the top level, and the program
+  ends when the top level has settled and nothing else is pending. An imported module's top level
+  settles before a line of its importer runs.
+- **`await` belongs to the function it is written in**: an `await` in a plain `def` or lambda is
+  refused before the program runs.
+- **Two queues in a fixed order**: one for what happened outside (a timer, a socket, a file), and one,
+  drained to empty between turns of the first, for a value a suspended call is now owed. A settled
+  promise still resumes through the queue.
+- **A failed promise raises where it is awaited**, as the same fault; a fault nothing awaited is the
+  program's failure, reported against its line, and a call whose promise was thrown away fails at once.
+- **`sleep`, `resolve`, `reject`, `pending`, `settle`, `fail`** make promises, and **timers keep the
+  program alive**.
+- **The promise-shaped I/O lives in a module, `funl:async`**, beside the blocking forms of milestone 9
+  rather than replacing them (open question 10).
+
+**A promise is an opaque value**, unifying by identity in Prolog as a handle does. Prolog cannot
+`await`; a FunL `async` function called from Prolog unifies its last argument with the promise.
+
+### What the machine needs: a task is a machine set aside
+
+**slate's coroutine is a whole `Machine` parked and later unparked, and FunL's is the same.** FunL's
+precondition is already in place: [there is no host recursion in the instruction
+loop](vm.md#the-machines-state), so a suspended computation is data — the operand stack, the control
+stack of marks and choice points with its saved cells, the trail, the frame chain, the scan state and
+the regex captures. A **task** is exactly those fields, in their own `Machine`:
+
+- **Calling an `async` function starts a task**: a fresh machine whose first frame is the call, run at
+  once until it settles or reaches an `await` of an unsettled promise; the caller gets the promise.
+  Both call paths, a direct call and `apply`, route an `async` function there, as slate's
+  `start_async` does, so no `await` ever lands under a sysl frame.
+- **`Await` on an unsettled promise parks the machine**: it is moved to a `parked` table, the awaited
+  promise left standing on its operand stack (a root, as slate keeps it there), and suspension leaves
+  the instruction loop as an `Err` signal, the way a fault already does.
+- **The loop resumes a task** by unparking its machine and writing the settled value over that slot.
+- **The collector's roots gain every parked machine**, each walked exactly as the running one is — a
+  new row in the [roots table](implementation.md#the-collector-and-its-roots).
+- **Icon's co-expression is the nearest relative**: a separate control stack resumed from outside.
+  What FunL's generators never needed — resumption from anywhere but backtracking inside their own
+  bounded expression — is precisely what a task adds.
+
+## Open questions
+
+These are the places FunL cannot copy slate as it stands, because FunL is a different kind of
+language. Each has a recommendation; the user decides 1–8 before milestone 9 begins and 9–11
+before milestone 10.
+
+> **Open question 1 — what a handle is.** slate's resources are objects with methods; FunL has no
+> objects and no methods, only maps, records and closures.
+> **Recommendation:** a new opaque value kind, `Handle`: a `gc` object holding the sysl resource, a
+> kind tag and a closed flag, with a finalizer that releases the resource. `h.name(args)` on a
+> handle is looked up in a per-kind method table — slate's `properties_of` — and a method is an
+> ordinary native taking the handle first. A call on a closed handle is a fault. Prolog sees a
+> handle as opaque and unifying by identity, the term mapping already decided for maps and closures.
+> FunL has no `using`, so there is no scoped form: `close()`, with the finalizer as the backstop.
+
+> **Open question 2 — iterators as generators.** slate answers a whole array (`db.query`) or a
+> promise; FunL's natural answer is a generator, and backtracking into it is what makes rows, lines
+> and directory entries searchable. The registry's generating builtin carries only a `long` cursor.
+> **Recommendation:** a native generator's cursor names a per-call iterator state held in a
+> `Handle` standing on the operand stack beside the cursor, so the collector sees it. Backtracking
+> into the call steps the iterator; running out is failure. **Each call starts afresh** (a new
+> statement step, a new directory read), so a generator re-entered by a later call never sees
+> another's position. A bounded context that commits abandons the choice point; the abandoned state
+> is released by its finalizer, or at once by `close()` on the handle it came from. Where a list is
+> wanted, the program writes a comprehension or `findall`.
+
+> **Open question 3 — failure or fault for a native's error.** slate's rule is that text from outside
+> the program is an answer and a mistake the program made itself is a fault. FunL has failure,
+> which slate does not.
+> **Recommendation:** **failure for "no such thing", "no more" and "not well-formed"** — a missing
+> file, an unset variable, no rows, malformed JSON — because each is a condition a program tests
+> with `if` and `|`, exactly as a comparison fails. **A fault for everything else** — a permission
+> refused, an I/O error, a network failure, bad SQL, a call on a closed handle — raised as the ISO
+> error term (`permission_error`, `existence_error`, `system_error`, `syntax_error`) a Prolog
+> builtin would raise, so `catch/3` catches it from Prolog.
+
+> **Open question 4 — FunL has no way to catch a fault.** slate writes `db.query(sql) catch e -> []`;
+> in FunL a fault stops the program, and only Prolog's `catch/3` stops one. A program that calls
+> `fetch` must be able to survive the network being down.
+> **Recommendation:** add slate's postfix form, `e catch err -> recovery`, to FunL before
+> `funl:http` lands, compiled over the `Catch` entry `catch/3` already uses, with `err` bound to the
+> error term. It is new syntax and is designed in the language chapter, not here.
+
+> **Open question 5 — exporting and importing relations.** A relation is many `def` clauses, and
+> FunL's name/arity namespace means `sides` may be a relation of two arguments and a function of
+> one at once.
+> **Recommendation:** **`export` on any clause exports the whole procedure** — every clause of that
+> name and arity, wherever written — and a `def` block written under `export def` exports every
+> procedure in it. **An import names a name, and brings every arity of it.** A qualified call
+> `geometry.sides(#triangle, n)` through `import * as` is resolved by the compiler against the
+> module's export list, so a relation called qualified is still a static call with indexing, not a
+> map lookup at run time.
+
+> **Open question 6 — what Prolog sees.** Prolog has one flat predicate namespace, shared with FunL,
+> and `:- import("file.funl")` today brings in every definition the file has.
+> **Recommendation:** **Prolog's `:- import` of a FunL file sees its exports**, as a FunL importer
+> does, and the existing tests and pages that import FunL from Prolog gain `export` lines. **A
+> built-in module is reached with `:- import("funl:json").` and called module-qualified**,
+> `json:parse(Text, Value)`, with `:` (already 600 `xfy` in the operator table); the function `f/n`
+> is the predicate `json:f/(n+1)` and a generator gives one solution per value, the rules
+> [the Prolog chapter](prolog.md) already has. Module-qualified, so a native module never takes a
+> name out of Prolog's one namespace.
+
+> **Open question 7 — `import "file.pl"`.** A Prolog file has no exports, so slate's braces have
+> nothing to select from.
+> **Recommendation:** keep `import "file.pl"` exactly as it is — every predicate of the file enters
+> the shared namespace — as the one form for a Prolog file; `import { x } from "file.pl"` is
+> refused, naming the form that works.
+
+> **Open question 8 — bytes.** slate has a `bytes` kind, and a BLOB, an HTTP body and `readBytes`
+> answer it; FunL's `Buffer` is a buffer of values.
+> **Recommendation:** add a `Bytes` value kind in milestone 9, before `funl:sqlite` and `funl:http`:
+> immutable, indexed from 0 like every FunL collection, `!b` generating each byte as an integer, and
+> the decoding to text explicit. Until it exists, a BLOB column and a binary body are faults naming
+> the missing kind.
+
+> **Open question 9 — `await` and backtracking.** slate's `await` happens once; in FunL, failure
+> after an expression normally goes back into it for another value.
+> **Recommendation:** **`await` is bounded**, like `return`: it produces exactly one value and is
+> never resumed by backtracking. It pushes no choice point, so failure after it passes back over it
+> to the choice points before it, and the I/O is never redone. Choice points made before the
+> `await` stay in the parked machine and are live after it resumes, so **a generator body may
+> `await`**: each value it yields may have waited, and backtracking into the generator resumes it
+> after its last `yield`, as it would without the `await`.
+
+> **Open question 10 — the blocking forms and the promise forms.** slate's file and network calls are
+> promise-shaped only; FunL's milestone 9 ships blocking ones, which a script wants and which come
+> first.
+> **Recommendation:** the blocking forms stay where they are, and the promise-answering ones are
+> the same names in **`funl:async`** — `sleep`, `fetch`, `read_file`, `write_file`, `run` — so a file
+> chooses by its import which kind it has, and neither module changes the other's meaning.
+
+> **Open question 11 — the loop, and a logic variable two tasks share.** slate drives libuv by
+> hand; the org now has `sysl-lang/kairos`, an event loop with libuv's shape whose `uv` feature
+> adds libuv sockets and files and whose timers need no library at all.
+> **Recommendation:** **FunL's loop is kairos**: tasks are FunL machines, so the loop is used in
+> callback form (a timer or a source settles a promise and queues the task), its host driver
+> carries `sleep` and timers in the core with no link line, and kairos's `uv` feature sits behind a
+> FunL feature named for the module, `async`, on in `default`. **Each task has its own trail and
+> stamp**, so a logic variable made by one task and bound by another could be undone by neither
+> correctly: binding a variable another task made is refused as a fault naming both tasks, and a
+> value crossing through a promise is settled as it stands.
+
+**Not planned**: a relation view of an SQLite table (`notes(id, title)` as a predicate). It is the
+obvious thing a logic language would want, and it is a second design on top of this one; it waits
+for a program that needs it.

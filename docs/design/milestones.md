@@ -125,3 +125,42 @@ other in both directions.
 
 **Blocked on one thing outside the code:** the GitHub organisation, which the repository's remote,
 the module path and the tap all wait on.
+
+## 9. Modules and native modules
+
+**Rests on:** [modules and native modules as slate does](modules.md) (user, 2026-10-08); **answers
+needed first:** the [open questions](modules.md#open-questions) 1–8.
+
+- Module files: `export`, the three import forms, `import * as`, the module as an immutable map,
+  exports as a snapshot, once per machine; the refusals (a circle, a name not exported, a name
+  nothing binds), each drawn against its own file; imported names under the builtin shadowing rule.
+- Relations across modules and Prolog's view: `export` of a procedure, qualified relation calls
+  resolved statically, `:- import` seeing exports, `json:parse(T, V)` from Prolog.
+- The built-in module table, the prefixed natives, source modules carried as `raw"""` blocks; the
+  `Handle` and `Bytes` kinds with their tracers and finalizers; native generators over a handle.
+- `funl:fs`, `funl:json`, `funl:process`, `funl:time`, `funl:sqlite` in the core; `funl:http` behind
+  the `http` feature, with `left_out_module`; a FunL `catch` before `funl:http`.
+- Packages: the manifest, the cache, the lock, `funl add`, `funl vendor`.
+
+**Done when:** every refusal and every module has unit tests whose programs are string literals (a
+test writes its module files to a scratch directory first); `sysl test .` and `sysl test .
+--no-default-features` are both green; a row generator abandoned by a bounded context releases its
+statement under the stress heap; and `otool -L` of a `funl` built with `--no-default-features`
+names nothing beyond the system's own libraries and SQLite.
+
+## 10. `async` and `await`
+
+**Rests on:** [`async` and `await` as slate does](modules.md#async-and-await) (user, 2026-10-08);
+milestone 9, whose native modules supply the I/O; **answers needed first:** open questions 9–11.
+
+- Tasks: a parked `Machine` per suspended call, `start_async` from both call paths, `Await` parking
+  with the promise left on the operand stack, every parked machine a collector root.
+- The loop on kairos: the two queues in their order, timers keeping the program alive, the top level
+  as an async context; `funl:async` with `sleep`, the promise makers and the promise-shaped I/O.
+- Faults across `await`: a FunL `catch` around an `await` catches a fault raised after it resumes;
+  unawaited failures reported.
+
+**Done when:** slate's interleaving example, rewritten in FunL as a string literal, prints the same
+order; a failure after an `await` does not redo it, and a generator that awaits between its `yield`s
+is backtracked into correctly; and the same tests pass against a heap small enough to collect while
+tasks are parked.
