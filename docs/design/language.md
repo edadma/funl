@@ -46,6 +46,21 @@ write( 1 < 0 )      ;; prints nothing -- the comparison fails, so the call is ne
 write( 'next' )     ;; prints next
 ```
 
+**A fault is not a failure**, and no bounded context stops one: it unwinds until a `catch` takes it,
+and otherwise ends the program.
+
+> **Decided (user, 2026-10-08; [modules](modules.md#open-questions) question 4) — how does FunL catch
+> a fault?** **Decision: slate's postfix form, `e catch p -> r`, with an optional guard
+> `e catch p | g -> r`.** A fault raised while `e` is evaluated — or while `e` is resumed for another
+> value — is the ISO error term Prolog's `catch/3` sees; it is matched against the pattern `p`, `g` is
+> tried, and `r`'s values stand in for `e`'s. A fault `p` or `g` refuses is raised again, unchanged.
+> Failure is not a fault and passes through: `e catch …` fails when `e` does. `catch` binds looser
+> than every operator but the lambda arrow, and the recovery reaches as far right as a lambda's body.
+> `err.message` reads an error term's message; `throw(x)` raises `x` itself, as `throw/1` does. It is
+> compiled over the control-stack entry `catch/3` uses, so it is transparent to backtracking exactly
+> as `catch/3` is. **Rejected:** a block `try`/`catch` (one clause is what an expression has room
+> for, and a block is an expression already) and `finally` (slate has none).
+
 ### Conditions and `false`
 
 **FunL has the values `true` and `false`, but a condition is decided by success and failure.** If

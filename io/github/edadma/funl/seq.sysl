@@ -466,7 +466,8 @@ length_of(x: Value) -> Result[long, Fault]
         y -> Err(type_error("collection", y, s"${described(y)} has no length"))
 end length_of
 
-// `x.name`: a record's field, a map's key, a buffer's `removeLast`, or any collection's `length`.
+// `x.name`: a record's field, a map's key, a buffer's `removeLast`, any collection's `length`, or an
+// error term's `message`.
 // `None` -- failure -- where a record or a map holds nothing under the name; any other value has no
 // such field at all, which is an error. A map's default answers only after `length`, so `m.length`
 // is its size unless it holds the key `"length"`, with or without a default.
@@ -478,6 +479,12 @@ field_of(x: Value, name: u32) -> Result[Option[Value], Fault]
     val n = atom_name(name)
 
     if n == "length" then return Ok(Some(Int(length_of(x)?)))
+
+    // An error term's message: what a `catch` most often wants of the fault it caught.
+    if n == "message"
+        error_message(x) match
+            Some(m) -> return Ok(Some(new_str(m)?))
+            None -> ()
 
     deref(x) match
         Compound(_) -> return Ok(None)

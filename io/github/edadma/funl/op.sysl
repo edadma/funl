@@ -441,6 +441,17 @@ enum Op
     // `catch/3`'s goal has succeeded: when the `Catch` at the height slot `slot` recorded is the top
     // entry -- the goal left nothing to resume -- it goes, and the catch is over.
     ExitCatch(slot: usize)
+
+    // FunL's `e catch ...` begins: push a `Trap` entry in the running frame, which any thrown ball
+    // reaches while `e` runs; its recovery starts at `to`, with the ball on top.
+    PushTrap(to: usize)
+
+    // `e` has produced a value: the `Trap` at the height slot `slot` recorded goes when it is the top
+    // entry, and is otherwise covered by an `Untrap` until failure backtracks into `e`.
+    ExitTrap(slot: usize)
+
+    // Pop a ball and throw it again: the fault no pattern of a `catch` wanted.
+    Rethrow
 end Op
 
 // What a first argument is keyed by in a relation's index. A head argument of any other kind, and

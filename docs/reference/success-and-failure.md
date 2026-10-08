@@ -69,6 +69,7 @@ reached
 ## A fault is not a failure
 
 A fault is an error: it stops the program, and no statement catches it. Dividing by zero is one.
+Only a `catch`, below, stops a fault.
 
 ```funl
 write( 1 / 0 )
@@ -77,6 +78,183 @@ write( 'never printed' )
 
 ```error
 divides by zero
+```
+
+## Catching faults
+
+`e catch err -> r` produces `e`'s value, unless a fault is raised while `e` is evaluated. Then the
+fault is bound to `err` and the expression produces `r` instead. `err.message` is the sentence the
+fault would have printed:
+
+```funl
+write( 1 / 0 catch e -> e.message )
+x = 10 / 0 catch _ -> 0
+write( x )
+```
+
+```output
+1 / 0 divides by zero
+0
+```
+
+The recovery may be an indented block, whose last line is its value:
+
+```funl
+total = 10 / 0 catch e ->
+  write( "recovering: ${e.message}" )
+  0
+write( total )
+```
+
+```output
+recovering: 10 / 0 divides by zero
+0
+```
+
+**`catch` binds more loosely than every operator except the lambda arrow**, so `a + b catch …`
+guards the whole sum and `x -> 1 / x catch …` is a lambda whose body guards. The recovery reaches as
+far right as a lambda's body does, so a `catch` inside a longer expression is put in parentheses.
+
+### What a fault is
+
+A fault is an **error term**, `error(Formal, Context)`, the same term Prolog's `catch/3` sees
+([Prolog](prolog.md#errors-and-exceptions)). What follows `catch` is a **pattern**, matched against
+that term, so a `catch` can take apart the kind of error it caught. `error(x)` raises
+`error(user_error(x), _)`:
+
+```funl
+write( 1 + #a catch error(type_error(kind, culprit), _) -> [kind, culprit] )
+write( error("no such user") catch error(user_error(m), _) -> m )
+```
+
+```output
+[number, a]
+no such user
+```
+
+**A fault the pattern does not match is raised again**, unchanged, for an enclosing `catch` or the
+end of the program to see. Here `safe` catches arithmetic with no answer and nothing else:
+
+```funl
+def safe( n ) = 100 / n catch error(evaluation_error(_), _) -> 0
+
+write( safe(4) )
+write( safe(0) )
+write( safe(#x) )
+```
+
+```error
+'/' wants numbers and was given the atom x
+```
+
+A guard follows the pattern after `|`, as a lambda's does, and a fault whose guard fails is raised
+again too:
+
+```funl
+def share( n ) = 100 / n catch e | n == 0 -> 'nothing to share'
+
+write( share(5) )
+write( share(0) )
+```
+
+```output
+20
+nothing to share
+```
+
+Catches nest, and the innermost one that takes the fault is the one that recovers. A fault raised in
+the recovery is not caught by its own `catch`:
+
+```funl
+write( (1 / 0 catch error(type_error(_, _), _) -> 'inner') catch _ -> 'outer' )
+write( (1 / 0 catch _ -> error( "tried again" )) catch e -> e.message )
+```
+
+```output
+outer
+tried again
+```
+
+### Failure is not a fault
+
+An expression that fails is not caught: `e catch …` fails when `e` fails.
+
+```funl
+write( (1 > 2) catch _ -> 'caught' )
+write( (1 > 2 catch _ -> 'caught') or 'failed' )
+```
+
+```output
+failed
+```
+
+### Catching a generator
+
+A `catch` guards its expression for as long as the expression can produce values, so a fault raised
+when a generator is **resumed** for another value is caught too. Catching it ends the expression:
+the values it had not yet produced are not tried.
+
+```funl
+def check( n ) = if n == 0 then error( "found a zero" ) else n
+
+every write( check(2 | 0 | 3) catch e -> e.message )
+```
+
+```output
+2
+found a zero
+```
+
+What is done with a value after the guarded expression has produced it is not guarded. Here `10 / 5`
+is written, and `10 / 0`, made from the guarded expression's second value, is a fault the `catch`
+does not see:
+
+```funl
+every write( 10 / ((5 | 0) catch _ -> 1) )
+```
+
+```error
+10 / 0 divides by zero
+```
+
+### Throwing a value
+
+`throw(x)` raises `x` itself, rather than an error term around it, as Prolog's `throw/1` does. A
+`catch` matches what was thrown, and a value with no message has no `message`:
+
+```funl
+data oops( n )
+
+write( throw(oops(3)) catch oops(n) -> n + 1 )
+write( (throw(oops(3)) catch b -> b.message) or 'no message' )
+```
+
+```output
+4
+no message
+```
+
+A ball a Prolog predicate throws reaches FunL the same way. [`prolog/oops.pl`](prolog/oops.pl)
+holds `risky(X) :- throw(oops(X)).`:
+
+```funl
+import "prolog/oops.pl"
+
+write( risky(7) catch oops(n) -> n )
+```
+
+```output
+7
+```
+
+A ball nothing catches ends the program, naming the ball:
+
+```funl
+throw( #loose )
+```
+
+```error
+uncaught exception: loose
 ```
 
 ## `true` and `false`, and conditions

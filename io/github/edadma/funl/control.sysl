@@ -20,6 +20,15 @@ enum EntryKind
     // throw that unifies with its catcher resumes at `ip` (`catch.sysl`).
     Catch
 
+    // FunL's `e catch ...` while `e` runs, in the frame it is written in: failure passes it by, and
+    // any throw reaching it resumes at `ip` with the ball on the operand stack (`catch.sysl`).
+    Trap
+
+    // `e` of a `catch` has produced a value while choice points inside it stand: the `Trap` at height
+    // `ip` is not reached by a throw from here on. Failure passes it by, which is what makes the trap
+    // reachable again once `e` is resumed.
+    Untrap
+
 struct Entry
     kind: EntryKind
 

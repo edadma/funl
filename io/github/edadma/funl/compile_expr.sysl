@@ -22,6 +22,7 @@ import sysl.buf.{Buf, buf}
 //     yield e                Choice(after); e; [ScanLeave(n)]; Return; after: PushUnit
 //     return e               e; [ScanLeave(n)]; ReturnCommit
 //     s ? e                  s; ScanBegin; e; ScanEnd
+//     e catch p -> r         SaveHeight(h); PushTrap(r); e; ExitTrap(h); ...   -- `catch.sysl`
 //
 // `[ScanLeave(n)]` is there when the jump leaves `n` scans of the function's body that are open
 // around it, and puts back the scan state the outermost of them replaced.
@@ -296,6 +297,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(ScanBegin)
             compile_value(e, c.in_scan(), body)?
             e.op(ScanEnd)
+        CatchE(id, s, pat, guard, r) -> compile_catch(e, c, id, s, pat, guard, r)?
         RegexE(p, groups) -> compile_pattern_value(e, c, p, groups)?
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")

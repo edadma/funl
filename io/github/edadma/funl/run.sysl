@@ -528,6 +528,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         ExitCatch(slot) ->
             exit_catch(v, slot)?
             Ok(Next)
+        PushTrap(to) ->
+            push_trap(v, to)
+            Ok(Next)
+        ExitTrap(slot) ->
+            exit_trap(v, slot)?
+            Ok(Next)
+        Rethrow -> Err(Thrown(pop(v)?))
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it
