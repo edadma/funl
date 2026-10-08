@@ -274,14 +274,23 @@ bytes([104, 195, 169, 108, 108, 111]), 6, 5
 héllo, h
 ```
 
-Bytes that are not UTF-8 -- here a slice that cuts `é` in half -- are an error.
+On bytes that are not UTF-8 -- here a slice that cuts `é` in half -- `decode` fails, so a program
+tests for text that is not well-formed with `if` or `|`. Anything but a byte string is an error.
 
 ```funl
-write( decode(bytes('héllo')(0..1)) )
+write( decode(bytes('héllo')(0..1)) | 'not text' )
+```
+
+```output
+not text
+```
+
+```funl
+write( decode('héllo') )
 ```
 
 ```error
-'decode' was given the byte string bytes([104, 195]), which is not UTF-8
+'decode' wants a byte string and was given the string 'héllo'
 ```
 
 ## Putting them together

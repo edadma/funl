@@ -27,7 +27,18 @@ struct WriteOpts
     // How deep into a term to write before `...`, and how many elements of a list; 0 for no limit.
     max_depth: long
 
-write_opts(quoted: bool, ignore_ops: bool, numbervars: bool) -> WriteOpts = WriteOpts(quoted, ignore_ops, numbervars, 0)
+    // A space after each comma between arguments, list elements and the operands of `,`, as
+    // SWI-Prolog's top level writes an answer (its `spacing(next_argument)`).
+    spacing: bool
+
+write_opts(quoted: bool, ignore_ops: bool, numbervars: bool) -> WriteOpts =
+    WriteOpts(quoted, ignore_ops, numbervars, 0, false)
+
+// The options the top level writes an answer with: quoted, with `'$VAR'` names and spacing.
+answer_opts() -> WriteOpts = WriteOpts(true, false, true, 0, true)
+
+// The comma between two arguments, elements or operands.
+private put_comma(w: *Writer) = emit(w, if w.o.spacing then ", " else ",")
 
 private struct Writer
     out: StrBuilder
@@ -48,9 +59,9 @@ private const Deepest: long = 1000
 // `x` as text.
 //
 // **A cyclic term is written as `@(Template, Substitutions)`**, as SWI-Prolog writes one under its
-// default `cycles(true)`: each node where a cycle closes is named `_S1`, `_S2`, ..., the template is
+// default `cycles(true)`: each node where a cycle closes is named `S_1`, `S_2`, ..., the template is
 // the term with those nodes named, and each substitution spells one of them out once. So
-// `X = f(X), write(X)` writes `@(_S1,[_S1=f(_S1)])`, and no write of a term is infinite.
+// `X = f(X), write(X)` writes `@(S_1,[S_1=f(S_1)])`, and no write of a term is infinite.
 term_text(x: Value, o: WriteOpts) -> string
     val c = cycles_of(x)
 
@@ -62,8 +73,10 @@ term_text(x: Value, o: WriteOpts) -> string
 
     var names: Buf[string] = buf()
 
+    // Under `numbervars(true)` -- `write/1`, `print/1`, `writeq/1` -- SWI-Prolog names them `S_1`,
+    // `S_2`, ..., as it writes `'$VAR'(-1)`, `'$VAR'(-2)`, ...; otherwise they are written as variables.
     for k in 1..c.heads.len()
-        names.push(cycle_name(k))
+        names.push(if o.numbervars then s"S_$k" else cycle_name(k))
 
     var w = writer(o, c, names)
 
@@ -278,7 +291,7 @@ private put_list(w: *Writer, first: *ConsObj, depth: long)
                     emit(w, "...")
                     break
 
-                emit(w, ",")
+                put_comma(w)
                 put_term(w, p.head, 999, depth + 1)
                 count += 1
                 tail = deref(p.tail)
@@ -297,7 +310,7 @@ private put_canonical(w: *Writer, name: string, args: []Value, depth: long)
     emit(w, "(")
 
     for i in 0..<args.len
-        if i > 0 then emit(w, ",")
+        if i > 0 then put_comma(w)
 
         put_term(w, args[i], 999, depth + 1)
 
@@ -307,7 +320,6 @@ private put_canonical(w: *Writer, name: string, args: []Value, depth: long)
 // treats it as punctuation. `|` is written canonically, `'|'(a,b)`.
 private infix_for_write(name: string) -> Option[PlOp]
     if name == "," then return Some(PlOp(1000, Xfy))
-    if name == "|" then return None
 
     infix_op(name)
 
@@ -321,11 +333,16 @@ private put_compound(w: *Writer, c: *CompoundObj, max: u16, depth: long)
         emit(w, "}")
         return
 
+    // As SWI-Prolog writes them: `'$VAR'(N)` as its letter name, `'$VAR'(-N)` as `S_N`, and
+    // `'$VAR'(Name)` as `Name` where `Name` is spelled as a variable is.
     if w.o.numbervars && name == "$VAR" && n == 1
         deref(c.args.at(0)) match
             Int(k) ->
-                if k >= 0
-                    emit(w, var_name(k))
+                emit(w, if k >= 0 then var_name(k) else s"S_${-k}")
+                return
+            Atom(id) ->
+                if variable_spelling(atom_name(id))
+                    emit(w, atom_name(id))
                     return
             _ -> ()
 
@@ -356,6 +373,18 @@ private put_compound(w: *Writer, c: *CompoundObj, max: u16, depth: long)
     put_canonical(w, name, c.args.view(), depth)
 end put_compound
 
+// Whether `s` is spelled as a variable is: a capital letter or `_`, then letters, digits and `_`.
+private variable_spelling(s: string) -> bool
+    val b = s.bytes
+
+    if b.len == 0 then return false
+    if !(b[0] == u8('_') || (b[0] >= u8('A') && b[0] <= u8('Z'))) then return false
+
+    for i in 1..<b.len
+        if !alnum(b[i]) then return false
+
+    true
+
 // `'$VAR'(k)`'s name: a letter, and from the 27th on a number after it.
 private var_name(k: long) -> string
     val letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(usize(k % 26), usize(k % 26) + 1)
@@ -382,44 +411,47 @@ private put_infix(w: *Writer, name: string, o: PlOp, c: *CompoundObj, max: u16, 
     put_operand(w, c.args.at(0), left_max(o), depth)
 
     if name == ","
-        emit(w, ",")
+        put_comma(w)
+    elif name == "|"
+        emit(w, name)
     else
         put_atom(w, name, false)
 
     put_operand(w, c.args.at(1), right_max, depth)
     close_if(w, bracket)
 
-// A prefix operator applied. `-(1)` and `+(1)` are written as compounds, as is any application whose
-// operand would need brackets: `-(1)` because `- 1` reads as the number, and `-((a,b))` because the
-// brackets after a name are its argument list. An operand that begins with a bracket of its own is
-// set apart by a space.
+// A prefix operator applied, as ISO has it and GNU Prolog writes it. An operand that begins with a
+// bracket is set apart from the operator by a space, so the bracket is not read as the start of an
+// argument list: an operand of too high a priority, `- (1+2)` and `\+ (a,b)`, and a number or a term
+// beginning with one after `-`, `- (1)` and `- (1^2)`, as `- 1` would read as the number -1.
 private put_prefix(w: *Writer, name: string, o: PlOp, x: Value, max: u16, depth: long)
-    if written_as_compound(w, name, o, x)
-        put_atom(w, name, true)
-        emit(w, "(")
-        put_term(w, x, 999, depth + 1)
-        emit(w, ")")
-        return
-
-    var sub = sub_writer(w)
-
-    put_operand(&sub, x, operand_max(o), depth)
-
-    val text = sub.out.finish()
     val bracket = o.priority > max
 
     open_if(w, bracket)
     put_atom(w, name, false)
 
-    if text.bytes.len > 0 && text.bytes[0] == u8('(') then w.out.push(" ")
+    if operand_bracketed(w, name, o, x)
+        w.out.push(" ")
+        emit(w, "(")
+        put_term(w, x, 1200, depth + 1)
+        emit(w, ")")
+    else
+        var sub = sub_writer(w)
 
-    emit(w, text)
+        put_operand(&sub, x, operand_max(o), depth)
+
+        val text = sub.out.finish()
+
+        if text.bytes.len > 0 && text.bytes[0] == u8('(') then w.out.push(" ")
+
+        emit(w, text)
+
     close_if(w, bracket)
 
-// Whether prefix operator `name` applied to `x` is written as the compound: a sign before what is
-// written beginning with a digit, or an operand that would need brackets.
-private written_as_compound(w: *Writer, name: string, o: PlOp, x: Value) -> bool =
-    ((name == "-" || name == "+") && leads_with_digit(w, x)) || priority_of(w, x) > operand_max(o)
+// Whether prefix operator `name`'s operand `x` is written in brackets: `-` before what is written
+// beginning with a digit, or an operand of a priority above the operator's.
+private operand_bracketed(w: *Writer, name: string, o: PlOp, x: Value) -> bool =
+    (name == "-" && leads_with_digit(w, x)) || priority_of(w, x) > operand_max(o)
 
 // Whether `x`, written as an operand, begins with a digit: a number that is not negative, or an
 // operator term whose leftmost operand does.
@@ -479,11 +511,7 @@ private priority_of(w: *Writer, x: Value) -> u16
 
             if n == 1 && name != "{}"
                 prefix_op(name) match
-                    Some(o) ->
-                        // Written as the compound, as `-(1)` and `-((a,b))` are, it needs no brackets.
-                        if written_as_compound(w, name, o, c.args.at(0)) then return 0
-
-                        return o.priority
+                    Some(o) -> return o.priority
                     None -> ()
 
                 postfix_op(name) match

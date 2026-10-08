@@ -27,12 +27,13 @@ A_BYTE_IS_AN_INTEGER_FROM_0_TO_255()
     faults_with("write( bytes(3) )\n", "'bytes' wants a list and reached the integer 3")
 
 @test
-DECODE_READS_UTF8_AND_REFUSES_ANYTHING_ELSE()
+DECODE_READS_UTF8_AND_FAILS_ON_ANYTHING_ELSE()
     assert_eq(ran_funl("write( decode(bytes([104, 195, 169])), decode(bytes(\"\")).length, decode(bytes(\"日本\")) )\n"),
         "hé, 0, 日本\nsucceeded")
-    faults_with("write( decode(bytes([255])) )\n", "'decode' was given the byte string bytes([255]), which is not UTF-8")
-    faults_with("write( decode(bytes([195])) )\n", "which is not UTF-8")
+    assert_eq(ran_funl("write( decode(bytes([255])) | \"not text\" )\nwrite( if decode(bytes([104, 195])) then \"text\" else \"cut short\" )\n"),
+        "not text\ncut short\nsucceeded")
     faults_with("write( decode(\"a\") )\n", "'decode' wants a byte string and was given the string 'a'")
+    faults_with("write( decode([104]) )\n", "'decode' wants a byte string and was given the list [104]")
 
 @test
 BYTES_ARE_INDEXED_AND_SLICED_FROM_0()

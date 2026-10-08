@@ -16,8 +16,8 @@ the places where FunL is a different kind of language and cannot copy slate as i
 > **Decided (user, 2026-10-08): modules and native modules as slate does.** Every rule below marked
 > "as slate does" is slate's own, from its `docs/reference/modules.md`, `docs/reference/packages.md`,
 > `docs/library/` and the module and feature sections of its `CLAUDE.md`. Revisiting one means
-> revisiting it in slate's terms first. The open questions at the end are the only parts not settled
-> by this decision.
+> revisiting it in slate's terms first. The eleven places FunL differs from slate were decided the
+> same day (the last section); the prelude's four open questions are the only parts not settled.
 
 ## A file is a module
 
@@ -197,9 +197,9 @@ As slate does, with FunL's kinds in place of slate's:
 | a struct of plain data (a `stat`, a row, a response) | an immutable map keyed by field name, so `row.title` reads |
 | a list or slice | a list |
 | a JSON object, a header table | an immutable map |
-| a live resource (a connection, a statement, a child process) | a handle — see the first open question |
+| a live resource (a connection, a statement, a child process) | a handle — see the first decided question |
 | an iterator or stream (rows, lines, directory entries) | a generator — see the second |
-| bytes | see the eighth open question |
+| bytes | see the eighth decided question |
 
 A resource is closed by an explicit `close()`, as slate's are, and the collector's finalizer closes
 any the program forgot, as slate's do.
@@ -221,7 +221,7 @@ if not exists( "cache" ) then mkdir( "cache" )
 if read_file( "missing.txt" ) then write( #there ) else write( #absent )
 ```
 
-`lines` and `read_dir` are generators (the second open question); a missing file is failure (the
+`lines` and `read_dir` are generators (the second decided question); a missing file is failure (the
 third).
 
 ### `funl:json` — core, over `sh.sysl.json`
@@ -341,7 +341,7 @@ As slate does:
 - **`sleep`, `resolve`, `reject`, `pending`, `settle`, `fail`** make promises, and **timers keep the
   program alive**.
 - **The promise-shaped I/O lives in a module, `funl:async`**, beside the blocking forms of milestone 9
-  rather than replacing them (open question 10).
+  rather than replacing them (decided question 10).
 
 **A promise is an opaque value**, unifying by identity in Prolog as a handle does. Prolog cannot
 `await`; a FunL `async` function called from Prolog unifies its last argument with the promise.
@@ -368,22 +368,230 @@ the regex captures. A **task** is exactly those fields, in their own `Machine`:
   What FunL's generators never needed — resumption from anywhere but backtracking inside their own
   bounded expression — is precisely what a task adds.
 
-## Open questions
+## The prelude — the first module written in FunL
 
-These are the places FunL cannot copy slate as it stands, because FunL is a different kind of
-language. Each has a recommendation; the user decides 1–8 before milestone 9 begins and 9–11
-before milestone 10.
+> **Decided (user, 2026-10-08) — the prelude is the first module written in FunL, and it is
+> auto-imported, as Haskell's Prelude is.** It is a Haskell-style list library written fresh in
+> FunL, carried in the binary as a source module (the `raw"""` mechanism of the built-in modules),
+> and every program starts with its exports in scope. **A program's own names shadow it** by the
+> builtin shadowing rule: a `val`, parameter, pattern variable or local `def` of a prelude name
+> hides it where in scope, and a top-level `def` is the program's definition in its place. A
+> program that wants no prelude name at all simply defines its own.
 
-> **Open question 1 — what a handle is.** slate's resources are objects with methods; FunL has no
+**The contents**, in the order Haskell's Prelude and `Data.List` give them:
+
+| group | names |
+|---|---|
+| pairs | `fst`, `snd` |
+| ends of a list | `head`, `tail`, `last`, `init` |
+| folds | `foldl`, `foldl1`, `foldr`, `foldr1`, `product`, `maximum`, `minimum`, `maxBy`, `minBy` |
+| transforming | `map`, `filter`, `concat`, `concatMap`, `reverse`, `sort`, `sortBy`, `nub`, `group` |
+| slicing | `take`, `drop`, `takeWhile`, `dropWhile`, `splitAt`, `span`, `spanNot` (Haskell's `break`), `partition` |
+| combining | `zip`, `zip3`, `zipWith`, `zipWith3`, `unzip` |
+| producing | `iterate`, `forever` (Haskell's `repeat`), `replicate` |
+| asking | `any`, `all`, `elem`, `lookup` |
+
+**Generators replace lazy streams.** Where a Haskell function is lazy on an infinite list, the FunL
+version is a generator, or draws one. Two facts about FunL decide the shape. **A call's arguments
+backtrack**: `f(g())` already calls `f` once per value `g` produces, so applying a function to every
+value of a generator needs no `map` at all. **A generator therefore cannot be handed over as an
+argument** — `take(3, iterate(f, 1))` would call `take` once per value `iterate` produces — and the
+prelude takes it as a **thunk**, a zero-argument function: `take(3, () -> iterate(f, 1))`. The
+functions that can meet an endless input (`map`, `filter`, `take`, `takeWhile`) follow one rule:
+
+- **a collection in, a list out** — a list, string, set, array or finite range: `take(2, [5, 6, 7])`
+  is `[5, 6]`;
+- **a thunk in, a generator out** — the thunk's values are drawn with `x <- xs()`, which draws every
+  value, and the function generates its answers one at a time and stops as soon as it has what it
+  needs, so `take(3, () -> iterate(f, 1))` does not run the endless generator past three values. A
+  list is wanted by writing `[x | x <- take(3, () -> iterate(f, 1))]`.
+
+`iterate` and `forever` themselves are generators (a generator body, a `yield` per value, then the
+recursive call), the two producers that never end. An unbounded range `a..` is already a lazy list
+value and goes in as a collection. The functions that need the whole input (`reverse`, `sort`,
+`last`, `zip`, the folds) take a collection and answer a list or a value.
+
+**The source below is the prelude's own**, other than the natives named afterwards. It runs as it
+stands (`mapList` is what the `map` entry calls, below):
+
+```
+def
+  fst( (a, _) ) = a
+  snd( (_, b) ) = b
+
+  head( x:_ ) = x
+  tail( _:xs ) = xs
+  last( [x] ) = x
+  last( _:xs ) = last( xs )
+  init( [_] ) = []
+  init( x:xs ) = x:init( xs )
+
+  foldl( f, z, [] ) = z
+  foldl( f, z, x:xs ) = foldl( f, f(z, x), xs )
+  foldl1( f, x:xs ) = foldl( f, x, xs )
+  foldr( f, z, [] ) = z
+  foldr( f, z, x:xs ) = f( x, foldr(f, z, xs) )
+  foldr1( f, [x] ) = x
+  foldr1( f, x:xs ) = f( x, foldr1(f, xs) )
+
+  product( xs ) = foldl( (a, b) -> a*b, 1, xs )
+  maximum( xs ) = foldl1( (a, b) -> max(a, b), xs )
+  minimum( xs ) = foldl1( (a, b) -> min(a, b), xs )
+  maxBy( f, xs ) = foldl1( (a, b) -> if f(b) > f(a) then b else a, xs )
+  minBy( f, xs ) = foldl1( (a, b) -> if f(b) < f(a) then b else a, xs )
+
+  mapList( f, xs ) = if xs is function then mapDraw( f, xs ) else [f(x) | x <- xs]
+  mapDraw( f, xs )
+    for x <- xs()
+      yield f(x)
+    fail
+
+  filter( p, xs ) = if xs is function then filterDraw( p, xs ) else [x | x <- xs if p(x)]
+  filterDraw( p, xs )
+    for x <- xs() if p(x)
+      yield x
+    fail
+
+  take( n, xs ) = if xs is function then takeDraw( n, xs ) else takeList( n, xs )
+  takeList( n, xs ) = [x | x <- takeDraw( n, () -> xs )]
+  takeDraw( n, xs )
+    var k = 0
+    for x <- xs()
+      if k >= n then break
+      k++
+      yield x
+    fail
+
+  takeWhile( p, xs ) = if xs is function then takeWhileDraw( p, xs ) else [x | x <- takeWhileDraw( p, () -> xs )]
+  takeWhileDraw( p, xs )
+    for x <- xs()
+      if not p(x) then break
+      yield x
+    fail
+
+  dropWhile( p, [] ) = []
+  dropWhile( p, x:xs ) = if p(x) then dropWhile( p, xs ) else x:xs
+  drop( n, xs ) = if n <= 0 then xs else dropOne( n, xs )
+  dropOne( n, [] ) = []
+  dropOne( n, _:xs ) = drop( n - 1, xs )
+  splitAt( n, xs ) = (take(n, xs), drop(n, xs))
+  span( p, xs ) = (takeWhile(p, xs), dropWhile(p, xs))
+  spanNot( p, xs ) = span( x -> not p(x), xs )
+  partition( p, xs ) = (filter(p, xs), filter(x -> not p(x), xs))
+
+  concat( xss ) = [x | xs <- xss, x <- xs]
+  concatMap( f, xs ) = [y | x <- xs, y <- f(x)]
+
+  zip( xs, ys ) = zipWith( (a, b) -> (a, b), xs, ys )
+  zip3( xs, ys, zs ) = zipWith3( (a, b, c) -> (a, b, c), xs, ys, zs )
+  zipWith( f, xs, ys ) = zipWithArrays( f, array([x | x <- xs]), array([y | y <- ys]) )
+  zipWithArrays( f, a, b ) = [f(a(i), b(i)) | i <- 0..<min( a.length, b.length )]
+  zipWith3( f, xs, ys, zs ) = zipWith3Arrays( f, array([x | x <- xs]), array([y | y <- ys]), array([z | z <- zs]) )
+  zipWith3Arrays( f, a, b, c ) = [f(a(i), b(i), c(i)) | i <- 0..<min( a.length, min(b.length, c.length) )]
+  unzip( ps ) = ([a | (a, _) <- ps], [b | (_, b) <- ps])
+
+  iterate( f, x )
+    yield x
+    iterate( f, f(x) )
+  forever( x )
+    yield x
+    forever( x )
+  replicate( n, x ) = [x | _ <- 1..n]
+  reverse( xs ) = foldl( (acc, x) -> x:acc, [], xs )
+
+  sortBy( lt, xs ) = qsort( lt, xs )
+  qsort( lt, [] ) = []
+  qsort( lt, p:xs ) = qsort( lt, [x | x <- xs if lt(x, p)] ) + [p] + qsort( lt, [x | x <- xs if not lt(x, p)] )
+  sort( xs ) = sortBy( (a, b) -> a < b, xs )
+
+  all( p, xs ) = [] == [x | x <- xs if not p(x)]
+  elem( x, xs ) = x in xs
+  lookup( k, ps )
+    for (key, v) <- ps if key == k
+      return v
+    fail
+  nub( xs ) = foldl( (acc, x) -> if x in acc then acc else acc + [x], [], xs )
+  group( [] ) = []
+  group( x:xs ) = (x:takeWhile( y -> y == x, xs )) : group( dropWhile( y -> y == x, xs ) )
+```
+
+**Success and failure stand in for `Maybe`.** `lookup(k, ps)` answers the value, or fails when no
+pair has the key, so `lookup(k, ps) | default` supplies a default; `elem` and `all` succeed or fail,
+as a comparison does (a success carries a value, so they are tested with `if`, never printed);
+`head([])` and `last([])` have no matching clause and are the ordinary "argument match not found"
+fault, which is a mistake in the program, not a condition.
+
+**Natives and source.** The source above is the prelude's definition of each name; which names are
+also written as core natives for speed is the second prelude question below, and the tests for a
+native check it against this source on the same inputs.
+
+**Interactions with the builtins.**
+
+- **`sum` is already native** and stays: `sum(xs)` over a list or a range. `product`, `maximum` and
+  `minimum` are the prelude's list forms. **`min(a, b)` and `max(a, b)` are the builtin two-argument
+  forms**; the prelude's `maximum([..])` calls them, and neither builtin gains a list form.
+- **`map` is a builtin already**: `map(m)` and `map(m, default)` make a mutable map. The prelude's
+  `map(f, xs)` is the same name and arity as `map(m, default)` and is settled in the first prelude
+  question below.
+- **`any` is a builtin of one argument** (the scanning charset `any(c)`); the prelude's `any(p, xs)`
+  has two, and the name/arity namespace keeps them apart. **`all`, `elem` and `lookup`** are free.
+- **Builtins are not values**: `foldl(max, 0, xs)` is refused, because `max` "is a relation or a
+  builtin, which is called rather than used as a value". The prelude's own source wraps them, as in
+  `(a, b) -> max(a, b)`, and a program does the same until the last prelude question below is
+  decided.
+- **`repeat` and `break` are keywords**, so Haskell's `repeat` is `forever` and Haskell's `break`
+  is `spanNot`.
+- **`length` is the field `.length`**, not a function, so the prelude defines no `length`;
+  `reverse`, `sort`, `last` and the rest have no builtin of their name today.
+
+> **Open question P1 — `map` already names a builtin.** `map(m)` and `map(m, default)` make a
+> mutable map, and a prelude `def map(f, xs)` would shadow the two-argument builtin in every program.
+> **Recommendation:** **one `map/2`, and its first argument decides**: a function maps (the
+> `mapList` above), anything else is the constructor with a default. No program that is valid today
+> changes meaning, since a function is not a collection to build a map from. Implemented as a core
+> native that forwards to `mapList`.
+
+> **Open question P2 — which are core natives.** **Recommendation:** natives for speed — `reverse`,
+> `sort` and `sortBy` (a stable merge sort in sysl, the comparator called back as `findall` does),
+> `concat`, `replicate`, `elem`, `last`, `init`, `drop` and the `zip` family (one pass over
+> arrays), plus the existing `sum`, `min` and `max`. Source carried in the binary — the rest: `fst`,
+> `snd`, `head`, `tail`, the folds and the folds' derivatives, `filter`, `take`, `takeWhile`,
+> `dropWhile`, `splitAt`, `span`, `spanNot`, `partition`, `concatMap`, `unzip`, `iterate`,
+> `forever`, `all`, `lookup`, `nub`, `group`, `any/2`, `maxBy`, `minBy` and `mapList` — because
+> each calls back into FunL, which a native can only do through the callback machinery, and
+> generator-bodied ones cannot be natives at all.
+
+> **Open question P3 — a generator of tuples cannot be taken apart.** `x <- e` draws every value of
+> `e` and iterates a value that is a collection, so `[a | (a, b) <- pairs()]` over a generator that
+> yields `(1, "a")` draws `1` and `"a"` and matches neither against the pattern (the answer is
+> `[]`), and `[p | p <- pairs()]` flattens the pairs. A list of tuples is fine
+> (`[a | (a, b) <- [(1, "a")]]` is `[1]`). **Recommendation:** make `zip` and its family answer
+> lists, which is what the source above does and why they need finite inputs (a program zips
+> `0..` with a list by taking the list's length first), and decide the language question
+> separately: **a tuple pattern on the left of `<-` matches each generated value whole when that
+> value is a tuple**, and only an unmatched value is iterated. Until then no prelude function yields
+> tuples.
+
+> **Open question P4 — builtins as values.** **Recommendation:** a builtin named without a call is a
+> function value when it has one arity (`max`, `odd`, `abs`), so `foldl(max, 0, xs)` and
+> `filter(odd, xs)` work, and is refused with today's message when it has several (`map`). It is a
+> language change, outside the prelude, and it waits for the user.
+
+## Questions decided
+
+These are the places FunL could not copy slate as it stands, because FunL is a different kind of
+language. All eleven were decided by the user on 2026-10-08, each as the recommendation made for it.
+
+> **Decided (user, 2026-10-08) — what a handle is.** slate's resources are objects with methods; FunL has no
 > objects and no methods, only maps, records and closures.
-> **Recommendation:** a new opaque value kind, `Handle`: a `gc` object holding the sysl resource, a
+> **Decision:** a new opaque value kind, `Handle`: a `gc` object holding the sysl resource, a
 > kind tag and a closed flag, with a finalizer that releases the resource. `h.name(args)` on a
 > handle is looked up in a per-kind method table — slate's `properties_of` — and a method is an
 > ordinary native taking the handle first. A call on a closed handle is a fault. Prolog sees a
 > handle as opaque and unifying by identity, the term mapping already decided for maps and closures.
 > FunL has no `using`, so there is no scoped form: `close()`, with the finalizer as the backstop.
 
-> **Decided (user, 2026-10-08) — as recommended.** Refinements made building it: a handle prints as
+> **Built — what the decision left open.** A handle prints as
 > `<kind handle>`, `<closed kind handle>` once closed; `x is handle` tests for one; `close()` is
 > supplied by the runtime for every kind and is idempotent; a closed handle's other methods fault
 > with `existence_error(handle, H)` (Prolog's closed-stream error), and a method the kind lacks with
@@ -391,10 +599,10 @@ before milestone 10.
 > value or failure. `x.name(args)` compiles to `MethodOf`/`CallMethod`: on anything but a handle it
 > reads the field before the arguments and calls it, exactly as before.
 
-> **Open question 2 — iterators as generators.** slate answers a whole array (`db.query`) or a
+> **Decided (user, 2026-10-08) — iterators as generators.** slate answers a whole array (`db.query`) or a
 > promise; FunL's natural answer is a generator, and backtracking into it is what makes rows, lines
 > and directory entries searchable. The registry's generating builtin carries only a `long` cursor.
-> **Recommendation:** a native generator's cursor names a per-call iterator state held in a
+> **Decision:** a native generator's cursor names a per-call iterator state held in a
 > `Handle` standing on the operand stack beside the cursor, so the collector sees it. Backtracking
 > into the call steps the iterator; running out is failure. **Each call starts afresh** (a new
 > statement step, a new directory read), so a generator re-entered by a later call never sees
@@ -402,41 +610,42 @@ before milestone 10.
 > is released by its finalizer, or at once by `close()` on the handle it came from. Where a list is
 > wanted, the program writes a comprehension or `findall`.
 
-> **Decided (user, 2026-10-08) — as recommended.** Built as a third way to run a builtin,
+> **Built — what the decision left open.** A third way to run a builtin,
 > `register_stepping(name, arity, start, step)`: the handle `start` makes takes the cursor's cell,
 > and running out closes it at once. A **method** that generates (`stmt.rows()`) is not built yet:
 > a generator over a handle is called as a function, `rows(stmt)`.
 
-> **Open question 3 — failure or fault for a native's error.** slate's rule is that text from outside
+> **Decided (user, 2026-10-08) — failure or fault for a native's error.** slate's rule is that text from outside
 > the program is an answer and a mistake the program made itself is a fault. FunL has failure,
 > which slate does not.
-> **Recommendation:** **failure for "no such thing", "no more" and "not well-formed"** — a missing
+> **Decision:** **failure for "no such thing", "no more" and "not well-formed"** — a missing
 > file, an unset variable, no rows, malformed JSON — because each is a condition a program tests
 > with `if` and `|`, exactly as a comparison fails. **A fault for everything else** — a permission
 > refused, an I/O error, a network failure, bad SQL, a call on a closed handle — raised as the ISO
 > error term (`permission_error`, `existence_error`, `system_error`, `syntax_error`) a Prolog
 > builtin would raise, so `catch/3` catches it from Prolog.
 
-> **Open question 4 — FunL has no way to catch a fault.** slate writes `db.query(sql) catch e -> []`;
+> **Decided (user, 2026-10-08) — FunL catches a fault with slate's postfix `catch`.** slate writes `db.query(sql) catch e -> []`;
 > in FunL a fault stops the program, and only Prolog's `catch/3` stops one. A program that calls
 > `fetch` must be able to survive the network being down.
-> **Recommendation:** add slate's postfix form, `e catch err -> recovery`, to FunL before
+> **Decision:** add slate's postfix form, `e catch err -> recovery`, to FunL before
 > `funl:http` lands, compiled over the `Catch` entry `catch/3` already uses, with `err` bound to the
-> error term. It is new syntax and is designed in the language chapter, not here.
+> error term. This settles the old question of FunL's `catch` syntax. It is new syntax and its
+> grammar is written in the language chapter when it is built, not here.
 
-> **Open question 5 — exporting and importing relations.** A relation is many `def` clauses, and
+> **Decided (user, 2026-10-08) — exporting and importing relations.** A relation is many `def` clauses, and
 > FunL's name/arity namespace means `sides` may be a relation of two arguments and a function of
 > one at once.
-> **Recommendation:** **`export` on any clause exports the whole procedure** — every clause of that
+> **Decision:** **`export` on any clause exports the whole procedure** — every clause of that
 > name and arity, wherever written — and a `def` block written under `export def` exports every
 > procedure in it. **An import names a name, and brings every arity of it.** A qualified call
 > `geometry.sides(#triangle, n)` through `import * as` is resolved by the compiler against the
 > module's export list, so a relation called qualified is still a static call with indexing, not a
 > map lookup at run time.
 
-> **Open question 6 — what Prolog sees.** Prolog has one flat predicate namespace, shared with FunL,
+> **Decided (user, 2026-10-08) — what Prolog sees.** Prolog has one flat predicate namespace, shared with FunL,
 > and `:- import("file.funl")` today brings in every definition the file has.
-> **Recommendation:** **Prolog's `:- import` of a FunL file sees its exports**, as a FunL importer
+> **Decision:** **Prolog's `:- import` of a FunL file sees its exports**, as a FunL importer
 > does, and the existing tests and pages that import FunL from Prolog gain `export` lines. **A
 > built-in module is reached with `:- import("funl:json").` and called module-qualified**,
 > `json:parse(Text, Value)`, with `:` (already 600 `xfy` in the operator table); the function `f/n`
@@ -444,45 +653,45 @@ before milestone 10.
 > [the Prolog chapter](prolog.md) already has. Module-qualified, so a native module never takes a
 > name out of Prolog's one namespace.
 
-> **Open question 7 — `import "file.pl"`.** A Prolog file has no exports, so slate's braces have
+> **Decided (user, 2026-10-08) — `import "file.pl"`.** A Prolog file has no exports, so slate's braces have
 > nothing to select from.
-> **Recommendation:** keep `import "file.pl"` exactly as it is — every predicate of the file enters
+> **Decision:** keep `import "file.pl"` exactly as it is — every predicate of the file enters
 > the shared namespace — as the one form for a Prolog file; `import { x } from "file.pl"` is
 > refused, naming the form that works.
 
-> **Open question 8 — bytes.** slate has a `bytes` kind, and a BLOB, an HTTP body and `readBytes`
+> **Decided (user, 2026-10-08) — bytes.** slate has a `bytes` kind, and a BLOB, an HTTP body and `readBytes`
 > answer it; FunL's `Buffer` is a buffer of values.
-> **Recommendation:** add a `Bytes` value kind in milestone 9, before `funl:sqlite` and `funl:http`:
+> **Decision:** add a `Bytes` value kind in milestone 9, before `funl:sqlite` and `funl:http`:
 > immutable, indexed from 0 like every FunL collection, `!b` generating each byte as an integer, and
 > the decoding to text explicit. Until it exists, a BLOB column and a binary body are faults naming
 > the missing kind.
 
-> **Decided (user, 2026-10-08) — as recommended.** No literal syntax: `bytes(ints)`, `bytes(string)`
-> (UTF-8) and `decode(b)`, which faults with `domain_error(utf8, B)` on bytes that are not UTF-8. It
+> **Built — what the decision left open.** No literal syntax: `bytes(ints)`, `bytes(string)`
+> (UTF-8) and `decode(b)`, which fails on bytes that are not UTF-8 (not well-formed, question 3). It
 > prints as `bytes([1, 2, 255])`; `b(i)`, `b(range)`, `!b`, `in`, `.length`, `+`, equality and
 > byte-by-byte order, `is bytes`. Prolog sees an atomic value that unifies with one holding the
 > same bytes (open: whether Prolog should see a code list instead).
 
-> **Open question 9 — `await` and backtracking.** slate's `await` happens once; in FunL, failure
+> **Decided (user, 2026-10-08) — `await` and backtracking.** slate's `await` happens once; in FunL, failure
 > after an expression normally goes back into it for another value.
-> **Recommendation:** **`await` is bounded**, like `return`: it produces exactly one value and is
+> **Decision:** **`await` is bounded**, like `return`: it produces exactly one value and is
 > never resumed by backtracking. It pushes no choice point, so failure after it passes back over it
 > to the choice points before it, and the I/O is never redone. Choice points made before the
 > `await` stay in the parked machine and are live after it resumes, so **a generator body may
 > `await`**: each value it yields may have waited, and backtracking into the generator resumes it
 > after its last `yield`, as it would without the `await`.
 
-> **Open question 10 — the blocking forms and the promise forms.** slate's file and network calls are
+> **Decided (user, 2026-10-08) — the blocking forms and the promise forms.** slate's file and network calls are
 > promise-shaped only; FunL's milestone 9 ships blocking ones, which a script wants and which come
 > first.
-> **Recommendation:** the blocking forms stay where they are, and the promise-answering ones are
+> **Decision:** the blocking forms stay where they are, and the promise-answering ones are
 > the same names in **`funl:async`** — `sleep`, `fetch`, `read_file`, `write_file`, `run` — so a file
 > chooses by its import which kind it has, and neither module changes the other's meaning.
 
-> **Open question 11 — the loop, and a logic variable two tasks share.** slate drives libuv by
+> **Decided (user, 2026-10-08) — the loop, and a logic variable two tasks share.** slate drives libuv by
 > hand; the org now has `sysl-lang/kairos`, an event loop with libuv's shape whose `uv` feature
 > adds libuv sockets and files and whose timers need no library at all.
-> **Recommendation:** **FunL's loop is kairos**: tasks are FunL machines, so the loop is used in
+> **Decision:** **FunL's loop is kairos**: tasks are FunL machines, so the loop is used in
 > callback form (a timer or a source settles a promise and queues the task), its host driver
 > carries `sleep` and timers in the core with no link line, and kairos's `uv` feature sits behind a
 > FunL feature named for the module, `async`, on in `default`. **Each task has its own trail and

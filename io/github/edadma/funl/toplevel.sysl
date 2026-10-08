@@ -167,7 +167,7 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
                 if quiet then break
 
                 var parts: Buf[string] = buf()
-                var factored: usize = 0
+                var factored = Factored(buf(), buf())
 
                 for j in 0..<shown.len()
                     val x = deref(v.stack.at(base + 1 + j))
@@ -206,20 +206,37 @@ private term_value_of(c: ReadClause) -> Value
 // A term as an answer writes it: quoted, so it reads back as the same term.
 private answer_text(x: Value) -> string = term_text(x, write_opts(true, false, true))
 
+// The nodes where a cycle closes that an answer has named so far, and their names.
+private struct Factored
+    nodes: Buf[usize]
+    names: Buf[string]
+
+// The name the answer gave node `a`, if it has.
+private factored_name(f: *Factored, a: usize) -> Option[string]
+    for i in 0..<f.nodes.len()
+        if f.nodes.at(i) == a then return Some(f.names.at(i))
+
+    None
+
 // What variable `name`'s binding `x` is written as.
 //
 // **A cyclic binding is written as SWI-Prolog's top level writes one.** Where the cycle closes on the
 // binding itself, the variable's own name stands for it: `X = f(X)`. Every other node where a cycle
-// closes is named `_S1`, `_S2`, ... -- numbered across the whole answer, `factored` counting them --
-// and spelled out once in a `% where` block below the binding:
+// closes is named `_S1`, `_S2`, ... -- numbered across the whole answer, `factored` keeping them --
+// and spelled out once in a `% where` block below the binding. A node an earlier binding named keeps
+// its name, the binding itself among them:
 //
 //     X = f(_S1), % where
-//         _S1 = g(_S1)
-private binding_text(name: string, x: Value, factored: *usize) -> string
-    val o = write_opts(true, false, true)
+//         _S1 = g(_S1),
+//     Y = g(_S1)
+//
+// The value is written as SWI-Prolog's top level writes it: quoted, a space after each comma, and
+// as the right side of `=`, so an operator term above priority 699 is bracketed -- `X = (a, b)`.
+private binding_text(name: string, x: Value, factored: *Factored) -> string
+    val o = answer_opts()
     val c = cycles_of(x)
 
-    if c.heads.len() == 0 then return s"$name = ${answer_text(x)}"
+    if c.heads.len() == 0 then return s"$name = ${term_text_named(x, o, c, buf(), false, 699)}"
 
     val root = node_of(x)
     var names: Buf[string] = buf()
@@ -227,15 +244,26 @@ private binding_text(name: string, x: Value, factored: *usize) -> string
     var own = false
 
     for i in 0..<c.heads.len()
-        if node_of(c.heads.at(i)) == root
-            names.push(name)
-            own = true
-        else
-            *factored += 1
-            names.push(cycle_name(*factored))
-            spelled.push(i)
+        val a = node_of(c.heads.at(i))
 
-    var text = s"$name = ${term_text_named(x, o, c, names, own, 1200)}"
+        factored_name(factored, a) match
+            Some(earlier) ->
+                names.push(earlier)
+
+                if a == root then own = true
+            None ->
+                // The binding's own name stands for it only where its cycle is the only one, as
+                // SWI-Prolog writes `X = f(X)` but `X = _S1, % where _S1 = f(_S1, _S2), ...`.
+                if a == root && c.heads.len() == 1
+                    names.push(name)
+                    own = true
+                else
+                    factored.nodes.push(a)
+                    factored.names.push(cycle_name(factored.nodes.len()))
+                    names.push(cycle_name(factored.nodes.len()))
+                    spelled.push(i)
+
+    var text = s"$name = ${term_text_named(x, o, c, names, own, 699)}"
 
     if spelled.len() > 0 then text += ", % where"
 

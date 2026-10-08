@@ -62,22 +62,28 @@ A_BINDING_THAT_IS_ITS_OWN_CYCLE_IS_WRITTEN_WITH_ITS_OWN_NAME()
 @test
 A_CYCLE_INSIDE_A_BINDING_IS_FACTORED_INTO_A_WHERE_BLOCK()
     assert_eq(session([], ["X = f(Y), Y = g(Y)."]),
-        "?- X = f(Y), Y = g(Y).\nX = f(_S1), % where\n    _S1 = g(_S1),\nY = g(Y).\nstatus: 0")
+        "?- X = f(Y), Y = g(Y).\nX = f(_S1), % where\n    _S1 = g(_S1),\nY = g(_S1).\nstatus: 0")
 
 @test
-FACTORED_CYCLES_ARE_NUMBERED_ACROSS_THE_ANSWER()
+FACTORED_CYCLES_ARE_NUMBERED_ACROSS_THE_ANSWER_AND_KEEP_THEIR_NAMES()
+    // SWI-Prolog 10.0.2's answer: a node an earlier binding named keeps its name.
     assert_eq(session([], ["X = f(A, B), A = g(A), B = h(B), Z = k(B)."]),
         "?- X = f(A, B), A = g(A), B = h(B), Z = k(B).\n" +
-        "X = f(_S1,_S2), % where\n    _S1 = g(_S1),\n    _S2 = h(_S2),\nA = g(A),\nB = h(B),\nZ = k(_S3), % where\n    _S3 = h(_S3).\nstatus: 0")
+        "X = f(_S1, _S2), % where\n    _S1 = g(_S1),\n    _S2 = h(_S2),\nA = g(_S1),\nB = h(_S2),\nZ = k(_S2).\nstatus: 0")
 
 @test
-A_BINDING_THAT_IS_ITS_OWN_CYCLE_MAY_HOLD_ANOTHER()
+A_BINDING_THAT_IS_ITS_OWN_CYCLE_AND_HOLDS_ANOTHER_IS_FACTORED_WHOLE()
+    // SWI-Prolog 10.0.2's answer: the binding's own name stands for it only when its cycle is the one.
     assert_eq(session([], ["X = f(X, Y), Y = g(Y)."]),
-        "?- X = f(X, Y), Y = g(Y).\nX = f(X,_S1), % where\n    _S1 = g(_S1),\nY = g(Y).\nstatus: 0")
+        "?- X = f(X, Y), Y = g(Y).\nX = _S1, % where\n    _S1 = f(_S1, _S2),\n    _S2 = g(_S2),\nY = g(_S2).\nstatus: 0")
 
 @test
-AN_ACYCLIC_ANSWER_IS_WRITTEN_AS_BEFORE()
-    assert_eq(session([], ["X = f(Y, Y), Y = g(a)."]), "?- X = f(Y, Y), Y = g(a).\nX = f(g(a),g(a)),\nY = g(a).\nstatus: 0")
+AN_ANSWER_IS_WRITTEN_AS_SWI_PROLOGS_TOP_LEVEL_WRITES_IT()
+    // SWI-Prolog 10.0.2: a space after each comma, and an operator term above 699 bracketed.
+    assert_eq(session([], ["X = f(Y, Y), Y = g(a)."]), "?- X = f(Y, Y), Y = g(a).\nX = f(g(a), g(a)),\nY = g(a).\nstatus: 0")
+    assert_eq(session([], ["X = [a, b | c], Y = {a, b}."]), "?- X = [a, b | c], Y = {a, b}.\nX = [a, b|c],\nY = {a, b}.\nstatus: 0")
+    assert_eq(session([], ["X = (a, b), Y = (a :- b, c)."]), "?- X = (a, b), Y = (a :- b, c).\nX = (a, b),\nY = (a:-b, c).\nstatus: 0")
+    assert_eq(session([], ["X = [1 + 2, a = b]."]), "?- X = [1 + 2, a = b].\nX = [1+2, a=b].\nstatus: 0")
 
 @test
 A_SEMICOLON_PAST_THE_LAST_SOLUTION_IS_FALSE()
@@ -118,7 +124,7 @@ WHAT_A_QUERY_WRITES_COMES_BEFORE_ITS_ANSWER()
 
 @test
 A_QUERY_GOES_ON_OVER_LINES_UNTIL_ONE_ENDS_IN_A_FULL_STOP()
-    assert_eq(session([], ["X = f(a,", "  b)."]), "?- X = f(a,\n|      b).\nX = f(a,b).\nstatus: 0")
+    assert_eq(session([], ["X = f(a,", "  b)."]), "?- X = f(a,\n|      b).\nX = f(a, b).\nstatus: 0")
 
 @test
 HALT_ENDS_THE_SESSION_AND_NOTHING_AFTER_IT_IS_READ()
@@ -265,7 +271,7 @@ HALT_IS_NOT_CAUGHT_BY_CATCH()
 HALT_WITH_A_STATUS_THAT_IS_NOT_AN_INTEGER_IS_A_TYPE_ERROR_AND_THE_SESSION_GOES_ON()
     assert_eq(session([], ["halt(foo).", "catch(halt(1.5), error(E, _), true).", "halt(X)."]),
         "?- halt(foo).\nuncaught exception: error(type_error(integer,foo),_)\n" +
-        "?- catch(halt(1.5), error(E, _), true).\nE = type_error(integer,1.5).\n" +
+        "?- catch(halt(1.5), error(E, _), true).\nE = type_error(integer, 1.5).\n" +
         "?- halt(X).\nuncaught exception: error(instantiation_error,_)\nstatus: 0")
 
 @test

@@ -142,7 +142,7 @@ end term_at
 private lbp(t: Spanned[PlTok]) -> u16
     t.value match
         PlComma -> power_of(1000)
-        PlBar -> power_of(1100)
+        PlBar -> named_lbp("|")
         PlName(n) -> named_lbp(n)
         PlQuoted(n) -> named_lbp(n)
         _ -> 0
@@ -322,14 +322,15 @@ private opens_args(r: *PlReader) -> bool = kind_at(r.toks, r.toks.mark() + 1) ma
 private led(left: Rd, t: Spanned[PlTok], r: *PlReader) -> Rd
     val name = t.value match
         PlComma -> ","
-        PlBar -> ";"
+        PlBar -> "|"
         PlName(n) -> n
         PlQuoted(n) -> n
         _ -> ""
 
+    // A bar between terms is the infix operator `'|'`, at 1105 unless `op/3` changed it, as GNU
+    // Prolog and SWI-Prolog read it.
     val infix = t.value match
         PlComma -> Some(PlOp(1000, Xfy))
-        PlBar -> Some(PlOp(1100, Xfy))
         _ -> infix_op(name)
 
     infix match

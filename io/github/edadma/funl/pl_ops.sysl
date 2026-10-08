@@ -107,7 +107,7 @@ install_ops(v: *Vm)
         set_op(1150, "fx", n).unwrap()
 
     set_op(1100, "xfy", ";").unwrap()
-    set_op(1100, "xfy", "|").unwrap()
+    set_op(1105, "xfy", "|").unwrap()
 
     for n in ["->", "*->"]
         set_op(1050, "xfy", n).unwrap()
@@ -119,10 +119,11 @@ install_ops(v: *Vm)
 
     set_op(600, "xfy", ":").unwrap()
 
-    for n in ["+", "-", "/\\", "\\/", "xor"]
+    for n in ["+", "-", "/\\", "\\/"]
         set_op(500, "yfx", n).unwrap()
 
-    for n in ["*", "/", "//", "rem", "mod", "div", "<<", ">>"]
+    // `xor` at 400, as SWI-Prolog has it; ISO's table has no `xor`.
+    for n in ["*", "/", "//", "rem", "mod", "div", "<<", ">>", "xor"]
         set_op(400, "yfx", n).unwrap()
 
     set_op(200, "xfx", "**").unwrap()

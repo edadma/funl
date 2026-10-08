@@ -476,12 +476,12 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/functions.md 15 3 0 0\n" +
     "docs/reference/generators.md 22 5 0 0\n" +
     "docs/reference/numbers.md 19 18 0 0\n" +
-    "docs/reference/prolog.md 35 5 0 0\n" +
+    "docs/reference/prolog.md 36 5 0 0\n" +
     "docs/reference/regex.md 21 8 0 0\n" +
     "docs/reference/relations.md 18 6 0 1\n" +
     "docs/reference/scanning.md 16 3 0 0\n" +
     "docs/reference/source-files.md 1 3 2 0\n" +
-    "docs/reference/strings.md 13 5 0 0\n" +
+    "docs/reference/strings.md 14 5 0 0\n" +
     "docs/reference/success-and-failure.md 8 2 0 0\n"
 
 // -- the runner itself -------------------------------------------------------------------------------

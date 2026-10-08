@@ -309,6 +309,7 @@ syntax_error('a term was expected, and the input ended')
 |---|---|
 | `A, B` | `A`, then `B` |
 | `A ; B` | `A`, or else `B` |
+| `A \| B` | the same; `'\|'` is an infix operator at 1105, and the term is `'\|'(A, B)` |
 | `C -> T ; E` | `T` if `C` succeeds (taking its first solution), else `E` |
 | `C *-> T ; E` | `T` for every solution of `C`, or `E` if it has none |
 | `\+ G`, `not(G)` | succeeds when `G` fails |
@@ -764,7 +765,8 @@ The arithmetic functions:
 | random | `random` |
 
 **`log(Base, X)`, `log2`, `cot`, `acot` and the hyperbolic functions are evaluable too.** Outside its
-domain a function raises `evaluation_error(undefined)`:
+domain a function raises `evaluation_error(undefined)`; where its value is infinite -- `log(0)`,
+`atanh(1)` -- it raises `evaluation_error(float_overflow)`. `atan2(0, 0)` is `0.0`.
 
 ```prolog
 :- X is log(2, 8), Y is log2(8), Z is acot(0), write(X-Y-Z), nl.
@@ -772,6 +774,8 @@ domain a function raises `evaluation_error(undefined)`:
 :- catch(_ is log(1, 5), error(E, _), (write(E), nl)).
 :- catch(_ is acosh(0.5), error(E, _), (write(E), nl)).
 :- catch(_ is atanh(1), error(E, _), (write(E), nl)).
+:- catch(_ is log(0), error(E, _), (write(E), nl)).
+:- X is atan2(0, 0), write(X), nl.
 ```
 
 ```output
@@ -779,7 +783,28 @@ domain a function raises `evaluation_error(undefined)`:
 1.0
 evaluation_error(undefined)
 evaluation_error(undefined)
-evaluation_error(undefined)
+evaluation_error(float_overflow)
+evaluation_error(float_overflow)
+0.0
+```
+
+**An integer meets a float as a float** in a comparison, so `9007199254740993 =:= 9007199254740992.0`;
+an integer too large for a float is compared exactly. **A one-element list of a code and a
+one-character string evaluate to the code**, so `X is "a" + 1` is `98`; any other string is
+`type_error(character, S)`. `copysign(X, Y)` keeps an integer `X` an integer.
+
+```prolog
+:- (9007199254740993 =:= 9007199254740992.0 -> write(equal) ; write(unequal)), nl.
+:- X is [0'a] + 1, Y is "a" + 1, write(X-Y), nl.
+:- catch(_ is "ab", error(E, _), (writeq(E), nl)).
+:- X is copysign(3, -0.0), write(X), nl.
+```
+
+```output
+equal
+98-98
+type_error(character,"ab")
+-3
 ```
 
 **`random(N)` is an integer drawn from 0 to `N - 1`**, `N` a positive integer. The generator is
@@ -792,7 +817,7 @@ seeded from the operating system, so each run draws differently, and only the ra
 
 ```output
 in_range
-domain_error(positive_integer,0)
+domain_error(not_less_than_one,0)
 ```
 
 ### Rationals
@@ -829,8 +854,8 @@ equal
 
 `==`, `\==`, `@<`, `@>`, `@=<`, `@>=`, `compare/3`, `msort/2` and `sort/2` order terms in the
 standard order: variables first, then numbers by value (an integer and a float of equal value put
-the float first), then atoms by their text, then strings by their text, then compound terms by
-arity, then name, then arguments from left to right.
+the float first), then strings by their text, then `[]`, then atoms by their text, then compound
+terms by arity, then name, then arguments from left to right.
 
 `msort/2` keeps duplicates, `sort/2` removes them, and `sort/4` sorts on a key with an order
 (`@<`, `@>`, `@=<` or `@>=`, the last two keeping duplicates). `keysort/2` sorts `Key-Value` pairs by
@@ -850,7 +875,7 @@ key and keeps pairs with equal keys in their order. `predsort/3` sorts with a co
 ```
 
 ```output
-[0.5,1.0,1,2,a,b,"s",f(x),f(y),g(a,b)]
+[0.5,1.0,1,2,"s",a,b,f(x),f(y),g(a,b)]
 [a,a,b,c]
 [a,b,c]
 [3,3,2,1]
@@ -873,8 +898,8 @@ cyclic list is not a list to `is_list/1` and is a type error to `length/2`.
 
 `write/1`, `print/1`, `writeq/1` and `write_canonical/1` write a cyclic term as
 `@(Template, Substitutions)`, as SWI-Prolog does by default: each place where a cycle closes is
-named `_S1`, `_S2`, and so on, the template is the term with those places named, and each
-substitution spells one of them out.
+named `S_1`, `S_2`, and so on (`write_canonical/1` names them as variables), the template is the
+term with those places named, and each substitution spells one of them out.
 
 `unify_with_occurs_check/2` unifies with the occurs check: it fails where unifying would make a
 cyclic term.
@@ -892,12 +917,12 @@ cyclic term.
 ```
 
 ```output
-@(_S1,[_S1=f(_S1)])
-@(f(_S1),[_S1=g(_S1)])
-@(_S1,[_S1=[a,b|_S1]])
+@(S_1,[S_1=f(S_1)])
+@(f(S_1),[S_1=g(S_1)])
+@(S_1,[S_1=[a,b|S_1]])
 unify
 identical
-@(_S1,[_S1=f(_S1)])
+@(S_1,[S_1=f(S_1)])
 not_a_list
 refused
 f(a)
@@ -909,12 +934,14 @@ stored as a clause: `assert/1`, `asserta/1` and `assertz/1` raise
 
 `subsumes_term(General, Specific)` succeeds when `Specific` is an instance of `General`: they unify
 without binding any variable of `Specific`. `unifiable(X, Y, Unifier)` gives the bindings that
-unifying `X` and `Y` would make, as a list of `Var = Value`, and binds nothing. `?=(A, B)` succeeds
-when whether `A` and `B` unify is already decided: they are identical, or cannot unify.
-`numbervars(Term, Start, End)` binds each variable of `Term`, left to right, to `'$VAR'(N)`, with `N`
-counting from `Start`, and `End` the next number; `write/1`, `print/1` and `writeq/1` write
-`'$VAR'(N)` as the variable name `A`, …, `Z`, `A1`, …, and `write_canonical/1` writes it as it is. All
-four end on cyclic terms.
+unifying `X` and `Y` would make, as a list of `Var = Value`, last made first, and binds nothing;
+unification goes left to right and binds the younger of two variables to the older, and a variable
+given whole is bound to the other side. `?=(A, B)` succeeds when whether `A` and `B` unify is
+already decided: they are identical, or cannot unify. `numbervars(Term, Start, End)` binds each
+variable of `Term`, left to right, to `'$VAR'(N)`, with `N` counting from `Start`, and `End` the next
+number; `write/1`, `print/1` and `writeq/1` write `'$VAR'(N)` as the variable name `A`, …, `Z`,
+`A1`, …, `'$VAR'(-N)` as `S_N`, and `'$VAR'(Name)` as `Name` where `Name` is spelled as a variable is;
+`write_canonical/1` writes it as it is. All four end on cyclic terms.
 
 ```prolog
 :- X = f(X), (cyclic_term(X) -> write(cyclic) ; write(acyclic)), nl.
@@ -928,6 +955,8 @@ four end on cyclic terms.
 :- (?=(f(_), f(a)) -> write(decided) ; write(open)), nl.
 :- T = f(X, Y, X), numbervars(T, 0, End), print(T), write(' '), write(End), nl.
 :- T = g(_, _), numbervars(T, 25, _), writeq(T), write(' '), write_canonical(T), nl.
+:- unifiable(f(X, X), f(a, Y), U), X = 'X', Y = 'Y', write(U), nl.
+:- writeq(['$VAR'('Foo'), '$VAR'(x), '$VAR'(-1)]), nl.
 ```
 
 ```output
@@ -943,11 +972,14 @@ decided
 open
 f(A,B,A) 2
 g(Z,A1) g('$VAR'(25),'$VAR'(26))
+[Y=a,X=a]
+[Foo,'$VAR'(x),S_1]
 ```
 
-The `prolog` top level writes a binding that is its own cycle with the variable's own name, and
-names every other cycle `_S1`, `_S2`, and so on, spelling each out in a `% where` block under the
-binding. Given these lines on its input:
+The `prolog` top level writes a binding that is its own only cycle with the variable's own name,
+and names every other cycle `_S1`, `_S2`, and so on, spelling each out once in a `% where` block
+under the binding that first holds it; a later binding refers to it by that name. Given these lines
+on its input:
 
 ```
 X = f(X).
@@ -960,7 +992,7 @@ it answers:
 X = f(X).
 X = f(_S1), % where
     _S1 = g(_S1),
-Y = g(Y).
+Y = g(_S1).
 ```
 
 FunL's `write` prints a cyclic term in the same notation, and FunL's `==` compares cyclic terms as
@@ -1083,17 +1115,19 @@ list of codes or characters.
 | directive | writes |
 |---|---|
 | `~w`, `~p`, `~q` | a term as `write/1`, `print/1`, `writeq/1` write it |
-| `~a` | an atomic value's text |
+| `~a` | an atom's or a string's text |
 | `~d`, `~Nd`, `~D` | an integer; with `N` digits after a decimal point; in groups of three |
 | `~Nf`, `~Ne`, `~Ng` | a number with `N` digits (6 by default), fixed, exponent, or shortest |
-| `~s` | a string, or a list of codes or characters |
+| `~s` | a string, an atom, or a list of codes or characters |
 | `~c`, `~Nc` | a character code, `N` times |
-| `~Nr`, `~NR` | an integer in radix `N`, in lower or upper case |
+| `~Nr`, `~NR` | an integer in radix `N` (8 without `N`), in lower or upper case |
 | `~n`, `~~` | a newline; a `~` |
 | `~i` | nothing: skips an argument |
 | `~t`, `~N\|`, `~N+` | fill, a column stop at column `N`, a column `N` past the previous stop |
 
-`*` in place of `N` takes the number from the arguments, and `` `c `` before `t` fills with `c`.
+`*` in place of `N` takes the number from the arguments, and `` `c `` before `t` fills with `c`. The
+numeric directives -- `~d`, `~D`, `~e`, `~f`, `~g`, `~r`, `~R` and `*` -- take an arithmetic
+expression and write its value.
 
 ```prolog
 :- format("plain text~n").
@@ -1129,17 +1163,29 @@ name    age     city
 100~ shown xxx
 ```
 
-A format that goes wrong writes nothing and raises an error:
+A format that goes wrong writes what it made before the directive that failed, then raises an
+error: an argument of the wrong kind is `format_argument_type(Directive, Argument)`, and a numeric
+argument that does not evaluate raises the arithmetic error.
 
 ```prolog
-try(G) :- catch(G, error(E, _), (write(E), nl)).
+try(G) :- catch(G, error(E, _), (nl, write(E), nl)).
 
+:- format("~d ~e~n", [1 + 2, 2 * 3]).
+:- try(format("~d~n", [1.5])).
+:- try(format("~a~n", [42])).
 :- try(format("~d~n", [abc])).
 :- try(format("~w ~w~n", [one])).
 ```
 
 ```output
-type_error(integer,abc)
+3 6.000000e+00
+
+format_argument_type(d,1.5)
+
+format_argument_type(a,42)
+
+type_error(evaluable,abc/0)
+one 
 format(not enough arguments)
 ```
 
@@ -1194,30 +1240,41 @@ every answer in turn.
 'HÉLLO'/"abc"
 ```
 
-Text given to a string predicate, or to `upcase_atom/2` and `downcase_atom/2`, may also be a list
-of character codes or of one-character atoms, and `[]` is then the empty list. A list that is not
-yet whole is an instantiation error, and an element that is not a character is a type error. The
-standard predicates over atoms (`atom_length/2`, `atom_concat/3`, `sub_atom/5`, and the atom of
-`atom_codes/2` and `atom_chars/2`) take no list.
+Text given to `string_length/2`, `string_chars/2`, `string_codes/2`, `split_string/4` or the string
+of `atom_string/2` may also be a list of character codes or of one-character atoms, and `[]` is then
+the empty list; anything else is `type_error(text, X)` (`split_string/4` takes no number either). A
+list that is not yet whole is an instantiation error, and an element that is not a character is a
+type error. `string_concat/3`, `sub_string/5` and the case conversions take no list: it is
+`type_error(atomic, L)`, or `type_error(string, L)` for `sub_string/5`. The standard predicates over
+atoms (`atom_length/2`, `atom_concat/3`, `sub_atom/5`, and the atom of `atom_codes/2` and
+`atom_chars/2`) take no list either, but read a string where they want a code or character list,
+and `sub_atom/5` and `sub_string/5` refuse a negative count with
+`domain_error(not_less_than_zero, N)`.
 
 ```prolog
-:- string_concat([0'a], "b", S), writeq(S), nl.
 :- atom_string(A, [h, i]), writeq(A), nl.
 :- split_string([0'a, 0'/, 0'b], "/", "", L), writeq(L), nl.
 :- string_length([], N), writeq(N), nl.
 :- catch(string_length([0'a | _], _), error(E, _), (writeq(E), nl)).
 :- catch(string_length([0'a, b], _), error(E, _), (writeq(E), nl)).
+:- catch(string_length(f(x), _), error(E, _), (writeq(E), nl)).
+:- catch(string_concat([0'a], "b", _), error(E, _), (writeq(E), nl)).
 :- catch(atom_length([a, b], _), error(E, _), (writeq(E), nl)).
+:- number_codes(N, "42"), atom_concat(X, "b", ab), writeq(N/X), nl.
+:- catch(sub_atom(abc, -1, _, _, _), error(E, _), (writeq(E), nl)).
 ```
 
 ```output
-"ab"
 hi
 ["a","b"]
 0
 instantiation_error
 type_error(character_code,b)
+type_error(text,f(x))
+type_error(atomic,[97])
 type_error(atom,[a,b])
+42/a
+domain_error(not_less_than_zero,-1)
 ```
 
 The flags `set_prolog_flag/2` changes are `unknown` (`error`, `fail`, `warning`), `double_quotes`
