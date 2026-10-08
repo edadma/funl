@@ -476,8 +476,9 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         RepNext(lo, hi, exit, lazy) ->
             rep_next(v, lo, hi, exit, lazy)?
             Ok(Next)
-        RepStep(top, lo) ->
-            rep_step(v, top, lo)?
+        RepStep(top, lo) -> Ok(fails_if(rep_step(v, top, lo)?))
+        ResetGroups(first, last) ->
+            unset_groups(v, first, last)
             Ok(Next)
         Barrier ->
             v.stack.push(Int(long(v.control.len())))

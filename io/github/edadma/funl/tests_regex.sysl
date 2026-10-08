@@ -37,7 +37,7 @@ GREEDY_LAZY_AND_POSSESSIVE_REPETITION_GIVE_THEIR_MATCHES_IN_THEIR_ORDERS()
     assert_eq(ran_funl(text), "aaa\naa\na\na\naa\naaa\npossessive gives nothing back\naaa\nsucceeded")
 
 @test
-A_COUNTED_REPETITION_TAKES_ITS_BOUNDS_AND_AN_EMPTY_TURN_ENDS_A_LOOP()
+A_COUNTED_REPETITION_TAKES_ITS_BOUNDS_AND_AN_EMPTY_TURN_DOES_NOT_REPEAT()
     val text = "write('aaaa' ? `a{2}`)\nwrite('aaaa' ? `a{2,}`)\nwrite('a{2' ? `a{2`)\nwrite('ab' ? `(a|)*b`)\n"
 
     assert_eq(ran_funl(text), "aa\naaaa\na{2\nab\nsucceeded")
