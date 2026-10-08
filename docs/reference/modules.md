@@ -499,7 +499,7 @@ The thing after `from` names the module in one of three ways:
 - **`funl:name`** names one of FunL's own modules.
 
 No packages are available yet, so a bare word is refused, and so is a `funl:name` that is not one of
-FunL's own modules (`funl:fs` and `funl:json` are):
+FunL's own modules (the [library](../library/README.md) lists those):
 
 ```funl
 import { parse } from funl:nothing

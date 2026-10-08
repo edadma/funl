@@ -98,6 +98,8 @@ builtin_modules() -> Buf[ModuleProvider]
 
     out.push(ModuleProvider("fs", fs_exports))
     out.push(ModuleProvider("json", json_exports))
+    out.push(ModuleProvider("sqlite", sqlite_exports))
+    out.push(ModuleProvider("time", time_exports))
     out
 
 // The provider of `funl:name`, if FunL has one.

@@ -167,6 +167,25 @@ THE_SORTS_RAISE_THE_ISO_ERRORS()
     assert_eq(holds("keysort([_], _)"), ok("instantiation_error"))
 
 @test
+NUMBER_TEXT_TAKES_A_PLUS_SIGN_RADIX_NOTATION_AND_AN_INFINITY_OR_NAN()
+    // Each result is what SWI-Prolog 10.0.2 gives.
+    assert_eq(gives("atom_number('+1 000', X)"), ok("1000"))
+    assert_eq(gives("atom_number('+1', X)"), ok("1"))
+    assert_eq(gives("number_codes(X, \" +1 000\")"), ok("1000"))
+    assert_eq(gives("atom_number('16''ff', X)"), ok("255"))
+    assert_eq(gives("atom_number('-16''ff', X)"), ok("-255"))
+    assert_eq(gives("atom_number('1.0Inf', X)"), ok("1.0Inf"))
+    assert_eq(gives("atom_number('-1.0Inf', X)"), ok("-1.0Inf"))
+    assert_eq(gives("atom_number('1.5NaN', X)"), ok("1.5NaN"))
+    assert_eq(gives("(X is inf, atom_number(A, X), atom_length(A, N), X = _, Y = A-N), writeq(Y), nl, fail ; X = done"), ok("'1.0Inf'-6\ndone"))
+    assert_eq(holds("atom_number('+ 1', X)"), ok("no"))
+    assert_eq(holds("atom_number('1.0NaN', X)"), ok("no"))
+    assert_eq(holds("atom_number('1Inf', X)"), ok("no"))
+    assert_eq(holds("atom_number('37''1', X)"), ok("no"))
+    assert_eq(holds("atom_number('16''fg', X)"), ok("no"))
+    assert_eq(holds("atom_number('1_/* c */000', X)"), ok("no"))
+
+@test
 NUMBER_TEXT_TAKES_DIGIT_GROUPS_IN_AN_INTEGER_OR_RATIONAL_AND_NOT_IN_A_FLOAT()
     // SWI-Prolog 10.0.2: `atom_number('1 000', X)` is 1000, `atom_number('1_000.5', X)` fails.
     assert_eq(gives("atom_number('1 000', X)"), ok("1000"))

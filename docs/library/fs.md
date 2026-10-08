@@ -51,16 +51,24 @@ write( read_file("docs/library/fs/poem.txt") )
 `read_file` is not defined
 ```
 
-`fs` itself is not a value; only what it exports is reached through it.
+`fs` itself is a value: a map from each name the module exports to that function. A function taken
+from it is called later like any other, and a generator such as `lines` still generates.
 
 ```funl
 import * as fs from funl:fs
 
-write( fs )
+base = fs.basename
+write( base("docs/library/fs/poem.txt") )
+write( fs("extension")("docs/library/fs/poem.txt") )
+lines = fs.lines
+every write( lines("docs/library/fs/poem.txt") )
 ```
 
-```error
-`fs` names a module of FunL's own, which is not a value
+```output
+poem.txt
+txt
+Roses are red,
+violets are blue.
 ```
 
 ## What fails and what faults

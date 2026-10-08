@@ -1,0 +1,125 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `funl:sqlite` (`docs/library/sqlite.md`): `sqlite(path)` and the methods of the database it answers
+// -- `exec`, `run` and `query`, a generator of rows -- with the values that cross each way, and the
+// faults SQLite's errors become. Every program runs on both heaps, so each one that keeps a file
+// starts by clearing what the last run left.
+
+// FunL program `body` run with `sqlite` imported and `db` an in-memory database holding table
+// `notes` and its two rows.
+private with_notes(body: string) -> string =
+    ran_funl("import { sqlite } from funl:sqlite\n" +
+        "db = sqlite( \":memory:\" )\n" +
+        "db.exec( \"create table notes (id integer primary key, title text, score real, data blob); insert into notes (title, score) values ('first', 1.5); insert into notes (title, data) values ('second', x'00ff')\" )\n" +
+        body)
+
+@test
+SQLITE_OPENS_A_DATABASE_IN_MEMORY_AS_A_HANDLE()
+    assert_eq(ran_funl("import { sqlite } from funl:sqlite\ndb = sqlite( \":memory:\" )\nwrite( db )\nif db is handle then write( #handle )\ndb.close()\nwrite( db )\n"),
+        "<sqlite database handle>\nhandle\n<closed sqlite database handle>\nsucceeded")
+
+@test
+QUERY_GENERATES_EACH_ROW_AS_A_MAP_FROM_COLUMN_TO_VALUE()
+    assert_eq(with_notes("for row <- [db.query(\"select * from notes order by id\")] do write( row )\nevery write( db.query(\"select title from notes order by id\").title )\nwrite( [r.id | r <- [db.query(\"select id from notes order by id desc\")]] )\n"),
+        "{\"id\": 1, \"title\": \"first\", \"score\": 1.5, \"data\": undefined}\n" +
+        "{\"id\": 2, \"title\": \"second\", \"score\": undefined, \"data\": bytes([0, 255])}\n" +
+        "first\nsecond\n[2, 1]\nsucceeded")
+
+@test
+A_QUERY_WITH_NO_ROWS_FAILS()
+    assert_eq(with_notes("if db.query( \"select 1 from notes where title = ?\", \"third\" ) then write( #found ) else write( #none )\nwrite( db.query(\"select title from notes where id > ?\", 9) | #nothing )\nwrite( [r | r <- [db.query(\"select * from notes where 0\")]] )\n"),
+        "none\nnothing\n[]\nsucceeded")
+
+@test
+EACH_CALL_OF_QUERY_STARTS_AFRESH()
+    assert_eq(with_notes("for a <- [db.query(\"select id from notes order by id\")] do for b <- [db.query(\"select id from notes order by id\")] do write( a.id, b.id )\n"),
+        "1, 1\n1, 2\n2, 1\n2, 2\nsucceeded")
+
+@test
+PARAMETERS_ARE_BOUND_IN_ORDER_AND_EACH_KIND_CROSSES_BOTH_WAYS()
+    assert_eq(with_notes("write( db.query(\"select ? as i, ? as r, ? as s, ? as b, ? as n, ? as t, ? as f\", 7, 2.5, \"text\", bytes([1, 0, 2]), undefined, true, false) )\nwrite( db.query(\"select title from notes where id = ? and score < ?\", 1, 2).title )\n"),
+        "{\"i\": 7, \"r\": 2.5, \"s\": \"text\", \"b\": bytes([1, 0, 2]), \"n\": undefined, \"t\": 1, \"f\": 0}\nfirst\nsucceeded")
+
+@test
+RUN_ANSWERS_THE_ROWS_CHANGED_AND_THE_LAST_ROWID()
+    assert_eq(with_notes("write( db.run(\"insert into notes (title) values (?)\", \"third\") )\nwrite( db.run(\"update notes set score = ? where score is null\", 0).changes )\nwrite( [r.title | r <- [db.query(\"select title from notes where score = 0 order by id\")]] )\n"),
+        "{\"changes\": 1, \"last_insert_rowid\": 3}\n2\n[\"second\", \"third\"]\nsucceeded")
+
+@test
+EXEC_RUNS_EVERY_STATEMENT_AND_ANSWERS_UNIT()
+    assert_eq(with_notes("write( db.exec(\"delete from notes where id = 1; insert into notes (title) values ('x'); insert into notes (title) values ('y')\") )\nwrite( [r.title | r <- [db.query(\"select title from notes order by id\")]] )\n"),
+        "()\n[\"second\", \"x\", \"y\"]\nsucceeded")
+
+@test
+A_FILE_DATABASE_KEEPS_WHAT_IS_WRITTEN_ACROSS_OPENS()
+    val d = scratch()
+    defer scrap(d)
+
+    val text = s"import { sqlite } from funl:sqlite\nf = \"$d/notes.db\"\n" +
+        "db = sqlite( f )\n" +
+        "db.exec( \"drop table if exists t; create table t (x integer)\" )\n" +
+        "db.run( \"insert into t values (?)\", 41 )\n" +
+        "db.close()\n" +
+        "again = sqlite( f )\n" +
+        "write( again.query(\"select x + 1 as y from t\").y )\n" +
+        "again.close()\n"
+
+    assert_eq(ran_funl(text), "42\nsucceeded")
+
+@test
+CLOSING_THE_DATABASE_ENDS_A_QUERY_RUNNING_OVER_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    val text = s"import { sqlite } from funl:sqlite\nf = \"$d/close.db\"\n" +
+        "db = sqlite( f )\n" +
+        "db.exec( \"drop table if exists t; create table t (x integer); insert into t values (1); insert into t values (2); insert into t values (3)\" )\n" +
+        "for r <- [db.query(\"select x from t order by x\")] do\n" +
+        "  write( r.x )\n" +
+        "  if r.x == 2 then db.close()\n" +
+        "write( db )\n" +
+        "again = sqlite( f )\n" +
+        "write( again.query(\"select count(*) as n from t\").n )\n" +
+        "again.close()\n"
+
+    assert_eq(ran_funl(text), "1\n2\n<closed sqlite database handle>\n3\nsucceeded")
+
+@test
+AN_ERROR_SQLITE_REPORTS_IS_A_SYSTEM_ERROR_FAULT_AND_CATCH_CATCHES_IT()
+    assert_eq(with_notes("write( db.query(\"select x from nowhere\") catch e -> e )\nwrite( db.exec(\"not sql\") catch e -> #refused )\nwrite( db.run(\"insert into notes (id) values (?)\", 1) catch e -> e )\n"),
+        "error(system_error, context(_G2, \"'query' failed: no such table: nowhere\"))\nrefused\n" +
+        "error(system_error, context(_G8, \"'run' failed: UNIQUE constraint failed: notes.id\"))\nsucceeded")
+
+    assert_eq(unplaced(with_notes("write( db.query(\"select x from nowhere\") )\nwrite( #after )\n")),
+        "fault: main: 'query' failed: no such table: nowhere")
+
+@test
+A_FILE_THAT_WILL_NOT_OPEN_FAULTS()
+    assert_eq(ran_funl("import { sqlite } from funl:sqlite\nwrite( sqlite(\"/nonexistent-funl-dir/x.db\") catch e -> e )\nwrite( sqlite(42) catch e -> e )\n"),
+        "error(system_error, context(_G2, \"'sqlite' cannot open `/nonexistent-funl-dir/x.db`: unable to open database file\"))\n" +
+        "error(type_error(string, 42), context(_G5, \"'sqlite' wants a path, a string, and was given the integer 42\"))\nsucceeded")
+
+@test
+A_PARAMETER_SQLITE_CANNOT_HOLD_OR_THE_WRONG_NUMBER_OF_THEM_FAULTS()
+    assert_eq(with_notes("write( db.run(\"insert into notes (title) values (?)\", [1]) catch e -> e )\nwrite( db.run(\"insert into notes (title) values (?)\", #maybe) catch e -> e )\nwrite( db.run(\"insert into notes (id) values (?)\", 2^70) catch e -> e )\nwrite( db.run(\"insert into notes (title) values (?)\") catch e -> e )\nwrite( db.query(\"select 1 as one\", 2) catch e -> e )\nwrite( db.query() catch e -> e )\nwrite( db.exec(42) catch e -> e )\n"),
+        "error(type_error(sql_value, [1]), context(_G2, \"'run' cannot bind the list [1]: SQLite holds integers, reals, strings, bytes and undefined\"))\n" +
+        "error(type_error(sql_value, maybe), context(_G5, \"'run' cannot bind the atom maybe: SQLite holds integers, reals, strings, bytes and undefined\"))\n" +
+        "error(representation_error(max_integer), context(_G8, \"'run' cannot bind the integer 1180591620717411303424: SQLite holds integers of 64 bits\"))\n" +
+        "error(domain_error(sql_parameters, 0), context(_G11, \"'run': this SQL takes 1 parameter and was given 0\"))\n" +
+        "error(domain_error(sql_parameters, 1), context(_G14, \"'query': this SQL takes 0 parameters and was given 1\"))\n" +
+        "error(existence_error(procedure, /(query, 0)), context(_G17, \"'query' takes SQL and its parameters, and was given nothing\"))\n" +
+        "error(type_error(string, 42), context(_G20, \"'exec' wants SQL, a string, and was given the integer 42\"))\nsucceeded")
+
+@test
+A_CLOSED_DATABASE_FAULTS_AND_CLOSING_AGAIN_DOES_NOTHING()
+    assert_eq(ran_funl("import { sqlite } from funl:sqlite\ndb = sqlite( \":memory:\" )\ndb.close()\ndb.close()\nwrite( db.exec(\"select 1\") catch e -> e )\nwrite( db.nothing() catch e -> e )\n"),
+        "error(existence_error(handle, <closed sqlite database handle>), context(_G2, \"'exec' was called on the handle <closed sqlite database handle>\"))\n" +
+        "error(existence_error(method, nothing), context(_G5, \"the handle <closed sqlite database handle> has no method 'nothing'\"))\nsucceeded")
+
+@test
+SQLITE_IS_THE_MODULES_ONLY_NAME()
+    assert_eq(complaints("write( sqlite(\":memory:\") )\n"), "error 1:8 `sqlite` is not defined\n")
+    assert(complaints("import { open } from funl:sqlite\n").index_of("`funl:sqlite` does not export `open`").is_some())

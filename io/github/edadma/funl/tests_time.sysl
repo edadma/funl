@@ -1,0 +1,86 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `funl:time` (`docs/library/time.md`): the clocks, `sleep`, and timestamps as milliseconds since
+// 1970. Nothing here depends on the value of the current time: the clocks are checked for shape and
+// order, and formatting and parsing use fixed instants.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// FunL program `body` run with every name of `funl:time` imported.
+private with_time(body: string) -> string =
+    ran_funl("import { now, monotonic, sleep, format, parse, fields, make, local_offset } from funl:time\n" + body)
+
+@test
+A_DATE_IS_MADE_FORMATTED_AND_PARSED_BACK()
+    assert_eq(with_time("t = make( 2026, 3, 8, 14, 30, 0 )\nwrite( t )\nwrite( format( t ) )\nwrite( parse( format( t ) ) )\n"),
+        "1772980200000\n2026-03-08T14:30:00Z\n1772980200000\nsucceeded")
+
+@test
+A_DATE_WITHOUT_A_TIME_IS_MIDNIGHT_UTC()
+    assert_eq(with_time("write( format( make( 2000, 1, 1 ) ) )\n"), "2000-01-01T00:00:00Z\nsucceeded")
+
+@test
+AN_OFFSET_SHIFTS_THE_WALL_READING_NOT_THE_INSTANT()
+    assert_eq(with_time("t = make( 2026, 3, 8, 14, 30, 0 )\nwrite( format( t, -300 ) )\nwrite( format( t, 330 ) )\nwrite( make( 2026, 3, 8, 9, 30, 0, -300 ) )\nwrite( parse( \"2026-03-08T09:30:00-05:00\" ) )\n"),
+        "2026-03-08T09:30:00-05:00\n2026-03-08T20:00:00+05:30\n1772980200000\n1772980200000\nsucceeded")
+
+@test
+A_FRACTION_OF_A_SECOND_IS_WRITTEN_ONLY_WHEN_THERE_IS_ONE()
+    assert_eq(with_time("write( format( 1250 ) )\nwrite( format( 2000 ) )\nwrite( format( -1 ) )\n"),
+        "1970-01-01T00:00:01.250000Z\n1970-01-01T00:00:02Z\n1969-12-31T23:59:59.999000Z\nsucceeded")
+
+@test
+PARSE_TAKES_A_SPACE_FOR_THE_T_AND_LEAVES_SECONDS_OPTIONAL()
+    assert_eq(with_time("write( parse( \"1970-01-01 00:00:01Z\" ) )\nwrite( parse( \"1970-01-01T00:01Z\" ) )\n"),
+        "1000\n60000\nsucceeded")
+
+@test
+FIELDS_GIVES_THE_CALENDAR_READING()
+    assert_eq(with_time("f = fields( make( 2026, 3, 8, 14, 30, 5 ) + 250 )\nwrite( f(\"year\"), f(\"month\"), f(\"day\"), f(\"hour\"), f(\"minute\"), f(\"second\"), f(\"millisecond\"), f(\"weekday\") )\n"),
+        "2026, 3, 8, 14, 30, 5, 250, 7\nsucceeded")
+    assert_eq(with_time("f = fields( make( 2026, 3, 8, 14, 30, 5 ), -300 )\nwrite( f(\"hour\"), f(\"day\") )\n"),
+        "9, 8\nsucceeded")
+    assert_eq(with_time("write( fields( -1 )(\"weekday\"), fields( 0 )(\"weekday\") )\n"), "3, 4\nsucceeded")
+
+@test
+TEXT_THAT_IS_NOT_A_TIMESTAMP_FAILS()
+    assert_eq(with_time("write( parse( \"nope\" ) | \"bad\" )\nwrite( parse( \"2026-13-01T00:00:00Z\" ) | \"bad\" )\nwrite( parse( \"2026-01-01T00:00:00Z extra\" ) | \"bad\" )\n"),
+        "bad\nbad\nbad\nsucceeded")
+
+@test
+A_DATE_THAT_DOES_NOT_EXIST_FAILS()
+    assert_eq(with_time("write( make( 2026, 2, 30 ) | \"none\" )\nwrite( make( 2026, 13, 1 ) | \"none\" )\nwrite( make( 2026, 1, 1, 24, 0, 0 ) | \"none\" )\nwrite( make( 2024, 2, 29 ) | \"none\" )\n"),
+        "none\nnone\nnone\n1709164800000\nsucceeded")
+
+@test
+AN_ARGUMENT_OF_THE_WRONG_KIND_IS_A_CATCHABLE_ERROR()
+    assert_eq(with_time("write( format( \"x\" ) catch e -> \"caught\" )\nwrite( parse( 5 ) catch e -> \"caught\" )\nwrite( sleep( \"x\" ) catch e -> \"caught\" )\nwrite( format( 0, 5000 ) catch e -> \"caught\" )\n"),
+        "caught\ncaught\ncaught\ncaught\nsucceeded")
+
+@test
+THE_WRONG_NUMBER_OF_ARGUMENTS_IS_A_CATCHABLE_ERROR()
+    assert_eq(with_time("write( make( 2026, 1 ) catch e -> \"caught\" )\nwrite( fields( 0, 0, 0 ) catch e -> \"caught\" )\n"),
+        "caught\ncaught\nsucceeded")
+
+@test
+THE_WALL_CLOCK_IS_A_WHOLE_NUMBER_AFTER_2023_AND_THE_MONOTONIC_CLOCK_NEVER_GOES_BACK()
+    assert_eq(with_time("write( if now() > make( 2023, 1, 1 ) then \"after\" else \"before\" )\na = monotonic()\nb = monotonic()\nwrite( if b >= a then \"forward\" else \"back\" )\n"),
+        "after\nforward\nsucceeded")
+
+@test
+SLEEP_WAITS_AT_LEAST_THAT_LONG_AND_TAKES_A_FRACTION()
+    assert_eq(with_time("a = monotonic()\nsleep( 20 )\nsleep( 0.5 )\nsleep( 0 )\nsleep( -3 )\nwrite( if monotonic() - a >= 20 then \"waited\" else \"early\" )\n"),
+        "waited\nsucceeded")
+
+@test
+THE_LOCAL_OFFSET_IS_WHOLE_MINUTES_WITHIN_A_DAY()
+    assert_eq(with_time("o = local_offset( 0 )\nwrite( if o > -1440 & o < 1440 then \"within\" else \"outside\" )\n"), "within\nsucceeded")
+
+@test
+TIME_IMPORT_STAR_REACHES_THE_MODULE_BY_QUALIFIED_NAMES()
+    assert_eq(ran_funl("import * as time from funl:time\nwrite( time.format( time.make( 2001, 9, 9, 1, 46, 40 ) ) )\n"),
+        "2001-09-09T01:46:40Z\nsucceeded")
+    assert(has(complaints("import { zone } from funl:time\n"), "`funl:time` does not export `zone`"))
