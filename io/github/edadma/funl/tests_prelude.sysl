@@ -123,6 +123,61 @@ PRELUDE_SORT_IS_STABLE_AND_REFUSES_WHAT_IT_CANNOT_COMPARE()
     prelude_fault("write( sort([1, \"a\"]) )\n", "'<' cannot compare the string 'a' with the integer 1")
     prelude_fault("write( reverse(5) )\n", "'reverse' wants a list and reached the integer 5")
 
+// `sortBy` is a stable merge sort: sorted, reversed and all-equal input, and equal keys keeping the
+// order they came in. Its comparator counts as a condition does: `false` and failure are "not less".
+@test
+PRELUDE_SORT_BY_IS_STABLE_ON_EVERY_SHAPE_OF_INPUT()
+    val text = "val lt = (a, b) -> a < b\n" +
+        "write( sortBy(lt, [1, 2, 3, 4, 5]), sortBy(lt, [5, 4, 3, 2, 1]), sortBy(lt, [7]), sortBy(lt, 3..1) )\n" +
+        "write( sortBy((a, b) -> a(0) < b(0), [(2, #a), (1, #b), (2, #c), (1, #d), (2, #e)]) )\n" +
+        "write( sortBy((a, b) -> false, [3, 1, 2]), sortBy((a, b) -> if a < b then true else fail, [3, 1, 2]) )\n" +
+        "write( sortBy((a, b) -> a(0) < b(0), [(1, #x), (1, #y), (1, #z)]) )\n"
+
+    assert_eq(ran_funl(text), "[1, 2, 3, 4, 5], [1, 2, 3, 4, 5], [7], []\n[(1, b), (1, d), (2, a), (2, c), (2, e)]\n" +
+        "[3, 1, 2], [1, 2, 3]\n[(1, x), (1, y), (1, z)]\nsucceeded")
+
+// A callback is a bounded call: a generator's first value is taken, and none of its choice points
+// survive the builtin -- collecting every value of the call gives one list. `zipWith` stops at the
+// shortest list, and a place where its function fails has no answer.
+@test
+PRELUDE_A_CALLBACK_IS_BOUNDED()
+    val text = "def\n" +
+        "  both( a, b )\n    yield a\n    yield b\n" +
+        "  big( a, b ) = if a > 1 then a else fail\n" +
+        "write( zipWith(both, [1, 2], [3, 4]), [zipWith(both, [1, 2], [3, 4]) | _ <- [1]], sortBy(both, [3, 1, 2]) )\n" +
+        "write( zipWith(big, [1, 2, 3], [3, 4, 5]), zipWith(max, [1, 5], [3, 4, 9]), zipWith((a, b) -> a, [1, 2], []) )\n" +
+        "write( zipWith3((a, b, c) -> (a, b, c), [1, 2, 3], [\"x\", \"y\"], 1..9), zipWith3((a, b, c) -> both(a, c), [1], [2], [3]) )\n" +
+        "write( sortBy((a, b) -> sortBy((x, y) -> x > y, [a, b])(0) == b and a != b, [3, 1, 2]), zipWith(sortBy, [(a, b) -> a > b], [[1, 2]]) )\n" +
+        "val f = sortBy\nval z = zipWith\nwrite( f((a, b) -> a < b, [2, 1]), z((a, b) -> a + b, [1], [2]) )\n"
+
+    assert_eq(ran_funl(text), "[1, 2], [[1, 2]], [2, 1, 3]\n[2, 3], [3, 5], []\n[(1, \"x\", 1), (2, \"y\", 2)], [1]\n[1, 2, 3], [[2, 1]]\n[1, 2], [3]\nsucceeded")
+
+// A fault inside a callback is an ordinary fault: caught around the builtin, caught inside the
+// callback, or ending the program. A comparator that is not a function is refused when it is called.
+@test
+PRELUDE_A_CALLBACK_FAULT_IS_CATCHABLE()
+    val text = "write( sortBy((a, b) -> a / 0 < b, [1, 2]) catch e -> e.message )\n" +
+        "write( sortBy((a, b) -> (a / 0 < b catch _ -> false), [2, 1]) )\n" +
+        "write( zipWith((a, b) -> a + b, [1, #x], [2, 3]) catch error(type_error(t, c), _) -> [t, c] )\n" +
+        "write( sortBy(5, [1, 2]) catch e -> e.message )\n" +
+        "write( sortBy(5, [1]), zipWith(5, [], [1]) )\n"
+
+    assert_eq(ran_funl(text), "2 / 0 divides by zero\n[2, 1]\n[number, x]\nthe integer 5 is not a function, and cannot be called\n[1], []\nsucceeded")
+    prelude_fault("write( sortBy((a, b) -> a < b, [1, #a]) )\n", "'<' cannot compare the atom a with the integer 1")
+    prelude_fault("write( sortBy((a, b) -> a < b, 5) )\n", "'sortBy' wants a list and reached the integer 5")
+    prelude_fault("write( zipWith((a, b) -> a, [1], 0..) )\n", "the endless range 0..")
+    prelude_fault("def\n  two( a, b ) = a\nwrite( zipWith3(two, [1], [2], [3]) )\n", "'two' takes 2 arguments and was given 3")
+
+// A merge sort is O(n log n) whatever the order: sorted and reversed input of 100,000 elements, which
+// a quicksort on its first element would take quadratic time over. Run on the roomy heap only.
+@test
+PRELUDE_SORT_BY_TAKES_A_BIG_SORTED_INPUT()
+    val text = "val up = sortBy( (a, b) -> a < b, 1..100000 )\n" +
+        "val down = sortBy( (a, b) -> a > b, 1..100000 )\n" +
+        "write( up.length, up(0), up(99999), down(0), down(99999) )\n"
+
+    assert_eq(roomy(() -> compiled_text(text)).text, "100000, 1, 100000, 100000, 1\nsucceeded")
+
 @test
 PRELUDE_ASKING()
     val text = "write( if any(even, [1, 2]) then #yes else #no, if any(even, [1, 3]) then #yes else #no, if any(even, []) then #yes else #no )\n" +

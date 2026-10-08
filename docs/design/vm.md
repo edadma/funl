@@ -268,6 +268,37 @@ Failure while matching or in the guard reaches the clause's mark and moves to th
 `UnmarkKeep` commits, so failure in the body is the body's own. The [logic chapter](logic.md) gives
 relations the other choice: `Choice` per clause and no commit.
 
+### Builtins that call back
+
+A builtin written in sysl that calls a FunL function and uses its result — `sortBy`'s comparator,
+`zipWith`'s function — cannot make the call from sysl: that would run the instruction loop under a
+sysl frame, and the suspended computation would no longer be data. **A calling builtin runs a turn
+at a time in a frame of its own.** `Native` on one opens a frame over a small driver chunk, with the
+builtin's arguments and a few slots for its state:
+
+```
+0: Callback(id, false)      the first turn, or the next with the call's result on top
+1: UnmarkKeep               the call answered: its first result, its choice points discarded
+2: Branch(0)
+3: Callback(id, true)       the call failed
+```
+
+Each turn is a sysl call that returns. It answers — and `Callback` returns that as `ReturnCommit`
+does — or names a function and its arguments, and `Callback` pushes `Mark(3)`, the function and the
+arguments, sets `ip` to 1 and calls the function as `CallValue` does. **The call is a bounded
+expression**: its first result comes back to the `UnmarkKeep`, which discards whatever it left
+resumable; its failure reaches the mark and the next turn hears of it; a fault unwinds through the
+frame as through any other, to the nearest `catch`. Between turns the builtin's state is in its
+frame's slots, where the collector sees it.
+
+> **Decided — a builtin calls FunL back by turns, never by re-entering the loop.** **Decision: the
+> driver frame above**, built from `Mark`, `UnmarkKeep` and an ordinary call. Nothing is ever
+> suspended on the sysl stack, so a callback may backtrack internally, throw, or — once
+> [tasks](modules.md#what-the-machine-needs-a-task-is-a-machine-set-aside) exist — park its machine
+> at an `await` like any other FunL code. **Rejected: a nested run of the instruction loop** from
+> inside the builtin, with a fresh base mark: simpler to write a builtin against, but it puts a sysl
+> frame under every callback, which a parked task cannot keep.
+
 ## Generators without mutable iterators
 
 **A generator's state is an immutable cursor on the operand stack**, never a mutable object. `!c`

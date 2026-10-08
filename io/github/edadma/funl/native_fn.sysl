@@ -1,6 +1,7 @@
 module io.github.edadma.funl
 
 import sh.sysl.parsing.counted
+import sysl.buf.Buf
 
 // The builtin registry.
 //
@@ -61,12 +62,42 @@ enum Impl
     // its place (`map(f, xs)`, which the prelude's `map` answers).
     Forwarding(go: ForwardGo)
 
+    // Calls FunL functions back and takes their results (`sortBy`, `zipWith`): run in a frame of its
+    // own over the driver chunk `driver_chunk` makes, with `slots` slots for its state, by `go` one
+    // turn at a time (`Callback`).
+    Calling(go: TurnGo, slots: usize, driver: Option[usize])
+
 // What a forwarding builtin answers: its value, or the function value whose call answers for it.
 enum Forward
     Done(x: Value)
     Into(f: Value)
 
 type ForwardGo = &Fn(usize, usize) -> Result[Forward, Fault]
+
+// **A calling builtin never calls FunL from sysl.** Each turn of it is a sysl call that returns: it
+// answers, or names a function and the arguments to call it with, and the machine makes that call
+// as a bounded expression in the builtin's own frame and starts the next turn with what came of it.
+// So no sysl frame is ever suspended under FunL code, and a callback that suspends -- an `await` --
+// or backtracks leaves nothing on the sysl stack. Everything a calling builtin keeps from one turn
+// to the next is in its frame -- its arguments and its slots -- where the collector sees it.
+
+// What came of the turn before.
+enum Called
+    // Nothing yet: the first turn.
+    Begun
+
+    // The function called last answered `x`: its first result, its choice points discarded.
+    Returned(x: Value)
+
+    // The function called last failed.
+    Missed
+
+// What a turn answers: the builtin's value, or a function to call and the arguments to call it with.
+enum Turn
+    Answered(x: Value)
+    Calls(f: Value, args: Buf[Value])
+
+type TurnGo = &Fn(*FrameObj, Called) -> Result[Turn, Fault]
 
 // The arity of a builtin that takes any number of arguments.
 const Variadic: usize = 4294967295
@@ -114,6 +145,51 @@ optional_past(v: *Vm, id: usize, least: usize)
 register_forwarding(v: *Vm, name: string, arity: usize, go: ForwardGo) -> usize
     v.natives.push(Native(name, arity, arity, Forwarding(go)))
     v.natives.len() - 1
+
+// Add a builtin that calls FunL functions back, keeping its state in `slots` slots of its frame.
+register_calling(v: *Vm, name: string, arity: usize, slots: usize, go: TurnGo) -> usize
+    v.natives.push(Native(name, arity, arity, Calling(go, slots, None)))
+    v.natives.len() - 1
+
+// The chunk calling builtin `id`'s frame runs, made the first time it is called and named after it:
+//
+//     0: Callback(id, false)    the first turn, or the next with the call's result on top
+//     1: UnmarkKeep             the call has answered: its first result, its choice points gone
+//     2: Branch(0)
+//     3: Callback(id, true)     the call failed
+//
+// A turn that calls pushes a `Mark` failing to `CallbackMissed`, sets `ip` to `CallbackReturns` and
+// calls, so the callee returns to the `UnmarkKeep`.
+driver_chunk(id: usize) -> Result[usize, string]
+    val v = current()
+    val n = v.natives.at(id)
+
+    val (go, slots) = n.how match
+        Calling(g, k, d) ->
+            d match
+                Some(c) -> return Ok(c)
+                None -> ()
+
+            (g, k)
+        _ -> return Err(s"'${n.name}' does not call back")
+
+    var e = emit(n.name)
+    val top = e.label()
+
+    e.place(top)
+    e.op(Callback(id, false))
+    e.op(UnmarkKeep)
+    e.op(Branch(top))
+    e.op(Callback(id, true))
+
+    val c = finish(e)?
+
+    v.natives.set(id, Native(n.name, n.least, n.arity, Calling(go, slots, Some(c))))
+    Ok(c)
+
+// Where a calling builtin's callee returns to, and where its failure resumes (`driver_chunk`).
+const CallbackReturns: usize = 1
+const CallbackMissed: usize = 3
 
 // Add a name for the value `go` makes.
 register_constant(v: *Vm, name: string, go: NativeGo) -> usize

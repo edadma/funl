@@ -199,6 +199,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             ret_commit(v)?
             Ok(Next)
         Native(id, argc) -> call_native(v, id, passed(v, argc))
+        Callback(id, failed) -> callback_turn(v, id, failed)
         LoadArgs ->
             val args = v.frame.args
 
@@ -640,6 +641,12 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
 
                     v.stack.set(base, f)
                     return Ok(fails_if(call_value(v, argc, false)?))
+        Calling(_, slots, _) ->
+            val driver = driver_chunk(id)?
+
+            call(v, driver, argc)?
+            size_frame(v, slots)?
+            return Ok(Next)
         _ -> return Err(Broken(s"'${n.name}' may fail or generate, and is run by `NativeGen`"))
 
     val answer = go(base, argc)?
@@ -647,6 +654,40 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
     v.stack.truncate(base)
     v.stack.push(answer)
     Ok(Next)
+
+// `Callback(id, failed)`: give calling builtin `id` what came of its last call and take its next
+// turn. An answer is returned as `ReturnCommit` returns; a call is made inside a mark, so its first
+// result comes back to `CallbackReturns` with its choice points still to discard, and its failure
+// resumes at `CallbackMissed` with the frame's operands as they were.
+private callback_turn(v: *Vm, id: usize, failed: bool) -> Result[Flow, Fault]
+    val n = v.natives.at(id)
+
+    val go = n.how match
+        Calling(g, _, _) -> g
+        _ -> return Err(Broken(s"'${n.name}' was run by `Callback` and does not call back"))
+
+    val f = v.frame
+    var called = Begun
+
+    if failed
+        called = Missed
+    elif v.stack.len() > f.base
+        called = Returned(pop(v)?)
+
+    go(f, called)? match
+        Answered(x) ->
+            v.stack.push(x)
+            ret_commit(v)?
+            Ok(Next)
+        Calls(g, args) ->
+            push_mark(v, Mark, CallbackMissed)
+            v.stack.push(g)
+
+            for a in args.view()
+                v.stack.push(a)
+
+            v.ip = CallbackReturns
+            Ok(fails_if(call_value(v, args.len(), false)?))
 
 // Run generating builtin `id` over the `argc` values under the cursor on top of the stack. When it has
 // more to give, the cursor cell takes where to resume from and a choice point re-runs this

@@ -111,7 +111,14 @@ enum Op
 
     // Call builtin `id` with the top `argc` values, which stay on the stack until it answers. An `argc`
     // of `Variadic` means as many as the running frame was called with (a builtin's function value).
+    // A builtin that calls back (`native_fn.sysl`, `Calling`) is entered in a frame of its own.
     Native(id: usize, argc: usize)
+
+    // The next turn of calling builtin `id`, whose frame is running (`driver_chunk`): after a call
+    // that failed when `failed`, else after one that answered the value on top, or the first turn
+    // when the frame's operand stack is empty. It returns the builtin's answer, or calls the function
+    // the turn names as a bounded expression.
+    Callback(id: usize, failed: bool)
 
     // -- head unification (`unify.sysl`) ------------------------------------------------------------
 

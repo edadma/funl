@@ -616,13 +616,19 @@ native check it against this source on the same inputs.
 > **Decided (user, 2026-10-08) — the renames.** Haskell's `repeat` is `forever` and its `break` is
 > `spanNot`, since `repeat` and `break` are FunL keywords.
 
-> **Decided (user, 2026-10-08) — P2, which are core natives.** **Decision:** as recommended below,
-> with one consequence of the machine as it stands: **a native cannot call a FunL function** (no
-> callback machinery exists; `findall` is compiled into the code that uses it, not called back), so
-> `sortBy`, `zipWith` and `zipWith3`, which take a function, are written in FunL until one does.
-> The natives are `reverse`, `sort` (a stable merge sort by `<`), `concat`, `replicate`, `elem`,
-> `last`, `init`, `drop`, `zip` and `zip3`; the tests check each against the source above on the
-> same inputs. **Where a builtin and the prelude share a name at different arities, the call's count
+> **Decided (user, 2026-10-08) — P2, which are core natives.** **Decision:** as recommended below.
+> The natives are `reverse`, `sort` (a stable merge sort by `<`), `sortBy`, `concat`, `replicate`,
+> `elem`, `last`, `init`, `drop`, `zip`, `zip3`, `zipWith` and `zipWith3`; the tests check each
+> against the source above on the same inputs. **`sortBy`, `zipWith` and `zipWith3` call their
+> function back** through the machine's [calling builtins](vm.md#builtins-that-call-back): each call
+> is a bounded expression, so it gives **its first result only** and leaves no choice point behind.
+> `sortBy` is the stable merge sort of `sort`, asking `lt(right, left)` of each pair it orders, so it
+> is O(n log n) on any input where the `qsort` above is quadratic on sorted input; its comparator
+> counts as a condition does — `false` and failure both mean "not less". `zipWith` keeps the
+> source's answer for a place where `f` fails (none: the place is left out), and differs from the
+> source in one respect, deliberately: a generator `f` gives one value per place, its first, where
+> the comprehension above would collect them all. A fault in a callback is an ordinary fault,
+> catchable around the builtin or inside the callback. **Where a builtin and the prelude share a name at different arities, the call's count
 > decides** (`any(c)` the scanning builtin, `any(p, xs)` the prelude's), and a Prolog predicate the
 > program loads shadows the prelude at its arity. **Prolog reaches the prelude as a built-in module**,
 > `:- import("funl:prelude")` and `prelude:f/(n+1)`, and a FunL file may import `funl:prelude` by

@@ -12,8 +12,8 @@ import sysl.math.{checked_add, checked_mul}
 //
 // **Some of it is native**: the names in `PreludeNatives` are builtins written here, each the
 // definition the design gives in FunL made one pass over its input in sysl, and exported from the
-// module beside the source's names. The rest call back into FunL -- a function argument, a generator
-// -- and are written in FunL.
+// module beside the source's names. `sortBy`, `zipWith` and `zipWith3` call their function argument
+// back a turn at a time (`native_fn.sysl`, `Calling`). The rest are written in FunL.
 //
 // **Prolog sees the prelude as a built-in module**: `:- import("funl:prelude")` makes each export
 // `prelude:f/(n+1)`, and takes no name out of Prolog's one namespace. A FunL file may name the module
@@ -21,11 +21,16 @@ import sysl.math.{checked_add, checked_mul}
 
 val PreludeFile: string = "funl:prelude"
 
-private val PreludeNatives: [10]string = ["reverse", "sort", "concat", "replicate", "elem", "last", "init", "drop", "zip", "zip3"]
+private val PreludeNatives: [13]string = [
+    "reverse", "sort", "sortBy", "concat", "replicate", "elem", "last", "init", "drop", "zip", "zip3", "zipWith", "zipWith3"
+]
 
 install_prelude(v: *Vm)
     register(v, "reverse", 1, do_reverse)
     register(v, "sort", 1, do_sort)
+    register_calling(v, "sortBy", 2, SortSlots, sort_by_turn)
+    register_calling(v, "zipWith", 3, ZipSlots, zip_with_turn)
+    register_calling(v, "zipWith3", 4, ZipSlots, zip_with_turn)
     register(v, "concat", 1, do_concat)
     register(v, "replicate", 2, do_replicate)
     register_generator(v, "elem", 2, do_elem)
@@ -356,6 +361,199 @@ private zipped(base: usize, n: usize) -> Result[Value, Fault]
 
     Ok(list_of(&rows, Nil)?)
 
+// -- the natives that call back ---------------------------------------------------------------------
+//
+// Each keeps its state in its frame's slots between turns (`native_fn.sysl`, `Calling`): the values
+// it works over as arrays, and its counters as integers.
+
+// A fresh array holding `items`, for a slot.
+private held(items: *Buf[Value]) -> Result[Value, string]
+    val o = new_array(0)?
+
+    for x in items.view()
+        o.items.push(x)
+
+    current().allocated += items.len() * sizeof(Value)
+    Ok(Array(o))
+
+// The array in slot `i`, which this file put there.
+private slot_array(f: *FrameObj, i: usize) -> Result[*ArrayObj, Fault]
+    slot_of(f, i)? match
+        Array(o) -> Ok(o)
+        x -> Err(Broken(s"slot $i of '${current().chunks.at(f.chunk).name}' holds ${described(x)}, not its array"))
+
+// The count in slot `i`, which this file put there.
+private slot_count(f: *FrameObj, i: usize) -> Result[usize, Fault]
+    slot_of(f, i)? match
+        Int(n) -> Ok(usize(n))
+        x -> Err(Broken(s"slot $i of '${current().chunks.at(f.chunk).name}' holds ${described(x)}, not its count"))
+
+private set_count(f: *FrameObj, i: usize, n: usize) -> Result[unit, string] = set_slot(f, i, Int(long(n)))
+
+// Whether a function's answer counts as true, as a condition's does: anything but `false`.
+private truthy(x: Value) -> bool = deref(x) match
+    Atom(id) -> id != FalseAtom
+    _ -> true
+
+// `sortBy(lt, xs)`'s slots: the run being read and the one being written, then the merge's counters.
+const SortSlots: usize = 9
+
+private const SortFrom: usize = 0
+private const SortTo: usize = 1
+private const SortWidth: usize = 2
+private const SortLo: usize = 3
+private const SortMid: usize = 4
+private const SortHi: usize = 5
+private const SortI: usize = 6
+private const SortJ: usize = 7
+private const SortK: usize = 8
+
+// Where a bottom-up merge sort stands: runs of `width` merged pairwise, `[lo, mid)` with `[mid, hi)`,
+// `i` and `j` the next of each, `k` the next place written.
+private struct Merge
+    width: usize
+    lo: usize
+    mid: usize
+    hi: usize
+    i: usize
+    j: usize
+    k: usize
+
+private load_merge(f: *FrameObj) -> Result[Merge, Fault]
+    Ok(Merge(
+        slot_count(f, SortWidth)?, slot_count(f, SortLo)?, slot_count(f, SortMid)?, slot_count(f, SortHi)?,
+        slot_count(f, SortI)?, slot_count(f, SortJ)?, slot_count(f, SortK)?
+    ))
+
+private store_merge(f: *FrameObj, m: Merge) -> Result[unit, string]
+    set_count(f, SortWidth, m.width)?
+    set_count(f, SortLo, m.lo)?
+    set_count(f, SortMid, m.mid)?
+    set_count(f, SortHi, m.hi)?
+    set_count(f, SortI, m.i)?
+    set_count(f, SortJ, m.j)?
+    set_count(f, SortK, m.k)
+
+// Begin merging the two runs from `m.lo`.
+private begin_run(m: *Merge, n: usize)
+    m.mid = if m.lo + m.width < n then m.lo + m.width else n
+    m.hi = if m.mid + m.width < n then m.mid + m.width else n
+    m.i = m.lo
+    m.j = m.mid
+    m.k = m.lo
+
+// Write the next element of the merge: the right run's when `right`, else the left's.
+private take_next(m: *Merge, from: *ArrayObj, to: *ArrayObj, right: bool)
+    if right
+        to.items.set(m.k, from.items.at(m.j))
+        m.j += 1
+    else
+        to.items.set(m.k, from.items.at(m.i))
+        m.i += 1
+
+    m.k += 1
+
+// `sortBy(lt, xs)`: the elements of `xs` ordered by `lt`, equal ones -- neither less than the other --
+// in the order they came in. The bottom-up merge sort of `sort`, asking `lt(right, left)` of each
+// pair it has to order and taking the right run's element first only when `lt` answers true: an
+// answer of `false`, and failure, mean it is not less, as in a condition.
+private sort_by_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
+    var m = Merge(1, 0, 0, 0, 0, 0, 0)
+
+    called match
+        Begun ->
+            var items: Buf[Value] = buf()
+
+            elements(f.args.at(1), "'sortBy'", &items)?
+            set_slot(f, SortFrom, held(&items)?)?
+            set_slot(f, SortTo, held(&items)?)?
+            begin_run(&m, items.len())
+        Returned(x) ->
+            m = load_merge(f)?
+            take_next(&m, slot_array(f, SortFrom)?, slot_array(f, SortTo)?, truthy(x))
+        Missed ->
+            m = load_merge(f)?
+            take_next(&m, slot_array(f, SortFrom)?, slot_array(f, SortTo)?, false)
+
+    loop
+        val from = slot_array(f, SortFrom)?
+        val to = slot_array(f, SortTo)?
+        val n = from.items.len()
+
+        if m.width >= n then return Ok(Answered(list_of(&from.items, Nil)?))
+
+        if m.k >= m.hi
+            m.lo = m.hi
+
+            if m.lo >= n
+                // A pass is done: what it wrote is read by the next, with runs twice as long.
+                set_slot(f, SortFrom, Array(to))?
+                set_slot(f, SortTo, Array(from))?
+                m.width = m.width * 2
+                m.lo = 0
+
+            begin_run(&m, n)
+        elif m.i < m.mid && m.j < m.hi
+            store_merge(f, m)?
+
+            var args: Buf[Value] = buf()
+
+            args.push(from.items.at(m.j))
+            args.push(from.items.at(m.i))
+            return Ok(Calls(f.args.at(0), args))
+        else
+            take_next(&m, from, to, m.j < m.hi)
+end sort_by_turn
+
+// `zipWith(f, xs, ys)` and `zipWith3(f, xs, ys, zs)`'s slots: what each list draws, as an array, the
+// answers so far, and the place reached.
+const ZipSlots: usize = 5
+
+private const ZipOut: usize = 3
+private const ZipAt: usize = 4
+
+// `zipWith(f, xs, ys)`, `zipWith3(f, xs, ys, zs)`: `f` of the elements in each place, as many places
+// as the shortest list has. Each call's first result is taken; a place where `f` fails has no answer.
+private zip_with_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
+    val lists = f.args.len() - 1
+    val what = if lists == 2 then "'zipWith'" else "'zipWith3'"
+    var at: usize = 0
+
+    called match
+        Begun ->
+            for i in 0..<lists
+                var c: Buf[Value] = buf()
+
+                drawn(f.args.at(i + 1), what, &c)?
+                set_slot(f, i, held(&c)?)?
+
+            set_slot(f, ZipOut, Array(new_array(0)?))?
+        Returned(x) ->
+            val out = slot_array(f, ZipOut)?
+
+            out.items.push(x)
+            current().allocated += sizeof(Value)
+            at = slot_count(f, ZipAt)? + 1
+        Missed -> at = slot_count(f, ZipAt)? + 1
+
+    var len = slot_array(f, 0)?.items.len()
+
+    for i in 1..<lists
+        val k = slot_array(f, i)?.items.len()
+
+        if k < len then len = k
+
+    if at >= len then return Ok(Answered(list_of(&slot_array(f, ZipOut)?.items, Nil)?))
+
+    set_count(f, ZipAt, at)?
+
+    var args: Buf[Value] = buf()
+
+    for i in 0..<lists
+        args.push(slot_array(f, i)?.items.at(at))
+
+    Ok(Calls(f.args.at(0), args))
+
 // -- the source ------------------------------------------------------------------------------------
 
 // The prelude's own FunL. `map` is also what the builtin `map(f, xs)` hands its call to.
@@ -395,8 +593,6 @@ private prelude_text() -> string = raw"""
 
       concatMap( f, xs ) = [y | x <- xs, y <- f(x)]
 
-      zipWith( f, xs, ys ) = zipWithArrays( f, array([x | x <- xs]), array([y | y <- ys]) )
-      zipWith3( f, xs, ys, zs ) = zipWith3Arrays( f, array([x | x <- xs]), array([y | y <- ys]), array([z | z <- zs]) )
       unzip( ps ) = ([a | (a, _) <- ps], [b | (_, b) <- ps])
 
       iterate( f, x )
@@ -405,9 +601,6 @@ private prelude_text() -> string = raw"""
       forever( x )
         yield x
         forever( x )
-
-      sortBy( lt, [] ) = []
-      sortBy( lt, p:xs ) = sortBy( lt, [x | x <- xs if lt(x, p)] ) + [p] + sortBy( lt, [x | x <- xs if not lt(x, p)] )
 
       any( p, xs )
         for x <- xs if p(x)
@@ -443,6 +636,4 @@ private prelude_text() -> string = raw"""
           if not p(x) then break
           yield x
         fail
-      zipWithArrays( f, a, b ) = [f(a(i), b(i)) | i <- 0..<min( a.length, b.length )]
-      zipWith3Arrays( f, a, b, c ) = [f(a(i), b(i), c(i)) | i <- 0..<min( a.length, min(b.length, c.length) )]
     """
