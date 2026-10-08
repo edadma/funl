@@ -161,22 +161,22 @@ writes_element(pat: &Expr, m: Meaning) -> bool
         Local(_, _, _) -> true
         _ -> false
 
-// At the top level and in a relation, a name a top-level definition or a builtin already has cannot
-// also be a variable; the refusal is reported, and the answer says whether there was one. A
-// function's own names may shadow them.
+// At the top level and in a relation, a name the program's own top-level definitions or imported
+// Prolog predicates already have cannot also be a variable; the refusal is reported, and the answer
+// says whether there was one. A function's own names may shadow them. A builtin's name is never
+// refused: a declaration shadows the builtin from where it is in scope, as it shadows any outer name.
 refused_as_variable(w: *Walk, n: string, at: Span) -> bool
     if w.sid != w.res.top && !w.relation then return false
 
     w.res.global(n) match
         Relation(_) -> ()
-        Builtin(_) -> ()
         Predicate(_) -> ()
         Function(_, _) ->
             w.report.add(error(at, s"`$n` is already a function, and cannot also be a variable"))
             return true
         _ -> return false
 
-    w.report.add(error(at, s"`$n` is already a relation or a builtin, and cannot also be a variable"))
+    w.report.add(error(at, s"`$n` is already a relation, and cannot also be a variable"))
     true
 
 // A pattern's names, declared in the block being read, in scope from offset `from`.

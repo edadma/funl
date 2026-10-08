@@ -452,19 +452,24 @@ write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )
 ```
 
 `pi` and `epsilon` (the gap between 1.0 and the next real above it) are values, written without
-parentheses. Euler's number is `exp(1)`, which leaves `e` free as a name. `pi` is a builtin like the
-functions, so `val pi = 3` is refused; a parameter may still be called `pi`.
+parentheses. Euler's number is `exp(1)`, which leaves `e` an ordinary name with nothing to hide.
+`pi` is a builtin like the functions, and a program's own `pi` — a `val`, a parameter — hides it
+where it is in scope, as any declaration hides a builtin (see
+[Assignment and scope](assignment.md#a-builtins-name-is-free-to-use)).
 
 ```funl
 write( pi, epsilon, exp(1) )
 write( 2 * pi )
 val f = pi -> pi + 1
 write( f(1) )
+val e = 2
+write( e )
 ```
 
 ```output
 3.141592653589793, 2.220446049250313e-16, 2.718281828459045
 6.283185307179586
+2
 2
 ```
 

@@ -358,9 +358,13 @@ enum Op
     // and a lazy one (`lazy`) leaves a choice point to run it and stops.
     RepNext(lo: usize, hi: usize, exit: usize, lazy: bool)
 
-    // The end of a turn: pop the position it began at and count it. Back to `top` -- unless the turn
-    // matched nothing and the loop has its `lo` turns, when it ends here.
+    // The end of a turn: pop the position it began at, count it and go back to `top` -- unless the
+    // turn matched nothing and the loop already had its `lo` turns, when it fails.
     RepStep(top: usize, lo: usize)
+
+    // A turn of a repetition begins: groups `first` to `last`, those inside its body, have captured
+    // nothing. The capture trail records it, so backtracking out of the turn puts them back.
+    ResetGroups(first: usize, last: usize)
 
     // Push the height of the control stack; pop a height and discard every entry above it, without
     // failing: how lookahead and an atomic group commit to their first match.

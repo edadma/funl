@@ -5,13 +5,15 @@
 #
 # Each reason below is a difference between the two semantics, not a defect.
 basic3	33	span	id 34, `(Ab|cD)*`: data: the AT&T original runs this line ignoring case (REG_ICASE), a flag the Haskell packaging dropped; matched as written, the leftmost match is the empty one at 0
+basic3	61	captures	id 65, `(a*)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+basic3	63	captures	id 67, `(a*|b)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+basic3	67	captures	id 71, `(^)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+basic3	72	captures	id 76, `((a*|b))*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its groups are unset; POSIX counts that one empty turn
 class	3	captures	id -2, `(a*)(ab)*(b*)`: a negative id is a second answer, the one another POSIX implementation gives; leftmost-first gives the positive id's answer instead
 class	4	captures	id 3, `((a*)(ab)*)((b*)(a*))`: a greedy repetition keeps the most it can for the item it repeats and the match completes from there; POSIX makes the whole match, then the earlier groups, longest
 class	6	captures	id 5, `(a|ab)(bc|c)`: alternatives are tried in order and the first that lets the rest match is kept; POSIX takes the alternative that makes the match, then each group, longest
 class	7	span	id 6, `(aba|a*b)(aba|a*b)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
-class	9	captures	id 8, `(a*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
 class	10	span	id 9, `(aba|a*b)*`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
-class	11	captures	id 10, `(a(b)?)+`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
 class	14	captures	id -12, `(a?)((ab)?)(b?)a?(ab)?b?`: a negative id is a second answer, the one another POSIX implementation gives; leftmost-first gives the positive id's answer instead
 forced-assoc	3	span	id 3, `(ab|a)(c|bcd)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
 forced-assoc	4	span	id 4, `(ab|a)(bcd|c)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
@@ -37,62 +39,16 @@ left-assoc	7	captures	id -7, `(a*)(b|abc)(c*)`: a negative id is a second answer
 left-assoc	8	captures	id -8, `(a*)(abc|b)(c*)`: a negative id is a second answer, for an implementation that groups a concatenation from the left; leftmost-first gives right-assoc.txt's answer for the same pattern and subject, which passes
 left-assoc	11	captures	id -11, `(ab|a)(c|bcd)(d|.*)`: a negative id is a second answer, for an implementation that groups a concatenation from the left; leftmost-first gives right-assoc.txt's answer for the same pattern and subject, which passes
 left-assoc	12	captures	id -12, `(ab|a)(bcd|c)(d|.*)`: a negative id is a second answer, for an implementation that groups a concatenation from the left; leftmost-first gives right-assoc.txt's answer for the same pattern and subject, which passes
-nullsub3	1	captures	id 1, `(a*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	3	captures	id 3, `(a*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	4	captures	id 4, `(a*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	5	captures	id 5, `(a*)+`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	7	captures	id 7, `(a*)+`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	8	captures	id 8, `(a*)+`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	17	captures	id 17, `([a]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	19	captures	id 19, `([a]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	20	captures	id 20, `([a]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	21	captures	id 21, `([a]*)+`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	23	captures	id 23, `([a]*)+`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	24	captures	id 24, `([a]*)+`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	25	captures	id 25, `([^b]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	27	captures	id 27, `([^b]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	28	captures	id 28, `([^b]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	29	captures	id 29, `([ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	30	captures	id 30, `([ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	31	captures	id 31, `([ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	32	captures	id 32, `([ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	33	captures	id 33, `([ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	34	captures	id 34, `([ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	35	captures	id 35, `([ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	36	captures	id 36, `([^a]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	37	captures	id 37, `([^a]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	39	captures	id 39, `([^ab]*)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	41	captures	id 41, `((z)+|a)*`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-nullsub3	44	captures	id 47, `(a*)*(x)`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	45	captures	id 48, `(a*)*(x)`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	47	captures	id 50, `(a*)+(x)`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-nullsub3	48	captures	id 51, `(a*)+(x)`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
+nullsub3	2	captures	id 2, `(a*)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+nullsub3	18	captures	id 18, `([a]*)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+nullsub3	26	captures	id 26, `([^b]*)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+nullsub3	38	captures	id 38, `([^a]*)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+nullsub3	40	captures	id 40, `([^ab]*)*`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+nullsub3	43	captures	id 46, `(a*)*(x)`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
 osx-bsd-critical	2	span	id -1, `(()|.)(b)`: a negative id is a second answer, the one another POSIX implementation gives; leftmost-first gives the positive id's answer instead
 osx-bsd-critical	4	span	id -2, `(()|[ab])(b)`: a negative id is a second answer, the one another POSIX implementation gives; leftmost-first gives the positive id's answer instead
-osx-bsd-critical	5	captures	id 3, `(()|[ab])+b`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
 osx-bsd-critical	6	span	id -3, `(()|[ab])+b`: a negative id is a second answer, the one another POSIX implementation gives; leftmost-first gives the positive id's answer instead
-osx-bsd-critical	9	captures	id 14, `([ab]|())+b`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-repetition2	26	captures	id 26, `((..)|(.)){2}`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-repetition2	28	captures	id 28, `((..)|(.))*`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-repetition2	34	captures	id 34, `((..)|(.)){3}`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-repetition2	41	captures	id 41, `((..)|(.)){3}`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-repetition2	42	captures	id 42, `((..)|(.))*`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-repetition2	50	captures	id 100, `X(.?){0,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	51	captures	id 101, `X(.?){1,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	52	captures	id 102, `X(.?){2,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	53	captures	id 103, `X(.?){3,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	54	captures	id 104, `X(.?){4,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	55	captures	id 105, `X(.?){5,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	56	captures	id 106, `X(.?){6,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	57	captures	id 107, `X(.?){7,}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	59	captures	id 110, `X(.?){0,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	60	captures	id 111, `X(.?){1,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	61	captures	id 112, `X(.?){2,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	62	captures	id 113, `X(.?){3,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	63	captures	id 114, `X(.?){4,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	64	captures	id 115, `X(.?){5,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	65	captures	id 116, `X(.?){6,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
-repetition2	66	captures	id 117, `X(.?){7,8}Y`: the greedy `.?` takes the Y on an eighth turn and gives it back as an empty last turn at 8; POSIX keeps the last turn non-empty, (7,8)
+osx-bsd-critical	10	captures	id -14, `([ab]|())+b`: a negative id is a second answer, the one another POSIX implementation gives; leftmost-first gives the positive id's answer instead
 repetition2	68	span	id 260, `(a|ab|c|bcd){0,}(d*)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
 repetition2	69	span	id 261, `(a|ab|c|bcd){1,}(d*)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
 repetition2	73	span	id 265, `(a|ab|c|bcd){0,10}(d*)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
@@ -105,8 +61,6 @@ right-assoc	9	captures	id 9, `(a|ab)(c|bcd)(d|.*)`: alternatives are tried in or
 right-assoc	10	captures	id 10, `(a|ab)(bcd|c)(d|.*)`: alternatives are tried in order and the first that lets the rest match is kept; POSIX takes the alternative that makes the match, then each group, longest
 totest	2	span	id 03, `(a?)((ab)?)`: a greedy item takes what it can and the rest is matched from there, giving a shorter match; POSIX finds the longest match at that start
 totest	4	captures	id 05, `((a?)((ab)?))(b?)`: a greedy repetition keeps the most it can for the item it repeats and the match completes from there; POSIX makes the whole match, then the earlier groups, longest
-totest	10	captures	id 11, `(.?)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-totest	17	captures	id 18, `(.?.?)*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
 totest	23	captures	id 24, `(a|ab)(ba|a)`: alternatives are tried in order and the first that lets the rest match is kept; POSIX takes the alternative that makes the match, then each group, longest
 totest	24	span	id 25, `(a|ab|ba)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
 totest	25	captures	id 26, `(a|ab|ba)(a|ab|ba)`: alternatives are tried in order and the first that lets the rest match is kept; POSIX takes the alternative that makes the match, then each group, longest
@@ -114,19 +68,9 @@ totest	26	captures	id 27, `(a|ab|ba)*`: alternatives are tried in order and the 
 totest	28	span	id 29, `(aba|a*b)(aba|a*b)`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
 totest	30	span	id 30, `(aba|a*b)*`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
 totest	34	span	id 33, `(aba|ab|a)*`: alternatives are tried in order and the first that lets the rest match ends the search, giving a shorter match; POSIX finds the longest match at that start
-totest	37	captures	id 36, `(a(b)?)+`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
 totest	43	captures	id 42, `(.|..)(.*)`: alternatives are tried in order and the first that lets the rest match is kept; POSIX takes the alternative that makes the match, then each group, longest
 totest	44	span	id 43, `((..)*(...)*)`: a greedy item takes what it can and the rest is matched from there, giving a shorter match; POSIX finds the longest match at that start
 totest	45	span	id 44, `((..)*(...)*)((..)*(...)*)`: a greedy item takes what it can and the rest is matched from there, giving a shorter match; POSIX finds the longest match at that start
 totest	46	span	id 45, `((..)*(...)*)*`: a greedy item takes what it can and the rest is matched from there, giving a shorter match; POSIX finds the longest match at that start
-totest	47	captures	id 83, `(aa(b(b))?)+`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-totest	48	captures	id 84, `(a(b)?)+`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-totest	62	captures	id 206, `((s)|(e)|(a))*`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-totest	63	captures	id 207, `((s)|(e)|())*`: a group inside a repetition keeps what it captured on an earlier turn, and the last turn matches the empty string; POSIX unsets the group and counts no empty turn
-totest	64	span	id 208, `((b*)|c(c*))*`: the first turn matches the empty string, which ends the loop with the empty match at 0; POSIX finds the longest match at that start
-totest	65	captures	id 209, `(yyy|(x?)){2,4}`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-totest	70	captures	id 214, `(.|()|())*`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-totest	71	captures	id 215, `((a)|(b)){2,}`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-totest	73	captures	id 217, `(.|$){2,}`: a turn that matches the empty string ends the loop, and that turn's capture stands; POSIX does not count an empty turn after a non-empty one
-totest	78	captures	id 250, `(b(c)|d(e))*`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
-totest	79	captures	id 251, `(a(b)*)*`: a group inside a repetition keeps what it captured on an earlier turn when a later turn does not reach it; POSIX unsets it
+totest	52	captures	id 110, `(^){0,3}`: a turn that matches the empty string once the loop has its fewest turns fails, as in JavaScript, so a loop whose only turn would be empty takes none and its group is unset; POSIX counts that one empty turn
+totest	60	captures	id 204, `s()?e`: an optional item's turn that matches the empty string fails, as in JavaScript, so `()?` takes no turn and its group is unset; POSIX counts the empty turn

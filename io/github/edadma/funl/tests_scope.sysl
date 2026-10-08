@@ -87,11 +87,44 @@ A_VAL_AND_A_WHERE_VALUE_CANNOT_BE_ASSIGNED()
     assert_eq(complaints("val a = 1\na -= 2\n"), "")
     assert_eq(complaints("def f( x ) = (y = 2)\n  where y = 1\n"), "error 1:14 `y` is a `val`, and cannot be assigned\n")
 
+// A builtin's name is an ordinary outer name: a declaration shadows it where the declaration is in
+// scope, and the builtin answers everywhere else.
+@test
+A_TOP_LEVEL_VAL_SHADOWS_A_BUILTIN()
+    assert_eq(ran_funl("val round = 3\nwrite( round )\n"), "3\nsucceeded")
+    assert_eq(ran_funl("write( round(2.6) )\nval round = 3\nwrite( round )\n"), "3\n3\nsucceeded")
+    assert_eq(ran_funl("val pi = 22\nwrite( pi )\n"), "22\nsucceeded")
+
+@test
+A_VAR_A_FREE_AND_AN_ASSIGNMENT_SHADOW_A_BUILTIN()
+    assert_eq(ran_funl("var float = 1.5\nwrite( float )\n"), "1.5\nsucceeded")
+    assert_eq(ran_funl("log = []\nwrite( log )\n"), "[]\nsucceeded")
+    assert_eq(ran_funl("free sign\nsign = 4\nwrite( sign )\n"), "4\nsucceeded")
+    assert_eq(ran_funl("def f()\n  sum = 0\n  sum += 2\n  sum\n\nwrite( f() )\n"), "2\nsucceeded")
+
+@test
+A_PARAMETER_SHADOWS_A_BUILTIN()
+    assert_eq(ran_funl("def f( log ) = log + 1\nwrite( f(2) )\nwrite( log(1) )\n"), "3\n0.0\nsucceeded")
+
+@test
+A_TOP_LEVEL_DEF_IS_USED_INSTEAD_OF_THE_BUILTIN()
+    assert_eq(ran_funl("def sum( xs ) = #mine\nwrite( sum([1, 2]) )\n"), "mine\nsucceeded")
+
+@test
+THE_BUILTIN_IS_REACHED_OUTSIDE_THE_SHADOWING_SCOPE()
+    assert_eq(ran_funl("if true\n  val sqrt = 7\n  write( sqrt )\n\nwrite( sqrt(9) )\n"), "7\n3.0\nsucceeded")
+    assert_eq(ran_funl("def g()\n  val sign = 5\n  sign * 2\n\nwrite( g(), sign(-3) )\n"), "10, -1\nsucceeded")
+
+@test
+A_NAME_THE_PROGRAM_DEFINES_STAYS_REFUSED_AS_A_VARIABLE()
+    assert_eq(complaints("def p(#a)\nvar p = 1\n"), "error 2:5 `p` is already a relation, and cannot also be a variable\n")
+    assert_eq(complaints("def f() = 1\nlog = 2\nf = 3\n"), "error 3:1 `f` is a function or a relation, and cannot be assigned\n")
+
 @test
 AN_UPDATE_OF_A_NAME_NOT_IN_SCOPE_IS_REFUSED()
     assert_eq(complaints("y += 1\n"), "error 1:1 `y` is not defined\n")
     assert_eq(complaints("if true\n  var z = 1\nz++\n"), "error 3:1 `z` is not defined here\n")
-    assert_eq(complaints("write = 1\n"), "error 1:1 `write` is a function, a relation or a builtin, and cannot be assigned\n")
+    assert_eq(complaints("sum += 1\n"), "error 1:1 `sum` is a function, a relation or a builtin, and cannot be assigned\n")
 
 @test
 THE_NOTE_ON_AN_UPDATE_OF_AN_UNDECLARED_NAME_SHOWS_ITS_DECLARATION()

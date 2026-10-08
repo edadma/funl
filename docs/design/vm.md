@@ -483,6 +483,12 @@ pattern, and a lookbehind compiles its body in the opposite one.
 > reached before its group, or to a group skipped, not taken, or backtracked out of (the capture
 > trail unsets it again), matches empty rather than failing.
 
+> **Decided — a repetition's turns are JavaScript's** (ES RepeatMatcher). Each turn of every
+> quantifier and repetition combinator begins with the groups inside the repeated item unset — one
+> `ResetGroups(first, last)` over their contiguous numbers, through the capture trail, so a turn
+> given back restores them — and a turn that matches the empty string once the loop has its `lo`
+> turns fails rather than ending the loop.
+
 **Semantics are leftmost-first backtracking, Perl's and JavaScript's, not POSIX's leftmost-longest.**
 A machine whose alternatives are tried in order cannot be leftmost-longest without exploring every
 match, and goal-directed evaluation wants the order anyway. [The implementation

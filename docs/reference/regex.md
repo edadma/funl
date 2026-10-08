@@ -176,6 +176,24 @@ aaa
 possessive gives nothing back
 ```
 
+**A turn that matches the empty string does not count once the repetition has its fewest turns**, as
+in JavaScript: the item tries its other ways of matching, and otherwise the repetition stops at the
+turn before. So `(?:|a)*` goes on to take the `a`, and `{2}` still takes two turns that match nothing:
+
+```funl
+write('a' ? `(?:|a)*`)
+write('a' ? `(?:|a)?`)
+write('a' ? `(?:|a){2}`)
+write('ab' ? `(a|)*b`)
+```
+
+```output
+a
+a
+
+ab
+```
+
 A brace that does not begin a count is an ordinary character:
 
 ```funl
@@ -224,6 +242,24 @@ b
 a
 ay
 the group captured a, not b
+```
+
+**Each turn of a repetition begins with the groups inside it unset**, as in JavaScript, so after the
+repetition a group holds what the last turn captured, and nothing if the last turn did not reach it.
+Here the last turn of `(?:(a)|b)+` takes `b`, so group 1 has captured nothing and `\1` matches the
+empty string; when a later part fails and a turn is given back, the groups have what they had before
+it:
+
+```funl
+write('abc' ? `(?:(a)|b)+\1c`)
+write('aac' ? `(?:(a)|b)+\1c`)
+write('abc' ? `(a|b)+\1c` | 'the last turn captured b')
+```
+
+```output
+abc
+aac
+the last turn captured b
 ```
 
 An **atomic group** commits to the first way its contents match; nothing after it can make it try

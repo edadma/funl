@@ -147,7 +147,9 @@ A_RELATION_IS_CALLED_NOT_USED_AS_A_VALUE()
 
 @test
 A_RELATION_CANNOT_ALSO_BE_DECLARED_A_VARIABLE()
-    assert_eq(complaints("def p(#a)\nfree p\n"), "error 2:6 `p` is already a relation or a builtin, and cannot also be a variable\n")
+    assert_eq(complaints("def p(#a)\nfree p\n"), "error 2:6 `p` is already a relation, and cannot also be a variable\n")
+    assert_eq(complaints("def p(#a)\nval p = 1\n"), "error 2:5 `p` is already a relation, and cannot also be a variable\n")
+    assert_eq(complaints("def p(#a)\np = 1\n"), "error 2:1 `p` is a function or a relation, and cannot be assigned\n")
 
 @test
 A_GOAL_IN_A_HEAD_IS_REFUSED()
