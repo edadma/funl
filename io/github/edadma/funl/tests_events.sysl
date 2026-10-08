@@ -185,6 +185,68 @@ THE_MAKERS_REFUSE_WHAT_IS_NOT_THEIRS()
         "'sleep' wants a number of milliseconds and was given the string 'x'\nsucceeded")
 
 @test
+SETTLE_ERROR_FAULTS_A_PENDING_PROMISE_AS_REJECT_DOES_ONE_ALREADY_MADE()
+    val text = "import { pending, settle, settle_error, reject } from funl:async\n" +
+        "\n" +
+        "p = pending()\n" +
+        "settle_error( p, \"no such row\" )\n" +
+        "write( (await p) catch e -> e.message )\n" +
+        "write( (await reject( \"no such row\" )) catch e -> e.message )\n" +
+        "settle( p, 1 )\n" +
+        "settle_error( p, \"again\" )\n" +
+        "write( (await p) catch e -> e.message )\n" +
+        "q = pending()\n" +
+        "settle( q, 7 )\n" +
+        "settle_error( q, \"late\" )\n" +
+        "write( await q )\n"
+
+    assert_eq(ran_funl(text), "no such row\nno such row\nno such row\n7\nsucceeded")
+
+@test
+A_TASK_WAITING_ON_A_PENDING_PROMISE_RAISES_ITS_FAULT_WHEN_IT_IS_SETTLED_WITH_AN_ERROR()
+    val text = "import { pending, settle_error } from funl:async\n" +
+        "\n" +
+        "door = pending()\n" +
+        "\n" +
+        "async def guest( s ) =\n" +
+        "  write( \"waiting\" )\n" +
+        "  write( s, (await door) catch e -> \"refused: \" + e.message )\n" +
+        "\n" +
+        "g = guest( [1, 2, 3] )\n" +
+        "write( \"opening\" )\n" +
+        "settle_error( door, \"locked\" )\n" +
+        "write( \"opened\" )\n" +
+        "await g\n"
+
+    val calm = roomy(() -> compiled_text(text))
+    val tight = stressed(() -> compiled_text(text))
+
+    assert_eq(calm.text, "waiting\nopening\nopened\n[1, 2, 3], refused: locked\nsucceeded")
+    assert_eq(tight.text, calm.text)
+    assert(tight.collections > 10, s"the stressed heap collected ${tight.collections} times")
+
+@test
+A_PROMISE_SETTLED_WITH_AN_ERROR_NOTHING_AWAITS_IS_THE_RUNS_FAULT()
+    val text = "import { pending, settle_error } from funl:async\n" +
+        "\n" +
+        "p = pending()\n" +
+        "settle_error( p, \"nobody waited\" )\n" +
+        "write( \"top done\" )\n"
+
+    assert_eq(ran_funl(text), "top done\nfault: nobody waited")
+
+@test
+SETTLE_ERROR_WANTS_A_PROMISE()
+    val text = "import { settle_error } from funl:async\n" +
+        "\n" +
+        "write( settle_error( 42, \"x\" ) catch e -> e.message )\n" +
+        "write( settle_error( _, \"x\" ) catch e -> e.message )\n"
+
+    assert_eq(ran_funl(text),
+        "'settle_error' wants a promise and was given the integer 42\n" +
+        "instantiation error: 'settle_error' was given an unbound variable\nsucceeded")
+
+@test
 THE_MODULE_IS_NAMED_FOR_THE_RESERVED_WORD_AND_IMPORTS_EITHER_WAY()
     assert_eq(ran_funl("import * as a from funl:async\nwrite( await a.resolve( 3 ) )\n"), "3\nsucceeded")
     assert(has(complaints("import { fetch } from funl:async\n"), "`funl:async` does not export `fetch`"))

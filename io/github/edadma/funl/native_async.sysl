@@ -17,7 +17,7 @@ import sysl.time.micros
 // Every native is registered as `async.name` and exported under the short name, as `funl:fs` does.
 
 // What `funl:async` exports, each the short form of a native `install_async` registered as `async.name`.
-private val AsyncNames: [5]string = ["sleep", "resolve", "reject", "pending", "settle"]
+private val AsyncNames: [6]string = ["sleep", "resolve", "reject", "pending", "settle", "settle_error"]
 
 install_async(v: *Vm)
     register(v, "async.sleep", 1, do_sleep)
@@ -25,6 +25,7 @@ install_async(v: *Vm)
     register(v, "async.reject", 1, do_reject)
     register(v, "async.pending", 0, do_pending)
     register(v, "async.settle", 2, do_settle)
+    register(v, "async.settle_error", 2, do_settle_error)
 
 // The exports of `funl:async`.
 async_exports() -> Buf[ModExport] = native_exports("async", AsyncNames)
@@ -81,6 +82,25 @@ private do_settle(base: usize, argc: usize) -> Result[Value, Fault]
             Ok(Unit)
         Var(_) -> Err(instantiation_error("instantiation error: 'settle' was given an unbound variable"))
         y -> Err(type_error("promise", y, s"'settle' wants a promise and was given ${described(x)}"))
+
+// `settle_error(p, x)`: fault pending promise `p` with the error `error(x)` raises, as `reject(x)`
+// makes an already-faulted one. Every task waiting for it re-raises the fault where it awaits; one
+// nothing awaits is the run's fault. Settling a promise that is no longer pending changes nothing.
+private do_settle_error(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = arg(base, 0)
+
+    deref(x) match
+        Promise(p) ->
+            val e = arg(base, 1)
+
+            val ball = user_error(e, render(e)) match
+                Thrown(b) -> b
+                _ -> return Err(Broken("'settle_error' could not make its error term"))
+
+            settle_promise(current(), p, PromiseFaulted, ball, uncaught_text(ball))
+            Ok(Unit)
+        Var(_) -> Err(instantiation_error("instantiation error: 'settle_error' was given an unbound variable"))
+        y -> Err(type_error("promise", y, s"'settle_error' wants a promise and was given ${described(x)}"))
 
 // A new pending promise, or the heap's refusal as a fault.
 private promise_made() -> Result[*PromiseObj, Fault] = new_promise() match

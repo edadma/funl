@@ -489,6 +489,14 @@ the regex captures. A **task** is exactly those fields, in their own `Machine`:
 > program's failure, and a thrown-away call that fails is a statement that failed. A `catch` around
 > an `await` is a `Trap` on the parked control stack, so it catches a fault raised after the resume.
 
+> **Built — `settle_error(p, x)` (user decision, 2026-10-08).** slate's `fail(p, message)` is
+> `settle_error` in FunL, because `fail` is a FunL keyword and cannot be imported by that name. It
+> faults pending promise `p` with the error `error(x)` raises, exactly as `reject(x)` makes an
+> already-faulted promise, and mirrors `settle(p, v)` otherwise: settling a promise that is no longer
+> pending changes nothing, and a first argument that is not a promise faults as `settle`'s does. An
+> `await` re-raises the fault where it is awaited (a `catch` sees it), and one nothing awaits is
+> reported as any unawaited fault is.
+
 ## The prelude — the first module written in FunL
 
 > **Decided (user, 2026-10-08) — the prelude is the first module written in FunL, and it is

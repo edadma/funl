@@ -6,8 +6,8 @@ weight: 25
 # `funl:async` — timers and promises to await
 
 `funl:async` makes [promises](../reference/async.md) that do not come from calling an `async`
-function: `sleep` answers one a timer keeps, and `resolve`, `reject`, `pending` and `settle` make and
-answer them by hand.
+function: `sleep` answers one a timer keeps, and `resolve`, `reject`, `pending`, `settle` and `settle_error`
+make and answer them by hand.
 
 ```funl
 import { sleep } from funl:async
@@ -142,9 +142,10 @@ b after
 | `reject(x)` | a promise already faulted with the error `error(x)` raises |
 | `pending()` | a promise nobody has answered yet |
 | `settle(p, x)` | keep pending promise `p` with `x` |
+| `settle_error(p, x)` | fault pending promise `p` with the error `error(x)` raises |
 
-`resolve` and `reject` stand for something that has already happened; `pending` and `settle` for
-something that has not. Every call waiting on a pending promise is owed a turn once it is settled.
+`resolve` and `reject` stand for something that has already happened; `pending`, `settle` and
+`settle_error` for something that has not. Every call waiting on a pending promise is owed a turn once it is settled.
 Settling a promise that is no longer pending changes nothing.
 
 ```funl
@@ -199,7 +200,29 @@ write( "the top level is done" )
 nobody waited
 ```
 
-`settle` wants a promise:
+**`settle_error(p, x)` faults a promise that is still pending**, as `reject(x)` makes one already
+faulted: every call waiting on it raises the error where it awaits, and a `catch` there sees `x`'s
+text as the message. Settling a promise that is no longer pending changes nothing, and one faulted
+that nothing awaits is the program's fault, as a rejected one is.
+
+```funl
+import { pending, settle_error } from funl:async
+
+door = pending()
+
+async def guest() =
+  write( (await door) catch e -> "refused: " + e.message )
+
+g = guest()
+settle_error( door, "locked" )
+await g
+```
+
+```output
+refused: locked
+```
+
+`settle` and `settle_error` want a promise:
 
 ```funl
 import { settle } from funl:async
