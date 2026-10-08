@@ -49,6 +49,25 @@ write( {x \ 2 | x <- 1..5} )
 {0, 1, 2}
 ```
 
+`x <- e` takes every value `e` produces, iterating each one that is a collection and taking any
+other as it is, so a comprehension collects what a generator produces
+([Generators](generators.md) has the whole rule):
+
+```funl
+def squares()
+  yield 1
+  yield 4
+  yield 9
+
+write( [x + 1 | x <- squares()] )
+write( [x | x <- ([1, 2] | 3)] )
+```
+
+```output
+[2, 5, 10]
+[1, 2, 3]
+```
+
 ## `sum`
 
 `sum(c)` adds the elements of a list, range, tuple, set, array or buffer with `+`, so rationals stay
@@ -450,6 +469,32 @@ write( s.x )
 
 ```output
 point(1, 2, 3)
+```
+
+Because a record is known by its name and number of fields, two constructors with one name and one
+number of fields cannot be declared in a program, in any block or in a FunL file it imports. The
+second declaration is refused, naming where the first is:
+
+```funl
+data point(x, y)
+data point(a, b)
+```
+
+```error
+the constructor `point` of 2 fields is already declared at
+```
+
+The same name with a different number of fields is a different constructor and is allowed:
+
+```funl
+data point(x)
+data point(x, y)
+
+write( point(1, 2).y )
+```
+
+```output
+2
 ```
 
 A name is looked up first among the program's own `data` types, then among its constructors, and

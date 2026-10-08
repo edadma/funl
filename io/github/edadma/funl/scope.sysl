@@ -253,6 +253,9 @@ struct Resolved
     // The two slots of each loop a `break` or a `continue` leaves, by the loop's id.
     loops: Map[usize, LoopSlots]
 
+    // The code being resolved, which positions are read in.
+    src: Source
+
     // What `name` means written at offset `pos` in block `blk` of scope `sid`, which is complete.
     meaning(self, sid: usize, blk: usize, pos: usize, name: string) -> Meaning
         val m = self.meaning_above(sid, blk, pos, 0, name)
@@ -343,8 +346,8 @@ end Resolved
 
 // Resolve `prog`, whose top level's frame `top_up` names, adding every refusal and warning to
 // `report`.
-resolve(prog: Program, top_up: usize, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map())
+resolve(src: Source, prog: Program, top_up: usize, report: *Report) -> Resolved
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src)
 
     res.top = new_scope_id(&res)
 

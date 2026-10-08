@@ -758,10 +758,29 @@ The arithmetic functions:
 | bits | `/\`, `\/`, `xor`, `\`, `<<`, `>>`, `msb` |
 | sign and size | `abs`, `sign`, `min`, `max`, `gcd`, `copysign` |
 | conversion | `float`, `integer`, `float_integer_part`, `float_fractional_part`, `truncate`, `round`, `ceiling`, `floor` |
-| powers and roots | `sqrt`, `exp`, `log` |
-| trigonometry | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2` |
+| powers and roots | `sqrt`, `exp`, `log`, `log2`, `log/2` (`log(Base, X)`) |
+| trigonometry | `sin`, `cos`, `tan`, `cot`, `asin`, `acos`, `atan`, `acot`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` |
 | constants | `pi`, `e`, `epsilon` |
 | random | `random` |
+
+**`log(Base, X)`, `log2`, `cot`, `acot` and the hyperbolic functions are evaluable too.** Outside its
+domain a function raises `evaluation_error(undefined)`:
+
+```prolog
+:- X is log(2, 8), Y is log2(8), Z is acot(0), write(X-Y-Z), nl.
+:- X is sinh(0) + cosh(0) + tanh(0), write(X), nl.
+:- catch(_ is log(1, 5), error(E, _), (write(E), nl)).
+:- catch(_ is acosh(0.5), error(E, _), (write(E), nl)).
+:- catch(_ is atanh(1), error(E, _), (write(E), nl)).
+```
+
+```output
+3.0-3.0-1.5707963267948966
+1.0
+evaluation_error(undefined)
+evaluation_error(undefined)
+evaluation_error(undefined)
+```
 
 **`random(N)` is an integer drawn from 0 to `N - 1`**, `N` a positive integer. The generator is
 seeded from the operating system, so each run draws differently, and only the range can be shown:

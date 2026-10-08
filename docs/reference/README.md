@@ -17,7 +17,7 @@ the language cannot disagree for long.
 | [Assignment and scope](assignment.md) | `=`, compound assignment, `++`/`--`, multiple assignment, `val` and `var`, block scope, reversible assignment `<-`, `in` and `not in` |
 | [Data](data.md) | tuples, lists, maps, sets, comprehensions, arrays, buffers, maps with a default, records, `undefined`, types and `is` |
 | [Functions](functions.md) | `def`, lambdas, operator sections, clauses and guards, patterns, `where`, generator functions, `yield` and `return`, partial function literals |
-| [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max` |
+| [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max`; `sqrt`, `exp`, `log`, trigonometry, roundings, `pi` |
 | [Relations](relations.md) | logic variables, unification `~`, atoms, facts and rules, two-way head unification, calling between functions and relations, negation, `findall`/`bagof`/`setof` |
 | [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
 | [String functions](strings.md) | `split`, `join`, `trim`, `trim_start`, `trim_end`, `upper`, `lower`, `replace`, the tests `starts_with`, `ends_with` and `contains`, and `find` outside a scan |
