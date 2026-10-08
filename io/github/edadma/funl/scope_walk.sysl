@@ -146,6 +146,7 @@ walk_stmt(w: *Walk, s: Stmt)
                 val id = declare_ctor(d.name, d.fields, origin)
 
                 w.sc.ctors.put(slot, id)
+                w.res.see_ctor(d.name, id, w.sid == w.res.top && w.blk == 0)
                 ids.push(id)
 
             if typ != ""
@@ -216,7 +217,7 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
             // `name(p, ...)`: a term of the constructor `name` in scope -- in a `catch`'s pattern, a
             // term of any functor.
             if !w.ball
-                pattern_refusal(n, w.meaning(n, at.start), Some(args.len()), at) match
+                pattern_refusal(w.res, n, w.meaning(n, at.start), Some(args.len()), at) match
                     Some(d) -> w.report.add(d)
                     None -> ()
 
@@ -589,7 +590,7 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
         Constructor(id) ->
             val fields = current().ctors.at(id).fields.len()
 
-            if argc != fields && !has_ctor_of(id, argc)
+            if argc != fields && w.res.ctor_of(n, id, argc).is_none()
                 w.report.add(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this call gives $argc"))
 
             return

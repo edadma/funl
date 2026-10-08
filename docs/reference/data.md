@@ -673,6 +673,34 @@ write( size(point(7)), size(point(1, 2)) )
 1, 2
 ```
 
+`is` with the name tests for a record of any of them:
+
+```funl
+data point(x)
+data point(x, y)
+
+write( point(7) is point, point(1, 2) is point )
+```
+
+```output
+point(7), point(1, 2)
+```
+
+Two such constructors may also belong to two `data` types, and each type has only its own:
+
+```funl
+data mark = point(x)
+data pair = point(x, y)
+
+write( point(7) is mark, point(1, 2) is pair )
+write( if point(1, 2) is mark then "a mark" else "not a mark" )
+```
+
+```output
+point(7), point(1, 2)
+not a mark
+```
+
 A call or a pattern giving a number of fields no constructor of that name has is refused:
 
 ```funl

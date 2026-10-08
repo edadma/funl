@@ -1,0 +1,4 @@
+;; Two constructors named `point`, of one field and of two, for the modules reference page.
+
+export data point(x)
+export data point(x, y)

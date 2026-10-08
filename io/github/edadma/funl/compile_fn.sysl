@@ -210,9 +210,15 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
 
                 for x in items.view()
                     pattern(e, c, x, seen, param)?
-        CallE(n, _, args) ->
+        CallE(n, at, args) ->
+            // The functor is the constructor's own, which an import's `as` does not rename; in a
+            // `catch`'s pattern a name no constructor has is a functor of its own.
+            val functor = c.meaning(n, at.start) match
+                Constructor(id) -> current().ctors.at(id).functor
+                _ -> intern(n)
+
             inspect(e, param)
-            e.op(MatchCompound(intern(n), args.len()))
+            e.op(MatchCompound(functor, args.len()))
 
             for x in args.view()
                 pattern(e, c, x, seen, param)?

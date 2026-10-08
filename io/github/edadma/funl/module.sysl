@@ -35,8 +35,10 @@ enum ExportKind
     // A `val` or a `var`: the slot of the module's frame its snapshot is kept in.
     ExValue(slot: usize)
 
-    // A `data` constructor, indexing `Vm.ctors`.
-    ExCtor(id: usize)
+    // A `data` constructor, indexing `Vm.ctors`, and every constructor of its name the module's top
+    // level declares (`id` among them), each with its own number of fields: the name exports them
+    // all.
+    ExCtor(id: usize, kin: Buf[usize])
 
     // A `data` type's name, indexing `Vm.data_types`: what `is` tests in a file that imports it.
     ExType(id: usize)
@@ -342,6 +344,7 @@ bind_imports(res: *Resolved, im: Imports, report: *Report)
             ExType(id) ->
                 res.imported_types.put(b.local, id)
                 continue
+            ExCtor(_, kin) -> see_kin(res, b.local, kin)
             _ -> ()
 
         export_meaning(res, current().modules.at(b.source), b.export) match
@@ -360,12 +363,18 @@ bind_imports(res: *Resolved, im: Imports, report: *Report)
         for x in md.exports.view()
             x.kind match
                 ExType(id) -> res.imported_types.put(s"${a.alias}.${x.name}", id)
+                ExCtor(_, kin) -> see_kin(res, s"${a.alias}.${x.name}", kin)
                 _ -> ()
 
             export_meaning(res, md, x) match
                 Some(m) -> res.qualified.put(s"${a.alias}.${x.name}", m)
                 None -> ()
 end bind_imports
+
+// The constructors `kin` an exported name brings, seen in the file `res` resolves under `name`.
+private see_kin(res: *Resolved, name: string, kin: Buf[usize])
+    for id in kin.view()
+        res.see_ctor(name, id, false)
 
 // Whether the name `n` an import from `file` declares at `at` is free: not one the file defines, nor
 // one another import has taken. The refusal is reported.
@@ -391,7 +400,7 @@ private export_meaning(res: *Resolved, md: FunlModule, x: ModExport) -> Option[M
         ExFunction(chunk, arity) -> Some(Function(foreign_rel(res, x.name, arity, chunk, true), md.up))
         ExRelation(chunk, arity) -> Some(Relation(foreign_rel(res, x.name, arity, chunk, false)))
         ExValue(slot) -> Some(Local(md.up, slot, true))
-        ExCtor(id) -> Some(Constructor(id))
+        ExCtor(id, _) -> Some(Constructor(id))
         ExNative(id) -> Some(Builtin(id))
         ExType(_) -> None
 
@@ -443,12 +452,13 @@ qualified_in_head(res: *Resolved, g: string, name: string) -> Option[Meaning]
 qualified_pattern_refusal(res: *Resolved, g: string, name: string, m: Meaning, argc: Option[usize], at: Span) -> Option[Diagnostic]
     m match
         Unknown -> Some(not_exported(res, g, name, at))
-        _ -> pattern_refusal(s"$g.$name", m, argc, at)
+        _ -> pattern_refusal(res, s"$g.$name", m, argc, at)
 
 // Why the pattern `n(...)` -- `argc` fields, or `None` for the bare `n` -- cannot match, `n` meaning
 // `m`: outside a relation head, a pattern names a constructor in scope, with as many fields as it
-// has. `None` when it can. `n` is the name as the pattern writes it, qualified or not.
-pattern_refusal(n: string, m: Meaning, argc: Option[usize], at: Span) -> Option[Diagnostic]
+// has, or a constructor of its name with as many that the file sees under `n`. `None` when it can.
+// `n` is the name as the pattern writes it, qualified or not.
+pattern_refusal(res: *Resolved, n: string, m: Meaning, argc: Option[usize], at: Span) -> Option[Diagnostic]
     m match
         Unknown ->
             Some(error(at, s"`$n` is not defined")
@@ -458,7 +468,7 @@ pattern_refusal(n: string, m: Meaning, argc: Option[usize], at: Span) -> Option[
 
             argc match
                 Some(k) ->
-                    if k == fields || has_ctor_of(id, k) then return None
+                    if res.ctor_of(n, id, k).is_some() then return None
 
                     Some(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this pattern gives $k"))
                 None ->
@@ -510,7 +520,12 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
         top.find(0, n, Anywhere) match
             Some(d) ->
                 top.ctors.get(d.slot) match
-                    Some(id) -> out.exports.push(ModExport(n, ExCtor(id), ""))
+                    Some(id) ->
+                        val kin = res.top_kin.get(n) match
+                            Some(ids) -> ids
+                            None -> buf()
+
+                        out.exports.push(ModExport(n, ExCtor(id, kin), ""))
                     None ->
                         if snapshot
                             val snap = top.declare(0, s"export $n", named.span, Anywhere, true)

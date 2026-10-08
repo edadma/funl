@@ -271,6 +271,20 @@ struct Resolved
     own_types: Map[string, usize]
     imported_types: Map[string, usize]
 
+    // Every constructor this file sees under each name -- its own, those an `import { ... }` brings
+    // (under the name it declares), and each `alias.name` -- as indices into `Vm.ctors`. The same
+    // name with another number of fields is another constructor, and a call or a pattern reaches it
+    // only when it is seen here: another module's `point/1` is not, unless this file imports it.
+    kin: Map[string, Buf[usize]]
+
+    // The constructors the top level's root block declares under each name: what an `export` of the
+    // name exports.
+    top_kin: Map[string, Buf[usize]]
+
+    // The `data` type made of the constructors under a name, for `x is name` where the name has more
+    // than one (`ctor_test`), as an index into `Vm.data_types`.
+    kin_types: Map[string, usize]
+
     // The `data` type `name` means in this file, if any: its own first, then an imported one.
     data_type(self, name: string) -> Option[usize]
         self.own_types.get(name) match
@@ -278,6 +292,64 @@ struct Resolved
             None -> ()
 
         self.imported_types.get(name)
+
+    // Constructor `id`, seen in this file under `name`; `top` when the top level's root block
+    // declares it.
+    see_ctor(*self, name: string, id: usize, top: bool)
+        self.kin.put(name, with_id(self.kin.get(name), id))
+
+        if top then self.top_kin.put(name, with_id(self.top_kin.get(name), id))
+
+    // The constructor a call or a pattern of `name` -- which means constructor `id` -- with `n`
+    // fields reaches: `id` itself when it has `n`, or the constructor of `id`'s name with `n` fields
+    // this file sees under `name`. `None` when there is none.
+    ctor_of(self, name: string, id: usize, n: usize) -> Option[usize]
+        val v = current()
+        val f = v.ctors.at(id).functor
+
+        if v.ctors.at(id).fields.len() == n then return Some(id)
+
+        self.kin.get(name) match
+            Some(ids) ->
+                for i in ids.view()
+                    val d = v.ctors.at(i)
+
+                    if d.functor == f && d.fields.len() == n then return Some(i)
+            None -> ()
+
+        None
+
+    // The constructor a call of `name`, meaning constructor `id`, with `n` arguments makes: the one
+    // `ctor_of` finds, or `id` itself, whose own count the call is then refused against.
+    made_ctor(self, name: string, id: usize, n: usize) -> usize = self.ctor_of(name, id, n) match
+        Some(c) -> c
+        None -> id
+
+    // What `x is name` tests, `name` meaning constructor `id`: a record of any constructor of that
+    // name this file sees under it, whatever its number of fields.
+    ctor_test(*self, name: string, id: usize) -> TypeTest
+        val v = current()
+        val f = v.ctors.at(id).functor
+        var same: Buf[usize] = buf()
+
+        same.push(id)
+
+        self.kin.get(name) match
+            Some(ids) ->
+                for i in ids.view()
+                    if i != id && v.ctors.at(i).functor == f then same.push(i)
+            None -> ()
+
+        if same.len() == 1 then return CtorT(id)
+
+        self.kin_types.get(name) match
+            Some(t) -> return DataT(t)
+            None -> ()
+
+        val t = declare_data_type(same)
+
+        self.kin_types.put(name, t)
+        DataT(t)
 
     // What the name after an `is` means, `local` being what it means where it is written: a
     // qualified `alias.name` is what that module exports (no local name has a `.` in it).
@@ -384,10 +456,19 @@ struct Resolved
         if pred_name_known(name) then Predicate(name) else Unknown
 end Resolved
 
+// The constructors `ids` holds, and `id` after them.
+private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
+    var b: Buf[usize] = ids match
+        Some(x) -> x
+        None -> buf()
+
+    b.push(id)
+    b
+
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map())
 
     res.top = new_scope_id(&res)
 

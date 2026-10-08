@@ -246,7 +246,7 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
         val value = x.kind match
             ExFunction(_, _) -> true
             ExValue(_) -> true
-            ExCtor(_) -> true
+            ExCtor(_, _) -> true
             _ -> false
 
         if !value then continue
@@ -256,7 +256,7 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
         x.kind match
             ExFunction(chunk, _) -> e.op(MakeClosure(chunk, res.top_up))
             ExValue(slot) -> e.op(LoadSlot(0, slot))
-            ExCtor(id) ->
+            ExCtor(id, _) ->
                 val d = current().ctors.at(id)
 
                 e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))

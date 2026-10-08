@@ -37,35 +37,6 @@ declared_ctor(name: string, n: usize) -> Option[CtorDef]
 
     None
 
-// Whether a constructor of the name constructor `id` has, with `n` fields, is declared: the same name
-// with another number of fields is another constructor, so `point(1)` is a term of `point/1` when the
-// name in scope means `point/2`.
-has_ctor_of(id: usize, n: usize) -> bool = ctor_of(id, n) != Unsized
-
-// The constructor of the name constructor `id` has, with `n` fields: `id` itself when it has `n`,
-// and `Unsized` when none is declared.
-ctor_of(id: usize, n: usize) -> usize
-    val v = current()
-    val f = v.ctors.at(id).functor
-
-    if v.ctors.at(id).fields.len() == n then return id
-
-    for i in 0..<v.ctors.len()
-        val d = v.ctors.at(i)
-
-        if d.functor == f && d.fields.len() == n then return i
-
-    Unsized
-
-// The constructor a call of constructor `id` with `n` arguments makes: the one of that name with `n`
-// fields, or `id` itself, whose own count the call is then refused against.
-made_ctor(id: usize, n: usize) -> usize
-    val c = ctor_of(id, n)
-
-    if c == Unsized then id else c
-
-private const Unsized: usize = 0xffffffffffffffff
-
 // Register constructor `name` with `fields`, declared at `origin`, answering its id.
 declare_ctor(name: string, fields: Buf[string], origin: string) -> usize
     val v = current()

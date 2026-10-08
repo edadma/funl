@@ -386,7 +386,9 @@ every write( (1 | 'a' | 2.5 | #b) is number )     ;; 1, then 2.5
   succeed, `square(1) is circle` fails, and `blank is shape` succeeds, a constructor with no fields
   being its atom. A record's class is its constructor, so `data point(x, y)` makes `point(1, 2) is
   point` succeed. A record is tested by its functor and number of fields, so a term of the same shape
-  that unification or Prolog made is one too.
+  that unification or Prolog made is one too. Where the file sees constructors of one name with
+  different numbers of fields (`data point(x)` and `data point(x, y)`), `is point` tests for a record
+  of any of them.
 - **A bound logic variable is tested by its value**; only an unbound one is a `variable`.
 
 > **Decided — what `is` produces (user, 2026-10-08).** `x is t` is a test that produces `x` or fails,

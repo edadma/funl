@@ -213,6 +213,23 @@ TWO_CONSTRUCTORS_WITH_ONE_NAME_AND_DIFFERENT_NUMBERS_OF_FIELDS_ARE_ALLOWED()
     assert_eq(ran_funl("data a(x)\ndata a(x, y)\nwrite( a(1, 2).y )\n"), "2\nsucceeded")
 
 @test
+IS_A_CONSTRUCTOR_NAME_TESTS_FOR_ANY_CONSTRUCTOR_OF_THAT_NAME()
+    // Declared apart, or in one type: a record of either is `is point`; anything else is not.
+    assert_eq(ran_funl("data point(x)\ndata point(x, y)\n" +
+        "write( [x | x <- [point(1), point(1, 2), (1, 2), #point, point] if x is point] )\n"),
+        "[point(1), point(1, 2)]\nsucceeded")
+    assert_eq(ran_funl("data shape = point(x) | point(x, y) | blank\n" +
+        "write( [x | x <- [point(1), point(1, 2), blank] if x is point], [x | x <- [point(1), point(1, 2), blank, 3] if x is shape] )\n"),
+        "[point(1), point(1, 2)], [point(1), point(1, 2), blank]\nsucceeded")
+
+    // Two types: each has only its own, and the name has both.
+    val items = "[point(1), point(1, 2), 3]"
+
+    assert_eq(ran_funl("data mark = point(x)\ndata pair = point(x, y)\n" +
+        s"write( [x | x <- $items if x is mark], [x | x <- $items if x is pair], [x | x <- $items if x is point] )\n"),
+        "[point(1)], [point(1, 2)], [point(1), point(1, 2)]\nsucceeded")
+
+@test
 ONE_CONSTRUCTOR_IS_USED_IN_MANY_PATTERNS_WITHOUT_COMPLAINT()
     assert_eq(ran_funl("data shape = circle(r) | square(s)\nval circle(x) = circle(1)\nval circle(y) = circle(2)\nwrite( x, y )\n"),
         "1, 2\nsucceeded")

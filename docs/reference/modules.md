@@ -315,6 +315,53 @@ import { ring } from "modules/rings.funl"
 the constructor `circle` of 1 field is already declared at docs/reference/modules/geometry.funl
 ```
 
+The same name with another number of fields is another constructor, and a file reaches it only where
+it sees it. [`modules/pair.funl`](modules/pair.funl) exports `point` of two fields and
+[`modules/mark.funl`](modules/mark.funl) `point` of one. Imported as below, `point` is the first and
+`mark.point` the second, and `is point` tests for the first only:
+
+```funl
+import { point } from "modules/pair.funl"
+import * as mark from "modules/mark.funl"
+
+write( point(1, 2), mark.point(7) )
+write( if mark.point(7) is point then "a point" else "not a point" )
+```
+
+```output
+point(1, 2), point(7)
+not a point
+```
+
+So `point(7)` there is refused, as it would be with no `point` of one field anywhere:
+
+```funl
+import { point } from "modules/pair.funl"
+import * as mark from "modules/mark.funl"
+
+write( point(7) )
+```
+
+```error
+the constructor `point` takes 2 fields, and this call gives 1
+```
+
+A module that declares both exports both under the one name.
+[`modules/points.funl`](modules/points.funl) declares `point` of one field and of two:
+
+```funl
+import { point } from "modules/points.funl"
+
+def size( point(_) ) = 1
+def size( point(_, _) ) = 2
+
+write( size(point(7)), size(point(1, 2)), point(7) is point )
+```
+
+```output
+1, 2, point(7)
+```
+
 ## Imports run first, and once
 
 Every import is resolved before anything runs. Each imported module is compiled first, and its top

@@ -110,9 +110,11 @@ qualified_callee(c: Ctx, f: &Expr) -> Option[Meaning] = f.kind match
     FieldE(x, name) -> qualified_in(c, x, name)
     _ -> None
 
-// The name a qualified callee `m.name` calls.
+// The name a qualified callee `m.name` calls, as it is written: `m.name`.
 callee_name(f: &Expr) -> string = f.kind match
-    FieldE(_, name) -> name
+    FieldE(x, name) -> x.kind match
+        Ref(g) -> s"$g.$name"
+        _ -> name
     _ -> ""
 
 // Push `x`'s value.
@@ -285,6 +287,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             compile_value(e, c, a)?
 
             type_test(c.res.data_type(t), c.res.qualified_or(t, c.meaning(t, at.start)), t) match
+                Some(CtorT(id)) -> e.op(TestType(c.res.ctor_test(t, id)))
                 Some(test) -> e.op(TestType(test))
                 None -> return Err(s"`$t` is not a type, and the resolver let it through")
         DefinedE(a, defined) ->
@@ -500,7 +503,7 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
                 e.op(NativeGen(id, argc))
             else
                 e.op(Native(id, argc))
-        Constructor(id) -> e.op(MakeRecord(made_ctor(id, argc), argc))
+        Constructor(id) -> e.op(MakeRecord(c.res.made_ctor(n, id, argc), argc))
         _ -> return Err(s"'$n' was resolved and names nothing")
 
     if tail then e.op(Return)

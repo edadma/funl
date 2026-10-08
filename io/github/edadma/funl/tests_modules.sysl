@@ -422,6 +422,56 @@ AN_UNQUALIFIED_PATTERN_NAMES_A_CONSTRUCTOR_IN_SCOPE_WITH_AS_MANY_FIELDS()
     assert(has(rendered("def f( x ) = x\ndef k( p.q(1) ) = 1\n"), "this cannot be matched against anything"), "p.q(1)")
 
 @test
+A_CONSTRUCTOR_OF_THE_SAME_NAME_IS_REACHED_ONLY_WHERE_THE_FILE_SEES_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    val pair = put(d, "pair.funl", "export data point(x, y)\n")
+    val mark = put(d, "mark.funl", "export data point(x)\n")
+    val im = s"import { point } from \"$pair\"\nimport * as mark from \"$mark\"\n"
+
+    // `point` is `pair.funl`'s, of two fields; `mark.funl`'s of one is only `mark.point`.
+    assert_eq(complaints(im + "write( point(1) )\ndef f( point(a) ) = a\n"),
+        "error 3:8 the constructor `point` takes 2 fields, and this call gives 1\n" +
+        "error 4:8 the constructor `point` takes 2 fields, and this pattern gives 1\n")
+    assert_eq(complaints(im + "write( mark.point(1, 2) )\ndef f( mark.point(a, b) ) = a\n"),
+        "error 3:8 the constructor `mark.point` takes 1 field, and this call gives 2\n" +
+        "error 4:8 the constructor `mark.point` takes 1 field, and this pattern gives 2\n")
+    assert_eq(ran_funl(im + "def f( point(a, b) ) = a + b\ndef f( mark.point(a) ) = a\n" +
+        "write( f(point(1, 2)), f(mark.point(7)) )\n" +
+        "write( if mark.point(7) is point then 'y' else 'n', if point(1, 2) is mark.point then 'y' else 'n' )\n"),
+        "3, 7\nn, n\nsucceeded")
+
+    // A module that declares both exports both under the one name, by name, renamed, or qualified.
+    val both = put(d, "both.funl", "export data point(x)\nexport data point(x, y)\n")
+
+    assert_eq(ran_funl(s"import { point as p } from \"$both\"\nimport * as b from \"$both\"\n" +
+        "def f( p(x) ) = x\ndef f( b.point(x, y) ) = x + y\n" +
+        "write( p(1), p(1, 2), b.point(3), b.point(3, 4), f(p(5)), f(b.point(5, 6)) )\n" +
+        "write( p(1) is p, p(1, 2) is p, b.point(1) is b.point, b.point(1, 2) is b.point )\n"),
+        "point(1), point(1, 2), point(3), point(3, 4), 5, 11\npoint(1), point(1, 2), point(1), point(1, 2)\nsucceeded")
+    assert_eq(complaints(s"import { point } from \"$both\"\nwrite( point(1, 2, 3) )\n"),
+        "error 2:8 the constructor `point` takes 2 fields, and this call gives 3\n")
+
+    // A constructor a block declares is not exported with the top level's.
+    val inner = put(d, "inner.funl", "export data point(x, y)\ndef g() =\n  data point(x)\n  point(1)\n")
+
+    assert_eq(complaints(s"import { point } from \"$inner\"\nwrite( point(1) )\n"),
+        "error 2:8 the constructor `point` takes 2 fields, and this call gives 1\n")
+
+@test
+A_RENAMED_CONSTRUCTOR_MATCHES_ITS_OWN_RECORDS()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "box.funl", "export data box(x)\n")
+
+    assert_eq(ran_funl(s"import { box as crate } from \"$m\"\ndef f( crate(x) ) = x\nval crate(y) = crate(5)\nwrite( f(crate(4)), y )\n"),
+        "4, 5\nsucceeded")
+    assert_eq(complaints(s"import { box as crate } from \"$m\"\ndef f( crate(x, y) ) = x\n"),
+        "error 2:8 the constructor `crate` takes 1 field, and this pattern gives 2\n")
+
+@test
 A_MODULE_IS_KNOWN_BY_ITS_REAL_FILE_SO_A_LINK_CLOSES_A_CIRCLE()
     val d = scratch()
     defer scrap(d)
