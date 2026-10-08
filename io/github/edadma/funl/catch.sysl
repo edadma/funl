@@ -1,6 +1,8 @@
 module io.github.edadma.funl
 
-// `catch/3` and `throw/1`.
+import sysl.buf.{Buf, buf}
+
+// `catch/3` and `throw/1`, and FunL's `catch` and `throw`.
 //
 // **`catch(G, C, R)` is a predicate with a chunk of its own**, so it runs in a frame of its own:
 //
@@ -24,6 +26,25 @@ module io.github.edadma.funl
 // active `Catch` whose catcher unifies with a fresh copy of the ball. The recovery then runs in the
 // catch's frame. A copy for each catcher, because a catcher that unifies part of the ball and then
 // fails leaves bindings no entry may undo, and the next catcher must see the ball as thrown.
+//
+// **FunL's `e catch p | g -> r` is the same entry written inline**, a `Trap` in the frame the
+// expression is in, which catches every ball and leaves the matching to code:
+//
+//     SaveHeight(h); PushTrap(r); e; ExitTrap(h); Branch(end)
+//     r:  Mark(no); Dup; <match p>; g; FailIfFalse; Unmark; Pop; <recovery>; Branch(end)
+//     no: Rethrow
+//     end:
+//
+// The recovery starts with the ball on the operand stack. A pattern or guard that refuses it fails
+// to the mark, which leaves the ball where it was for `Rethrow` to throw again.
+//
+// **An inline catch has no frame of its own to return from**, so what ends it is not a return but
+// `ExitTrap`. When `e` produced its value with nothing left to resume, the `Trap` goes. When `e`
+// left choice points, the `Trap` must stay beneath them -- backtracking into `e` is still inside the
+// catch, as ISO's catch/3 is transparent to backtracking -- but the code after `e` in the same frame
+// is not: so `ExitTrap` pushes an `Untrap` naming the trap's height. A throw unwinding past the
+// `Untrap` passes the trap by; failure pops the `Untrap` on its way back into `e`, which is exactly
+// when the trap is in force again.
 
 // The chunk of `catch/3`.
 catch_chunk() -> usize
@@ -55,11 +76,67 @@ exit_catch(v: *Vm, slot: usize) -> Result[unit, string]
 
     Ok(())
 
-// Unwind to the innermost active catch whose catcher unifies with `thrown`, and resume at its
-// recovery: true. False when none does, the control stack then empty.
+// Compile `e catch p | g -> r`, block `id` holding `p`'s names and the height slot.
+compile_catch(e: *Emit, c: Ctx, id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr], recovery: &Expr) -> Result[unit, string]
+    val inner = c.in_block(id)?
+    val h = slot_of_name(inner, trap_name(id))?
+    val r = e.label()
+    val no = e.label()
+    val end = e.label()
+
+    e.op(SaveHeight(h))
+    e.op(PushTrap(r))
+    compile_value(e, c, subject)?
+    e.op(ExitTrap(h))
+    e.op(Branch(end))
+
+    e.place(r)
+    e.op(Mark(no))
+    e.op(Dup)
+    match_fresh(e, inner, pat)?
+
+    guard match
+        Some(g) ->
+            compile_value(e, inner, g)?
+            e.op(FailIfFalse)
+        None -> ()
+
+    e.op(Unmark)
+    e.op(Pop)
+    compile_value(e, inner, recovery)?
+    e.op(Branch(end))
+
+    e.place(no)
+    e.op(Rethrow)
+    e.place(end)
+    Ok(())
+end compile_catch
+
+// `PushTrap(to)`: a `Trap` entry in the running frame, which saves no operand cells.
+push_trap(v: *Vm, to: usize)
+    push_entry(v, Trap, to, v.stack.len())
+
+// `ExitTrap(slot)`: the guarded expression produced a value. Its `Trap` goes when nothing stands
+// above it, and is covered by an `Untrap` otherwise.
+exit_trap(v: *Vm, slot: usize) -> Result[unit, string]
+    val h = saved_height(v, slot)?
+
+    if h >= v.control.len() || v.control.at(h).kind != Trap then return Ok(())
+
+    if v.control.len() == h + 1
+        cut_to(v, h, false)
+    else
+        push_entry(v, Untrap, h, v.stack.len())
+
+    Ok(())
+
+// Unwind to the innermost active catch that takes `thrown`, and resume at its recovery: true. False
+// when none does, the control stack then empty. A `catch/3` takes a ball its catcher unifies with; a
+// FunL `Trap` takes every ball, with a copy of it pushed for the recovery to match.
 throw_ball(v: *Vm, thrown: Value) -> Result[bool, string]
     val ball = copy_term(thrown)?
     val inside = v.frame
+    var passed: Buf[usize] = buf()
 
     loop
         val e = v.control.pop() match
@@ -68,11 +145,24 @@ throw_ball(v: *Vm, thrown: Value) -> Result[bool, string]
 
         restore(v, e)
 
-        if e.kind == Catch && encloses(inside, e.frame)
+        if e.kind == Untrap
+            passed.push(e.ip)
+        elif e.kind == Trap && encloses(inside, e.frame) && !holds(passed, v.control.len())
+            v.stack.push(copy_term(ball)?)
+            v.ip = e.ip
+            return Ok(true)
+        elif e.kind == Catch && encloses(inside, e.frame)
             if e.frame.args.len() == 3 && unify(e.frame.args.at(1), copy_term(ball)?)
                 v.ip = e.ip
                 return Ok(true)
 end throw_ball
+
+// Whether `hs` holds `h`.
+private holds(hs: Buf[usize], h: usize) -> bool
+    for x in hs.view()
+        if x == h then return true
+
+    false
 
 // Whether frame `f` is `from` or one of its callers.
 private encloses(from: *FrameObj, f: *FrameObj) -> bool

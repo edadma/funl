@@ -1,0 +1,116 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// FunL's `e catch p -> r`: what it catches, what it leaves alone, and how it composes with failure,
+// generators, nesting and Prolog's `catch/3` and `throw/1`.
+
+// Prolog predicates the tests below call from FunL: `risky/1` throws a ball that is not an error
+// term; `guarded/1` is a Prolog `catch/3` around the FunL function `picky/1`.
+private const CatchPl: string = "risky(X) :- throw(oops(X)).\n" +
+    "guarded(R) :- catch(picky(1, R), error(E, _), R = prolog(E)).\n"
+
+// The transcript of FunL `text`, with `CatchPl` imported first.
+private ran_with_prolog(text: string) -> string
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, "catch.pl", CatchPl)
+
+    ran_funl(s"import \"$file\"\n" + text)
+
+@test
+A_CATCH_TAKES_A_TYPE_ERROR_APART_WITH_A_PATTERN()
+    assert_eq(ran_funl("write( 1 + #a catch error(type_error(t, c), _) -> [t, c] )\n"), "[number, a]\nsucceeded")
+
+@test
+A_DIVISION_BY_ZERO_IS_CAUGHT_AND_ITS_MESSAGE_READ()
+    assert_eq(ran_funl("write( 1 / 0 catch e -> e.message )\nwrite( 10 / 0 catch error(evaluation_error(w), _) -> w )\n"),
+        "1 / 0 divides by zero\nzero_divisor\nsucceeded")
+
+@test
+A_USER_ERROR_IS_CAUGHT_HOLDING_WHAT_ERROR_WAS_GIVEN()
+    assert_eq(ran_funl("write( error( \"boom\" ) catch error(user_error(m), _) -> m )\n"), "boom\nsucceeded")
+
+@test
+A_PROLOG_THROW_IS_CAUGHT_AS_ITS_OWN_BALL()
+    assert_eq(ran_with_prolog("write( risky(1) catch oops(n) -> n + 1 )\nwrite( risky(2) catch b -> b )\n"),
+        "2\noops(2)\nsucceeded")
+
+@test
+FUNLS_THROW_RAISES_ITS_ARGUMENT_ITSELF_AND_REFUSES_AN_UNBOUND_ONE()
+    assert_eq(ran_funl("data oops( n )\nwrite( throw(oops(3)) catch oops(n) -> n )\n"), "3\nsucceeded")
+    assert_eq(ran_funl("free z\nwrite( throw(z) catch error(f, _) -> f )\n"), "instantiation_error\nsucceeded")
+    assert_eq(unplaced(ran_funl("throw( #loose )\n")), "fault: main: uncaught exception: loose")
+
+@test
+A_FAULT_THE_PATTERN_OR_THE_GUARD_REFUSES_IS_RAISED_AGAIN()
+    assert_eq(unplaced(ran_funl("write( #before )\nwrite( 1 / 0 catch error(type_error(_, _), _) -> 0 )\nwrite( #after )\n")),
+        "before\nfault: main: 1 / 0 divides by zero")
+    assert_eq(unplaced(ran_funl("write( 1 / 0 catch e | false -> 0 )\n")), "fault: main: 1 / 0 divides by zero")
+    assert_eq(ran_funl("write( 1 / 0 catch e | e.message == '1 / 0 divides by zero' -> #matched )\n"), "matched\nsucceeded")
+
+@test
+A_FAILING_EXPRESSION_FAILS_THROUGH_A_CATCH()
+    assert_eq(ran_funl("write( (1 > 2) catch _ -> #caught )\nwrite( (1 > 2 catch _ -> #caught) or #failed )\n"),
+        "failed\nsucceeded")
+
+@test
+A_FAULT_RAISED_WHEN_THE_GUARDED_EXPRESSION_IS_RESUMED_IS_CAUGHT()
+    val text = "def check( n ) = if n == 0 then error( \"resumed\" ) else n\n" +
+        "every write( check(2 | 0 | 3) catch e -> e.message )\n" +
+        "write( [(10 / (n - 1) catch _ -> #caught) | n <- [3, 1, 2]] )\n"
+
+    // Catching ends the guarded expression, so `3` is never tried: its choice point is unwound.
+    assert_eq(ran_funl(text), "2\nresumed\n[5, caught, 10]\nsucceeded")
+
+@test
+A_FAULT_AFTER_THE_GUARDED_EXPRESSION_HAS_PRODUCED_ITS_VALUE_IS_NOT_CAUGHT()
+    // The same frame: `e` left a choice point, and the division after it faults.
+    assert_eq(unplaced(ran_funl("every write( 10 / ((1 | 0) catch _ -> 99) )\n")),
+        "10\nfault: main: 10 / 0 divides by zero")
+
+    // A frame the catch has returned from.
+    assert_eq(unplaced(ran_funl("def f() = (1 | 0) catch _ -> 99\nevery write( 10 / f() )\n")),
+        "10\nfault: main: 10 / 0 divides by zero")
+
+    // The recovery is not inside its own catch.
+    assert_eq(unplaced(ran_funl("write( 1 / 0 catch _ -> error( \"again\" ) )\n")), "fault: main: again")
+
+@test
+NESTED_CATCHES_TRY_THE_INNER_FIRST_AND_THE_OUTER_GETS_WHAT_IT_REFUSES()
+    val text = "write( (1 / 0 catch _ -> #inner) catch _ -> #outer )\n" +
+        "write( (1 / 0 catch error(type_error(_, _), _) -> #inner) catch _ -> #outer )\n" +
+        "write( (1 / 0 catch _ -> error( \"again\" )) catch e -> e.message )\n"
+
+    assert_eq(ran_funl(text), "inner\nouter\nagain\nsucceeded")
+
+@test
+A_PROLOG_CATCH_STILL_CATCHES_A_FUNL_FAULT_A_FUNL_CATCH_REFUSED()
+    val text = "def picky( n ) = n / 0 catch error(type_error(_, _), _) -> 0\n" +
+        "free r\nif guarded( r ) then write( r )\n"
+
+    assert_eq(ran_with_prolog(text), "prolog(evaluation_error(zero_divisor))\nsucceeded")
+
+@test
+CATCH_BINDS_LOOSER_THAN_EVERY_OPERATOR_BUT_THE_LAMBDA_ARROW()
+    val text = "write( 1 + 1 / 0 catch _ -> 5 )\n" +
+        "val inv = x -> 1 / x catch _ -> 0\n" +
+        "write( inv(4), inv(0) )\n" +
+        "v = 1 / 0 catch e ->\n" +
+        "  write( #handling )\n" +
+        "  -1\n" +
+        "write( v )\n"
+
+    assert_eq(ran_funl(text), "5\n1/4, 0\nhandling\n-1\nsucceeded")
+
+@test
+AN_ERROR_TERMS_MESSAGE_IS_A_FIELD_AND_ANOTHER_BALL_HAS_NONE()
+    assert_eq(ran_funl("data oops( n )\nwrite( (throw(oops(1)) catch b -> b.message) or #none )\n"), "none\nsucceeded")
+
+@test
+A_CATCH_WITHOUT_ITS_ARROW_OR_WITH_NO_PATTERN_IS_REFUSED()
+    assert_eq(complaints("write( 1 / 0 catch e )\n"),
+        "error 1:22 expected `->` and the expression a caught fault produces\n")
+    assert_eq(complaints("write( 1 / 0 catch 1 + 2 -> 0 )\n").index_of("this cannot be matched against anything").is_some(), true)

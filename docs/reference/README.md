@@ -12,7 +12,7 @@ the language cannot disagree for long.
 
 | page | what it covers |
 |---|---|
-| [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out |
+| [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out, catching faults |
 | [Generators](generators.md) | expressions with many values, backtracking, `!`, `\|`, `to`, ranges, `&`, searches, bounded expressions, `every`, `for`, `break`/`continue` and labels |
 | [Assignment and scope](assignment.md) | `=`, compound assignment, `++`/`--`, multiple assignment, `val` and `var`, block scope, reversible assignment `<-`, `in` and `not in` |
 | [Data](data.md) | tuples, lists, maps, sets, comprehensions, slices, arrays, buffers, maps with a default, byte strings, handles, records, `undefined`, types and `is` |

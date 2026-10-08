@@ -534,6 +534,7 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
             val body = if p.at_tok(Indent) then branch(p) else parse_expr(p, power(Question).right)
 
             return expr(ScanE(left, body), left.span.to(body.span))
+        CatchW -> return catching(p, left)
         _ -> ()
 
     // `(e op)`: the operator's right operand is the `)`, which makes this half of a section.
@@ -673,6 +674,29 @@ private lambda(p: *Parser, left: &Expr) -> &Expr
 
     one_clause_lambda(p, params, guard, body, left.span.to(body.span))
 end lambda
+
+// `e catch p -> r` or `e catch p | g -> r`, the `catch` already read and `left` the `e` it guards.
+// The pattern and its guard are read as a lambda's are, as one expression up to the arrow, and the
+// recovery reaches as far right as a lambda's body.
+private catching(p: *Parser, left: &Expr) -> &Expr
+    val id = p.node_id()
+    val head = parse_expr(p, CatchPower)
+
+    // Without its arrow the catch is refused and what follows is left for the caller to find.
+    if !p.expect(Arrow, "`->` and the expression a caught fault produces") then return expr(BadE, left.span.to(head.span))
+
+    val body = if p.at_tok(Indent) then branch(p) else parse_expr(p, power(Arrow).right)
+    var pat = head
+    var guard: Option[&Expr] = None
+
+    head.kind match
+        Disj(a, g) ->
+            if head.span.start == a.span.start
+                pat = a
+                guard = Some(g)
+        _ -> ()
+
+    expr(CatchE(id, left, pat, guard, body), left.span.to(body.span))
 
 private one_clause_lambda(p: *Parser, params: Buf[&Expr], guard: Option[&Expr], body: &Expr, at: Span) -> &Expr
     var guards: Buf[Guard] = buf()

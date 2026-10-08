@@ -2,10 +2,11 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 
-// The general builtins: `error`, `abs`, `min`, `max`, `odd`, `even` and `sum`.
+// The general builtins: `error`, `throw`, `abs`, `min`, `max`, `odd`, `even` and `sum`.
 
 install_predef(v: *Vm)
     register(v, "error", 1, do_error)
+    register(v, "throw", 1, do_throw)
     register(v, "abs", 1, do_abs)
     register(v, "min", Variadic, do_min)
     register(v, "max", Variadic, do_max)
@@ -19,6 +20,15 @@ private do_error(base: usize, argc: usize) -> Result[Value, Fault]
     val x = arg(base, 0)
 
     Err(user_error(x, render(x)))
+
+// `throw(x)`: raise `x` itself, as Prolog's `throw/1` does -- the ball a `catch` sees is `x`, not an
+// error term around it.
+private do_throw(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+
+    x match
+        Var(_) -> Err(instantiation_error("instantiation error: 'throw' was given an unbound variable"))
+        _ -> Err(Thrown(x))
 
 private do_abs(base: usize, argc: usize) -> Result[Value, Fault]
     val x = arg(base, 0)
