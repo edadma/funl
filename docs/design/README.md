@@ -78,6 +78,18 @@ Each is argued where it arises; this is the list.
 | Can ordinary code build a compound term without `data`? | no: outside a relation head an undeclared functor is "not defined" (user, 2026-10-08) | [language](language.md#data) |
 | How do modules and native modules work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md) |
 | How do `async` and `await` work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md#async-and-await) |
+| What is a handle? | an opaque `Handle` kind with a per-kind method table, explicit `close()`, a finalizer as backstop (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| How does a sysl iterator cross? | as a native generator over a per-call state handle; each call starts afresh (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| Failure or fault for a native's error? | failure for "no such thing", "no more", "not well-formed"; an ISO error fault for the rest (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| How does FunL catch a fault? | slate's postfix `e catch err -> recovery`, before `funl:http` (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| How are relations exported and imported? | `export` on any clause exports the procedure; an import brings every arity; qualified calls resolved statically (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| What does Prolog see of a module? | a FunL file's exports; built-in modules module-qualified, `json:parse(T, V)` (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| What becomes of `import "file.pl"`? | kept as the one form for a Prolog file (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| Is there a bytes kind? | yes, `Bytes`, in milestone 9 (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| Is `await` resumed by backtracking? | no: bounded, one value, never redone; a generator body may `await` (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| Blocking or promise-shaped I/O? | both: blocking in each module, promise forms in `funl:async` (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| Which loop, and may two tasks share a logic variable? | kairos (`uv` behind an `async` feature); binding another task's variable is a fault (user, 2026-10-08) | [modules](modules.md#questions-decided) |
+| What is the prelude? | the first module written in FunL: a Haskell-style list library, auto-imported like Haskell's Prelude, shadowable by a program's own names (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 
 ## Open questions
 
@@ -85,14 +97,7 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| What is a handle? | an opaque `Handle` kind with a per-kind method table, explicit `close()`, a finalizer as backstop | [modules](modules.md#open-questions) |
-| How does a sysl iterator cross? | as a native generator over a per-call state handle; each call starts afresh | [modules](modules.md#open-questions) |
-| Failure or fault for a native's error? | failure for "no such thing", "no more", "not well-formed"; an ISO error fault for the rest | [modules](modules.md#open-questions) |
-| How does FunL catch a fault? | slate's postfix `e catch err -> recovery`, before `funl:http` | [modules](modules.md#open-questions) |
-| How are relations exported and imported? | `export` on any clause exports the procedure; an import brings every arity; qualified calls resolved statically | [modules](modules.md#open-questions) |
-| What does Prolog see of a module? | a FunL file's exports; built-in modules module-qualified, `json:parse(T, V)` | [modules](modules.md#open-questions) |
-| What becomes of `import "file.pl"`? | kept as the one form for a Prolog file | [modules](modules.md#open-questions) |
-| Is there a bytes kind? | yes, `Bytes`, in milestone 9 | [modules](modules.md#open-questions) |
-| Is `await` resumed by backtracking? | no: bounded, one value, never redone; a generator body may `await` | [modules](modules.md#open-questions) |
-| Blocking or promise-shaped I/O? | both: blocking in each module, promise forms in `funl:async` | [modules](modules.md#open-questions) |
-| Which loop, and may two tasks share a logic variable? | kairos (`uv` behind an `async` feature); binding another task's variable is a fault | [modules](modules.md#open-questions) |
+| Prelude `map` against the builtin `map`? | one `map/2`; a function as first argument maps, anything else is the constructor | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| Which prelude names are core natives? | `reverse`, `sort`, `sortBy`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, the `zip` family; the rest FunL source | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| A generator of tuples cannot be destructured by `<-` | a tuple pattern matches a generated tuple whole; until then `zip` answers lists | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| Builtins as values? | a one-arity builtin named without a call is a function value | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
