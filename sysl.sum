@@ -5,3 +5,4 @@ github.com/sysl-lang/linenoise v0.3.0 sha256:197bc94c99c40b089d45115fa59bfe52fb7
 github.com/sysl-lang/parsing v0.11.0 sha256:8fbf330679c56012e65c41d071fc82248e59f127b45a8b44fee606bf904a178b
 github.com/sysl-lang/parsing v0.12.0 sha256:71996f40ed49ce86bfae0df04e2afe02027ee7ec39335ac7336bc76347c0b060
 github.com/sysl-lang/parsing v0.12.1 sha256:72832018fbf78a36ee034e13c4b623aa182abbacbbc450439d8de631b00dc3ab
+github.com/sysl-lang/sqlite3 v0.7.0 sha256:5ad09d7ce307300ae132220e49b911a351a4b7074417f99ff068a892226b97e5

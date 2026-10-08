@@ -485,7 +485,8 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/strings.md 14 5 0 0\n" +
     "docs/reference/success-and-failure.md 17 5 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
-    "docs/library/fs.md 12 3 0 0\n"
+    "docs/library/fs.md 12 3 0 0\n" +
+    "docs/library/sqlite.md 10 1 0 0\n"
 
 // -- the runner itself -------------------------------------------------------------------------------
 

@@ -97,6 +97,7 @@ builtin_modules() -> Buf[ModuleProvider]
     var out: Buf[ModuleProvider] = buf()
 
     out.push(ModuleProvider("fs", fs_exports))
+    out.push(ModuleProvider("sqlite", sqlite_exports))
     out
 
 // The provider of `funl:name`, if FunL has one.

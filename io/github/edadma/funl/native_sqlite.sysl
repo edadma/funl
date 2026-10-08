@@ -1,0 +1,270 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sh.sysl.parsing.counted
+import sh.sysl.sqlite
+import sh.sysl.sqlite.{ColumnType, Query}
+
+// `funl:sqlite`: SQLite databases, over the `sysl-lang/sqlite3` package.
+//
+// **One export, `sqlite(path)`, and everything else is a method on what it answers**: a `sqlite
+// database` handle whose methods are `exec(sql)`, `run(sql, params...)` and `query(sql, params...)`,
+// with `close()` supplied by the runtime. `path` is a file, made when it is not there, or
+// `":memory:"` for a database that lives as long as the handle.
+//
+// **`query` is a generator of rows**: each call compiles its statement afresh, and backtracking steps
+// it, so a query with no rows fails. A row is an immutable map from column name to value -- an
+// integer, a real, a string, bytes for a BLOB and `undefined` for NULL -- so `row.title` reads.
+//
+// **Every error SQLite reports is a fault**, `system_error` carrying SQLite's own sentence, catchable
+// with `catch` or `catch/3`: SQL that does not compile, a constraint broken, a file that will not
+// open. A parameter of a kind SQLite cannot hold is a `type_error`, and the wrong number of them a
+// `domain_error`.
+//
+// **The sysl values live in tables here, and a handle holds its place in one** (`n`), since a handle
+// is collected storage and a `&Db` is a counted reference. A query's state holds the database's place
+// too, so closing the database ends every query still running over it at once rather than when the
+// collector finds them.
+
+// What `funl:sqlite` exports, each name the short form of a native `install_sqlite` registered as
+// `sqlite.name`.
+private val SqliteNames: [1]string = ["sqlite"]
+
+private const DatabaseKind: string = "sqlite database"
+private const RowsKind: string = "sqlite rows"
+
+// A running query: the statement, and the place of the database it runs over.
+private struct Running
+    db: usize
+    q: &Query
+
+// process-wide: every open database, by the place its handle holds; a closed one's place is `None`
+// until another database takes it. A handle is collected storage, which cannot hold the counted
+// reference a connection is, so the reference waits here; places are never shared, so every VM in
+// the process can keep its databases in the one table.
+private var databases: Buf[Option[&sqlite.Db]] = buf()
+
+// process-wide: every running query, by the place its state handle holds, for the reason
+// `databases` is.
+private var running: Buf[Option[Running]] = buf()
+
+install_sqlite(v: *Vm)
+    val db = register_handle_kind(v, DatabaseKind, release_database)
+
+    register_handle_kind(v, RowsKind, release_rows)
+    register(v, "sqlite.sqlite", 1, do_open)
+    register_method(v, db, "exec", 1, do_exec)
+    register_method(v, db, "run", Variadic, do_run)
+    register_stepping_method(v, db, "query", Variadic, start_query, step_query)
+
+// The id of handle kind `name` on the running VM.
+private kind_named(name: string) -> u32
+    val kinds = current().handle_kinds
+
+    for i in 0..<kinds.len()
+        if kinds.at(i).name == name then return u32(i)
+
+    panic("funl:sqlite is not installed on this VM")
+
+// The exports of `funl:sqlite`.
+sqlite_exports() -> Buf[ModExport] = native_exports("sqlite", SqliteNames)
+
+// -- the tables ----------------------------------------------------------------------------------
+
+// The first free place in `databases`, holding `db`.
+private keep_database(db: &sqlite.Db) -> long
+    for i in 0..<databases.len()
+        if databases.at(i).is_none()
+            databases.set(i, Some(db))
+            return long(i)
+
+    databases.push(Some(db))
+    long(databases.len() - 1)
+
+// The first free place in `running`, holding `r`.
+private keep_running(r: Running) -> long
+    for i in 0..<running.len()
+        if running.at(i).is_none()
+            running.set(i, Some(r))
+            return long(i)
+
+    running.push(Some(r))
+    long(running.len() - 1)
+
+// A database handle's release: every query still running over it finalized, then the connection
+// closed, as the last reference to it goes.
+private release_database(h: *HandleObj)
+    val at = usize(h.n)
+
+    for i in 0..<running.len()
+        running.at(i) match
+            Some(r) -> if r.db == at then running.set(i, None)
+            None -> ()
+
+    if at < databases.len() then databases.set(at, None)
+
+private release_rows(h: *HandleObj)
+    val at = usize(h.n)
+
+    if at < running.len() then running.set(at, None)
+
+// -- arguments and errors ------------------------------------------------------------------------
+
+// Argument 0 of a method, an open database, and the connection it holds.
+private database_arg(base: usize, name: string) -> Result[&sqlite.Db, Fault]
+    val h = open_handle(base, 0, kind_named(DatabaseKind), s"'$name'")?
+    val at = usize(h.n)
+
+    if at < databases.len()
+        databases.at(at) match
+            Some(db) -> return Ok(db)
+            None -> ()
+
+    Err(Broken(s"'$name' was called on a database handle whose connection is gone"))
+
+// Argument `i`, some SQL: a string.
+private sql_arg(base: usize, i: usize, name: string) -> Result[string, Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Str(p) -> Ok(p.s)
+        _ -> Err(kind_error(x, "string", s"'$name' wants SQL, a string, and was given ${described(x)}"))
+
+// The fault for an error SQLite reported while `name` did its work.
+private sql_fault(e: sqlite.Error, name: string) -> Fault = system_error(s"'$name' failed: ${e.message}")
+
+// The fault for an error SQLite reported, or `x` itself.
+private sql_ok[T](r: Result[T, sqlite.Error], name: string) -> Result[T, Fault] = r match
+    Ok(x) -> Ok(x)
+    Err(e) -> Err(sql_fault(e, name))
+
+// `q` compiled from argument 1 of a method on a database, with arguments 2 on bound to its
+// parameters in order.
+private prepared(base: usize, argc: usize, name: string) -> Result[(&sqlite.Db, &Query), Fault]
+    val db = database_arg(base, name)?
+
+    if argc < 2 then return Err(wrong_count(name, argc - 1, s"'$name' takes SQL and its parameters, and was given nothing"))
+
+    val sql = sql_arg(base, 1, name)?
+    val q = sql_ok(db.prepare(sql), name)?
+    val wanted = usize(q.parameters())
+    val given = argc - 2
+
+    if wanted != given
+        return Err(domain_error("sql_parameters", Int(long(given)), s"'$name': this SQL takes ${counted(wanted, "parameter")} and was given $given"))
+
+    for i in 0..<given
+        bind_value(q, int(i + 1), deref(arg(base, i + 2)), name)?
+
+    Ok((db, q))
+
+// Value `x` bound to parameter `index` of `q`: an integer, a real, a string, bytes, `true` and `false`
+// as 1 and 0, and `undefined` as NULL.
+private bind_value(q: &Query, index: int, x: Value, name: string) -> Result[unit, Fault]
+    val r = x match
+        Int(n) -> q.bind_long(index, n)
+        Real(r) -> q.bind_real(index, r)
+        Str(p) -> q.bind_text(index, p.s)
+        Bytes(p) -> q.bind_blob(index, p.b.view())
+        Undefined -> q.bind_null(index)
+        Atom(id) ->
+            if id == TrueAtom then q.bind_long(index, 1)
+            else if id == FalseAtom then q.bind_long(index, 0)
+            else return Err(type_error("sql_value", x, s"'$name' cannot bind ${described(x)}: SQLite holds integers, reals, strings, bytes and undefined"))
+        Big(_) -> return Err(representation_error("max_integer", s"'$name' cannot bind ${described(x)}: SQLite holds integers of 64 bits"))
+        Var(_) -> return Err(instantiation_error(s"'$name' cannot bind an unbound variable"))
+        _ -> return Err(type_error("sql_value", x, s"'$name' cannot bind ${described(x)}: SQLite holds integers, reals, strings, bytes and undefined"))
+
+    sql_ok(r, name)?
+    Ok(())
+
+// -- opening -------------------------------------------------------------------------------------
+
+// `sqlite(path)`: the database at `path`, made when there is no file, or `":memory:"`.
+private do_open(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+
+    val path = x match
+        Str(p) -> p.s
+        Atom(id) -> atom_name(id)
+        _ -> return Err(kind_error(x, "string", s"'sqlite' wants a path, a string, and was given ${described(x)}"))
+
+    val db = sqlite.open(path) match
+        Ok(db) -> db
+        Err(e) -> return Err(system_error(s"'sqlite' cannot open `$path`: ${e.message}"))
+
+    val h = new_handle(kind_named(DatabaseKind))?
+
+    h.n = keep_database(db)
+    Ok(Handle(h))
+
+// -- statements ----------------------------------------------------------------------------------
+
+// `db.exec(sql)`: every statement in `sql` run in turn, any rows they give dropped. Answers `()`.
+private do_exec(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val db = database_arg(base, "exec")?
+    val sql = sql_arg(base, 1, "exec")?
+
+    sql_ok(db.exec_all(sql), "exec")?
+    Ok(Some(Unit))
+
+// `db.run(sql, params...)`: one statement run with its parameters bound, answering an immutable map
+// of `changes`, the rows it changed, and `last_insert_rowid`.
+private do_run(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (db, q) = prepared(base, argc, "run")?
+
+    sql_ok(q.step(), "run")?
+
+    val out = new_map()?
+
+    map_put(out, new_str("changes")?, Int(long(db.changes())))?
+    map_put(out, new_str("last_insert_rowid")?, Int(db.last_insert_rowid()))?
+    Ok(Some(Map(out)))
+
+// `db.query(sql, params...)`: the statement compiled and bound, its state a rows handle.
+private start_query(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (_, q) = prepared(base, argc, "query")?
+    val db_at = usize(open_handle(base, 0, kind_named(DatabaseKind), "'query'")?.n)
+    val h = new_handle(kind_named(RowsKind))?
+
+    h.n = keep_running(Running(db_at, q))
+    Ok(Some(Handle(h)))
+
+// The next row of a running query, or nothing when it has run out or its database was closed.
+private step_query(h: *HandleObj) -> Result[Option[Value], Fault]
+    val at = usize(h.n)
+
+    if at >= running.len() then return Ok(None)
+
+    val q = running.at(at) match
+        Some(r) -> r.q
+        None -> return Ok(None)
+
+    if !sql_ok(q.step(), "query")? then return Ok(None)
+
+    Ok(Some(row_of(q)?))
+
+// The current row of `q`: an immutable map from each column's name to its value.
+private row_of(q: &Query) -> Result[Value, Fault]
+    val out = new_map()?
+
+    for i in 0..<q.columns()
+        val name = q.name_at(i).unwrap_or(s"$i")
+
+        map_put(out, new_str(name)?, column_value(q, i)?)?
+
+    Ok(Map(out))
+
+// Column `i` of the current row: SQLite's own type for it, as the FunL value that holds it.
+private column_value(q: &Query, i: int) -> Result[Value, Fault] = q.type_at(i) match
+    ColumnType.Integer -> Ok(Int(q.long_at(i)))
+    ColumnType.Real -> Ok(Real(q.real_at(i)))
+    ColumnType.Text ->
+        sql_ok(q.text_at(i), "query")? match
+            Some(s) -> Ok(new_str(s)?)
+            None -> Ok(Undefined)
+    ColumnType.Blob ->
+        q.blob_at(i) match
+            Some(b) -> Ok(new_bytes(b)?)
+            None -> Ok(Undefined)
+    ColumnType.Null -> Ok(Undefined)
