@@ -1,12 +1,16 @@
 module io.github.edadma.funl
 
 import sh.sysl.dal.Number
+import sysl.buf.{Buf, buf}
 import sysl.text.{StrBuilder, str_builder}
 
 // How a term is printed.
 //
-// **A term may be cyclic**, unification having no occurs check, so the walk stops at `MaxDepth`
-// and writes `...` rather than recursing for ever.
+// **A cyclic term is printed as `@(Template, Substitutions)`**, as Prolog's `write` writes one: each
+// node where a cycle closes is named `_S1`, `_S2`, ..., the template is the term with those nodes
+// named, and each substitution spells one of them out once, so `x ~ f(x)` prints as
+// `@(_S1, [_S1 = f(_S1)])`. The walk still stops at `MaxDepth`, which keeps a deep term from
+// overflowing the sysl stack.
 //
 // **A string prints as its text, and inside a collection or a term in double quotes**, so
 // `["a", "b"]` is told apart from `[a, b]`, whose elements are atoms. An immutable map prints as it is
@@ -14,29 +18,86 @@ import sysl.text.{StrBuilder, str_builder}
 // `Array(1, 2)` and `Buffer(1, 2)`.
 private const MaxDepth: usize = 1000
 
+// The heads of the cycles of the term being printed and their names; `open` says the next node is
+// spelled out rather than named.
+private struct Named
+    cyc: Cycles
+    names: Buf[string]
+    open: bool
+
 render(v: Value) -> string
     var out = str_builder()
+    val c = cycles_of(v)
 
-    write_value(&out, v, 0)
+    if c.heads.len() == 0
+        var n = Named(c, buf(), false)
+
+        write_value(&out, &n, v, 0)
+        return out.finish()
+
+    var names: Buf[string] = buf()
+
+    for k in 1..c.heads.len()
+        names.push(cycle_name(k))
+
+    var n = Named(c, names, false)
+
+    out.push("@(")
+    write_value(&out, &n, v, 1)
+    out.push(", [")
+
+    for k in 0..<c.heads.len()
+        if k > 0 then out.push(", ")
+
+        out.push(names.at(k))
+        out.push(" = ")
+        n.open = true
+        write_value(&out, &n, c.heads.at(k), 1)
+
+    out.push("])")
     out.finish()
+end render
 
-private write_value(out: *StrBuilder, v: Value, depth: usize)
+// The name `x` is printed as, where it is the head of a cycle.
+private name_of(n: *Named, x: Value) -> Option[string]
+    if n.cyc.heads.len() == 0 then return None
+
+    val a = node_of(x)
+
+    if a == 0 then return None
+
+    get_at(&n.cyc.index, a, 0) match
+        Some(k) -> Some(n.names.at(k - 1))
+        None -> None
+
+private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
     if depth > MaxDepth
         out.push("...")
         return
 
-    deref(v) match
+    val d = deref(v)
+
+    if n.open
+        n.open = false
+    else
+        name_of(n, d) match
+            Some(s) ->
+                out.push(s)
+                return
+            None -> ()
+
+    d match
         Undefined -> out.push("undefined")
         Nil -> out.push("[]")
-        Int(n) -> out.push_int(n)
+        Int(i) -> out.push_int(i)
         Big(p) -> out.push(num_text(p.n))
         Rat(p) -> out.push(num_text(p.n))
         Real(r) -> out.push(num_text(Number.Real(r)))
         Atom(id) -> out.push(atom_name(id))
         Compound(p) ->
             out.push(atom_name(p.functor))
-            write_items(out, p.args.view(), depth, "(", ")")
-        Cons(p) -> write_list(out, p, depth)
+            write_items(out, n, p.args.view(), depth, "(", ")")
+        Cons(p) -> write_list(out, n, p, depth)
         Var(p) ->
             out.push("_G")
             out.push_uint(p.id)
@@ -48,18 +109,18 @@ private write_value(out: *StrBuilder, v: Value, depth: usize)
                 out.push("\"")
                 out.push(p.s)
                 out.push("\"")
-        Tuple(p) -> write_items(out, p.items.view(), depth, "(", ")")
+        Tuple(p) -> write_items(out, n, p.items.view(), depth, "(", ")")
         Func(p) ->
             out.push("<function ")
             out.push(current().chunks.at(p.chunk).name)
             out.push(">")
         Range(r) -> write_range(out, r)
-        Set(s) -> write_items(out, s.items.view(), depth, "{", "}")
-        MutSet(s) -> write_items(out, s.items.view(), depth, "MutableSet(", ")")
-        Map(m) -> write_entries(out, m, depth, "{", "}")
-        MutMap(m) -> write_entries(out, m, depth, "MutableMap(", ")")
-        Array(a) -> write_items(out, a.items.view(), depth, "Array(", ")")
-        Buffer(a) -> write_items(out, a.items.view(), depth, "Buffer(", ")")
+        Set(s) -> write_items(out, n, s.items.view(), depth, "{", "}")
+        MutSet(s) -> write_items(out, n, s.items.view(), depth, "MutableSet(", ")")
+        Map(m) -> write_entries(out, n, m, depth, "{", "}")
+        MutMap(m) -> write_entries(out, n, m, depth, "MutableMap(", ")")
+        Array(a) -> write_items(out, n, a.items.view(), depth, "Array(", ")")
+        Buffer(a) -> write_items(out, n, a.items.view(), depth, "Buffer(", ")")
         Ctor(id) -> write_ctor(out, current().ctors.at(usize(id)))
         CSet(p) ->
             // As `cset` would make it, its characters in ascending order.
@@ -69,15 +130,15 @@ private write_value(out: *StrBuilder, v: Value, depth: usize)
 end write_value
 
 // A map's entries, `key: value`, keys and values written as elements are.
-private write_entries(out: *StrBuilder, m: *MapObj, depth: usize, open: string, close: string)
+private write_entries(out: *StrBuilder, n: *Named, m: *MapObj, depth: usize, open: string, close: string)
     out.push(open)
 
     for i in 0..<m.keys.len()
         if i > 0 then out.push(", ")
 
-        write_value(out, m.keys.at(i), depth + 1)
+        write_value(out, n, m.keys.at(i), depth + 1)
         out.push(": ")
-        write_value(out, m.vals.at(i), depth + 1)
+        write_value(out, n, m.vals.at(i), depth + 1)
 
     out.push(close)
 
@@ -105,25 +166,31 @@ private write_range(out: *StrBuilder, r: *RangeObj)
         out.push(" by ")
         out.push_int(r.step)
 
-private write_items(out: *StrBuilder, items: []Value, depth: usize, open: string, close: string)
+private write_items(out: *StrBuilder, n: *Named, items: []Value, depth: usize, open: string, close: string)
     out.push(open)
 
     for i in 0..<items.len
         if i > 0 then out.push(", ")
 
-        write_value(out, items[i], depth + 1)
+        write_value(out, n, items[i], depth + 1)
 
     out.push(close)
 
-// `[a, b, c]` for a proper list and `[a, b | t]` for one whose tail is not `[]`.
-private write_list(out: *StrBuilder, first: *ConsObj, depth: usize)
+// `[a, b, c]` for a proper list and `[a, b | t]` for one whose tail is not `[]` -- a cycle's head
+// among them, written as its name.
+private write_list(out: *StrBuilder, n: *Named, first: *ConsObj, depth: usize)
     out.push("[")
-    write_value(out, first.head, depth + 1)
+    write_value(out, n, first.head, depth + 1)
 
     var tail = deref(first.tail)
     var steps: usize = 0
 
     loop
+        if name_of(n, tail).is_some()
+            out.push(" | ")
+            write_value(out, n, tail, depth + 1)
+            break
+
         tail match
             Cons(p) ->
                 steps += 1
@@ -133,12 +200,12 @@ private write_list(out: *StrBuilder, first: *ConsObj, depth: usize)
                     break
 
                 out.push(", ")
-                write_value(out, p.head, depth + 1)
+                write_value(out, n, p.head, depth + 1)
                 tail = deref(p.tail)
             Nil -> break
             _ ->
                 out.push(" | ")
-                write_value(out, tail, depth + 1)
+                write_value(out, n, tail, depth + 1)
                 break
 
     out.push("]")

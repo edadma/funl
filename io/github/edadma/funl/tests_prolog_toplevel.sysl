@@ -55,6 +55,31 @@ ANYTHING_BUT_A_SEMICOLON_STOPS_AT_THE_ANSWER_GIVEN()
         "?- member(X, [a, b]).\nX = a\n\n?- X = 1.\nX = 1.\nstatus: 0")
 
 @test
+A_BINDING_THAT_IS_ITS_OWN_CYCLE_IS_WRITTEN_WITH_ITS_OWN_NAME()
+    assert_eq(session([], ["X = f(X).", "X = [a | X].", "X = f(g(X))."]),
+        "?- X = f(X).\nX = f(X).\n?- X = [a | X].\nX = [a|X].\n?- X = f(g(X)).\nX = f(g(X)).\nstatus: 0")
+
+@test
+A_CYCLE_INSIDE_A_BINDING_IS_FACTORED_INTO_A_WHERE_BLOCK()
+    assert_eq(session([], ["X = f(Y), Y = g(Y)."]),
+        "?- X = f(Y), Y = g(Y).\nX = f(_S1), % where\n    _S1 = g(_S1),\nY = g(Y).\nstatus: 0")
+
+@test
+FACTORED_CYCLES_ARE_NUMBERED_ACROSS_THE_ANSWER()
+    assert_eq(session([], ["X = f(A, B), A = g(A), B = h(B), Z = k(B)."]),
+        "?- X = f(A, B), A = g(A), B = h(B), Z = k(B).\n" +
+        "X = f(_S1,_S2), % where\n    _S1 = g(_S1),\n    _S2 = h(_S2),\nA = g(A),\nB = h(B),\nZ = k(_S3), % where\n    _S3 = h(_S3).\nstatus: 0")
+
+@test
+A_BINDING_THAT_IS_ITS_OWN_CYCLE_MAY_HOLD_ANOTHER()
+    assert_eq(session([], ["X = f(X, Y), Y = g(Y)."]),
+        "?- X = f(X, Y), Y = g(Y).\nX = f(X,_S1), % where\n    _S1 = g(_S1),\nY = g(Y).\nstatus: 0")
+
+@test
+AN_ACYCLIC_ANSWER_IS_WRITTEN_AS_BEFORE()
+    assert_eq(session([], ["X = f(Y, Y), Y = g(a)."]), "?- X = f(Y, Y), Y = g(a).\nX = f(g(a),g(a)),\nY = g(a).\nstatus: 0")
+
+@test
 A_SEMICOLON_PAST_THE_LAST_SOLUTION_IS_FALSE()
     assert_eq(session([], ["(X = 1 ; fail).", ";"]), "?- (X = 1 ; fail).\nX = 1\n;\nfalse.\nstatus: 0")
 

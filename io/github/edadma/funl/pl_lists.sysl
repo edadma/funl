@@ -25,6 +25,9 @@ private pl_length(base: usize, argc: usize, cursor: long) -> Result[Answer, Faul
     var count: long = 0
     var at = deref(arg(base, 0))
 
+    // A second cursor at half speed: the two meeting is a cyclic list, which has no length.
+    var slow = at
+
     loop
         at match
             Cons(p) ->
@@ -32,7 +35,14 @@ private pl_length(base: usize, argc: usize, cursor: long) -> Result[Answer, Faul
                 at = deref(p.tail)
             Nil -> return unified(n, Int(count))
             Var(_) -> break
-            _ -> return Err(type_error("list", arg(base, 0), s"length/2 wants a list, and was given ${described(arg(base, 0))}"))
+            _ -> return Err(not_a_list(arg(base, 0)))
+
+        if count % 2 == 0
+            slow = slow match
+                Cons(q) -> deref(q.tail)
+                _ -> slow
+
+            if node_of(at) != 0 && node_of(slow) == node_of(at) then return Err(not_a_list(arg(base, 0)))
 
     val tail = at
 
@@ -46,6 +56,8 @@ private pl_length(base: usize, argc: usize, cursor: long) -> Result[Answer, Faul
             unify_on_answer(n, Int(count + cursor))
             Ok(GivesMore(Unit, cursor + 1))
 end pl_length
+
+private not_a_list(x: Value) -> Fault = type_error("list", x, s"length/2 wants a list, and was given ${described(x)}")
 
 // A list of `k` new variables.
 private fresh_list(k: long) -> Result[Value, Fault]

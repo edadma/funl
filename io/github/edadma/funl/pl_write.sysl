@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.dal
 import sh.sysl.dal.Number
+import sysl.buf.{Buf, buf}
 import sysl.text.{Search, StrBuilder, chars_of, str_builder}
 
 // How Prolog writes a term: operators as the current table declares them, atoms quoted where a
@@ -35,19 +36,82 @@ private struct Writer
     // The last byte written, which decides whether the next token needs a space before it.
     last: u8
 
-// However deep a term is, the writer stops here: a term may be cyclic, unification having no occurs
-// check.
+    // The heads of the term's cycles and the names they are written as: a node among them is written
+    // as its name, except where `open` says the next node written is to be spelled out.
+    cyc: Cycles
+    names: Buf[string]
+    open: bool
+
+// However deep a term is, the writer stops here, so a deep term cannot overflow the sysl stack.
 private const Deepest: long = 1000
 
 // `x` as text.
+//
+// **A cyclic term is written as `@(Template, Substitutions)`**, as SWI-Prolog writes one under its
+// default `cycles(true)`: each node where a cycle closes is named `_S1`, `_S2`, ..., the template is
+// the term with those nodes named, and each substitution spells one of them out once. So
+// `X = f(X), write(X)` writes `@(_S1,[_S1=f(_S1)])`, and no write of a term is infinite.
 term_text(x: Value, o: WriteOpts) -> string
-    var w = Writer(str_builder(), o, 0)
+    val c = cycles_of(x)
 
-    put_term(&w, x, 1200, 0)
+    if c.heads.len() == 0
+        var w = writer(o, no_cycles(), buf())
+
+        put_term(&w, x, 1200, 0)
+        return w.out.finish()
+
+    var names: Buf[string] = buf()
+
+    for k in 1..c.heads.len()
+        names.push(cycle_name(k))
+
+    var w = writer(o, c, names)
+
+    emit(&w, "@(")
+    put_term(&w, x, 999, 0)
+    emit(&w, ",[")
+
+    for k in 0..<c.heads.len()
+        if k > 0 then emit(&w, ",")
+
+        if o.ignore_ops then emit(&w, "=(")
+
+        emit(&w, names.at(k))
+        emit(&w, if o.ignore_ops then "," else "=")
+        w.open = true
+        put_term(&w, c.heads.at(k), if o.ignore_ops then 999 else 699, 0)
+
+        if o.ignore_ops then emit(&w, ")")
+
+    emit(&w, "])")
+    w.out.finish()
+end term_text
+
+// `x` as text, the heads of `c`'s cycles written as `names`: `x` itself spelled out when `open`, and
+// at priority `max`. What the top level writes an answer with.
+term_text_named(x: Value, o: WriteOpts, c: Cycles, names: Buf[string], open: bool, max: u16) -> string
+    var w = writer(o, c, names)
+
+    w.open = open
+    put_term(&w, x, max, 0)
     w.out.finish()
 
-// A writer that will write into the middle of another's output, inheriting its options.
-private sub_writer(w: *Writer) -> Writer = Writer(str_builder(), w.o, 0)
+private writer(o: WriteOpts, c: Cycles, names: Buf[string]) -> Writer = Writer(str_builder(), o, 0, c, names, false)
+
+// A writer that will write into the middle of another's output, inheriting its options and names.
+private sub_writer(w: *Writer) -> Writer = writer(w.o, w.cyc, w.names)
+
+// The name `x` is written as, where it is the head of a cycle.
+private name_of(w: *Writer, x: Value) -> Option[string]
+    if w.cyc.heads.len() == 0 then return None
+
+    val a = node_of(x)
+
+    if a == 0 then return None
+
+    get_at(&w.cyc.index, a, 0) match
+        Some(k) -> Some(w.names.at(k - 1))
+        None -> None
 
 private emit(w: *Writer, s: string)
     val n = s.bytes.len
@@ -78,7 +142,18 @@ private put_term(w: *Writer, x: Value, max: u16, depth: long)
         emit(w, "...")
         return
 
-    deref(x) match
+    val d = deref(x)
+
+    if w.open
+        w.open = false
+    else
+        name_of(w, d) match
+            Some(n) ->
+                emit(w, n)
+                return
+            None -> ()
+
+    d match
         Int(n) -> emit(w, s"$n")
         Big(p) -> emit(w, num_text(p.n))
 
@@ -188,6 +263,12 @@ private put_list(w: *Writer, first: *ConsObj, depth: long)
     var count: long = 1
 
     loop
+        // A tail that is a cycle's head is written as its name, after a bar.
+        if name_of(w, tail).is_some()
+            emit(w, "|")
+            put_term(w, tail, 999, depth + 1)
+            break
+
         tail match
             Cons(p) ->
                 if (w.o.max_depth > 0 && count >= w.o.max_depth) || count >= Deepest * Deepest
@@ -311,7 +392,7 @@ private put_infix(w: *Writer, name: string, o: PlOp, c: *CompoundObj, max: u16, 
 // brackets after a name are its argument list. An operand that begins with a bracket of its own is
 // set apart by a space.
 private put_prefix(w: *Writer, name: string, o: PlOp, x: Value, max: u16, depth: long)
-    if written_as_compound(name, o, x)
+    if written_as_compound(w, name, o, x)
         put_atom(w, name, true)
         emit(w, "(")
         put_term(w, x, 999, depth + 1)
@@ -335,12 +416,14 @@ private put_prefix(w: *Writer, name: string, o: PlOp, x: Value, max: u16, depth:
 
 // Whether prefix operator `name` applied to `x` is written as the compound: a sign before what is
 // written beginning with a digit, or an operand that would need brackets.
-private written_as_compound(name: string, o: PlOp, x: Value) -> bool =
-    ((name == "-" || name == "+") && leads_with_digit(x)) || priority_of(x) > operand_max(o)
+private written_as_compound(w: *Writer, name: string, o: PlOp, x: Value) -> bool =
+    ((name == "-" || name == "+") && leads_with_digit(w, x)) || priority_of(w, x) > operand_max(o)
 
 // Whether `x`, written as an operand, begins with a digit: a number that is not negative, or an
 // operator term whose leftmost operand does.
-private leads_with_digit(x: Value) -> bool
+private leads_with_digit(w: *Writer, x: Value) -> bool
+    if name_of(w, deref(x)).is_some() then return false
+
     deref(x) match
         Int(n) -> n >= 0
         Big(p) -> dal.sign(p.n) >= 0
@@ -353,7 +436,7 @@ private leads_with_digit(x: Value) -> bool
             val n = c.args.len()
 
             if (n == 2 && infix_for_write(name).is_some()) || (n == 1 && postfix_op(name).is_some() && prefix_op(name).is_none())
-                return leads_with_digit(c.args.at(0))
+                return leads_with_digit(w, c.args.at(0))
 
             false
         _ -> false
@@ -367,7 +450,7 @@ private put_operand(w: *Writer, x: Value, max: u16, depth: long)
         emit(w, ")")
         return
 
-    val p = priority_of(x)
+    val p = priority_of(w, x)
 
     open_if(w, p > max)
     put_term(w, x, if p > max then 1200 else max, depth + 1)
@@ -377,8 +460,11 @@ private is_op_atom(x: Value) -> bool = deref(x) match
     Atom(id) -> is_op(atom_name(id)) || atom_name(id) == ","
     _ -> false
 
-// The priority `x` is written at: its operator's, when it is written as an operator, and 0 otherwise.
-private priority_of(x: Value) -> u16
+// The priority `x` is written at: its operator's, when it is written as an operator, and 0 otherwise
+// -- a cycle's head written as its name among them.
+private priority_of(w: *Writer, x: Value) -> u16
+    if name_of(w, deref(x)).is_some() then return 0
+
     deref(x) match
         Compound(c) ->
             val name = atom_name(c.functor)
@@ -393,7 +479,7 @@ private priority_of(x: Value) -> u16
                 prefix_op(name) match
                     Some(o) ->
                         // Written as the compound, as `-(1)` and `-((a,b))` are, it needs no brackets.
-                        if written_as_compound(name, o, c.args.at(0)) then return 0
+                        if written_as_compound(w, name, o, c.args.at(0)) then return 0
 
                         return o.priority
                     None -> ()

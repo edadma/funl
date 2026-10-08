@@ -167,13 +167,14 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
                 if quiet then break
 
                 var parts: Buf[string] = buf()
+                var factored: usize = 0
 
                 for j in 0..<shown.len()
                     val x = deref(v.stack.at(base + 1 + j))
 
                     x match
                         Var(_) -> ()
-                        _ -> parts.push(s"${c.names.at(shown.at(j))} = ${answer_text(x)}")
+                        _ -> parts.push(binding_text(c.names.at(shown.at(j)), x, &factored))
 
                 val answer = if parts.len() == 0 then "true" else join(parts.view(), ",\n")
 
@@ -202,8 +203,51 @@ private term_value_of(c: ReadClause) -> Value
 
     term_value(c.t, &vars).unwrap_or(Undefined)
 
-// What a variable's binding is written as: quoted, so it reads back as the same term.
+// A term as an answer writes it: quoted, so it reads back as the same term.
 private answer_text(x: Value) -> string = term_text(x, write_opts(true, false, true))
+
+// What variable `name`'s binding `x` is written as.
+//
+// **A cyclic binding is written as SWI-Prolog's top level writes one.** Where the cycle closes on the
+// binding itself, the variable's own name stands for it: `X = f(X)`. Every other node where a cycle
+// closes is named `_S1`, `_S2`, ... -- numbered across the whole answer, `factored` counting them --
+// and spelled out once in a `% where` block below the binding:
+//
+//     X = f(_S1), % where
+//         _S1 = g(_S1)
+private binding_text(name: string, x: Value, factored: *usize) -> string
+    val o = write_opts(true, false, true)
+    val c = cycles_of(x)
+
+    if c.heads.len() == 0 then return s"$name = ${answer_text(x)}"
+
+    val root = node_of(x)
+    var names: Buf[string] = buf()
+    var spelled: Buf[usize] = buf()
+    var own = false
+
+    for i in 0..<c.heads.len()
+        if node_of(c.heads.at(i)) == root
+            names.push(name)
+            own = true
+        else
+            *factored += 1
+            names.push(cycle_name(*factored))
+            spelled.push(i)
+
+    var text = s"$name = ${term_text_named(x, o, c, names, own, 1200)}"
+
+    if spelled.len() > 0 then text += ", % where"
+
+    for j in 0..<spelled.len()
+        val i = spelled.at(j)
+
+        text += s"\n    ${names.at(i)} = ${term_text_named(c.heads.at(i), o, c, names, true, 699)}"
+
+        if j + 1 < spelled.len() then text += ","
+
+    text
+end binding_text
 
 // An uncaught ball in ISO form: `error(Formal, _)` for an error term -- its context is the machine's
 // message, which is not part of the standard term -- and the ball itself for anything else.

@@ -1,0 +1,319 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf, buf_with_capacity}
+
+// Cyclic terms: what every walk over a term needs so that it ends on one.
+//
+// **Unification has no occurs check, so `X = f(X)` makes a term that contains itself** -- a rational
+// tree, as SWI-Prolog calls it. A walk that follows a term's parts would follow such a term for ever,
+// so each walk remembers nodes it has been into -- compounds, list cells and tuples, the only values
+// a cycle can run through -- and does not go into a remembered one again.
+//
+// **Remembering starts only after `Untracked` nodes**, so a walk over a small term, which is almost
+// every walk, does exactly what it did before cycles were thought of. A cyclic term has an infinite
+// unfolding, so a walk over one always gets that far.
+//
+// **Past that, a walk remembers only the nodes it meets at a depth that is a multiple of `Sampled`**,
+// counting from where remembering began, which keeps a large acyclic term cheap and still ends every
+// walk: an endless walk would go down an endless path (finitely many parts at each node), that path
+// has endlessly many nodes at such depths and the term only finitely many nodes, so one of them is met
+// twice on it -- and the second time it is remembered and passed over. Passing over a node met before
+// is right for every walk here: its parts have been, or are being, walked from the first meeting.
+//
+// The record is keyed by heap address. The collector runs only between instructions, so an address
+// does not change while a walk -- which runs inside one -- holds it.
+
+// How many nodes a walk goes into before it starts remembering them.
+const Untracked: usize = 4096
+
+// Past `Untracked`, the depths at which a walk remembers the node it meets are the multiples of this.
+private const Sampled: usize = 16
+
+// The heap address of a compound, a list cell or a tuple, and 0 for every other value.
+node_of(x: Value) -> usize = x match
+    Compound(p) -> usize(p)
+    Cons(p) -> usize(p)
+    Tuple(p) -> usize(p)
+    _ -> 0
+
+// A table keyed by an address or a pair of addresses, with a word stored under each key. Open
+// addressing over one flat list, three words to a slot: the two halves of the key and the value. A
+// slot whose first word is 0 is empty, no node living at address 0.
+//
+// **The slot count is a power of two, and a key is placed by Fibonacci hashing** -- the top `bits` of
+// its product with 2^64 / phi -- which spreads addresses well though their low bits are always zero.
+struct AddrTable
+    slots: Buf[usize]
+    count: usize
+    bits: u64
+
+addr_table() -> AddrTable = AddrTable(buf(), 0, 0)
+
+// -- Walks ----------------------------------------------------------------------------------------
+
+// What a walk over a work list keeps so that it ends on a cyclic term. Each entry of the work list is
+// an item: one value, or a pair of values for a walk comparing two terms.
+//
+// The walk calls `next_depth` as it takes an item off, `passed` to ask whether to pass the item over,
+// and `pushed` once it has pushed the item's parts. Until `Untracked` items have been walked that is
+// a count and nothing more; then every item waiting is given depth 0 and each part one more than the
+// item it came from.
+struct TermWalk
+    seen: AddrTable
+    depths: Buf[usize]
+    tracking: bool
+    walked: usize
+
+term_walk() -> TermWalk = TermWalk(addr_table(), buf(), false, 0)
+
+// A walk that remembers from its first item, the one item on its work list: for a walker that knows
+// already that its term is not a small tree, and would rather not wait `Untracked` items to begin.
+watching_walk() -> TermWalk
+    var depths: Buf[usize] = buf()
+
+    depths.push(0)
+    TermWalk(addr_table(), depths, true, Untracked)
+
+// The depth of the item just taken off the work list.
+next_depth(w: *TermWalk) -> usize = if w.tracking then w.depths.pop().unwrap() else 0
+
+// Whether the item `x`, `y` at depth `d` is a pair of nodes -- or with `y` `Undefined`, a node --
+// remembered from before, to be passed over; remembered now if its depth is one that is.
+passed(w: *TermWalk,x: Value, y: Value, d: usize) -> bool
+    if !w.tracking || d % Sampled != 0 then return false
+
+    val a = node_of(x)
+
+    if a == 0 then return false
+
+    val b = y match
+        Undefined -> 0
+        _ -> node_of(y)
+
+    y match
+        Undefined -> ()
+        _ -> if b == 0 || b == a then return false
+
+    !put_new(&w.seen, a, b, 1)
+
+// The walk has pushed `n` parts of an item at depth `d`, and `waiting` items are on its work list now.
+pushed(w: *TermWalk,n: usize, d: usize, waiting: usize)
+    if w.tracking
+        for _ in 0..<n
+            w.depths.push(d + 1)
+
+        return
+
+    w.walked += 1
+
+    if w.walked < Untracked then return
+
+    w.tracking = true
+
+    for _ in 0..<waiting
+        w.depths.push(0)
+
+// Store `v` under `a`, `b` unless something is stored there already: whether it was new.
+put_new(t: *AddrTable, a: usize, b: usize, v: usize) -> bool
+    if (t.count + 1) * 2 > t.slots.len() / 3 then grow(t)
+
+    val i = slot_for(t, a, b)
+
+    if t.slots.at(i) != 0 then return false
+
+    t.slots.set(i, a)
+    t.slots.set(i + 1, b)
+    t.slots.set(i + 2, v)
+    t.count += 1
+    true
+
+// Store `v` under `a`, `b`, replacing what was there.
+put_at(t: *AddrTable, a: usize, b: usize, v: usize)
+    if !put_new(t, a, b, v) then t.slots.set(slot_for(t, a, b) + 2, v)
+
+// What is stored under `a`, `b`.
+get_at(t: *AddrTable, a: usize, b: usize) -> Option[usize]
+    if t.count == 0 then return None
+
+    val i = slot_for(t, a, b)
+
+    if t.slots.at(i) == 0 then None else Some(t.slots.at(i + 2))
+
+// The slot holding `a`, `b`, or the empty one where it would go.
+private slot_for(t: *AddrTable, a: usize, b: usize) -> usize
+    val mask = (usize(1) << usize(t.bits)) - 1
+    val h = (u64(a) ^ (u64(b) * 0xc2b2ae3d27d4eb4fu64)) * 0x9e3779b97f4a7c15u64
+    var i = usize(h >> (64 - t.bits))
+
+    loop
+        val at = i * 3
+        val k = t.slots.at(at)
+
+        if k == 0 || (k == a && t.slots.at(at + 1) == b) then return at
+
+        i = (i + 1) & mask
+
+private grow(t: *AddrTable)
+    val old = t.slots
+
+    t.bits = if t.bits == 0 then 8 else t.bits + 1
+
+    val n = usize(1) << usize(t.bits)
+    var fresh = buf_with_capacity(n * 3, usize(0))
+
+    for _ in 0..<n * 3
+        fresh.push(0)
+
+    t.slots = fresh
+    t.count = 0
+
+    var i: usize = 0
+
+    while i < old.len()
+        if old.at(i) != 0 then put_new(t, old.at(i), old.at(i + 1), old.at(i + 2))
+
+        i += 3
+
+// -- Finding the cycles ---------------------------------------------------------------------------
+
+// The nodes of a term that are entered again from inside themselves -- where its cycles close -- in
+// the order a depth-first, left-to-right walk finds them, and the table from each one's address to
+// its position plus one. Empty for an acyclic term.
+//
+// A term written with these nodes named is finite: `X = f(X)` is `_S1` where `_S1 = f(_S1)`. A node
+// shared without a cycle through it is not one of them, so sharing alone changes nothing.
+struct Cycles
+    heads: Buf[Value]
+    index: AddrTable
+
+no_cycles() -> Cycles = Cycles(buf(), addr_table())
+
+// The cycles of `x`. The full walk, which remembers every node, runs only for a term `surely_acyclic`
+// cannot vouch for.
+cycles_of(x: Value) -> Cycles
+    if surely_acyclic(x) then return no_cycles()
+
+    var c = no_cycles()
+
+    // Grey while a node's parts are being walked, black once they all have been.
+    var colour = addr_table()
+
+    // The walk: each node beside the index of its next part to visit.
+    var nodes: Buf[Value] = buf()
+    var next: Buf[usize] = buf()
+
+    enter(&c, &colour, &nodes, &next, deref(x))
+
+    while nodes.len() > 0
+        val top = nodes.len() - 1
+        val i = next.at(top)
+        val y = nodes.at(top)
+
+        part_of(y, i) match
+            Some(p) ->
+                next.set(top, i + 1)
+                enter(&c, &colour, &nodes, &next, deref(p))
+            None ->
+                put_at(&colour, node_of(y), 0, Black)
+                nodes.pop()
+                next.pop()
+
+    c
+end cycles_of
+
+private const Grey: usize = 1
+private const Black: usize = 2
+
+// Go into `y`: push it if it is a node not yet seen, and record it as a cycle's head if it is one
+// whose parts are still being walked.
+private enter(c: *Cycles, colour: *AddrTable, nodes: *Buf[Value], next: *Buf[usize], y: Value)
+    val a = node_of(y)
+
+    if a == 0 then return
+
+    get_at(colour, a, 0) match
+        Some(k) ->
+            if k == Grey && put_new(&c.index, a, 0, c.heads.len() + 1) then c.heads.push(y)
+        None ->
+            put_at(colour, a, 0, Grey)
+            nodes.push(y)
+            next.push(0)
+
+// Part `i` of node `y`, in left-to-right order.
+part_of(y: Value, i: usize) -> Option[Value] = y match
+    Compound(p) -> if i < p.args.len() then Some(p.args.at(i)) else None
+    Tuple(p) -> if i < p.items.len() then Some(p.items.at(i)) else None
+    Cons(p) -> if i == 0 then Some(p.head) elif i == 1 then Some(p.tail) else None
+    _ -> None
+
+// Whether `x` has at most `Untracked` nodes counted as a tree -- every path to a shared node counting
+// it again. Such a term is acyclic.
+small_tree(x: Value) -> bool
+    var work: Buf[Value] = buf()
+    var seen: usize = 0
+
+    work.push(x)
+
+    loop
+        val y = work.pop() match
+            Some(u) -> deref(u)
+            None -> return true
+
+        if node_of(y) == 0 then continue
+
+        seen += 1
+
+        if seen > Untracked then return false
+
+        var i: usize = 0
+
+        loop
+            part_of(y, i) match
+                Some(p) -> work.push(p)
+                None -> break
+
+            i += 1
+end small_tree
+
+// Whether `x` is certainly acyclic: a small tree, or a term whose walk, remembering the nodes it meets
+// at depths that are multiples of `Sampled`, never meets a remembered one again. A walk over a cyclic
+// term always does, so meeting none proves the term acyclic; meeting one proves nothing, since a node
+// shared without a cycle is met twice too.
+surely_acyclic(x: Value) -> bool
+    if small_tree(x) then return true
+
+    var seen = addr_table()
+    var work: Buf[Value] = buf()
+    var depths: Buf[usize] = buf()
+
+    // Only nodes are pushed, each already dereferenced.
+    work.push(deref(x))
+    depths.push(0)
+
+    loop
+        val y = work.pop() match
+            Some(u) -> u
+            None -> return true
+
+        val d = depths.pop().unwrap()
+
+        if d % Sampled == 0 && !put_new(&seen, node_of(y), 0, 1) then return false
+
+        var i: usize = 0
+
+        loop
+            part_of(y, i) match
+                Some(p) ->
+                    val q = deref(p)
+
+                    if node_of(q) != 0
+                        work.push(q)
+                        depths.push(d + 1)
+                None -> break
+
+            i += 1
+end surely_acyclic
+
+// The name the writers give the `k`th cycle's head, from 1: `_S1`, `_S2`, ..., as SWI-Prolog names
+// them.
+cycle_name(k: usize) -> string = s"_S$k"

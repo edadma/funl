@@ -33,53 +33,51 @@ private struct Pending
 //
 // **Iterative, over a work list of its own**, so a long list or a deep term cannot overflow the sysl
 // stack. It allocates, which is safe inside one instruction: the collector runs only between them.
+//
+// **A cyclic term's copy is cyclic, and has the original's shape.** A small tree (`cycles.sysl`) is
+// copied as it is walked. Any other term is copied first remembering nothing but watching for a
+// node met again, which a walk over a cyclic term always meets (`cycles.sysl`), and that attempt
+// gives up at the first; the second attempt remembers every node it copies, and meeting one again
+// takes its copy rather than copying it again. A term met twice without a cycle -- a shared part --
+// takes the second attempt too, and its copy shares that part as the original does.
 copy_term(x: Value) -> Result[Value, string]
+    if small_tree(x) then return Ok(copy_once(x, false, false)?.unwrap_or(Undefined))
+
+    copy_once(x, true, false)? match
+        Some(y) -> Ok(y)
+        None -> Ok(copy_once(x, false, true)?.unwrap_or(Undefined))
+
+// One attempt at copying `x`: `watch`ing for a node met again, and giving up with `None` where it
+// meets one; remembering every node copied when `exact`.
+private copy_once(x: Value, watch: bool, exact: bool) -> Result[Option[Value], string]
     var fresh: Map[u64, Value] = map()
     var work: Buf[Pending] = buf()
     var root = Undefined
+    var copied = addr_table()
+    var copies: Buf[Value] = buf()
+    var w = if watch then watching_walk() else term_walk()
 
     work.push(Pending(x, Root))
 
     while work.len() > 0
+        val d = if watch then next_depth(&w) else 0
         val p = work.pop().unwrap()
-        val made = deref(p.from) match
-            Var(q) ->
-                fresh.get(q.id) match
-                    Some(y) -> y
-                    None ->
-                        val y = Var(new_var()?)
+        val from = deref(p.from)
 
-                        fresh.put(q.id, y)
-                        y
-            Compound(c) ->
-                val d = new_compound(c.functor, c.args.len())?
+        if watch && passed(&w, from, Undefined, d) then return Ok(None)
 
-                d.record = c.record
+        val before = work.len()
 
-                for i in 0..<c.args.len()
-                    work.push(Pending(c.args.at(i), ArgOf(d, i)))
+        val made = copy_of(&copied, &copies, from) match
+            Some(y) -> y
+            None ->
+                val y = fresh_copy(&fresh, &work, from)?
 
-                Compound(d)
-            Tuple(t) ->
-                val d = new_tuple(t.items.len())?
+                if exact then remember(&copied, &copies, from, y)
 
-                for i in 0..<t.items.len()
-                    work.push(Pending(t.items.at(i), ItemOf(d, i)))
+                y
 
-                Tuple(d)
-            Cons(c) ->
-                val cell = new_cons(Undefined, Undefined)?
-
-                cell match
-                    Cons(d) ->
-                        // The tail is pushed first so the head is copied first, and a long list
-                        // keeps the work list at a couple of entries.
-                        work.push(Pending(c.tail, TailOf(d)))
-                        work.push(Pending(c.head, HeadOf(d)))
-                    _ -> ()
-
-                cell
-            other -> other
+        if watch then pushed(&w, work.len() - before, d, work.len())
 
         p.to match
             Root -> root = made
@@ -88,8 +86,73 @@ copy_term(x: Value) -> Result[Value, string]
             HeadOf(c) -> c.head = made
             TailOf(c) -> c.tail = made
 
-    Ok(root)
-end copy_term
+    Ok(Some(root))
+end copy_once
+
+// The copy already made of node `from`, if it is remembered.
+private copy_of(copied: *AddrTable, copies: *Buf[Value], from: Value) -> Option[Value]
+    val a = node_of(from)
+
+    if a == 0 then return None
+
+    get_at(copied, a, 0) match
+        Some(k) -> Some(copies.at(k - 1))
+        None -> None
+
+// Remember that node `from` was copied as `made`. Every node is, from the first, so a cyclic term's
+// copy has exactly the original's shape, where remembering late or at sampled depths would unroll its
+// cycles before closing them.
+private remember(copied: *AddrTable, copies: *Buf[Value], from: Value, made: Value)
+    val a = node_of(from)
+
+    if a == 0 then return
+
+    copies.push(made)
+    put_at(copied, a, 0, copies.len())
+
+// A new copy of `from`, its parts queued on `work` to be copied into it.
+private fresh_copy(fresh: *Map[u64, Value], work: *Buf[Pending], from: Value) -> Result[Value, string]
+    val made = from match
+        Var(q) ->
+            fresh.get(q.id) match
+                Some(y) -> y
+                None ->
+                    val y = Var(new_var()?)
+
+                    fresh.put(q.id, y)
+                    y
+        Compound(c) ->
+            val d = new_compound(c.functor, c.args.len())?
+
+            d.record = c.record
+
+            for i in 0..<c.args.len()
+                work.push(Pending(c.args.at(i), ArgOf(d, i)))
+
+            Compound(d)
+        Tuple(t) ->
+            val d = new_tuple(t.items.len())?
+
+            for i in 0..<t.items.len()
+                work.push(Pending(t.items.at(i), ItemOf(d, i)))
+
+            Tuple(d)
+        Cons(c) ->
+            val cell = new_cons(Undefined, Undefined)?
+
+            cell match
+                Cons(d) ->
+                    // The tail is pushed first so the head is copied first, and a long list keeps
+                    // the work list at a couple of entries.
+                    work.push(Pending(c.tail, TailOf(d)))
+                    work.push(Pending(c.head, HeadOf(d)))
+                _ -> ()
+
+            cell
+        other -> other
+
+    Ok(made)
+end fresh_copy
 
 // `CollectCopy`: pop a value and add a copy of it to the list held in the cell below the innermost
 // mark's floor, newest first.

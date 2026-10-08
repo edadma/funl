@@ -69,19 +69,30 @@ unify(a: Value, b: Value) -> bool = unify_with(a, b, false)
 // (`unify_with_occurs_check/2`), so the result is never a cyclic term.
 unify_checked(a: Value, b: Value) -> bool = unify_with(a, b, true)
 
+// **Two cyclic terms unify as the rational trees they are**: a pair of nodes met a second time is
+// taken as unifying, its parts already being unified (`cycles.sysl`), so `X = f(X), Y = f(Y), X = Y`
+// succeeds and ends.
 private unify_with(a: Value, b: Value, check: bool) -> bool
     val v = current()
     val base = v.work.len()
+    var w = term_walk()
 
     unify_later(a, b)
 
     while v.work.len() > base
+        val d = next_depth(&w)
         val y = deref(v.work.pop().unwrap())
         val x = deref(v.work.pop().unwrap())
+
+        if passed(&w, x, y, d) then continue
+
+        val before = v.work.len()
 
         if !step(x, y, check)
             v.work.truncate(base)
             return false
+
+        pushed(&w, (v.work.len() - before) / 2, d, (v.work.len() - base) / 2)
 
     true
 end unify_with
@@ -169,18 +180,24 @@ private step(x: Value, y: Value, check: bool) -> bool
         Ctor(_) -> false
 end step
 
-// Whether unbound variable `x` occurs anywhere inside term `t`.
+// Whether unbound variable `x` occurs anywhere inside term `t`, which may be cyclic.
 private occurs_in(x: Value, t: Value) -> bool
     var work: Buf[Value] = buf()
+    var w = term_walk()
 
     work.push(t)
 
     loop
-        val u = work.pop() match
-            Some(u) -> deref(u)
-            None -> return false
+        if work.len() == 0 then return false
+
+        val d = next_depth(&w)
+        val u = deref(work.pop().unwrap())
 
         if identical(x, u) then return true
+
+        if passed(&w, u, Undefined, d) then continue
+
+        val before = work.len()
 
         u match
             Compound(p) ->
@@ -193,6 +210,8 @@ private occurs_in(x: Value, t: Value) -> bool
                 for a in p.items.view()
                     work.push(a)
             _ -> ()
+
+        pushed(&w, work.len() - before, d, work.len())
 
 // Whether two values are equal, an instantiation error counting as not.
 private equal_or_not(x: Value, y: Value) -> bool = equal_values(x, y, "~") match
@@ -353,17 +372,21 @@ private push_items(v: *Vm, t: *TupleObj)
 // of its own, which nothing can collect while it runs: equality allocates nothing.
 equal_values(a: Value, b: Value, op: string) -> Result[bool, Fault]
     var work: Buf[Value] = buf()
+    var w = term_walk()
 
     work.push(a)
     work.push(b)
 
     while work.len() > 0
+        val d = next_depth(&w)
         val y = deref(work.pop().unwrap())
         val x = deref(work.pop().unwrap())
 
         if unbound(x) || unbound(y) then return Err(instantiation_error(s"instantiation error: '$op' was given an unbound variable"))
 
-        if identical(x, y) then continue
+        if identical(x, y) || passed(&w, x, y, d) then continue
+
+        val before = work.len()
 
         val same = x match
             Undefined -> y match
@@ -434,6 +457,8 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, Fault]
 
         if !same then return Ok(false)
 
+        pushed(&w, (work.len() - before) / 2, d, work.len() / 2)
+
     Ok(true)
 end equal_values
 
@@ -455,24 +480,31 @@ private unbound(x: Value) -> bool = x match
 //
 // Iterative over a work list of its own, like equality; it binds nothing and allocates nothing, so
 // it cannot fail.
+//
+// **Two cyclic terms are ordered by their infinite unfoldings**: a pair of nodes met a second time
+// is passed over, since walking it again finds the same difference, or none, that walking it the
+// first time does. So two cyclic terms with the same unfolding compare equal.
 compare_terms(a: Value, b: Value) -> int
     var work: Buf[Value] = buf()
+    var w = term_walk()
 
     work.push(b)
     work.push(a)
 
     while work.len() > 0
+        val d = next_depth(&w)
         val x = deref(work.pop().unwrap())
         val y = deref(work.pop().unwrap())
 
-        if identical(x, y) then continue
+        if identical(x, y) || passed(&w, x, y, d) then continue
 
+        val before = work.len()
         val rx = rank(x)
         val ry = rank(y)
 
         if rx != ry then return if rx < ry then -1 else 1
 
-        val d = x match
+        val order = x match
             Var(p) -> y match
                 Var(q) -> ordered(p.id, q.id)
                 _ -> 0
@@ -501,7 +533,9 @@ compare_terms(a: Value, b: Value) -> int
                 else
                     ordered(u64(identity(x)), u64(identity(y)))
 
-        if d != 0 then return d
+        if order != 0 then return order
+
+        pushed(&w, (work.len() - before) / 2, d, work.len() / 2)
 
     0
 end compare_terms

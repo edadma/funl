@@ -1,0 +1,114 @@
+module io.github.edadma.funl
+@tests
+
+// Cyclic terms (`cycles.sysl`): unification without an occurs check makes them, and every builtin
+// that walks a term ends on one, treating it as the rational tree it is, as SWI-Prolog does. A cyclic
+// term is written as `@(Template, Substitutions)`.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Whether `goal` succeeds or fails.
+private holds(goal: string) -> string = ran_prolog(s":- ($goal -> write(yes) ; write(no)), nl.\n")
+
+// `goal` run, then `X` written by `writeq`.
+private gives(goal: string) -> string = ran_prolog(s":- $goal, writeq(X), nl.\n")
+
+// `cyc(N, L)`: `L` is the cyclic list of `N` `a`s repeated for ever, a cycle longer than a walk goes
+// before it starts remembering nodes when `N` is in the thousands.
+private const Cyc: string = "cyc(N, L) :- length(P, N), maplist(=(a), P), append(P, L, L).\n"
+
+// Whether `goal` succeeds, on a heap with room for terms of tens of thousands of nodes: more than
+// either test heap holds.
+private holds_big(goal: string) -> string =
+    run_on(67108864, 16777216, 2, () -> prolog_text(Cyc + s":- ($goal -> write(yes) ; write(no)), nl.\n")).text
+
+private gives_big(goal: string) -> string =
+    run_on(67108864, 16777216, 2, () -> prolog_text(s":- $goal, writeq(X), nl.\n")).text
+
+@test
+TWO_CYCLIC_TERMS_UNIFY_AS_THE_RATIONAL_TREES_THEY_ARE()
+    assert_eq(holds("X = f(X), Y = f(Y), X = Y"), ok("yes"))
+    assert_eq(holds("X = f(X), Y = f(f(Y)), X = Y"), ok("yes"))
+    assert_eq(holds("X = [a | X], Y = [a, a | Y], X = Y"), ok("yes"))
+
+@test
+TWO_CYCLIC_TERMS_THAT_DIFFER_SOMEWHERE_DO_NOT_UNIFY()
+    assert_eq(holds("X = f(X, a), Y = f(Y, b), X = Y"), ok("no"))
+    assert_eq(holds("X = [a | X], Y = [a, b | Y], X = Y"), ok("no"))
+
+@test
+EQUALITY_AND_THE_STANDARD_ORDER_COMPARE_CYCLIC_TERMS_BY_THEIR_UNFOLDINGS()
+    assert_eq(holds("X = f(X), Y = f(Y), X == Y"), ok("yes"))
+    assert_eq(holds("X = f(X, a), Y = f(Y, b), X \\== Y"), ok("yes"))
+    assert_eq(gives("A = f(A, a), B = f(B, b), compare(O, A, B), compare(P, B, A), compare(Q, A, A), X = O/P/Q"), ok("(<)/(>)/(=)"))
+    assert_eq(holds("X = f(X), Y = f(Y), X @< Y"), ok("no"))
+
+@test
+FUNL_EQUALITY_ENDS_ON_CYCLIC_TERMS()
+    assert_eq(ran_funl("data f(a)\ndata g(a, b)\nfree x, y, z, w\nx ~ f(x)\ny ~ f(y)\nz ~ g(z, 1)\nw ~ g(w, 2)\n" +
+        "write( if x == y then #same else #different )\nwrite( if z == w then #same else #different )\n"),
+        "same\ndifferent\nsucceeded")
+
+@test
+A_CYCLIC_TERMS_COPY_IS_CYCLIC_WITH_THE_SAME_SHAPE_AND_FRESH_VARIABLES()
+    assert_eq(gives("A = f(A), copy_term(A, X)"), ok("@(_S1,[_S1=f(_S1)])"))
+    assert_eq(holds("X = f(X, Z), copy_term(X-Z, Y-W), Y = f(Y, W), W \\== Z"), ok("yes"))
+
+@test
+GROUND_AND_TERM_VARIABLES_END_ON_CYCLIC_TERMS()
+    assert_eq(holds("X = f(X), ground(X)"), ok("yes"))
+    assert_eq(holds("X = f(X, _), ground(X)"), ok("no"))
+    assert_eq(gives("T = f(T, A, [A, B | T]), term_variables(T, Vs), length(Vs, X)"), ok("2"))
+
+@test
+UNIV_AND_FUNCTOR_TAKE_A_CYCLIC_TERM_APART()
+    assert_eq(gives("T = f(T), T =.. [F | As], functor(T, G, A), X = F/As/G/A"), ok("@(f/[_S1]/f/1,[_S1=f(_S1)])"))
+
+@test
+UNIFY_WITH_OCCURS_CHECK_REFUSES_TO_MAKE_A_CYCLIC_TERM()
+    assert_eq(holds("unify_with_occurs_check(X, f(X))"), ok("no"))
+    assert_eq(holds("Y = f(Y, X), unify_with_occurs_check(X, Y)"), ok("no"))
+
+@test
+UNIFY_WITH_OCCURS_CHECK_ENDS_ON_A_TERM_THAT_IS_CYCLIC_ALREADY()
+    assert_eq(holds("Y = f(Y), unify_with_occurs_check(X, Y)"), ok("yes"))
+    assert_eq(holds("X = f(X), Y = f(Y), unify_with_occurs_check(X, Y)"), ok("yes"))
+
+@test
+A_CYCLIC_LIST_IS_NOT_A_LIST_AND_HAS_NO_LENGTH()
+    assert_eq(holds("X = [a | X], is_list(X)"), ok("no"))
+    assert_eq(ran_prolog(":- X = [a, b | X], catch(length(X, _), error(type_error(T, _), _), write(T)), nl.\n"), ok("list"))
+
+@test
+WRITE_WRITES_A_CYCLIC_TERM_AS_A_TEMPLATE_AND_SUBSTITUTIONS()
+    assert_eq(ran_prolog(":- X = f(X), write(X), nl, print(X), nl, writeq(X), nl, write_canonical(X), nl.\n"),
+        ok("@(_S1,[_S1=f(_S1)])\n@(_S1,[_S1=f(_S1)])\n@(_S1,[_S1=f(_S1)])\n@(_S1,[=(_S1,f(_S1))])"))
+    assert_eq(ran_prolog(":- X = f(Y), Y = g(Y), write(X), nl.\n"), ok("@(f(_S1),[_S1=g(_S1)])"))
+    assert_eq(ran_prolog(":- X = f(A, B), A = g(A), B = h(B, A), write(X), nl.\n"),
+        ok("@(f(_S1,_S2),[_S1=g(_S1),_S2=h(_S2,_S1)])"))
+    assert_eq(ran_prolog(":- X = [a, b | X], write(X), nl.\n"), ok("@(_S1,[_S1=[a,b|_S1]])"))
+
+@test
+A_CYCLIC_HEAD_IS_AN_OPERAND_THAT_NEEDS_NO_BRACKETS()
+    assert_eq(ran_prolog(":- X = 'A' + X, write(X), nl, writeq(X), nl.\n"), ok("@(_S1,[_S1=A+_S1])\n@(_S1,[_S1='A'+_S1])"))
+    assert_eq(ran_prolog(":- X = -X, write(X), nl.\n"), ok("@(_S1,[_S1= -_S1])"))
+    assert_eq(ran_prolog(":- X = (X + 1), write(X), nl.\n"), ok("@(_S1,[_S1=_S1+1])"))
+
+@test
+FUNL_WRITES_A_CYCLIC_TERM_AS_A_TEMPLATE_AND_SUBSTITUTIONS()
+    assert_eq(ran_funl("data f(a)\ndata g(a, b)\nfree x\nx ~ f(x)\nwrite( x )\nfree y, z\ny ~ f(z)\nz ~ g(z, \"s\")\nwrite( y )\n"),
+        "@(_S1, [_S1 = f(_S1)])\n@(f(_S1), [_S1 = g(_S1, \"s\")])\nsucceeded")
+
+@test
+A_CYCLE_LONGER_THAN_THE_UNREMEMBERED_STRETCH_STILL_ENDS_EVERY_WALK()
+    assert_eq(holds_big("cyc(5000, L), cyc(5000, M), L = M, L == M"), ok("yes"))
+    assert_eq(holds_big("cyc(5000, L), cyc(4999, M), L = M, compare(=, L, M)"), ok("yes"))
+    assert_eq(holds_big("cyc(5000, L), copy_term(L, C), C == L, ground(C), \\+ is_list(L)"), ok("yes"))
+    assert_eq(holds_big("cyc(5000, L), length(P, 4999), maplist(=(a), P), append(P, [b | M], M), L = M"), ok("no"))
+
+@test
+LARGE_ACYCLIC_TERMS_ARE_WALKED_AS_BEFORE()
+    assert_eq(holds_big("numlist(1, 20000, A), numlist(1, 20000, B), A = B, A == B, copy_term(A, C), length(C, 20000)"), ok("yes"))
+    assert_eq(gives_big("numlist(1, 20000, A), append(A, [x], B), append(A, [y], C), compare(X, B, C)"), ok("<"))
+    assert_eq(holds_big("numlist(1, 20000, A), append(A, [x], B), append(A, [y], C), B = C"), ok("no"))
+    assert_eq(holds_big("numlist(1, 20000, A), copy_term(f(A, A), f(B, C)), B == A, C == A, length(B, 20000)"), ok("yes"))

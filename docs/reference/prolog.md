@@ -862,6 +862,86 @@ equal
 variables_first
 ```
 
+## Cyclic terms
+
+Unification has no occurs check, so `X = f(X)` succeeds and binds `X` to a term that contains
+itself: a cyclic term, which stands for the infinite term `f(f(f(...)))`. Every builtin treats a
+cyclic term as the infinite term it stands for. Two cyclic terms unify, are `==` and stand in the
+standard order as their infinite terms do; `copy_term/2` copies one into a cyclic term of the same
+shape; `ground/1`, `term_variables/2`, `functor/3` and `=../2` work on one as on any term; and a
+cyclic list is not a list to `is_list/1` and is a type error to `length/2`.
+
+`write/1`, `print/1`, `writeq/1` and `write_canonical/1` write a cyclic term as
+`@(Template, Substitutions)`, as SWI-Prolog does by default: each place where a cycle closes is
+named `_S1`, `_S2`, and so on, the template is the term with those places named, and each
+substitution spells one of them out.
+
+`unify_with_occurs_check/2` unifies with the occurs check: it fails where unifying would make a
+cyclic term.
+
+```prolog
+:- X = f(X), write(X), nl.
+:- X = f(Y), Y = g(Y), write(X), nl.
+:- X = [a, b | X], write(X), nl.
+:- X = f(X), Y = f(f(Y)), (X = Y -> write(unify) ; write(differ)), nl.
+:- X = f(X), Y = f(Y), (X == Y -> write(identical) ; write(different)), nl.
+:- X = f(X), copy_term(X, Y), write(Y), nl.
+:- X = [a | X], (is_list(X) -> write(list) ; write(not_a_list)), nl.
+:- (unify_with_occurs_check(X, f(X)) -> write(unified) ; write(refused)), nl.
+:- (unify_with_occurs_check(X, f(a)) -> write(X) ; write(refused)), nl.
+```
+
+```output
+@(_S1,[_S1=f(_S1)])
+@(f(_S1),[_S1=g(_S1)])
+@(_S1,[_S1=[a,b|_S1]])
+unify
+identical
+@(_S1,[_S1=f(_S1)])
+not_a_list
+refused
+f(a)
+```
+
+The `prolog` top level writes a binding that is its own cycle with the variable's own name, and
+names every other cycle `_S1`, `_S2`, and so on, spelling each out in a `% where` block under the
+binding. Given these lines on its input:
+
+```
+X = f(X).
+X = f(Y), Y = g(Y).
+```
+
+it answers:
+
+```
+X = f(X).
+X = f(_S1), % where
+    _S1 = g(_S1),
+Y = g(Y).
+```
+
+FunL's `write` prints a cyclic term in the same notation, and FunL's `==` compares cyclic terms as
+their infinite terms:
+
+```funl
+data f(a)
+data g(a, b)
+
+free x, y
+x ~ f(x)
+y ~ g(y, x)
+write( x )
+write( y )
+write( if x == f(x) then #same else #different )
+```
+
+```output
+@(_S1, [_S1 = f(_S1)])
+@(_S1, [_S1 = g(_S1, _S2), _S2 = f(_S2)])
+same
+```
+
 ## All solutions
 
 `findall/3` collects every solution, and `findall/4` puts a tail after them. `bagof/3` and `setof/3`

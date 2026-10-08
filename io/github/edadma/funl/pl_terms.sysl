@@ -57,14 +57,27 @@ private is_str_value(x: Value) -> bool = deref(x) match
 // values.
 is_atomic(x: Value) -> bool = !is_unbound(x) && compound_parts(x).is_none()
 
+// **A cyclic list is not a list**, as in SWI-Prolog: the walk keeps a second cursor that moves at half
+// speed, and the two meeting is a cycle.
 is_proper_list(x: Value) -> bool
     var at = deref(x)
+    var slow = at
+    var steps: usize = 0
 
     loop
         at match
             Nil -> return true
             Cons(p) -> at = deref(p.tail)
             _ -> return false
+
+        steps += 1
+
+        if steps % 2 == 0
+            slow = slow match
+                Cons(q) -> deref(q.tail)
+                _ -> slow
+
+            if node_of(slow) == node_of(at) && node_of(at) != 0 then return false
 
 // The functor and arguments of a compound term: a compound, a list cell, a tuple.
 compound_parts(x: Value) -> Option[(u32, Buf[Value])]
@@ -267,12 +280,19 @@ private pl_term_variables(base: usize, argc: usize, cursor: long) -> Result[Answ
 variables_of(x: Value, first: bool) -> Buf[Value]
     var found: Buf[Value] = buf()
     var seen: Map[u64, bool] = map()
+    var w = term_walk()
     var work: Buf[Value] = buf()
 
     work.push(x)
 
     while work.len() > 0
+        val d = next_depth(&w)
         val y = deref(work.pop().unwrap())
+
+        // A node gone into once has given up its variables; a cyclic term would give them for ever.
+        if passed(&w, y, Undefined, d) then continue
+
+        val before = work.len()
 
         y match
             Var(p) ->
@@ -290,6 +310,8 @@ variables_of(x: Value, first: bool) -> Buf[Value]
                             i -= 1
                             work.push(args.at(i))
                     None -> ()
+
+        pushed(&w, work.len() - before, d, work.len())
 
     found
 end variables_of
