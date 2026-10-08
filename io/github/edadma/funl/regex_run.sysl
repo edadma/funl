@@ -179,21 +179,26 @@ rep_next(v: *Vm, lo: usize, hi: usize, exit: usize, lazy: bool) -> Result[unit, 
     Ok(())
 
 // The end of a turn of a counted loop: the position the turn began at on top, the count under it.
-rep_step(v: *Vm, top: usize, lo: usize) -> Result[unit, string]
+// Whether the turn stands: one that matched nothing once the loop already had its `lo` turns fails,
+// as in JavaScript, so the body tries its other ways and otherwise the loop stops at the turn before.
+rep_step(v: *Vm, top: usize, lo: usize) -> Result[bool, string]
     val began = popped_position(v.stack.pop().unwrap())?
     val at = v.stack.len() - 1
-    val n = popped_position(v.stack.at(at))? + 1
+    val turns = popped_position(v.stack.at(at))?
 
-    v.stack.set(at, Int(long(n)))
+    if v.pos == began && turns >= lo then return Ok(false)
 
-    if v.pos == began && n >= lo then return Ok(())
-
+    v.stack.set(at, Int(long(turns + 1)))
     v.ip = top
-    Ok(())
+    Ok(true)
 
 // Groups 0 to `groups` have captured nothing.
 rx_begin(v: *Vm, groups: usize)
-    for i in 0..groups
+    unset_groups(v, 0, groups)
+
+// Groups `first` to `last` have captured nothing; each one that had is unset through the trail.
+unset_groups(v: *Vm, first: usize, last: usize)
+    for i in first..last
         if i < v.captures.len() && v.captures.at(i).start != 0 then set_capture(v, i, GroupSpan(0, 0))
 
 // The regex that began at `start` has matched up to the position: group 0 is that span, and the

@@ -414,6 +414,27 @@ write( atan(1, 1), atan2(1, 1) )
 0.7853981633974483, 0.7853981633974483
 ```
 
+`sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` are the hyperbolic functions and their inverses;
+`cot` and `acot` the cotangent and its inverse; `log2` the base-2 logarithm; `log` with two arguments,
+`log(base, x)`, the logarithm of `x` to `base`; and `copysign(x, y)` is `x` with the sign of `y`
+(a negative zero counts as negative).
+
+```funl
+write( sinh(0), cosh(0), tanh(0), asinh(0), acosh(1), atanh(0) )
+write( sinh(1), atanh(0.5) )
+write( log(2, 8), log2(8), log(1) )
+write( cot(1), acot(1), acot(0) )
+write( copysign(3, -0.0), copysign(-2.5, 1) )
+```
+
+```output
+0.0, 1.0, 0.0, 0.0, 0.0, 0.0
+1.1752011936438014, 0.5493061443340549
+3.0, 3.0, 0.0
+0.6420926159343308, 0.7853981633974483, 1.5707963267948966
+-3.0, 2.5
+```
+
 `floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `round`)
 answer integers, and exactly: a rational is rounded as a rational, an integer is its own. `sign`
 keeps its argument's kind, and `float` makes a real.
@@ -468,6 +489,33 @@ write( log(0) )
 
 ```error
 log(0) has no value
+```
+
+`log(base, x)` has no value when `base` is 1, `base` or `x` is not positive; `acosh` wants at least 1;
+`atanh` wants a number strictly between -1 and 1; `cot(0)` has no value.
+
+```funl
+write( log(1, 5) )
+```
+
+```error
+log(1, 5) has no value
+```
+
+```funl
+write( acosh(0.5) )
+```
+
+```error
+acosh(0.5) has no value
+```
+
+```funl
+write( atanh(1) )
+```
+
+```error
+atanh(1) has no value
 ```
 
 ```funl

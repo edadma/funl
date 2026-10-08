@@ -129,11 +129,35 @@ private unary(name: string, a: Value) -> Result[Value, Fault]
     if name == "atan" then return real_of(r.atan(), name, a)
     if name == "exp" then return real_of(r.exp(), name, a)
 
-    // The logarithm of 0 is not an overflow but has no value, as of a negative number.
-    if name == "log"
-        if r <= 0.0 then return Err(evaluation_error("undefined", s"log(${render(a)}) has no value"))
+    if name == "sinh" then return real_of(r.sinh(), name, a)
+    if name == "cosh" then return real_of(r.cosh(), name, a)
+    if name == "tanh" then return real_of(r.tanh(), name, a)
+    if name == "asinh" then return real_of(r.asinh(), name, a)
 
-        return real_of(r.ln(), name, a)
+    // `acosh` wants at least 1, and `atanh` a number strictly between -1 and 1.
+    if name == "acosh"
+        if r < 1.0 then return Err(evaluation_error("undefined", s"acosh(${render(a)}) has no value"))
+
+        return real_of(r.acosh(), name, a)
+
+    if name == "atanh"
+        if r <= -1.0 || r >= 1.0 then return Err(evaluation_error("undefined", s"atanh(${render(a)}) has no value"))
+
+        return real_of(r.atanh(), name, a)
+
+    // `cot(0)` has no value; `acot(x)` is the angle whose cotangent is `x`, so `acot(0)` is pi / 2.
+    if name == "cot"
+        if r == 0.0 then return Err(evaluation_error("undefined", s"cot(${render(a)}) has no value"))
+
+        return real_of(1.0 / r.tan(), name, a)
+
+    if name == "acot" then return real_of(1.0.atan2(r), name, a)
+
+    // The logarithm of 0 is not an overflow but has no value, as of a negative number.
+    if name == "log" || name == "log2"
+        if r <= 0.0 then return Err(evaluation_error("undefined", s"$name(${render(a)}) has no value"))
+
+        return real_of(if name == "log" then r.ln() else r.log2(), name, a)
 
     Err(not_evaluable(name, 1))
 end unary
@@ -210,6 +234,15 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
         if y == 0.0 && x == 0.0 then return Err(evaluation_error("undefined", s"$name(0, 0) has no value"))
 
         return real_of2(y.atan2(x), name, a, b)
+
+    // `log(Base, X)`: the logarithm of `X` to `Base`, which must be positive and not 1.
+    if name == "log"
+        val base = dal.to_real(n_of(a))
+        val x = dal.to_real(n_of(b))
+
+        if base <= 0.0 || base == 1.0 || x <= 0.0 then return Err(evaluation_error("undefined", s"log(${render(a)}, ${render(b)}) has no value"))
+
+        return real_of2(x.ln() / base.ln(), name, a, b)
 
     if name == "copysign" then return real_of2(dal.to_real(n_of(a)).copysign(dal.to_real(n_of(b))), name, a, b)
 

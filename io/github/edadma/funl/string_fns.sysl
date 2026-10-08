@@ -1,0 +1,239 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, chars_of, from_utf8_unchecked, str_builder}
+import sysl.unicode.{is_space, to_lower, to_upper}
+
+// The string builtins: `split`, `join`, `trim`, `trim_start`, `trim_end`, `upper`, `lower` and
+// `replace`, which make strings, and `starts_with`, `ends_with` and `contains`, which test them.
+//
+// **A test produces its string or fails**, as `odd` does: `starts_with(s, p)` is `s` when `s` begins
+// with `p`. **Positions are not needed here**: where a string stands in another is `find`'s question
+// (`scan.sysl`). The splitting and the case mapping are the ones Prolog's `split_string/4`,
+// `upcase_atom/2` and the rest use (`pl_atoms.sysl`).
+
+install_strings(v: *Vm)
+    register(v, "split", Variadic, do_split)
+    register(v, "join", Variadic, do_join)
+    register(v, "trim", 1, (b, n) -> trimmed(b, "trim", true, true))
+    register(v, "trim_start", 1, (b, n) -> trimmed(b, "trim_start", true, false))
+    register(v, "trim_end", 1, (b, n) -> trimmed(b, "trim_end", false, true))
+    register(v, "upper", 1, (b, n) -> case_mapped(b, "upper", true))
+    register(v, "lower", 1, (b, n) -> case_mapped(b, "lower", false))
+    register(v, "replace", 3, do_replace)
+    register_generator(v, "starts_with", 2, (b, n, c) -> tested(b, "starts_with", Begins))
+    register_generator(v, "ends_with", 2, (b, n, c) -> tested(b, "ends_with", Ends))
+    register_generator(v, "contains", 2, (b, n, c) -> tested(b, "contains", Holds))
+
+// Which characters a split cuts at, or trims: those of a set, or the spaces -- Unicode's
+// `White_Space`, which takes in the tab, the line breaks and the non-breaking space.
+enum CharTest
+    Among(set: CharSet)
+    Spaces
+
+private passes(t: CharTest, c: char) -> bool = t match
+    Among(set) -> set.has(c)
+    Spaces -> is_space(c)
+
+// The characters of `s`.
+chars_in(s: string) -> Buf[char]
+    var out: Buf[char] = buf()
+
+    for c in chars_of(s.bytes)
+        out.push(c)
+
+    out
+
+// The first index from `lo` on, below `hi`, whose character does not pass `t`; `hi` when all do.
+private skip_from(cs: *Buf[char], t: CharTest, lo: usize, hi: usize) -> usize
+    var k = lo
+
+    while k < hi && passes(t, cs.at(k))
+        k += 1
+
+    k
+
+// The end of `lo ..< hi` once the characters before it that pass `t` are taken off.
+private skip_back(cs: *Buf[char], t: CharTest, lo: usize, hi: usize) -> usize
+    var k = hi
+
+    while k > lo && passes(t, cs.at(k - 1))
+        k -= 1
+
+    k
+
+// The characters `cs[from ..< to]`.
+private spelled(cs: *Buf[char], from: usize, to: usize) -> string
+    var out = str_builder()
+
+    for i in from..<to
+        out.push_char(cs.at(i))
+
+    out.finish()
+
+// `s` with the `pad` characters taken off both ends, cut at every `sep` character, and each piece with
+// the `pad` characters taken off both of its ends. Where a character is both a separator and padding,
+// a run of them cuts once. This is Prolog's `split_string/4`, and FunL's `split`.
+split_text(s: string, sep: CharTest, pad: CharTest) -> Buf[string]
+    var cs = chars_in(s)
+    var start = skip_from(&cs, pad, 0, cs.len())
+    val end = skip_back(&cs, pad, start, cs.len())
+    var pieces: Buf[string] = buf()
+
+    loop
+        var el = start
+
+        while el < end && !passes(sep, cs.at(el))
+            el += 1
+
+        pieces.push(spelled(&cs, start, skip_back(&cs, pad, start, el)))
+
+        if el >= end then break
+
+        start = skip_from(&cs, pad, el + 1, end)
+
+    pieces
+end split_text
+
+// `s` with every character in upper case, or in lower: Unicode's simple case mapping, one character
+// for one, so `ß` becomes `ẞ` and never `SS`.
+cased(s: string, upper: bool) -> string
+    var out = str_builder()
+
+    for c in chars_of(s.bytes)
+        out.push_char(if upper then to_upper(c) else to_lower(c))
+
+    out.finish()
+
+// The pieces of `s` between the places `sep`, which is not empty, stands in it, from left to right.
+private split_at(s: string, sep: string) -> Buf[string]
+    val hay = s.bytes
+    val needle = sep.bytes
+    var pieces: Buf[string] = buf()
+    var start: usize = 0
+    var i: usize = 0
+
+    while i + needle.len <= hay.len
+        if bytes_at(hay, i, needle)
+            pieces.push(from_utf8_unchecked(hay[start..<i]))
+            i += needle.len
+            start = i
+        else
+            i += 1
+
+    pieces.push(from_utf8_unchecked(hay[start..<hay.len]))
+    pieces
+
+// `pieces` with `sep` between each two.
+private joined(pieces: *Buf[string], sep: string) -> string
+    var out = str_builder()
+
+    for i in 0..<pieces.len()
+        if i > 0 then out.push(sep)
+
+        out.push(pieces.at(i))
+
+    out.finish()
+
+// A list of strings.
+string_list(pieces: *Buf[string]) -> Result[Value, Fault]
+    var items: Buf[Value] = buf()
+
+    for i in 0..<pieces.len()
+        items.push(new_str(pieces.at(i))?)
+
+    Ok(list_of(&items, Nil)?)
+
+private text_arg(base: usize, i: usize, name: string) -> Result[string, Fault] = Ok(str_arg(base, i, name)?.s)
+
+// `split(s)`: the words of `s`, the runs of characters between spaces; none when `s` is blank.
+// `split(s, sep)`: the pieces of `s` between the places string `sep` stands in it, or between the
+// characters of cset `sep`, empty pieces kept.
+private do_split(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc != 1 && argc != 2 then return Err(wrong_count("split", argc, s"'split' takes 1 or 2 arguments, and was given $argc"))
+
+    val s = text_arg(base, 0, "split")?
+
+    if argc == 1
+        var words = split_text(s, Spaces, Spaces)
+
+        if words.len() == 1 && words.at(0) == "" then words = buf()
+
+        return string_list(&words)
+
+    val sep = deref(arg(base, 1))
+
+    sep match
+        CSet(p) ->
+            var pieces = split_text(s, Among(p.set), Among(char_set("")))
+            string_list(&pieces)
+        Str(p) ->
+            if p.chars == 0 then return Err(domain_error("non_empty_string", sep, "'split' was given an empty separator"))
+
+            var pieces = split_at(s, p.s)
+            string_list(&pieces)
+        _ -> Err(kind_error(sep, "string", s"'split' wants a string or a cset to split at and was given ${described(sep)}"))
+
+// `join(c)` and `join(c, sep)`: the elements of `c` one after another, with string `sep` between each
+// two. An element that is not a string is written as `write` would.
+private do_join(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc != 1 && argc != 2 then return Err(wrong_count("join", argc, s"'join' takes 1 or 2 arguments, and was given $argc"))
+
+    val sep = if argc == 2 then text_arg(base, 1, "join")? else ""
+    var items: Buf[Value] = buf()
+
+    elements(arg(base, 0), "'join'", &items)?
+
+    var pieces: Buf[string] = buf()
+
+    for e in items.view()
+        deref(e) match
+            Str(p) -> pieces.push(p.s)
+            Var(_) -> return Err(instantiation_error("instantiation error: 'join' was given an unbound variable"))
+            x -> pieces.push(render(x))
+
+    Ok(new_str(joined(&pieces, sep))?)
+
+// `trim(s)`, `trim_start(s)` and `trim_end(s)`: `s` without the spaces at both ends, at its start, or
+// at its end.
+private trimmed(base: usize, name: string, front: bool, back: bool) -> Result[Value, Fault]
+    var cs = chars_in(text_arg(base, 0, name)?)
+    val from = if front then skip_from(&cs, Spaces, 0, cs.len()) else 0
+    val to = if back then skip_back(&cs, Spaces, from, cs.len()) else cs.len()
+
+    Ok(new_str(spelled(&cs, from, to))?)
+
+// `upper(s)` and `lower(s)`.
+private case_mapped(base: usize, name: string, upper: bool) -> Result[Value, Fault] =
+    Ok(new_str(cased(text_arg(base, 0, name)?, upper))?)
+
+// `replace(s, old, new)`: `s` with every place `old` stands in it, from left to right, made `new`.
+private do_replace(base: usize, argc: usize) -> Result[Value, Fault]
+    val s = text_arg(base, 0, "replace")?
+    val old = text_arg(base, 1, "replace")?
+    val by = text_arg(base, 2, "replace")?
+
+    if old == "" then return Err(domain_error("non_empty_string", arg(base, 1), "'replace' was given an empty string to replace"))
+
+    var pieces = split_at(s, old)
+
+    Ok(new_str(joined(&pieces, by))?)
+
+// What a test asks of its two strings.
+private enum Test
+    Begins
+    Ends
+    Holds
+
+// `starts_with(s, p)`, `ends_with(s, p)` and `contains(s, p)`: `s` when it begins with, ends with or
+// holds `p`, and failure when it does not.
+private tested(base: usize, name: string, t: Test) -> Result[Answer, Fault]
+    val s = text_arg(base, 0, name)?
+    val p = text_arg(base, 1, name)?
+
+    val yes = t match
+        Begins -> s.starts_with(p)
+        Ends -> s.ends_with(p)
+        Holds -> s.contains(p)
+
+    Ok(if yes then Gives(deref(arg(base, 0))) else Refuses)

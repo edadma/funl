@@ -190,9 +190,9 @@ needs no membership test, because a word not yet seen reads as `0` and the assig
 
 ```funl
 val counts = map( {}, 0 )
-words = ['the', 'cat', 'and', 'the', 'hat', 'and', 'the', 'bat']
+text = 'the cat and the hat and the bat'
 
-every counts( !words ) += 1
+every counts( !split(text) ) += 1
 write( counts )
 write( counts("zzz"), counts.zzz )
 ```

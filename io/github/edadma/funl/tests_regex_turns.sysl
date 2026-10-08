@@ -1,0 +1,81 @@
+module io.github.edadma.funl
+@tests
+
+// The turns of a repetition, as in JavaScript. Each assertion searches a pattern in a subject, leftmost
+// first, on both heaps, and expects the spans of the first match: the whole match, then each group in
+// order, 0-based, in characters; `(?,?)` is a group that has captured nothing.
+//
+// Two rules: each turn begins with the groups inside the repeated item unset, so a group the last turn
+// did not reach has captured nothing; and a turn that matches the empty string once the loop already
+// has its fewest turns fails, so the item tries its other ways and otherwise the loop stops at the turn
+// before.
+
+@test
+A_GROUP_THE_LAST_TURN_DID_NOT_REACH_HAS_CAPTURED_NOTHING()
+    assert_eq(regex_searched("(?:(a)|b)+", "ab"), "(0,2)(?,?)")
+    assert_eq(regex_searched("((a)|b)+", "ab"), "(0,2)(1,2)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b|(c))+", "acb"), "(0,3)(?,?)(?,?)")
+    assert_eq(regex_searched("(?:a(b)?)+", "aba"), "(0,3)(?,?)")
+    // Each turn of the outer loop unsets the group inside the optional item too.
+    assert_eq(regex_searched("(?:(?:(a)|b)?c)+", "acbc"), "(0,4)(?,?)")
+    // A group the last turn reached keeps what that turn captured.
+    assert_eq(regex_searched("(a|b)*", "ab"), "(0,2)(1,2)")
+    assert_eq(regex_searched("(?:(a)|b)+", "ba"), "(0,2)(1,2)")
+    // A loop that takes no turn leaves its groups as they were.
+    assert_eq(regex_searched("(a)(?:(a)|b)*", "a"), "(0,1)(0,1)(?,?)")
+
+@test
+EVERY_KIND_OF_REPETITION_BEGINS_A_TURN_WITH_ITS_GROUPS_UNSET()
+    assert_eq(regex_searched("(?:(a)|b)+?c", "abc"), "(0,3)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b){2}", "ab"), "(0,2)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b){1,3}", "abb"), "(0,3)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b)++", "ab"), "(0,2)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b)*+", "ab"), "(0,2)(?,?)")
+
+@test
+BACKTRACKING_OUT_OF_A_TURN_PUTS_ITS_GROUPS_BACK()
+    // The second turn takes b and unsets group 1; the final b then fails, the turn is given back, and
+    // group 1 has the first turn's a again.
+    assert_eq(regex_searched("(?:(a)|b)*b", "ab"), "(0,2)(0,1)")
+    assert_eq(regex_searched("(?:(a)|b)+\\1", "aa"), "(0,2)(0,1)")
+
+@test
+A_BACKREFERENCE_TO_A_GROUP_A_LATER_TURN_UNSET_MATCHES_THE_EMPTY_STRING()
+    assert_eq(regex_searched("(?:(a)|b)+\\1", "ab"), "(0,2)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b){2}\\1", "abx"), "(0,2)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b)+?\\1c", "abc"), "(0,3)(?,?)")
+    // Still wanted where the group was set on the last turn: here \1 wants a second a, and giving the
+    // turn back leaves it empty, short of the end.
+    assert_eq(regex_searched("(?:(a)|b)+\\1", "ba"), "(0,1)(?,?)")
+    assert_eq(regex_searched("^(?:(a)|b)+\\1$", "ba"), "NOMATCH")
+
+@test
+INSIDE_A_LOOKBEHIND_THE_LEFTMOST_TURN_IS_THE_LAST()
+    assert_eq(regex_searched("(?<=(?:(a)|b)+)c", "abc"), "(2,3)(0,1)")
+    assert_eq(regex_searched("(?<=(?:(a)|b)+)c", "bac"), "(2,3)(?,?)")
+    assert_eq(regex_searched("(?<=(?:(a)|b){2})c", "abc"), "(2,3)(0,1)")
+    assert_eq(regex_searched("(?<=(?:(a)|b){2})c", "bac"), "(2,3)(?,?)")
+
+@test
+A_TURN_MATCHING_NOTHING_AFTER_THE_FEWEST_TURNS_FAILS()
+    // The empty alternative fails as a turn, so `a` is tried.
+    assert_eq(regex_searched("(?:|a)*", "a"), "(0,1)")
+    assert_eq(regex_searched("(?:|a){1,}", "a"), "(0,1)")
+    assert_eq(regex_searched("(?:|a)?", "a"), "(0,1)")
+    assert_eq(regex_searched("(?:|a)??b", "ab"), "(0,2)")
+    // A turn the loop needs to reach its fewest may match nothing.
+    assert_eq(regex_searched("(?:|a){2}", "a"), "(0,0)")
+    // A loop whose only turn would match nothing takes none, so its group is unset.
+    assert_eq(regex_searched("(a*)*", "b"), "(0,0)(?,?)")
+    assert_eq(regex_searched("s()?e", "se"), "(0,2)(?,?)")
+    // The greedy `.?` takes the Y on its eighth turn; given back, the empty turn fails and the seventh
+    // turn's 7 is the group's last.
+    assert_eq(regex_searched("X(.?){0,}Y", "X1234567Y"), "(0,9)(7,8)")
+    // The error path: a pattern that needs a non-empty turn and has none still fails.
+    assert_eq(regex_searched("^(?:|a)+b", "c"), "NOMATCH")
+
+@test
+THE_COMBINATORS_FOLLOW_THE_SAME_RULE_FOR_A_TURN_MATCHING_NOTHING()
+    val text = "write('a' ? rep(`|a`))\nwrite('a' ? rep1(`|a`))\nwrite('a' ? opt(`|a`))\nwrite('a' ? repn(2, `|a`))\nevery write('a' ? rrep(`|a`))\nwrite('b' ? rep1(`a`) | 'rep1 wants an a')\n"
+
+    assert_eq(ran_funl(text), "a\na\na\n\n\na\nrep1 wants an a\nsucceeded")

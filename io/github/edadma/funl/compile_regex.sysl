@@ -14,9 +14,9 @@ import sysl.buf.{Buf, buf}
 //     p q                p; q
 //     p | q              Choice(l); p; Branch(end); l: q; end:
 //     (p)                GroupStart; p; GroupEnd(n)
-//     p?                 Choice(skip); p; skip:
-//     p??                Choice(take); Branch(skip); take: p; skip:
-//     p{lo,hi}           PushInt(0); top: RepNext(lo, hi, exit); SavePos; p; RepStep(top, lo); exit: Pop
+//     p?                 Choice(skip); r; p; skip:
+//     p??                Choice(take); Branch(skip); take: r; p; skip:
+//     p{lo,hi}           PushInt(0); top: RepNext(lo, hi, exit); SavePos; r; p; RepStep(top, lo); exit: Pop
 //     (?=p)              Barrier; SavePos; p; RestorePos; CutTo
 //     (?!p)              Barrier; Choice(ok); p; CutTo; Fail; ok: Pop
 //     (?<=p)             Barrier; SavePos; p in reverse; RestorePos; CutTo
@@ -26,6 +26,8 @@ import sysl.buf.{Buf, buf}
 //     string(e)          e; LitOf
 //     a pattern's value  RxBegin(groups); SavePos; p; RxEnd
 //
+// `r` is `ResetGroups(first, last)` over the groups inside `p`, left out where it has none. `p?` and
+// `p??` take those short forms only where `p` always matches a character; otherwise they are `p{0,1}`.
 // `*`, `+` and `{n,m}` are all the counted loop. Its count, a turn's starting position, a group's
 // start and a lookaround's saved position and barrier height are operand cells, so a choice point
 // inside the pattern saves them with the rest of the expression's cells and failure puts them back.
@@ -208,6 +210,80 @@ private in_pattern(c: Option[Ctx]) -> Result[Ctx, string]
         Some(x) -> Ok(x)
         None -> Err("a pattern holding an expression was compiled with nothing to compile it in")
 
+// The lowest and highest numbers of the groups in `p`, 0 where it has none. Groups are numbered in
+// the order they open, so those inside one pattern are every number between the two.
+private first_group(p: &Pat) -> usize
+    *p match
+        PGroup(n, _) -> n
+        PSeq(items) -> first_group_of(items)
+        PAlt(items) -> first_group_of(items)
+        PRepeat(body, _, _, _) -> first_group(body)
+        PLook(body, _, _) -> first_group(body)
+        PAtomic(body) -> first_group(body)
+        _ -> 0
+
+private first_group_of(items: Buf[&Pat]) -> usize
+    for i in 0..<items.len()
+        val n = first_group(items.at(i))
+
+        if n != 0 then return n
+
+    0
+
+private last_group(p: &Pat) -> usize
+    *p match
+        PGroup(n, body) ->
+            val inner = last_group(body)
+
+            if inner > n then inner else n
+        PSeq(items) -> last_group_of(items)
+        PAlt(items) -> last_group_of(items)
+        PRepeat(body, _, _, _) -> last_group(body)
+        PLook(body, _, _) -> last_group(body)
+        PAtomic(body) -> last_group(body)
+        _ -> 0
+
+private last_group_of(items: Buf[&Pat]) -> usize
+    var last: usize = 0
+
+    for i in 0..<items.len()
+        val n = last_group(items.at(i))
+
+        if n > last then last = n
+
+    last
+
+// Whether `p` matches at least one character whenever it matches. `false` where it cannot be told.
+private never_empty(p: &Pat) -> bool
+    *p match
+        PChar(_, _) -> true
+        PAny(_) -> true
+        PSet(_) -> true
+        PExprSet(_) -> true
+        PSeq(items) ->
+            for i in 0..<items.len()
+                if never_empty(items.at(i)) then return true
+
+            false
+        PAlt(items) ->
+            for i in 0..<items.len()
+                if !never_empty(items.at(i)) then return false
+
+            items.len() > 0
+        PGroup(_, body) -> never_empty(body)
+        PRepeat(body, lo, _, _) -> lo > 0 && never_empty(body)
+        PAtomic(body) -> never_empty(body)
+        _ -> false
+
+// One turn of a repetition: the groups inside its body are unset first, so each turn's captures are
+// its own, as in JavaScript -- a group the last turn did not reach has captured nothing.
+private turn(e: *Emit, c: Option[Ctx], body: &Pat, back: bool) -> Result[unit, string]
+    val first = first_group(body)
+
+    if first != 0 then e.op(ResetGroups(first, last_group(body)))
+
+    compile_pat(e, c, body, back)
+
 private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed: Greed, back: bool) -> Result[unit, string]
     if greed == Possessive
         e.op(Barrier)
@@ -215,7 +291,9 @@ private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed
         e.op(CutTo)
         return Ok(())
 
-    if lo == 0 && hi == 1
+    // An optional item that always matches something needs no count. One that can match nothing is
+    // the counted loop, which refuses a turn matching nothing, so `(?:|a)?` goes on to try `a`.
+    if lo == 0 && hi == 1 && never_empty(body)
         val skip = e.label()
 
         if greed == Lazy
@@ -227,7 +305,7 @@ private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed
         else
             e.op(Choice(skip))
 
-        compile_pat(e, c, body, back)?
+        turn(e, c, body, back)?
         e.place(skip)
         return Ok(())
 
@@ -238,7 +316,7 @@ private repeat(e: *Emit, c: Option[Ctx], body: &Pat, lo: usize, hi: usize, greed
     e.place(top)
     e.op(RepNext(lo, hi, exit, greed == Lazy))
     e.op(SavePos)
-    compile_pat(e, c, body, back)?
+    turn(e, c, body, back)?
     e.op(RepStep(top, lo))
     e.place(exit)
     e.op(Pop)

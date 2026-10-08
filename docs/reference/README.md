@@ -20,6 +20,7 @@ the language cannot disagree for long.
 | [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max`; `sqrt`, `exp`, `log`, trigonometry, roundings, `pi` |
 | [Relations](relations.md) | logic variables, unification `~`, atoms, facts and rules, two-way head unification, calling between functions and relations, negation, `findall`/`bagof`/`setof` |
 | [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
+| [String functions](strings.md) | `split`, `join`, `trim`, `trim_start`, `trim_end`, `upper`, `lower`, `replace`, the tests `starts_with`, `ends_with` and `contains`, and `find` outside a scan |
 | [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |
 | [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
 | [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader and reading terms, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic and rationals, standard order, grammar rules, `format`, the builtin set |
