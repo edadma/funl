@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 @tests
 
-import sysl.fs.{make_dir, read_text}
+import sysl.fs.{make_dir, read_text, symlink}
 import sysl.text.Search
 
 // Modules (`modules.md`): a file is a module, and another file sees what it exports -- by name with
@@ -290,6 +290,100 @@ A_MODULE_FUNL_AND_PROLOG_BOTH_IMPORT_IS_ONE_MODULE_RUN_ONCE()
         "if area( 3, a ) then write( a, scaled(1) )\n"
 
     assert_eq(ran_funl(text), "geometry\n30, 10\nsucceeded")
+
+@test
+A_QUALIFIED_CONSTRUCTOR_IS_A_PATTERN_IN_EVERY_PATTERN_POSITION()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "hue.funl", "export data hue = red | green\nexport data box = box(x)\n")
+    val text = s"import * as h from \"$m\"\n" +
+        "def name( h.red ) = 'r'\n" +
+        "def name( h.green ) = 'g'\n" +
+        "def unbox( h.box(h.box(v)) ) = v\n" +
+        "def warm( h.red )\n" +
+        "def boxed( h.box(v), v )\n" +
+        "write( name(h.green), name(h.red), unbox(h.box(h.box(9))) )\n" +
+        "if warm( h.red ) then write( 'warm' )\n" +
+        "if not warm( h.green ) then write( 'cool' )\n" +
+        "free b\n" +
+        "if boxed( b, 4 ) then write( b )\n" +
+        "val h.box(w) = h.box(5)\n" +
+        "write( w )\n" +
+        "for h.box(x) <- [h.box(1), h.box(2)] do write( x )\n" +
+        "write( [y | h.box(y) <- [h.box(6), 7, h.box(8)]] )\n" +
+        "free z\n" +
+        "h.box(z) ~ h.box(3)\n" +
+        "write( z )\n"
+
+    assert_eq(ran_funl(text), "g, r, 9\nwarm\ncool\nbox(4)\n5\n1\n2\n[6, 8]\n3\nsucceeded")
+
+@test
+A_QUALIFIED_PATTERN_NAMES_AN_EXPORTED_CONSTRUCTOR_WITH_AS_MANY_FIELDS()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "hue.funl", "export data hue = red | green\nexport data box = box(x)\ndata secret = hidden(a)\nexport def r( x ) :- x > 0\n")
+    val im = s"import * as h from \"$m\"\n"
+
+    assert_eq(complaints(im + "def f( h.blue ) = 1\ndef f( h.hidden(a) ) = a\n"),
+        s"error 2:8 `$m` does not export `blue`\n" +
+        s"error 3:8 `$m` does not export `hidden`\n")
+    assert_eq(complaints(im + "val h.red(c) = 1\ndef f( h.box(a, b) ) = a\ndef f( h.box ) = 1\n"),
+        "error 2:5 the constructor `h.red` takes 0 fields, and this pattern gives 1\n" +
+        "error 3:8 the constructor `h.box` takes 1 field, and this pattern gives 2\n" +
+        "error 4:8 the constructor `h.box` takes 1 field, and this pattern gives none\n")
+    assert_eq(complaints(im + "def f( h.r(a) ) = a\n"), "error 2:8 `h.r` is not a constructor, so a pattern cannot match it\n")
+
+    // A relation's head is checked the same way.
+    assert_eq(complaints(im + "def g( h.box(a, b), a, b )\ndef g( h.nope, 1, 2 )\n"),
+        "error 2:8 the constructor `h.box` takes 1 field, and this pattern gives 2\n" +
+        s"error 3:8 `$m` does not export `nope`\n")
+
+    // A name that is not a module's is no qualified name, and `x.f` is no pattern.
+    assert(has(rendered("def f( x ) = x\ndef k( p.q(1) ) = 1\n"), "this cannot be matched against anything"), "p.q(1)")
+
+@test
+A_MODULE_IS_KNOWN_BY_ITS_REAL_FILE_SO_A_LINK_CLOSES_A_CIRCLE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "a.funl", "import { b } from \"b.funl\"\nexport def a() = 1\n")
+    put(d, "b.funl", "import { a } from \"link.funl\"\nexport def b() = 2\n")
+    symlink("a.funl", s"$d/link.funl").unwrap()
+
+    val said = rendered(s"import { a } from \"$d/a.funl\"\n")
+
+    assert(has(said, s"this import closes a circle: `$d/a.funl` imports `$d/b.funl` imports `$d/link.funl`"), said)
+
+@test
+A_MODULE_IMPORTED_BY_TWO_SPELLINGS_RUNS_ONCE()
+    val d = scratch()
+    defer scrap(d)
+
+    val shapes = put_shapes(d)
+
+    make_dir(s"$d/sub").unwrap()
+    symlink("geometry.funl", s"$d/geo.funl").unwrap()
+
+    // FunL imports it through a link and by a roundabout path, Prolog's `:- import` by its own name.
+    val text = s"import { scaled } from \"$d/geo.funl\"\n" +
+        s"import { scaled as twice } from \"$d/sub/../geometry.funl\"\n" +
+        s"import \"$shapes\"\n" +
+        "free a\n" +
+        "if area( 3, a ) then write( a, scaled(1), twice(2) )\n"
+
+    assert_eq(ran_funl(text), "geometry\n30, 10, 20\nsucceeded")
+
+@test
+A_PROLOG_FILE_IMPORTED_BY_TWO_SPELLINGS_LOADS_ONCE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "hello.pl", HelloPl)
+    symlink("hello.pl", s"$d/hi.pl").unwrap()
+
+    assert_eq(ran_funl(s"import \"$d/hello.pl\"\nimport \"$d/hi.pl\"\nwrite( 'done' )\n"), "hello\nworld\ndone\nsucceeded")
 
 // The directive consulting `file`.
 private consulting_of(file: string) -> string = s":- consult(\"$file\").\n"

@@ -8,7 +8,8 @@ import sysl.text.Search
 // `counter` handle that owns a block of native memory and counts from 0 up to its limit.
 //
 // `counter(n)` makes one; its methods are `next()` (the next count, failing past the limit),
-// `limit()` and `skip(k)`. `count_up(n)` generates 0 to n-1 from a fresh counter per call.
+// `limit()`, `skip(k)` and `upto(k)`, which generates 0 to k-1, or to the limit if that is lower,
+// from a fresh counter per call. `count_up(n)` generates 0 to n-1 from a fresh counter per call.
 // `released()` answers how many counters have been released, and `collect()` runs the collector
 // now. Every program runs on both heaps.
 
@@ -32,6 +33,7 @@ private with_counter(text: string) -> Result[usize, string]
     register_method(v, counter_kind, "next", 0, counter_next)
     register_method(v, counter_kind, "limit", 0, counter_limit)
     register_method(v, counter_kind, "skip", 1, counter_skip)
+    register_stepping_method(v, counter_kind, "upto", 1, start_upto, step_count)
     compiled_text(text)
 
 private counted(text: string) -> string = ran(() -> with_counter(text))
@@ -90,6 +92,25 @@ private start_count(base: usize, argc: usize) -> Result[Option[Value], Fault]
         _ -> ()
 
     Ok(Some(new_counter(arg(base, 0))?))
+
+// `c.upto(k)`: a fresh counter up to `k` or `c`'s limit, whichever is lower; nothing to count when
+// that is not positive.
+private start_upto(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val h = open_handle(base, 0, counter_kind, "'upto'")?
+
+    val limit = h.vals.at(0) match
+        Int(n) -> n
+        _ -> 0
+
+    val k = deref(arg(base, 1)) match
+        Int(k) -> k
+        y -> return Err(kind_error(y, "integer", s"'upto' counts up to an integer, not ${described(y)}"))
+
+    val upto = if k < limit then k else limit
+
+    if upto <= 0 then return Ok(None)
+
+    Ok(Some(new_counter(Int(upto))?))
 
 private step_count(h: *HandleObj) -> Result[Option[Value], Fault]
     val limit = h.vals.at(0) match
@@ -194,3 +215,53 @@ A_COMMIT_ABANDONS_THE_STATE_AND_THE_FINALIZER_RELEASES_IT()
 @test
 A_NATIVE_GENERATORS_ARGUMENT_IS_CHECKED_BY_ITS_START()
     faults_with("write( count_up(\"a\") )\n", "a counter counts up to an integer, not the string 'a'")
+
+// -- generating methods ------------------------------------------------------------------------------
+
+@test
+A_METHOD_MAY_GENERATE()
+    assert_eq(counted("val c = counter(5)\nevery write( c.upto(2) )\nfor x <- c.upto(9) do write( x )\n"),
+        "0\n1\n0\n1\n2\n3\n4\nsucceeded")
+    assert_eq(counted("val c = counter(5)\nwrite( [x * 10 | x <- c.upto(4)] )\nwrite( 2 < c.upto(9) )\n"),
+        "[0, 10, 20, 30]\n3\nsucceeded")
+
+@test
+A_GENERATING_METHOD_RUNNING_OUT_FAILS_AND_RELEASES_AT_ONCE()
+    assert_eq(counted("val c = counter(5)\nevery write( c.upto(2) )\nwrite( released() )\nwrite( c.upto(0) | \"empty\" )\nwrite( 9 < c.upto(3) | \"none\", released() )\n"),
+        "0\n1\n1\nempty\nnone, 2\nsucceeded")
+
+@test
+A_GENERATING_METHOD_STARTS_AFRESH_AT_EACH_CALL()
+    assert_eq(counted("val c = counter(5)\nwrite( [(x, y) | x <- c.upto(2), y <- c.upto(2)] )\n"),
+        "[(0, 0), (0, 1), (1, 0), (1, 1)]\nsucceeded")
+    assert_eq(counted("val c = counter(5)\ndef twice() = c.upto(2)\nevery write( twice() )\nevery write( twice() )\n"),
+        "0\n1\n0\n1\nsucceeded")
+
+@test
+A_COMMIT_ABANDONS_A_GENERATING_METHODS_STATE_AND_THE_FINALIZER_RELEASES_IT()
+    assert_eq(counted("val c = counter(9)\nval x = 1 < c.upto(9)\nwrite( x )\ncollect()\nwrite( released() )\n"), "2\n1\nsucceeded")
+
+    counted("val c = counter(9)\nwrite( c.upto(9) )\n")
+    assert_eq(counters_released, counters_made)
+
+@test
+A_GENERATING_METHOD_OF_A_CLOSED_HANDLE_IS_A_FAULT()
+    faults_with("val c = counter(2)\nc.close()\nevery write( c.upto(2) )\n", "'upto' was called on the handle <closed counter handle>")
+    faults_with("val c = counter(2)\nevery write( c.upto() )\n", "'upto' of the handle <counter handle> takes 1 arguments and was given 0")
+    faults_with("val c = counter(2)\nevery write( c.upto(\"a\") )\n", "'upto' counts up to an integer, not the string 'a'")
+
+@test
+A_HANDLE_CLOSED_WHILE_ITS_METHOD_GENERATES_ENDS_THE_GENERATION()
+    // Closing the counter releases it, and the state the next step finds is released with it.
+    assert_eq(counted("val c = counter(5)\nfor x <- c.upto(5) do if x == 2 then c.close() else write( x )\nwrite( c, released() )\n"),
+        "0\n1\n<closed counter handle>, 2\nsucceeded")
+
+@test
+A_PROLOG_PREDICATE_BACKTRACKS_INTO_A_GENERATING_METHOD_THROUGH_A_FUNL_FUNCTION()
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, "counts.pl", "counts(C, L) :- findall(X, upto_of(C, X), L).\nbig(C, X) :- upto_of(C, X), X > 2.\n")
+
+    assert_eq(counted(s"import \"$file\"\ndef upto_of(c) = c.upto(4)\nval c = counter(9)\nfree l, x\nif counts(c, l) then write( l )\nevery big(c, x) do write( x )\nwrite( released() )\n"),
+        "[0, 1, 2, 3]\n3\n2\nsucceeded")

@@ -1,0 +1,117 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// A `data` type's name belongs to the file that declares it (`modules.md`): `x is shape` names a
+// type the file declared or imported -- by name, or qualified as `m.shape` through `import * as m`
+// -- and no other. Constructors were already names of their file, so a constructor nothing imported
+// is not defined.
+
+// Whether `text` holds `part`.
+private has_part(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// A module exporting a data type and a function that makes one of its records.
+private const ShapesModule: string = "export data shape = circle(r) | square(s)\n" +
+    "export def mk() = circle(2)\n"
+
+@test
+A_DATA_TYPE_NOT_IMPORTED_IS_NOT_A_TYPE_IN_ANOTHER_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put(d, "shapes.funl", ShapesModule)
+
+    assert_eq(complaints(s"import { mk } from \"$g\"\nval c = mk()\nwrite( c is shape )\n"),
+        "error 3:13 `shape` is not a type\n")
+
+@test
+A_CONSTRUCTOR_NOT_IMPORTED_IS_NOT_DEFINED_IN_ANOTHER_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put(d, "shapes.funl", ShapesModule)
+    val said = rendered(s"import { mk } from \"$g\"\nwrite( circle(5) )\n")
+
+    assert(has_part(said, "`circle` is not defined"), said)
+
+@test
+AN_IMPORTED_DATA_TYPE_IS_TESTED_BY_THE_NAME_THE_IMPORT_DECLARES()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put(d, "shapes.funl", ShapesModule)
+    val text = s"import { mk, shape, shape as form, circle } from \"$g\"\n" +
+        "val c = mk()\n" +
+        "write( c is shape, c is form, c is circle )\n" +
+        "if 3 is shape then write( #wrong ) else write( #number )\n"
+
+    assert_eq(ran_funl(text), "circle(2), circle(2), circle(2)\nnumber\nsucceeded")
+
+@test
+A_QUALIFIED_TYPE_OR_CONSTRUCTOR_NAMES_WHAT_THE_MODULE_EXPORTS()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put(d, "shapes.funl", ShapesModule)
+    val text = s"import * as g from \"$g\"\n" +
+        "val c = g.mk()\n" +
+        "write( c is g.shape, c is g.circle )\n" +
+        "if c is g.square then write( #wrong ) else write( #circle )\n"
+
+    assert_eq(ran_funl(text), "circle(2), circle(2)\ncircle\nsucceeded")
+
+@test
+A_QUALIFIED_NAME_THE_MODULE_DOES_NOT_EXPORT_IS_REFUSED_AFTER_IS()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put(d, "shapes.funl", ShapesModule)
+    val said = rendered(s"import * as g from \"$g\"\nwrite( 1 is g.oval )\n")
+
+    assert(has_part(said, s"`$g` does not export `oval`"), said)
+    assert(has_part(said, "it exports `shape`, `circle`, `square`, `mk`"), said)
+
+@test
+TWO_MODULES_MAY_EACH_DECLARE_A_TYPE_OF_ONE_NAME()
+    val d = scratch()
+    defer scrap(d)
+
+    val a = put(d, "a.funl", "export data shape = circle(r)\nexport def own( x ) = if x is shape then #mine else #other\n")
+    val b = put(d, "b.funl", "export data shape = box(w)\nexport def own( x ) = if x is shape then #mine else #other\n")
+    val text = s"import * as a from \"$a\"\nimport * as b from \"$b\"\n" +
+        "write( a.own(a.circle(1)), a.own(b.box(1)), b.own(b.box(1)), b.own(a.circle(1)) )\n" +
+        "if b.box(1) is a.shape then write( #wrong ) else write( #apart )\n"
+
+    assert_eq(ran_funl(text), "mine, other, mine, other\napart\nsucceeded")
+
+@test
+A_FILE_CANNOT_DECLARE_A_TYPE_IT_IMPORTS_NOR_IMPORT_ONE_TWICE()
+    val d = scratch()
+    defer scrap(d)
+
+    val a = put(d, "a.funl", "export data shape = circle(r)\n")
+    val b = put(d, "b.funl", "export data shape = box(w)\n")
+    val declared = rendered(s"import { shape } from \"$a\"\ndata shape = dot\n")
+    val twice = rendered(s"import { shape } from \"$a\"\nimport { shape } from \"$b\"\n")
+
+    assert(has_part(declared, "the type `shape` is imported, and this file cannot also declare it"), declared)
+    assert(has_part(twice, "`shape` is imported twice"), twice)
+
+@test
+A_PROLOG_MADE_TERM_IS_OF_AN_IMPORTED_TYPE()
+    val d = scratch()
+    defer scrap(d)
+
+    // `circle(2)` built by Prolog's `=..` is known by its functor and number of fields; the
+    // importer's `shape` recognises it, and its field is read by name.
+    val g = put(d, "shapes.funl", ShapesModule)
+    val p = put(d, "built.pl", "built(T) :- T =.. [circle, 2].\n")
+    val text = s"import \"$p\"\nimport { shape } from \"$g\"\n" +
+        "free t\n" +
+        "built( t )\n" +
+        "write( t is shape, t.r )\n"
+    val unimported = s"import \"$p\"\nimport { mk } from \"$g\"\nfree t\nbuilt( t )\nwrite( t is shape )\n"
+
+    assert_eq(ran_funl(text), "circle(2), 2\nsucceeded")
+    assert_eq(complaints(unimported), "error 5:13 `shape` is not a type\n")

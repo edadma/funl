@@ -407,7 +407,8 @@ statement, a running process. It is opaque: it prints as `<kind handle>`, is equ
 and is reached only through its methods, called as `h.name(args)`. Every handle has `close()`, which
 gives the resource back at once; closing it again does nothing, and calling any other method of a
 closed handle is an error. A handle the program never closes is closed when nothing can reach it any
-more. `x is handle` tests for one.
+more. `x is handle` tests for one. A method may fail, as a comparison does, and may generate, as
+any generator does: each call starts afresh and produces its values one at a time on backtracking.
 
 ## Records
 
@@ -565,6 +566,32 @@ circle(2)
 circle(2)
 blank
 point(1, 2)
+```
+
+A type's name and its constructors belong to the file that declares them, and another file reaches
+them only by importing them ([Modules](modules.md#types-and-constructors)).
+[`modules/geometry.funl`](modules/geometry.funl) declares `export data shape = circle(r) | square(s)`:
+
+```funl
+import { circle, shape } from "modules/geometry.funl"
+
+write( circle(1) is shape )
+write( 3 is shape )
+```
+
+```output
+geometry is loaded
+circle(1)
+```
+
+```funl
+import { circle } from "modules/geometry.funl"
+
+write( circle(1) is shape )
+```
+
+```error
+`shape` is not a type
 ```
 
 A record is known by its constructor's name and number of fields, so a term of that shape is that

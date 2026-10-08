@@ -265,6 +265,26 @@ struct Resolved
     aliases: Map[string, usize]
     qualified: Map[string, Meaning]
 
+    // The `data` types this file declares, and those its imports bring (by the name an
+    // `import { ... }` declares, or as `alias.name`), each as an index into `Vm.data_types`. A
+    // type's name is the file's own: another file sees it only by importing it.
+    own_types: Map[string, usize]
+    imported_types: Map[string, usize]
+
+    // The `data` type `name` means in this file, if any: its own first, then an imported one.
+    data_type(self, name: string) -> Option[usize]
+        self.own_types.get(name) match
+            Some(id) -> return Some(id)
+            None -> ()
+
+        self.imported_types.get(name)
+
+    // What the name after an `is` means, `local` being what it means where it is written: a
+    // qualified `alias.name` is what that module exports (no local name has a `.` in it).
+    qualified_or(self, name: string, local: Meaning) -> Meaning = self.qualified.get(name) match
+        Some(m) -> m
+        None -> local
+
     // What `name` means written at offset `pos` in block `blk` of scope `sid`, which is complete.
     meaning(self, sid: usize, blk: usize, pos: usize, name: string) -> Meaning
         val m = self.meaning_above(sid, blk, pos, 0, name)
@@ -367,7 +387,7 @@ end Resolved
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map())
 
     res.top = new_scope_id(&res)
 
@@ -463,7 +483,7 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
         var params: Buf[&Expr] = buf()
 
         for p in written.params.view()
-            params.push(head_atoms(res, p))
+            params.push(head_atoms(res, p, report))
 
         val c = Clause(written.name, written.head, params, written.kind)
 
@@ -501,24 +521,56 @@ end resolve_relation
 // A head argument with each name that means a constructor with no fields written as that
 // constructor's atom (`logic.md` § "Atoms"): `red`, after `data hue = red | green`, is `#red` in a
 // head as in a body, and every other name is a clause variable.
-private head_atoms(res: *Resolved, p: &Expr) -> &Expr
+private head_atoms(res: *Resolved, p: &Expr, report: *Report) -> &Expr
     p.kind match
         Ref(n) ->
             res.top_constructor(n) match
                 Some(id) -> if current().ctors.at(id).fields.len() == 0 then expr(AtomE(n), p.span) else p
                 None -> p
-        CallE(n, at, args) -> expr(CallE(n, at, heads_atoms(res, args)), p.span)
-        ListE(items) -> expr(ListE(heads_atoms(res, items)), p.span)
-        ConsE(h, t) -> expr(ConsE(head_atoms(res, h), head_atoms(res, t)), p.span)
+        CallE(n, at, args) -> expr(CallE(n, at, heads_atoms(res, args, report)), p.span)
+        ListE(items) -> expr(ListE(heads_atoms(res, items, report)), p.span)
+        ConsE(h, t) -> expr(ConsE(head_atoms(res, h, report), head_atoms(res, t, report)), p.span)
+
+        // `m.name(p, ...)` and `m.name`, `m` a module: the term, or the atom, of the constructor the
+        // module exports as `name`, written as one of the file's own would be.
+        ApplyE(f, args) ->
+            head_constructor(res, f, Some(args.len()), report) match
+                Some(n) -> expr(CallE(n, f.span, heads_atoms(res, args, report)), p.span)
+                None -> p
+        FieldE(_, _) ->
+            head_constructor(res, p, None, report) match
+                Some(n) -> expr(AtomE(n), p.span)
+                None -> p
         _ -> p
 
-private heads_atoms(res: *Resolved, ps: Buf[&Expr]) -> Buf[&Expr]
+private heads_atoms(res: *Resolved, ps: Buf[&Expr], report: *Report) -> Buf[&Expr]
     var out: Buf[&Expr] = buf()
 
     for p in ps.view()
-        out.push(head_atoms(res, p))
+        out.push(head_atoms(res, p, report))
 
     out
+
+// When `f`, written in a head with `argc` fields (`None` for the bare name), is `m.name` for a module
+// `m`: the constructor's name, or `None` with the refusal reported. `None`, and nothing reported,
+// for anything else, which the head's own check refuses.
+private head_constructor(res: *Resolved, f: &Expr, argc: Option[usize], report: *Report) -> Option[string]
+    f.kind match
+        FieldE(x, name) ->
+            x.kind match
+                Ref(g) ->
+                    qualified_in_head(res, g, name) match
+                        Some(m) ->
+                            qualified_pattern_refusal(res, g, name, m, argc, f.span) match
+                                Some(d) -> report.add(d)
+                                None -> ()
+
+                            return Some(name)
+                        None -> ()
+                _ -> ()
+        _ -> ()
+
+    None
 
 // A head argument: a variable, `_`, a constant, or a term or list of those.
 private walk_head(sc: *Scope, p: &Expr, report: *Report)

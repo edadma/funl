@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
-import sysl.text.Search
+import sysl.text.{Search, from_utf8_unchecked}
 
 // Reading one scope's code: each name looked up, declared or refused, each local function hoisted
 // and each lambda queued for its own scope.
@@ -118,7 +118,8 @@ walk_stmt(w: *Walk, s: Stmt)
         DefS(clauses) -> written_in_block(w, clauses)
 
         // Each constructor is a name of the block, which nothing can assign, from its declaration on.
-        // A data type's name is known to `is` from here on, wherever it is written.
+        // A data type's name is known to `is` from here on in this file, wherever it is written;
+        // another file knows it only by importing it.
         DataS(ctors, typ) ->
             var ids: Buf[usize] = buf()
 
@@ -142,7 +143,12 @@ walk_stmt(w: *Walk, s: Stmt)
                 w.sc.ctors.put(slot, id)
                 ids.push(id)
 
-            if typ != "" then declare_data_type(typ, ids)
+            if typ != ""
+                if w.res.imported_types.get(typ).is_some() && ctors.len() > 0
+                    w.report.add(error(ctors.at(0).at, s"the type `$typ` is imported, and this file cannot also declare it")
+                        .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
+                else
+                    w.res.own_types.put(typ, declare_data_type(ids))
 
 // The name a statement `name(k) = e` writes through, or "" for any other left side.
 call_name(pat: &Expr) -> string = pat.kind match
@@ -204,6 +210,15 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
         CallE(_, _, args) ->
             for x in args.view()
                 declare_pattern(w, x, from, fixed)
+        ApplyE(f, args) ->
+            // `m.name(p, ...)`, `m` a module: a term of the constructor the module exports as `name`.
+            if !qualified_pattern(w, f, Some(args.len()))
+                unmatchable(w, p)
+                return
+
+            for x in args.view()
+                declare_pattern(w, x, from, fixed)
+        FieldE(_, _) -> if !qualified_pattern(w, p, None) then unmatchable(w, p)
         Disj(a, b) ->
             declare_pattern(w, a, from, fixed)
             declare_pattern(w, b, from, fixed)
@@ -217,10 +232,30 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
             w.sc.declare(w.blk, n, p.span, from, fixed)
             declare_pattern(w, x, from, fixed)
         BadE -> ()
-        _ ->
-            w.report.add(error(p.span, "this cannot be matched against anything")
-                .with_note("a pattern is a name, `_`, a constant, a tuple, a list `[a, b]` or `h:t`, a term, an alternation `p | q`, or `name@pattern`"))
+        _ -> unmatchable(w, p)
 end declare_pattern
+
+private unmatchable(w: *Walk, p: &Expr)
+    w.report.add(error(p.span, "this cannot be matched against anything")
+        .with_note("a pattern is a name, `_`, a constant, a tuple, a list `[a, b]` or `h:t`, a term, an alternation `p | q`, or `name@pattern`"))
+
+// Whether `f`, a pattern's `m.name` given `argc` fields (`None` for the bare name), is a qualified
+// name: `m` a module. A name the module does not export, or that is not a constructor of as many
+// fields, is refused here; `false` leaves the refusal of anything else to the caller.
+private qualified_pattern(w: *Walk, f: &Expr, argc: Option[usize]) -> bool
+    f.kind match
+        FieldE(x, name) ->
+            qualified_at(w, x, name) match
+                Some(m) ->
+                    walk(w, x)
+
+                    qualified_pattern_refusal(w.res, ref_name(x), name, m, argc, f.span) match
+                        Some(d) -> w.report.add(d)
+                        None -> ()
+
+                    true
+                None -> false
+        _ -> false
 
 // An expression's names.
 walk(w: *Walk, e: &Expr)
@@ -374,9 +409,8 @@ walk(w: *Walk, e: &Expr)
         IsE(x, t, at) ->
             walk(w, x)
 
-            if type_test(w.meaning(t, at.start), t).is_none()
-                w.report.add(error(at, s"`$t` is not a type")
-                    .with_note("`is` takes a type's name: `integer`, `string`, `list` and the rest, a `data` type, or a constructor"))
+            if type_test(w.res.data_type(t), w.res.qualified_or(t, w.meaning(t, at.start)), t).is_none()
+                w.report.add(not_a_type(w, t, at))
         FieldE(x, name) ->
             walk(w, x)
 
@@ -490,6 +524,20 @@ private ref_name(x: &Expr) -> string = x.kind match
     _ -> ""
 
 // The refusal of `x.name`, which the module `x` names does not export.
+// The refusal of `x is t` where `t` names no type: `m.t`, `m` a module alias, is refused as a name
+// the module does not export.
+private not_a_type(w: *Walk, t: string, at: Span) -> Diagnostic
+    t.index_of(".") match
+        Some(k) ->
+            val g = from_utf8_unchecked(t.bytes[0..<k])
+
+            if w.res.aliases.get(g).is_some() && w.res.qualified.get(t).is_none() && w.res.imported_types.get(t).is_none()
+                return not_exported(w.res, g, from_utf8_unchecked(t.bytes[k + 1..<t.bytes.len]), at)
+        None -> ()
+
+    error(at, s"`$t` is not a type")
+        .with_note("`is` takes a type's name: `integer`, `string`, `list` and the rest, a `data` type, or a constructor")
+
 private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
     x.kind match
         Ref(g) -> w.report.add(not_exported(w.res, g, name, at))

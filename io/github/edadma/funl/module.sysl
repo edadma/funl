@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
-import sysl.fs.read_text
+import sysl.fs.{canonicalize, read_text}
 import sysl.path.{join, normalize, parent}
 import sysl.text.{Search, str_builder}
 
@@ -38,8 +38,8 @@ enum ExportKind
     // A `data` constructor, indexing `Vm.ctors`.
     ExCtor(id: usize)
 
-    // A `data` type's name, which `is` and patterns already know wherever they are written.
-    ExType
+    // A `data` type's name, indexing `Vm.data_types`: what `is` tests in a file that imports it.
+    ExType(id: usize)
 
     // A builtin, as a module of FunL's own gives it.
     ExNative(id: usize)
@@ -132,8 +132,15 @@ module_path(from: string, given: string) -> string = parent(from) match
     Some(dir) -> join(dir, given)
     None -> given
 
-// Whether two paths name one file: `a/./b.funl` and `a/b.funl` are the same module.
-private same_file(a: string, b: string) -> bool = normalize(a) == normalize(b)
+// Whether two paths name one file. **A file is known by its real path**, which the filesystem gives:
+// `a/./b.funl`, `../a/b.funl` from inside `a`, and a symbolic link to `a/b.funl` are all the same
+// module. A path naming nothing, or a name that is not a file at all (a test's program), is known by
+// its text, `.` and `..` resolved.
+same_file(a: string, b: string) -> bool = file_key(a) == file_key(b)
+
+private file_key(file: string) -> string = canonicalize(file) match
+    Ok(real) -> real
+    Err(_) -> normalize(file)
 
 // Whether `file` names a FunL module.
 private is_funl_file(file: string) -> bool = file.ends_with(".funl") || file.ends_with(".lfunl")
@@ -320,6 +327,12 @@ bind_imports(res: *Resolved, im: Imports, report: *Report)
     for b in im.names.view()
         if !free_to_import(res, b.local, b.at, current().modules.at(b.source).file, report) then continue
 
+        b.export.kind match
+            ExType(id) ->
+                res.imported_types.put(b.local, id)
+                continue
+            _ -> ()
+
         export_meaning(res, current().modules.at(b.source), b.export) match
             Some(m) -> res.imported.put(b.local, m)
             None -> ()
@@ -334,6 +347,10 @@ bind_imports(res: *Resolved, im: Imports, report: *Report)
         res.aliases.put(a.alias, a.source)
 
         for x in md.exports.view()
+            x.kind match
+                ExType(id) -> res.imported_types.put(s"${a.alias}.${x.name}", id)
+                _ -> ()
+
             export_meaning(res, md, x) match
                 Some(m) -> res.qualified.put(s"${a.alias}.${x.name}", m)
                 None -> ()
@@ -349,7 +366,7 @@ private free_to_import(res: *Resolved, n: string, at: Span, file: string, report
             return false
         None -> ()
 
-    if res.imported.get(n).is_some() || res.aliases.get(n).is_some()
+    if res.imported.get(n).is_some() || res.aliases.get(n).is_some() || res.imported_types.get(n).is_some()
         report.add(error(at, s"`$n` is imported twice"))
         return false
 
@@ -357,7 +374,7 @@ private free_to_import(res: *Resolved, n: string, at: Span, file: string, report
 
 // What export `x` of module `md` means to the file `res` resolves: a function or a relation is a
 // definition of that file's whose chunk is already compiled, so calls to it are compiled as calls to
-// one of the file's own. A type's name means nothing more than it already does.
+// one of the file's own. A type's name is no value; `bind_imports` records it for `is`.
 private export_meaning(res: *Resolved, md: FunlModule, x: ModExport) -> Option[Meaning]
     x.kind match
         ExFunction(chunk, arity) -> Some(Function(foreign_rel(res, x.name, arity, chunk, true), md.up))
@@ -365,7 +382,7 @@ private export_meaning(res: *Resolved, md: FunlModule, x: ModExport) -> Option[M
         ExValue(slot) -> Some(Local(md.up, slot, true))
         ExCtor(id) -> Some(Constructor(id))
         ExNative(id) -> Some(Builtin(id))
-        ExType -> None
+        ExType(_) -> None
 
 // A definition another file compiled: no clauses, so nothing resolves or compiles it again.
 private foreign_rel(res: *Resolved, name: string, arity: usize, chunk: usize, function: bool) -> usize
@@ -398,6 +415,46 @@ not_exported(res: *Resolved, g: string, name: string, at: Span) -> Diagnostic
     val md = current().modules.at(res.aliases.get(g).unwrap())
 
     error(at, s"`${md.file}` does not export `$name`").with_note(exports_text(md))
+
+// What `g.name` means in a relation's head, `g` a module `import * as` brought in: there a name is a
+// clause variable or a module, and a clause variable has no fields, so `g` is the module whenever an
+// import names it. `None` when no import does.
+qualified_in_head(res: *Resolved, g: string, name: string) -> Option[Meaning]
+    if res.aliases.get(g).is_none() then return None
+
+    res.qualified.get(s"$g.$name") match
+        Some(m) -> Some(m)
+        None -> Some(Unknown)
+
+// Why the pattern `g.name(...)` -- `argc` fields, or `None` for the bare `g.name` -- cannot match,
+// `g.name` meaning `m`: a pattern names a constructor the module exports, with as many fields as it
+// has. `None` when it can.
+qualified_pattern_refusal(res: *Resolved, g: string, name: string, m: Meaning, argc: Option[usize], at: Span) -> Option[Diagnostic]
+    val n = s"$g.$name"
+
+    m match
+        Unknown -> Some(not_exported(res, g, name, at))
+        Constructor(id) ->
+            val fields = current().ctors.at(id).fields.len()
+
+            argc match
+                Some(k) ->
+                    if k == fields then return None
+
+                    Some(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this pattern gives $k"))
+                None ->
+                    if fields == 0 then return None
+
+                    Some(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this pattern gives none")
+                        .with_note(s"a pattern for it gives each field: `$n(...)`"))
+        _ ->
+            Some(error(at, s"`$n` is not a constructor, so a pattern cannot match it")
+                .with_note("a qualified name in a pattern is a constructor the module exports, as a `data` declares it"))
+
+// The functor of the constructor `m` names, a pattern the resolver let through.
+pattern_functor(m: Option[Meaning]) -> Result[u32, string] = m match
+    Some(Constructor(id)) -> Ok(current().ctors.at(id).functor)
+    _ -> Err("a qualified pattern the resolver refused reached the compiler")
 
 // The exports of a module whose names `names` its `export` lines declare, resolved in `res`; the
 // snapshot slots and the map slot are made in its top level's frame when it is a `module` -- a
@@ -446,9 +503,11 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
                 continue
             None -> ()
 
-        if current().data_ids.get(n).is_some()
-            out.exports.push(ModExport(n, ExType, ""))
-            continue
+        res.own_types.get(n) match
+            Some(id) ->
+                out.exports.push(ModExport(n, ExType(id), ""))
+                continue
+            None -> ()
 
         report.add(error(named.span, s"`$n` is exported, and nothing at the top level of this file defines it"))
 

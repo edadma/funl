@@ -1,0 +1,5 @@
+;; A second module with a `data` type called `shape`, beside geometry.funl's.
+
+export data shape = box(w, h)
+
+export def area( box(w, h) ) = w * h
