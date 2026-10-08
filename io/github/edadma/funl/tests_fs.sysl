@@ -1,0 +1,249 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.set_permissions
+import sysl.text.Search
+
+// `funl:fs` (`docs/library/fs.md`): whole files, bytes, lines and directory names as generators,
+// questions about a path, changing the filesystem, and paths. A thing that is not there fails; a
+// permission refused faults with `permission_error`, any other error with `system_error`. Every
+// program runs on both heaps, so each writes what it reads afresh.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// FunL program `body` run with every name of `funl:fs` imported, `d` bound to directory `dir`.
+private in_dir(dir: string, body: string) -> string =
+    ran_funl(s"import { read_file, read_bytes, write_file, write_bytes, append_file, append_bytes, lines, read_dir, exists, is_file, is_dir, stat, remove, mkdir, rename, cwd, join, basename, dirname, extension } from funl:fs\nval d = \"$dir\"\n" + body)
+
+@test
+A_FILE_IS_WRITTEN_ADDED_TO_AND_READ_WHOLE()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "val f = join(d, \"notes.txt\")\nwrite_file( f, \"one\\n\" )\nappend_file( f, \"two\\n\" )\nwrite( read_file(f) )\nwrite_file( f, \"fresh\" )\nwrite( read_file(f) )\n"),
+        "one\ntwo\n\nfresh\nsucceeded")
+
+@test
+IMPORT_STAR_REACHES_THE_MODULE_BY_QUALIFIED_NAMES()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "a.txt", "alpha")
+
+    assert_eq(ran_funl(s"import * as fs from funl:fs\nwrite( fs.read_file(\"$f\"), fs.exists(\"$f\"), fs.basename(\"$f\") )\n"),
+        "alpha, true, a.txt\nsucceeded")
+
+@test
+A_MODULE_OF_BUILTINS_IS_NOT_A_VALUE_AND_ITS_NAMES_ARE_IMPORTED_OR_NOT_THERE()
+    assert_eq(complaints("import * as fs from funl:fs\nwrite( fs )\n"),
+        "error 2:8 `fs` names a module of FunL's own, which is not a value\n")
+    assert_eq(complaints("write( read_file(\"x\") )\n"), "error 1:8 `read_file` is not defined\n")
+    assert(has(complaints("import { slurp } from funl:fs\n"), "`funl:fs` does not export `slurp`"))
+    assert(has(complaints("import * as fs from funl:fs\nwrite( fs.slurp(\"x\") )\n"), "`funl:fs` does not export `slurp`"))
+    assert_eq(complaints("import * as fs from funl:fs\nwrite( fs.read_file(\"a\", \"b\") )\n"),
+        "error 2:8 `fs.read_file` takes 1 argument, and this call gives 2\n")
+    assert_eq(complaints("import { read } from funl:nothing\n"), "error 1:22 unknown module `funl:nothing`\n")
+
+@test
+EVERY_NAME_A_BUILT_IN_MODULE_EXPORTS_IS_A_REGISTERED_NATIVE()
+    var v = new_vm(65536, 4096, 2)
+    val was = enter(&v)
+
+    for p in builtin_modules().view()
+        val xs = p.exports()
+
+        assert(xs.len() > 0, p.name)
+
+        for x in xs.view()
+            x.kind match
+                ExNative(id) -> assert_eq(current().natives.at(id).name, s"${p.name}.${x.name}")
+                _ -> assert(false, s"funl:${p.name} exports `${x.name}`, which is not a native")
+
+    dispose_vm(&v)
+    leave(was)
+
+@test
+A_THING_THAT_IS_NOT_THERE_FAILS()
+    val d = scratch()
+    defer scrap(d)
+
+    val text = "val m = join(d, \"missing\")\n" +
+        "write( read_file(m) | #absent )\n" +
+        "write( read_bytes(m) | #absent )\n" +
+        "write( stat(m) | #absent )\n" +
+        "write( remove(m) | #absent )\n" +
+        "write( rename(m, join(d, \"other\")) | #absent )\n" +
+        "write( exists(m) | #absent, is_file(m) | #absent, is_dir(m) | #absent )\n" +
+        "write( [x | x <- [read_dir(m)]], [x | x <- [lines(m)]] )\n" +
+        "write( write_file(join(m, \"f.txt\"), \"x\") | #absent )\n" +
+        "if read_file( m ) then write( #there ) else write( #missing )\n"
+
+    assert_eq(in_dir(d, text), "absent\nabsent\nabsent\nabsent\nabsent\nabsent, absent, absent\n[], []\nabsent\nmissing\nsucceeded")
+
+@test
+A_PERMISSION_REFUSED_FAULTS_WITH_THE_ISO_TERM_AND_CATCH_CATCHES_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "locked.txt", "secret")
+
+    set_permissions(f, 0).unwrap()
+    defer set_permissions(f, 0o644).unwrap()
+
+    assert_eq(in_dir(d, s"write( read_file(\"$f\") catch e -> e )\n"),
+        s"error(permission_error(open, source_sink, \"$f\"), context(_G2, \"'read_file' cannot open `$f`: permission denied\"))\nsucceeded")
+
+    assert_eq(unplaced(in_dir(d, s"write( read_file(\"$f\") )\nwrite( #after )\n")),
+        s"fault: main: 'read_file' cannot open `$f`: permission denied")
+
+@test
+ANY_OTHER_ERROR_FAULTS_WITH_SYSTEM_ERROR()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "plain.txt", "x")
+
+    assert_eq(in_dir(d, s"write( read_file(\"$f/inside\") catch e -> e )\nwrite( mkdir(\"$f/sub\") catch e -> #refused )\n"),
+        s"error(system_error, context(_G2, \"'read_file' cannot open `$f/inside`: not a directory\"))\nrefused\nsucceeded")
+
+@test
+LINES_GENERATES_EACH_LINE_OF_A_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "notes.txt", "one\ntwo\r\n\nfour\n")
+    val g = put(d, "unended.txt", "last")
+    val e = put(d, "empty.txt", "")
+
+    assert_eq(in_dir(d, s"every write( lines(\"$f\") )\nwrite( [l | l <- [lines(\"$g\")]] )\nwrite( [l | l <- [lines(\"$e\")]] )\nwrite( lines(\"$f\") )\n"),
+        "one\ntwo\n\nfour\n[\"last\"]\n[]\none\nsucceeded")
+
+@test
+READ_DIR_GENERATES_THE_NAMES_IN_ORDER_AND_A_COMMIT_ABANDONS_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "c.txt", "")
+    put(d, "a.txt", "")
+    put(d, "b.txt", "")
+
+    val text = "every write( read_dir(d) )\n" +
+        "if read_dir( d ) == \"b.txt\" then write( #found )\n" +
+        "write( read_dir(d), read_dir(d) )\n" +
+        "for name <- [read_dir(d)] if stat(join(d, name)).size == 0 do write( name )\n"
+
+    assert_eq(in_dir(d, text), "a.txt\nb.txt\nc.txt\nfound\na.txt, a.txt\na.txt\nb.txt\nc.txt\nsucceeded")
+
+@test
+BYTES_ARE_WRITTEN_AND_READ_AS_A_BYTE_STRING_AND_TEXT_THAT_IS_NOT_UTF8_FAILS()
+    val d = scratch()
+    defer scrap(d)
+
+    val text = "val f = join(d, \"b.bin\")\n" +
+        "write_bytes( f, bytes([104, 105, 255]) )\n" +
+        "append_bytes( f, bytes([33]) )\n" +
+        "write( read_bytes(f) )\n" +
+        "write( read_file(f) | #not_text )\n" +
+        "write( write_bytes(f, \"text\") catch e -> #refused )\n"
+
+    assert_eq(in_dir(d, text), "bytes([104, 105, 255, 33])\nnot_text\nrefused\nsucceeded")
+
+@test
+DIRECTORIES_ARE_MADE_WITH_THEIR_PARENTS_AND_PATHS_REMOVED_AND_RENAMED()
+    val d = scratch()
+    defer scrap(d)
+
+    val text = "val deep = join(d, \"x/y/z\")\n" +
+        "mkdir( deep )\n" +
+        "mkdir( deep )\n" +
+        "write( is_dir(deep), is_file(deep) | false, exists(deep) )\n" +
+        "val f = join(deep, \"f.txt\")\n" +
+        "write_file( f, \"hello\" )\n" +
+        "write( is_file(f), is_dir(f) | false )\n" +
+        "rename( f, join(d, \"g.txt\") )\n" +
+        "write( exists(f) | #moved, read_file(join(d, \"g.txt\")) )\n" +
+        "remove( join(d, \"g.txt\") )\n" +
+        "remove( deep )\n" +
+        "write( exists(join(d, \"g.txt\")) | #gone, exists(deep) | #gone, is_dir(join(d, \"x/y\")) )\n" +
+        "write( remove(join(d, \"x\")) catch e -> #not_empty )\n"
+
+    assert_eq(in_dir(d, text), "true, false, true\ntrue, false\nmoved, hello\ngone, gone, true\nnot_empty\nsucceeded")
+
+@test
+STAT_IS_A_MAP_OF_KIND_SIZE_AND_TIME()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "s.txt", "12345")
+    val text = s"val s = stat(\"$f\")\n" +
+        "write( s.kind, s.size, if s.modified > 1700000000 then #recent else #old )\n" +
+        "write( stat(d).kind )\n"
+
+    assert_eq(in_dir(d, text), "file, 5, recent\ndir\nsucceeded")
+
+@test
+PATHS_ARE_JOINED_AND_TAKEN_APART()
+    val text = "write( join(\"a\", \"b.txt\"), join(\"a\", \"/abs\") )\n" +
+        "write( basename(\"a/b/c.txt\"), dirname(\"a/b/c.txt\"), extension(\"a/b/c.txt\") )\n" +
+        "write( extension(\"a/b\") | #none, dirname(\"c.txt\") | #none )\n" +
+        "write( if cwd() is string then #cwd else #none )\n"
+
+    assert_eq(in_dir("", text), "a/b.txt, /abs\nc.txt, a/b, txt\nnone, none\ncwd\nsucceeded")
+
+@test
+A_PATH_IS_A_STRING()
+    assert(has(in_dir("", "write( read_file(42) )\n"), "'read_file' wants a path, a string, and was given the integer 42"))
+
+@test
+PROLOG_CALLS_A_BUILT_IN_MODULE_QUALIFIED_BY_ITS_NAME()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "notes.txt", "one\ntwo\n")
+    val locked = put(d, "locked.txt", "x")
+
+    set_permissions(locked, 0).unwrap()
+    defer set_permissions(locked, 0o644).unwrap()
+
+    val pl = put(d, "files.pl", ":- import(\"funl:fs\").\n" +
+        s"text(T) :- fs:read_file('$f', T).\n" +
+        s"all(Ls) :- findall(L, fs:lines(\"$f\", L), Ls).\n" +
+        "missing :- \\+ fs:read_file(\"nowhere/at/all\", _).\n" +
+        s"refused(F) :- catch(fs:read_file(\"$locked\", _), error(F, _), true).\n" +
+        s"called :- G = fs:exists(\"$d\", true), call(G).\n" +
+        s"sized(N) :- fs:stat(\"$f\", S), N = S.\n")
+
+    val text = s"import \"$pl\"\nfree t, ls, f, s\n" +
+        "if text(t) then write( t )\n" +
+        "if all(ls) then write( ls )\n" +
+        "write( if missing() then #missing else #there )\n" +
+        "if refused(f) then write( f )\n" +
+        "write( if called() then #called else #not )\n" +
+        "if sized(s) then write( s.size )\n"
+
+    assert_eq(ran_funl(text),
+        s"one\ntwo\n\n[\"one\", \"two\"]\nmissing\npermission_error(open, source_sink, \"$locked\")\ncalled\n8\nsucceeded")
+
+@test
+A_QUALIFIED_GOAL_RUNS_IN_A_DIRECTIVE_AND_THROUGH_CALL()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "a.txt", "alpha")
+    val pl = put(d, "run.pl", ":- import(\"funl:fs\").\n" +
+        s":- fs:read_file(\"$f\", T), write(T), nl.\n" +
+        s":- ( fs:exists(\"$d/none\", _) -> write(there) ; write(absent) ), nl.\n" +
+        s":- G = fs:basename(\"$f\", B), call(G), write(B), nl.\n" +
+        "read_file(_, mine).\n" +
+        ":- read_file(x, W), write(W), nl.\n")
+
+    assert_eq(ran_funl(s"import \"$pl\"\n"), "alpha\nabsent\na.txt\nmine\nsucceeded")
+
+@test
+A_PROLOG_IMPORT_OF_A_MODULE_FUNL_DOES_NOT_HAVE_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "bad.pl", ":- import(\"funl:nothing\").\n")
+
+    assert(has(ran_funl(s"import \"$pl\"\n"), "unknown module `funl:nothing`"))

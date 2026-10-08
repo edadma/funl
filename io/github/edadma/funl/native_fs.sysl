@@ -1,0 +1,333 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{IoError, NotFound, PermissionDenied, Regular, Directory, Symlink, append_bytes, append_text,
+    current_dir, entries, exists, is_dir, is_file, make_dir_all, metadata, read_bytes, remove_dir,
+    remove_file, rename, write_bytes, write_text}
+import sysl.path.{extension, file_name, join, parent}
+import sysl.slices.sort
+import sysl.text.from_utf8
+
+// `funl:fs`: files and directories, over sysl's `sysl.fs` and `sysl.path`.
+//
+// **Every native here is registered as `fs.name`**, a name no FunL program can write, so the module's
+// words -- `read_file`, `lines`, `exists`, `remove` -- stay free for programs and for other modules;
+// `fs_exports` gives them their short names (`modules.md` § "Built-in modules").
+//
+// **A thing that is not there is failure, and anything else that goes wrong is a fault**
+// (`modules.md`, failure or fault): a missing file or directory fails, so `read_file(p) | ""` and
+// `if exists(p)` are the tests a program writes; text that is not UTF-8 fails as `decode` does. A
+// permission refused faults with `permission_error(Action, source_sink, Path)` and every other error
+// with `system_error`, each catchable with `catch` or Prolog's `catch/3`.
+//
+// **`lines` and `read_dir` are generators**: each call reads the file or the directory afresh and
+// backtracking takes the next line or name, the names in sorted order.
+
+// What `funl:fs` exports, each name the short form of a native `install_fs` registered as `fs.name`.
+private val FsNames: [20]string = ["read_file", "read_bytes", "write_file", "write_bytes", "append_file",
+    "append_bytes", "lines", "read_dir", "exists", "is_file", "is_dir", "stat", "remove", "mkdir", "rename",
+    "cwd", "join", "basename", "dirname", "extension"]
+
+// The handle kind holding a generator's place in a file's text or a directory's names.
+private const ListingKind: string = "fs listing"
+
+install_fs(v: *Vm)
+    register_handle_kind(v, ListingKind, (h) -> ())
+    register_generator(v, "fs.read_file", 1, do_read_file)
+    register_generator(v, "fs.read_bytes", 1, do_read_bytes)
+    register_generator(v, "fs.write_file", 2, (b, n, c) -> written(b, "write_file", false, false))
+    register_generator(v, "fs.write_bytes", 2, (b, n, c) -> written(b, "write_bytes", true, false))
+    register_generator(v, "fs.append_file", 2, (b, n, c) -> written(b, "append_file", false, true))
+    register_generator(v, "fs.append_bytes", 2, (b, n, c) -> written(b, "append_bytes", true, true))
+    register_stepping(v, "fs.lines", 1, start_lines, step_lines)
+    register_stepping(v, "fs.read_dir", 1, start_read_dir, step_read_dir)
+    register_generator(v, "fs.exists", 1, (b, n, c) -> tested(b, "exists", exists(path_text(b, "exists")?)))
+    register_generator(v, "fs.is_file", 1, (b, n, c) -> tested(b, "is_file", is_file(path_text(b, "is_file")?)))
+    register_generator(v, "fs.is_dir", 1, (b, n, c) -> tested(b, "is_dir", is_dir(path_text(b, "is_dir")?)))
+    register_generator(v, "fs.stat", 1, do_stat)
+    register_generator(v, "fs.remove", 1, do_remove)
+    register(v, "fs.mkdir", 1, do_mkdir)
+    register_generator(v, "fs.rename", 2, do_rename)
+    register(v, "fs.cwd", 0, do_cwd)
+    register(v, "fs.join", 2, do_join)
+    register_generator(v, "fs.basename", 1, (b, n, c) -> part(b, "basename", file_name(path_text(b, "basename")?)))
+    register_generator(v, "fs.dirname", 1, (b, n, c) -> part(b, "dirname", parent(path_text(b, "dirname")?)))
+    register_generator(v, "fs.extension", 1, (b, n, c) -> part(b, "extension", extension(path_text(b, "extension")?)))
+end install_fs
+
+// The exports of `funl:fs`.
+fs_exports() -> Buf[ModExport] = native_exports("fs", FsNames)
+
+// The exports of built-in module `owner`, each of `names` the native `owner.name`.
+private native_exports(owner: string, names: []const string) -> Buf[ModExport]
+    var out: Buf[ModExport] = buf()
+
+    for n in names
+        native_id(s"$owner.$n") match
+            Some(id) -> out.push(ModExport(n, ExNative(id), s"`$n` of `funl:$owner`"))
+            None -> panic(s"funl:$owner claims `$n`, and no native `$owner.$n` is registered")
+
+    out
+
+// -- arguments and errors ------------------------------------------------------------------------
+
+// Argument `i`, a path: a string, or an atom, as a Prolog program names a file.
+private path_arg(base: usize, i: usize, name: string) -> Result[string, Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Str(p) -> Ok(p.s)
+        Atom(id) -> Ok(atom_name(id))
+        _ -> Err(kind_error(x, "string", s"'$name' wants a path, a string, and was given ${described(x)}"))
+
+private path_text(base: usize, name: string) -> Result[string, Fault] = path_arg(base, 0, name)
+
+// The fault for error `e`, which `name` met doing `what` to `path` (an ISO action: `open`, `access`,
+// `create`, `modify`): permission refused is `permission_error`, anything else `system_error`.
+private fs_fault(e: IoError, name: string, action: string, path: string) -> Fault
+    val msg = s"'$name' cannot ${action_text(action)} `$path`: ${e.message()}"
+
+    if e == PermissionDenied
+        new_str(path) match
+            Ok(p) -> return permission_error(action, "source_sink", p, msg)
+            Err(m) -> return Broken(m)
+
+    system_error(msg)
+
+private action_text(action: string) -> string
+    if action == "open" then return "open"
+    if action == "access" then return "read"
+    if action == "create" then return "create"
+    "change"
+
+// A result with nothing in it: `()` when it worked, failure when the path was not there, and
+// otherwise the fault.
+private done_or(r: Result[unit, IoError], name: string, action: string, path: string) -> Result[Answer, Fault] = r match
+    Ok(_) -> Ok(Gives(Unit))
+    Err(e) -> if e == NotFound then Ok(Refuses) else Err(fs_fault(e, name, action, path))
+
+// -- whole files ---------------------------------------------------------------------------------
+
+// `read_file(path)`: the file's text. Fails when there is no such file, or its bytes are not UTF-8.
+private do_read_file(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val path = path_text(base, "read_file")?
+
+    read_bytes(path) match
+        Ok(b) ->
+            from_utf8(b) match
+                Ok(s) -> Ok(Gives(new_str(s)?))
+                Err(_) -> Ok(Refuses)
+        Err(e) -> if e == NotFound then Ok(Refuses) else Err(fs_fault(e, "read_file", "open", path))
+
+// `read_bytes(path)`: the file's bytes.
+private do_read_bytes(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val path = path_text(base, "read_bytes")?
+
+    read_bytes(path) match
+        Ok(b) ->
+            var out: Buf[u8] = buf()
+
+            out.extend(b)
+            Ok(Gives(new_bytes(out)?))
+        Err(e) -> if e == NotFound then Ok(Refuses) else Err(fs_fault(e, "read_bytes", "open", path))
+
+// `write_file(path, text)` and the rest: the file made or replaced (or added to, when `adding`) with a
+// string, or with a byte string when `raw`. Fails when the directory it would be in is not there.
+private written(base: usize, name: string, raw: bool, adding: bool) -> Result[Answer, Fault]
+    val path = path_arg(base, 0, name)?
+    val x = deref(arg(base, 1))
+
+    val r = if raw
+        val p = x match
+            Bytes(p) -> p
+            _ -> return Err(kind_error(x, "bytes", s"'$name' writes a byte string and was given ${described(x)}"))
+
+        if adding then append_bytes(path, p.b.view()) else write_bytes(path, p.b.view())
+    else
+        val p = x match
+            Str(p) -> p
+            _ -> return Err(kind_error(x, "string", s"'$name' writes a string and was given ${described(x)}"))
+
+        if adding then append_text(path, p.s) else write_text(path, p.s)
+
+    done_or(r, name, "open", path)
+
+// -- generators ----------------------------------------------------------------------------------
+
+// The handle kind `install_fs` registered on the running VM.
+private listing_kind() -> u32
+    val kinds = current().handle_kinds
+
+    for i in 0..<kinds.len()
+        if kinds.at(i).name == ListingKind then return u32(i)
+
+    panic("funl:fs is not installed on this VM")
+
+// A listing handle holding `vals`, its place `n` at 0.
+private listing(vals: Buf[Value]) -> Result[Value, Fault]
+    val h = new_handle(listing_kind())?
+
+    h.vals = vals
+    Ok(Handle(h))
+
+// The text of the file at `path`, for `lines`: `None` when there is no such file or it is not UTF-8.
+private file_text(path: string, name: string) -> Result[Option[string], Fault] = read_bytes(path) match
+    Ok(b) ->
+        from_utf8(b) match
+            Ok(s) -> Ok(Some(s))
+            Err(_) -> Ok(None)
+    Err(e) -> if e == NotFound then Ok(None) else Err(fs_fault(e, name, "open", path))
+
+// `lines(path)`: each line of the file, without its `\n` or a `\r` before it. The handle keeps the
+// text and, in its place, the byte the next line starts at.
+private start_lines(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val path = path_text(base, "lines")?
+
+    val text = file_text(path, "lines")? match
+        Some(t) -> t
+        None -> return Ok(None)
+
+    if text.len == 0 then return Ok(None)
+
+    var vals: Buf[Value] = buf()
+
+    vals.push(new_str(text)?)
+    Ok(Some(listing(vals)?))
+
+private step_lines(h: *HandleObj) -> Result[Option[Value], Fault]
+    val text = h.vals.at(0) match
+        Str(p) -> p.s
+        _ -> return Ok(None)
+
+    val from = usize(h.n)
+
+    if from >= text.len then return Ok(None)
+
+    val (line, next) = line_at(text, from)
+
+    h.n = long(next)
+    Ok(Some(new_str(line)?))
+
+// The line of `text` starting at byte `from`, and where the one after it starts.
+private line_at(text: string, from: usize) -> (string, usize)
+    val b = text.bytes
+    var end = from
+
+    while end < b.len && b[end] != 10
+        end += 1
+
+    val next = if end < b.len then end + 1 else end
+    var last = end
+
+    if last > from && b[last - 1] == 13 then last -= 1
+
+    val line = from_utf8(b[from..<last]) match
+        Ok(s) -> s
+        Err(_) -> ""
+
+    (line, next)
+
+// The names in the directory at `path`, sorted: `None` when there is no such directory.
+private dir_names(path: string, name: string) -> Result[Option[Buf[string]], Fault]
+    entries(path) match
+        Ok(names) ->
+            var sorted = names
+
+            sort(sorted.view())
+            Ok(Some(sorted))
+        Err(e) -> if e == NotFound then Ok(None) else Err(fs_fault(e, name, "access", path))
+
+// `read_dir(path)`: each name in the directory, `.` and `..` left out, in sorted order.
+private start_read_dir(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val path = path_text(base, "read_dir")?
+
+    val names = dir_names(path, "read_dir")? match
+        Some(ns) -> ns
+        None -> return Ok(None)
+
+    if names.len() == 0 then return Ok(None)
+
+    var vals: Buf[Value] = buf()
+
+    for n in names.view()
+        vals.push(new_str(n)?)
+
+    Ok(Some(listing(vals)?))
+
+private step_read_dir(h: *HandleObj) -> Result[Option[Value], Fault]
+    val i = usize(h.n)
+
+    if i >= h.vals.len() then return Ok(None)
+
+    h.n += 1
+    Ok(Some(h.vals.at(i)))
+
+// -- questions about a path ----------------------------------------------------------------------
+
+// `exists(path)` and the others: `true` when `holds`, failure otherwise.
+private tested(base: usize, name: string, holds: bool) -> Result[Answer, Fault] =
+    Ok(if holds then Gives(atom("true")) else Refuses)
+
+// `stat(path)`: an immutable map of what the filesystem keeps about `path` -- `kind` (`#file`,
+// `#dir`, `#link` or `#other`), `size` in bytes and `modified`, in whole seconds since 1970.
+private do_stat(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val path = path_text(base, "stat")?
+
+    val m = metadata(path) match
+        Ok(m) -> m
+        Err(e) -> return if e == NotFound then Ok(Refuses) else Err(fs_fault(e, "stat", "access", path))
+
+    val kind = m.kind() match
+        Regular -> "file"
+        Directory -> "dir"
+        Symlink -> "link"
+        _ -> "other"
+
+    val out = new_map()?
+
+    map_put(out, new_str("kind")?, atom(kind))?
+    map_put(out, new_str("size")?, Int(m.size))?
+    map_put(out, new_str("modified")?, Int(m.modified.us / 1000000))?
+    Ok(Gives(Map(out)))
+
+// -- changing the filesystem ---------------------------------------------------------------------
+
+// `remove(path)`: the file, or the empty directory, gone. Fails when there is nothing there.
+private do_remove(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val path = path_text(base, "remove")?
+    val r = if is_dir(path) then remove_dir(path) else remove_file(path)
+
+    done_or(r, "remove", "modify", path)
+
+// `mkdir(path)`: the directory made, with every directory above it that is not there yet. A
+// directory already there is no error.
+private do_mkdir(base: usize, argc: usize) -> Result[Value, Fault]
+    val path = path_text(base, "mkdir")?
+
+    make_dir_all(path) match
+        Ok(_) -> Ok(Unit)
+        Err(e) -> Err(fs_fault(e, "mkdir", "create", path))
+
+// `rename(from, to)`: the file or directory moved, replacing what `to` named. Fails when `from` is not
+// there.
+private do_rename(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val from = path_arg(base, 0, "rename")?
+    val to = path_arg(base, 1, "rename")?
+
+    done_or(rename(from, to), "rename", "modify", from)
+
+// `cwd()`: the directory the program runs in.
+private do_cwd(base: usize, argc: usize) -> Result[Value, Fault] = current_dir() match
+    Ok(d) -> Ok(new_str(d)?)
+    Err(e) -> Err(system_error(s"'cwd' cannot read the working directory: ${e.message()}"))
+
+// -- paths ---------------------------------------------------------------------------------------
+
+// `join(a, b)`: `b` under `a`, or `b` itself when it is absolute.
+private do_join(base: usize, argc: usize) -> Result[Value, Fault] =
+    Ok(new_str(join(path_arg(base, 0, "join")?, path_arg(base, 1, "join")?))?)
+
+// `basename`, `dirname` and `extension`: the part of a path, failing when it has none.
+private part(base: usize, name: string, p: Option[string]) -> Result[Answer, Fault] = p match
+    Some(s) -> Ok(Gives(new_str(s)?))
+    None -> Ok(Refuses)

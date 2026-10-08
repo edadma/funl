@@ -51,7 +51,25 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
 
     v.stack.truncate(base)
 
-    val name = atom_name(f)
+    var name = atom_name(f)
+
+    // `M:G`, qualified by an atom: the goal `G` under the name `M:g` (`qualified_goal`).
+    if name == ":" && args.len() == 2
+        deref(args.at(0)) match
+            Atom(m) ->
+                deref(args.at(1)) match
+                    Atom(id) ->
+                        name = s"${atom_name(m)}:${atom_name(id)}"
+                        args = buf()
+                    Compound(c) ->
+                        name = s"${atom_name(m)}:${atom_name(c.functor)}"
+                        args = buf()
+
+                        for x in c.args.view()
+                            args.push(x)
+                    _ -> ()
+            _ -> ()
+
     val n = args.len()
 
     if is_inline(name, n)

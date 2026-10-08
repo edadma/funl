@@ -283,7 +283,11 @@ walk(w: *Walk, e: &Expr)
                 Predicate(_) -> called_not_used(w, n, e.span)
                 Builtin(id) -> if !is_constant(id) then called_not_used(w, n, e.span)
                 Unknown ->
-                    if w.relation
+                    if w.res.aliases.get(n).is_some()
+                        // `import * as fs from funl:fs`: a module of builtins has no value of its own.
+                        w.report.add(error(e.span, s"`$n` names a module of FunL's own, which is not a value")
+                            .with_note(s"what it exports is reached through it: `$n.name(...)`"))
+                    elif w.relation
                         w.sc.note(n, e.span)
                     elif w.sid == w.res.top
                         w.report.add(error(e.span, s"`$n` is not defined")
@@ -336,7 +340,7 @@ walk(w: *Walk, e: &Expr)
                     qualified_at(w, x, name) match
                         Some(m) ->
                             called = true
-                            walk(w, x)
+                            walk_module(w, x)
 
                             m match
                                 Unknown -> not_exported_at(w, x, name, f.span)
@@ -425,14 +429,15 @@ walk(w: *Walk, e: &Expr)
             if type_test(w.res.data_type(t), w.res.qualified_or(t, w.meaning(t, at.start)), t).is_none()
                 w.report.add(not_a_type(w, t, at))
         FieldE(x, name) ->
-            walk(w, x)
-
             qualified_at(w, x, name) match
-                Some(m) -> m match
-                    Unknown -> not_exported_at(w, x, name, e.span)
-                    Relation(_) -> called_not_used(w, s"${ref_name(x)}.$name", e.span)
-                    _ -> ()
-                None -> ()
+                Some(m) ->
+                    walk_module(w, x)
+
+                    m match
+                        Unknown -> not_exported_at(w, x, name, e.span)
+                        Relation(_) -> called_not_used(w, s"${ref_name(x)}.$name", e.span)
+                        _ -> ()
+                None -> walk(w, x)
         RevAssignE(n, x) ->
             walk(w, x)
             assigned(w, n, e.span, e.span.end)
@@ -531,6 +536,15 @@ private qualified_at(w: *Walk, x: &Expr, name: string) -> Option[Meaning] = x.ki
     Ref(g) -> qualified_name(w.res, g, w.meaning(g, x.span.start), name)
     _ -> None
 
+// The module `x` names in `x.name`: walked as the value it is, unless it is one of FunL's own, which
+// has no value and is only qualified through.
+private walk_module(w: *Walk, x: &Expr)
+    x.kind match
+        Ref(g) -> if w.res.imported.get(g).is_none() then return
+        _ -> ()
+
+    walk(w, x)
+
 // The name `x` is, or "".
 private ref_name(x: &Expr) -> string = x.kind match
     Ref(g) -> g
@@ -614,9 +628,10 @@ private global_names(r: *Resolved) -> Buf[string]
     for rel in r.rels.view()
         if rel.name != "lambda" then names.push(rel.name)
 
-    // A Prolog builtin's key holds a `/`, and is no name a FunL program can write.
+    // A Prolog builtin's key holds a `/` and a built-in module's native a `.` (`fs.read_file`), and
+    // neither is a name a FunL program can write.
     for nat in current().natives.view()
-        if nat.name.index_of("/").is_none() then names.push(nat.name)
+        if nat.name.index_of("/").is_none() && nat.name.index_of(".").is_none() then names.push(nat.name)
 
     names
 
