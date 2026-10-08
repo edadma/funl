@@ -293,7 +293,7 @@ choice, and never to nothing.
 | strings | `'abc'` or `"abc"`; `$name` and `${expr}` interpolate, `$$` is a dollar |
 | regex | `` `a(b|c)*` `` |
 | booleans, nothing | `true`, `false`, `undefined`, `()` |
-| tuple | `(1, 2)` |
+| tuple | `(1, 2)`; `()` is the tuple of nothing |
 | list | `[1, 2, 3]`, `x:xs`, comprehensions `[x^2 \| x <- 1..10 if odd(x)]` |
 | set, map | `{1, 2}`, `{a: 1, "b": 2}`, set comprehension `{x \ 2 \| x <- 1..5}` |
 | mutable | `array(n)`, `buffer()`, `map(m)`, `map(m, default)`, `set(s)` |
@@ -302,6 +302,17 @@ choice, and never to nothing.
 > **Decided — a compound term needs a `data` declaration (user, 2026-10-08).** Outside a relation
 > head, `point(1, 2)` builds a record only when `data point(x, y)` is declared; an undeclared
 > functor is "not defined", as any other unknown name is.
+
+> **Decided — `()` is the empty tuple (user, 2026-10-08).** The unit value `()` and the tuple of
+> nothing are one value. Tuple operations take it as a tuple of length 0: `().length` is `0`,
+> `() is tuple` and `() is unit` both succeed, `!()` and `x <- ()` produce nothing, `x in ()` fails,
+> a slice of it is `()`, and the pattern `()` matches it while `(a, b)` does not. It prints `()`.
+
+> **Decided — the map reading of `{key: lambda}` wins (user, 2026-10-08).** `:` is cons, so
+> `f: (x) -> e` alone is a lambda whose parameter is the cons `f:(x)`. In braces that lambda is
+> taken apart at its parameter's top `:` into a map entry: the key `f` and the lambda `(x) -> e`
+> (and `{i: x -> e}` likewise). A set that holds a lambda whose parameter is a cons writes it in
+> parentheses, `{(x:xs -> x)}`, or parenthesizes the parameter, `{(x:xs) -> x}`.
 
 Elements are reached by call syntax and by field syntax: `r.a`, `r("b")`, `r(1)`, `m.a`, `m("a")`,
 `[3, 4, 5](1)`. A field write on a mutable map adds the key.
@@ -408,7 +419,7 @@ every write( (1 | 'a' | 2.5 | #b) is number )     ;; 1, then 2.5
 | `boolean` | `true`, `false` |
 | `list` | `[]`, a list cell `x:xs`, and a range, which reads as a list wherever one is |
 | `range` | `1..10`, `1..<n`, `1..` |
-| `tuple` | `(1, 2)` |
+| `tuple` | `(1, 2)`, and `()`, the tuple of nothing |
 | `unit` | `()` |
 | `map` | `{a: 1}`, and a mutable map, `map()` |
 | `set` | `{1, 2}`, and a mutable set, `set(s)` |

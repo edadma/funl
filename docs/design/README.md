@@ -76,6 +76,8 @@ Each is argued where it arises; this is the list.
 | What does a relation body see of top-level names? | only `val`s, functions, relations, constructors; not `var`, `free` or assignment names (user, 2026-10-08) | [logic](logic.md#variables-in-a-relation) |
 | Can a real literal start with the point? | no: `.5` is a syntax error, `.` is field access (user, 2026-10-08) | [language](language.md#numbers) |
 | Can ordinary code build a compound term without `data`? | no: outside a relation head an undeclared functor is "not defined" (user, 2026-10-08) | [language](language.md#data) |
+| Are `()` and the empty tuple one value? | yes: `()` is a tuple of length 0, and `x is unit` still names it (user, 2026-10-08) | [language](language.md#data) |
+| Is `{f: (x) -> e}` a map or a set? | a map: the key `f` and the lambda `(x) -> e`; a set holds such a lambda in parentheses (user, 2026-10-08) | [language](language.md#data) |
 | How do modules and native modules work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md) |
 | How do `async` and `await` work? | as slate does, translated to FunL (user, 2026-10-08) | [modules](modules.md#async-and-await) |
 | What is a handle? | an opaque `Handle` kind with a per-kind method table, explicit `close()`, a finalizer as backstop (user, 2026-10-08) | [modules](modules.md#questions-decided) |

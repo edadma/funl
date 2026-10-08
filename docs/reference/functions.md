@@ -59,6 +59,19 @@ write( uncurry(curry(mul))(2, 9) )
 18
 ```
 
+In braces, a lambda after a key is that key's value, so a map can hold functions; a set holding a
+lambda whose parameter is a cons, `x:xs -> x`, writes it in parentheses:
+
+```funl
+ops = {double: (x) -> 2x, sum: (a, b) -> a + b}
+firsts = {(x:xs -> x)}
+write( ops.double(4), ops.sum(1, 2), firsts.length )
+```
+
+```output
+8, 3, 1
+```
+
 ## Operators as functions
 
 An operator in parentheses is a function of two arguments: `(+)`. A **section** fixes one side of
