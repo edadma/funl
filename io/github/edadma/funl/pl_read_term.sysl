@@ -1,0 +1,289 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.{Report, Source, full_report, source_of}
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, from_utf8_unchecked, str_builder}
+
+// Reading terms while a program runs: `read/1`, `read_term/2` and `term_to_atom/2`; and the operator
+// table as `current_op/3` enumerates it.
+//
+// **Input is lines, from the machine's `input`**: the top level's own line source in the `prolog`
+// executable, so a `read/1` in a query takes the lines typed after it, and standard input otherwise.
+// A term is read once the lines taken hold the `.` that ends a clause; whatever follows that `.`
+// waits for the next read. At the end of the input the term read is `end_of_file`, as ISO has it.
+//
+// **Text that does not read raises `syntax_error(Message)`**, the message the reader's first
+// refusal gave, with the reader's whole diagnostic -- where, and what was expected -- as the error's
+// message. A read that refuses a term has consumed it, up to its `.`.
+
+install_prolog_read(v: *Vm)
+    register_generator(v, "read/1", 1, (b, n, c) -> read_term_from_input(arg(b, 0), Nil, "read/1"))
+    register_generator(v, "read_term/2", 2, (b, n, c) -> read_term_from_input(arg(b, 0), arg(b, 1), "read_term/2"))
+    register_generator(v, "term_to_atom/2", 2, (b, n, c) -> pl_term_to_atom(arg(b, 0), arg(b, 1)))
+    register_generator(v, "$ops/4", 4, (b, n, c) -> pl_ops(arg(b, 0), arg(b, 1), arg(b, 2), arg(b, 3)))
+
+// -- Reading ----------------------------------------------------------------------------------------
+
+// One term read from text, or `None` for text that held nothing but layout; and how many bytes of the
+// text the read used.
+private struct OneTerm
+    got: Option[ReadClause]
+    used: usize
+
+// Read the first term of `text`, named `name` in a diagnostic. With `whole`, the text is the term and
+// nothing more, its `.` optional.
+private read_one(name: string, text: string, whole: bool) -> Result[OneTerm, Fault]
+    val src = source_of(name, text)
+    var report = full_report()
+    var r = pl_reader(src, &report)
+
+    val got = if whole then whole_term(&r) else next_clause(&r)
+    val used = read_up_to(r)
+
+    if report.has_errors() then return Err(read_error(report, src))
+
+    got match
+        Clause(c) -> Ok(OneTerm(Some(c), used))
+        _ -> Ok(OneTerm(None, used))
+
+// The error a refused read raises.
+private read_error(report: Report, src: Source) -> Fault =
+    syntax_error(report.at(0).message, report.render(src).trim())
+
+// `read_term(T, Options)` and `read(T)`: the next term of the input.
+private read_term_from_input(t: Value, options: Value, who: string) -> Result[Answer, Fault]
+    val wanted = read_options(options, who)?
+    val v = current()
+    var text = v.pending
+
+    while !holds_clause_end(text)
+        val line = v.input("|: ") match
+            Some(l) -> l
+            None -> break
+
+        text = if text.is_empty() then line else text + "\n" + line
+
+    val one = read_one("user_input", text, false) match
+        Ok(o) -> o
+        Err(f) ->
+            v.pending = ""
+            return Err(f)
+
+    v.pending = copied(text.bytes[one.used..<text.bytes.len])
+
+    val c = one.got match
+        Some(c) -> c
+        None ->
+            v.pending = ""
+            return answer(unify(t, atom("end_of_file")) && no_variables(wanted)?)
+
+    bind_read(t, c, wanted)
+
+// The options of a `read_term/2`, each checked: `variable_names(V)`, `variables(V)` and
+// `singletons(V)`, as `(name, V)`.
+private read_options(options: Value, who: string) -> Result[Buf[(string, Value)], Fault]
+    var out: Buf[(string, Value)] = buf()
+
+    for o in list_items(options, who)?.view()
+        val x = deref(o)
+
+        if is_unbound(x) then return Err(instantiation_error(s"instantiation error: $who was given an unbound option"))
+
+        compound_parts(x) match
+            Some((f, args)) ->
+                val n = atom_name(f)
+
+                if args.len() == 1 && (n == "variable_names" || n == "variables" || n == "singletons")
+                    out.push((n, args.at(0)))
+                    continue
+            None -> ()
+
+        return Err(domain_error("read_option", x, s"$who: ${render(x)} is not a read option; the options are variable_names/1, variables/1 and singletons/1"))
+
+    Ok(out)
+
+// The options of a read that found the end of the input: every list empty.
+private no_variables(wanted: Buf[(string, Value)]) -> Result[bool, Fault]
+    for w in wanted.view()
+        if !unify(w.1, Nil) then return Ok(false)
+
+    Ok(true)
+
+// Unify `t` with the term read, and each option with what it asks for.
+private bind_read(t: Value, c: ReadClause, wanted: Buf[(string, Value)]) -> Result[Answer, Fault]
+    var vars: Buf[Value] = buf()
+    val x = term_value(c.t, &vars)?
+
+    while vars.len() < c.names.len()
+        vars.push(Undefined)
+
+    if !unify(t, x) then return answer(false)
+
+    for w in wanted.view()
+        val got = if w.0 == "variables"
+            var vs = variables_of(x, false)
+
+            list_of(&vs, Nil)?
+        else
+            named_variables(c, &vars, w.0 == "singletons")?
+
+        if !unify(w.1, got) then return answer(false)
+
+    answer(true)
+
+// `['X' = X, ...]` for the named variables of a clause read, in the order they were first written;
+// with `singletons`, only those written once.
+private named_variables(c: ReadClause, vars: *Buf[Value], singletons: bool) -> Result[Value, Fault]
+    var counts: Buf[usize] = buf()
+
+    for i in 0..<c.names.len()
+        counts.push(0)
+
+    count_uses(c.t, &counts)
+
+    var items: Buf[Value] = buf()
+
+    for i in 0..<c.names.len()
+        val name = c.names.at(i)
+
+        if name == "_" || (singletons && counts.at(i) != 1) then continue
+
+        var args: Buf[Value] = buf()
+
+        args.push(atom(name))
+        args.push(vars.at(i))
+        items.push(build_compound(intern("="), args)?)
+
+    Ok(list_of(&items, Nil)?)
+
+// How many times each variable of `t` is written.
+private count_uses(t: &Term, counts: *Buf[usize])
+    t.kind match
+        TVar(n) -> counts.set(n, counts.at(n) + 1)
+        TCons(h, tl) ->
+            count_uses(h, counts)
+            count_uses(tl, counts)
+        TComp(f, args) ->
+            for a in args.view()
+                count_uses(a, counts)
+        _ -> ()
+
+// `term_to_atom(T, A)`: `A` read as a term and unified with `T` when `A` is bound, and otherwise
+// `T` written as `writeq/1` writes it.
+private pl_term_to_atom(t: Value, a: Value) -> Result[Answer, Fault]
+    val who = "term_to_atom/2"
+
+    val text = deref(a) match
+        Atom(id) -> atom_name(id)
+        Nil -> "[]"
+        Str(s) -> s.s
+        Var(_) ->
+            if is_unbound(t) then return Err(instantiation_error(s"instantiation error: $who wants a term or an atom"))
+
+            return unified(a, atom(term_text(t, write_opts(true, false, true))))
+        x -> return Err(type_error("atom", x, s"type error: $who wants an atom to read, and was given ${described(x)}"))
+
+    val one = read_one("atom", text, true)?
+
+    val c = one.got match
+        Some(c) -> c
+        None -> return Err(syntax_error("end_of_file", s"$who: the atom '$text' holds no term"))
+
+    var vars: Buf[Value] = buf()
+
+    unified(t, term_value(c.t, &vars)?)
+
+// -- The input ---------------------------------------------------------------------------------------
+
+extern read(fd: int, into: *u8, n: usize) -> long
+
+// A line of standard input, without its newline; `None` at the end of the input. Read a byte at a
+// time, so nothing past the line is taken from the descriptor for another reader to miss.
+stdin_line() -> Option[string]
+    var bytes: Buf[u8] = buf()
+    var c: u8 = 0
+    var any = false
+
+    loop
+        if read(0, &c, 1) <= 0 then break
+
+        any = true
+
+        if c == u8('\n') then break
+
+        bytes.push(c)
+
+    if !any then return None
+
+    Some(copied(bytes.view()))
+
+// Bytes as a string of its own, which outlives the buffer they came from.
+private copied(b: []const u8) -> string
+    var out = str_builder()
+
+    out.push(from_utf8_unchecked(b))
+    out.finish()
+
+// -- current_op/3 ----------------------------------------------------------------------------------
+
+// `'$ops'(P, T, Op, Ops)`: `P`, `T` and `Op` checked as `current_op/3` checks them, and `Ops` every
+// operator in the table, as `op(P, T, Op)`.
+private pl_ops(p: Value, t: Value, op: Value, ops: Value) -> Result[Answer, Fault]
+    val who = "current_op/3"
+
+    deref(p) match
+        Var(_) -> ()
+        Int(n) ->
+            if n < 0 || n > 1200
+                return Err(domain_error("operator_priority", Int(n), s"$who: an operator's priority is from 0 to 1200, and this one is $n"))
+        x -> return Err(domain_error("operator_priority", x, s"$who wants an operator priority, and was given ${described(x)}"))
+
+    deref(t) match
+        Var(_) -> ()
+        Atom(id) ->
+            if op_type_named(atom_name(id)).is_none()
+                return Err(domain_error("operator_specifier", Atom(id), s"$who: ${atom_name(id)} is not an operator type; the types are xfx, xfy, yfx, fy, fx, xf and yf"))
+        x -> return Err(domain_error("operator_specifier", x, s"$who wants an operator type, and was given ${described(x)}"))
+
+    deref(op) match
+        Var(_) -> ()
+        Atom(_) -> ()
+        Nil -> ()
+        x -> return Err(type_error("atom", x, s"type error: $who wants an operator's name, an atom, and was given ${described(x)}"))
+
+    unified(ops, op_list()?)
+
+// Every operator in the table, `,` among them, as `op(P, T, Name)`.
+private op_list() -> Result[Value, Fault]
+    val v = current()
+    var items: Buf[Value] = buf()
+
+    items.push(op_term(1000, "xfy", ",")?)
+
+    for (name, o) in v.prefix_ops.walk()
+        items.push(op_term(o.priority, type_name(o.kind), name)?)
+
+    for (name, o) in v.infix_ops.walk()
+        items.push(op_term(o.priority, type_name(o.kind), name)?)
+
+    for (name, o) in v.postfix_ops.walk()
+        items.push(op_term(o.priority, type_name(o.kind), name)?)
+
+    Ok(list_of(&items, Nil)?)
+
+private op_term(p: u16, kind: string, name: string) -> Result[Value, Fault]
+    var args: Buf[Value] = buf()
+
+    args.push(Int(long(p)))
+    args.push(atom(kind))
+    args.push(if name == "[]" then Nil else atom(name))
+    build_compound(intern("op"), args)
+
+private type_name(t: OpType) -> string = t match
+    Xfx -> "xfx"
+    Xfy -> "xfy"
+    Yfx -> "yfx"
+    Fy -> "fy"
+    Fx -> "fx"
+    Xf -> "xf"
+    Yf -> "yf"

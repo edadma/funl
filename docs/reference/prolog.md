@@ -73,7 +73,9 @@ consult cannot read nowhere.pl
 ```
 
 From the command line, `funl family.pl` loads a Prolog file, runs its directives, and then runs the
-goal of each `:- initialization(Goal).` directive in it.
+goal of each `:- initialization(Goal).` directive in it. A file with such a directive ends there; a
+file without one then reads queries at the same top level the `prolog` executable has, below, with
+FunL present.
 
 ## The `prolog` executable
 
@@ -84,8 +86,8 @@ no FunL syntax, no FunL builtins and no FunL values. A Prolog program runs the s
 `prolog family.pl` loads the file and then reads queries. An answer that leaves another to find
 waits: `;` asks for the next, and anything else stops. An answer with nothing left to find ends in a
 `.`, and a query with no answer says `false.`. An error no `catch/3` handles is printed, and the next
-query is read. `halt.` ends the session with status 0, `halt(N).` with status `N`, and so does the
-end of the input.
+query is read. `halt.` ends the session with status 0 and `halt(N).` with status `N`; the end of the
+input ends it with status 0.
 
 Given these lines on its input:
 
@@ -184,6 +186,24 @@ string
 -1
 ```
 
+A rational is written `NrM`, as `writeq/1` writes one, so what is written reads back as the same
+number; `14r4` is `7r2`, and a denominator of 1 leaves an integer. Back-quoted text, `` `abc` ``, is a
+list of character codes.
+
+```prolog
+:- X = 7r2, writeq(X), nl.
+:- X = 14r4, writeq(X), nl.
+:- X is 7r2 + 1r2, writeq(X), nl.
+:- X = `abc`, writeq(X), nl.
+```
+
+```output
+7r2
+7r2
+4
+[97,98,99]
+```
+
 ### Operators
 
 `op(Priority, Type, Name)` adds an operator, or changes one, for the clauses read after it.
@@ -204,6 +224,22 @@ rule(a ===> b).
 a===>b
 ===>(a,b)
 ^^(a,^^(b,c))
+```
+
+`current_op(Priority, Type, Name)` enumerates the table, `,` included, in every mode. An argument
+that is bound must be of its kind: a priority from 0 to 1200 or an operator type, or it is a
+`domain_error`, and a name that is not an atom is a `type_error`.
+
+```prolog
+:- current_op(P, T, mod), writeq(op(P, T, mod)), nl.
+:- findall(T, current_op(_, T, -), Ts), msort(Ts, S), writeq(S), nl.
+:- catch(current_op(1201, _, _), error(E, _), (writeq(E), nl)).
+```
+
+```output
+op(400,yfx,mod)
+[fy,yfx]
+domain_error(operator_priority,1201)
 ```
 
 ### Double-quoted text
@@ -242,6 +278,29 @@ p(X) :- X = (1 + ).
 
 ```error
 a term was expected here
+```
+
+### Reading terms
+
+`read(T)` reads the next term from the input, up to the `.` that ends it, and `read_term(T, Options)`
+does the same with the options `variable_names(Vs)`, `variables(Vs)` and `singletons(Vs)`. At the
+`prolog` top level the input is the lines typed after the query; elsewhere it is standard input. At
+the end of the input the term read is `end_of_file`.
+
+`term_to_atom(T, A)` reads atom `A` as a term, its `.` optional, or, when `A` is unbound, writes `T`
+as `writeq/1` does. Text that does not read raises `syntax_error(What)`, whose message says where
+and what was expected there.
+
+```prolog
+:- term_to_atom(T, 'point(X, Y, X)'), T = point(1, 2, Z), writeq(T/Z), nl.
+:- term_to_atom((p :- q, r), A), writeq(A), nl.
+:- catch(term_to_atom(_, 'foo('), error(E, _), (writeq(E), nl)).
+```
+
+```output
+point(1,2,1)/1
+'p:-q,r'
+syntax_error('a term was expected, and the input ended')
 ```
 
 ## Control
@@ -316,6 +375,37 @@ color(blue).
 [red,blue]
 [green,blue]
 salt and pepper
+```
+
+### Halting
+
+`halt` ends the program with status 0, and `halt(N)` with status `N`, from wherever the goal is: a
+query, a directive, a clause body many calls deep, or a predicate a FunL program called. What the
+program wrote before it is written out first, and nothing after it runs. **`catch/3` does not catch
+a halt.** Here the program ends with status 1:
+
+```prolog
+check(X) :- X > 0, write(fine), nl.
+check(_) :- write(stopping), nl, halt(1).
+
+:- check(5).
+:- catch(check(-2), _, write(caught)).
+:- write(never), nl.
+```
+
+```output
+fine
+stopping
+```
+
+The status must be an integer:
+
+```prolog
+:- catch(halt(two), error(E, _), (write(E), nl)).
+```
+
+```output
+type_error(integer,two)
 ```
 
 ## Dynamic predicates
@@ -671,6 +761,20 @@ The arithmetic functions:
 | powers and roots | `sqrt`, `exp`, `log` |
 | trigonometry | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2` |
 | constants | `pi`, `e`, `epsilon` |
+| random | `random` |
+
+**`random(N)` is an integer drawn from 0 to `N - 1`**, `N` a positive integer. The generator is
+seeded from the operating system, so each run draws differently, and only the range can be shown:
+
+```prolog
+:- X is random(6), integer(X), X >= 0, X < 6, write(in_range), nl.
+:- catch(_ is random(0), error(E, _), (write(E), nl)).
+```
+
+```output
+in_range
+domain_error(positive_integer,0)
+```
 
 ### Rationals
 
@@ -906,26 +1010,26 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 
 | group | predicates |
 |---|---|
-| control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `between/3`, `repeat/0` *(library)* |
+| control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0`, `halt/1`, `between/3`, `repeat/0` *(library)* |
 | unification and comparison | `=/2`, `\=/2`, `unify_with_occurs_check/2`, `==/2`, `\==/2`, `@</2`, `@>/2`, `@=</2`, `@>=/2`, `=@=/2`, `\=@=/2`, `compare/3` |
 | type tests | `var/1`, `nonvar/1`, `atom/1`, `number/1`, `integer/1`, `float/1`, `rational/1`, `atomic/1`, `compound/1`, `callable/1`, `is_list/1`, `string/1`, `ground/1` |
 | terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2` |
 | arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3` |
 | database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1` *(library)*, `retractall/1` *(library)*, `abolish/1`, `clause/2`, `dynamic/1`, `current_predicate/1` *(library)* |
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3`, `aggregate_all/3` *(library)* |
-| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `upcase_atom/2`, `downcase_atom/2` |
+| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `upcase_atom/2`, `downcase_atom/2`, `term_to_atom/2` |
 | strings | `atom_string/2`, `string_chars/2`, `string_codes/2`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`, `string_upper/2`, `string_lower/2` |
 | lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
 | lists, built in | `length/2`, `msort/2`, `sort/2`, `keysort/2` |
 | global variables | `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2` |
 | output | `write/1`, `writeln/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2`, `nl/0`, `tab/1`, `put_char/1`, `format/1`, `format/2` |
-| flags and operators | `op/3`, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)* |
+| input | `read/1`, `read_term/2` |
+| flags and operators | `op/3`, `current_op/3` *(library)*, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)* |
 | grammar rules | `phrase/2`, `phrase/3` *(library)*, `dcg_translate_rule/2` |
 | loading | `consult/1` |
 
 Four directives are carried out by the loader rather than called: `:- dynamic(…)`, `:- op(…)`,
-`:- initialization(Goal)`, and, where FunL is present, `:- import(File)`. `halt` and `halt(N)` are
-top-level commands.
+`:- initialization(Goal)`, and, where FunL is present, `:- import(File)`.
 
 The string predicates are SWI-Prolog's. Each takes any atomic value as text and makes a string where
 its atom counterpart makes an atom; a given argument is compared by its text, so an atom may stand

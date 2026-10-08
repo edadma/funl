@@ -259,7 +259,8 @@ private built(lang: string, file: string, text: string) -> Compiled =
         loaded_block(file, text)
 
 // What running a block came to: what it printed, and how it ended -- `succeeded`, `failed`,
-// `fault: <message>`, or `assembly: <diagnostics>` for a program refused before it ran.
+// `fault: <message>`, `halted: <status>` for a program that ran `halt`, or `assembly: <diagnostics>`
+// for a program refused before it ran. A program that halts ran, whatever its status.
 private struct Ran
     printed: string
     outcome: string
@@ -267,7 +268,7 @@ private struct Ran
     // The warnings compiling it rendered, or `""`.
     warned: string
 
-    ok(self) -> bool = self.outcome == "succeeded"
+    ok(self) -> bool = self.outcome == "succeeded" || self.outcome.starts_with("halted: ")
 
     refused(self) -> bool = self.outcome.starts_with("assembly: ")
 
@@ -475,7 +476,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/functions.md 15 3 0 0\n" +
     "docs/reference/generators.md 19 5 0 0\n" +
     "docs/reference/numbers.md 13 6 0 0\n" +
-    "docs/reference/prolog.md 25 5 0 0\n" +
+    "docs/reference/prolog.md 31 5 0 0\n" +
     "docs/reference/regex.md 19 8 0 0\n" +
     "docs/reference/relations.md 18 6 0 1\n" +
     "docs/reference/scanning.md 15 3 0 0\n" +

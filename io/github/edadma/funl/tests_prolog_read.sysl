@@ -179,3 +179,27 @@ A_CLAUSE_WHOSE_HEAD_IS_NOT_CALLABLE_IS_REFUSED()
 @test
 A_BODY_GOAL_THAT_IS_A_NUMBER_IS_REFUSED()
     assert_eq(prolog_complaints("p :- q, 3.\n"), "error 1:9 this is not a goal: a goal is an atom, a compound or a variable\n")
+
+@test
+A_RATIONAL_WRITTEN_N_R_M_READS_AS_THE_RATIONAL()
+    assert_eq(ran_prolog(":- X = 7r2, Y is X * 2, writeq(X/Y), nl.\n"), "7r2/7\nsucceeded")
+    assert_eq(ran_prolog(":- X = 14r4, Y = -7r2, Z = 4r2, writeq(X/Y/Z), nl.\n"), "7r2/ -7r2/2\nsucceeded")
+@test
+WHAT_WRITEQ_WRITES_OF_A_RATIONAL_READS_BACK_AS_THE_SAME_RATIONAL()
+    assert_eq(ran_prolog(":- set_prolog_flag(prefer_rationals, true), X is 1 / 3, term_to_atom(X, A), term_to_atom(Y, A), Y == X, writeq(A), nl.\n"),
+        "'1r3'\nsucceeded")
+    assert_eq(ran_prolog(":- atom_number('7r2', N), writeq(N), nl.\n"), "7r2\nsucceeded")
+
+@test
+A_RATIONAL_WITH_A_ZERO_DENOMINATOR_IS_REFUSED()
+    assert_eq(prolog_complaints("p(1r0).\n"), "error 1:3 this rational's denominator is 0\n")
+    assert_eq(ran_prolog(":- (atom_number('1r0', N) -> writeq(N) ; write(none)), nl.\n"), "none\nsucceeded")
+
+@test
+BACK_QUOTED_TEXT_READS_AS_A_LIST_OF_CODES()
+    assert_eq(ran_prolog(":- X = `abc`, writeq(X), nl.\n:- X = ``, writeq(X), nl.\n:- X = `it``s`, writeq(X), nl.\n"),
+        "[97,98,99]\n[]\n[105,116,96,115]\nsucceeded")
+
+@test
+BACK_QUOTED_TEXT_LEFT_OPEN_IS_REFUSED()
+    assert_eq(prolog_complaints("p(`abc).\n"), "error 1:3 this back-quoted text is never closed\n")

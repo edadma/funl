@@ -489,12 +489,16 @@ parse_number(s: string) -> Result[Option[Value], Fault]
 
         if radix != 10 then i += 2
 
-    // A decimal number is the tower's to read -- an integer of any size, or a float -- though not a
-    // fraction, which Prolog's syntax has no literal for.
+    // A decimal number is the tower's to read -- an integer of any size, a float, or a rational
+    // written `7r2`, which the tower reads as `7/2`; a `/` is no part of Prolog's number syntax.
     if radix == 10
-        val rest = from_utf8_unchecked(b[i..<b.len])
+        var rest = from_utf8_unchecked(b[i..<b.len])
 
         if rest.contains("/") then return Ok(None)
+
+        rest = rational_text(rest) match
+            Some(q) -> q
+            None -> rest
 
         val text = if negative then s"-$rest" else rest
 
@@ -529,6 +533,25 @@ parse_number(s: string) -> Result[Option[Value], Fault]
 
     Ok(Some(Int(-value)))
 end parse_number
+
+// `N/M` for text `NrM` -- digits, an `r`, and digits not all `0` -- and `None` for any other text.
+private rational_text(s: string) -> Option[string]
+    val b = s.bytes
+    var at: usize = 0
+
+    while at < b.len && b[at] >= u8('0') && b[at] <= u8('9')
+        at += 1
+
+    if at == 0 || at + 1 >= b.len || b[at] != u8('r') then return None
+
+    for k in at + 1..<b.len
+        if b[k] < u8('0') || b[k] > u8('9') then return None
+
+    val denominator = from_utf8_unchecked(b[at + 1..<b.len])
+
+    if all_zeros(denominator) then return None
+
+    Some(s"${from_utf8_unchecked(b[0..<at])}/$denominator")
 
 // What digit `c` is worth, in any base up to 16; 99 for a character that is no digit.
 private digit_value(c: u8) -> long

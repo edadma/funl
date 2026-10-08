@@ -28,6 +28,9 @@ enum PlTok
     // Double-quoted text.
     PlStrT(text: string)
 
+    // Back-quoted text, `` `abc` ``: a list of character codes.
+    PlBackT(text: string)
+
     // `(` with layout or nothing before it, and `(` directly after a name -- the second is what makes
     // `foo(a)` a compound and `- (1)` an operator applied to a bracketed term.
     PlOpen
@@ -105,6 +108,11 @@ private token(s: *Scanner, report: *Report, touching: bool) -> PlTok
     if c == u8('"')
         return quoted(s, report, u8('"')) match
             Some(text) -> PlStrT(text)
+            None -> PlBad
+
+    if c == u8('`')
+        return quoted(s, report, u8('`')) match
+            Some(text) -> PlBackT(text)
             None -> PlBad
 
     if c == u8('!') || c == u8(';')
@@ -192,6 +200,28 @@ private number(s: *Scanner, report: *Report) -> PlTok
 
     val n = integer_of(s, report, start, 10)
 
+    // `7r2`, a rational as SWI-Prolog writes one: carried as `7/2`, the text the tower reads.
+    if s.peek() == Some(u8('r')) && s.peek_at(1).map((d) -> is_digit(d)).unwrap_or(false)
+        n match
+            PlBad -> return PlBad
+            _ -> ()
+
+        val numerator = plain_digits(s.text_from(start))
+
+        s.bump()
+
+        val from = s.offset
+
+        s.accept_while(is_digit)
+
+        val denominator = plain_digits(s.text_from(from))
+
+        if all_zeros(denominator)
+            report.add(error(s.span_from(start), "this rational's denominator is 0"))
+            return PlBad
+
+        return PlNumT(s"$numerator/$denominator")
+
     val fraction = s.peek() == Some(u8('.')) && s.peek_at(1).map((d) -> is_digit(d)).unwrap_or(false)
     val exponent = (s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))) && exponent_digits(s.peek_at(1), s.peek_at(2))
 
@@ -210,6 +240,13 @@ private number(s: *Scanner, report: *Report) -> PlTok
 
     n
 end number
+
+// Whether a run of digits is all `0`s: a denominator no rational has.
+all_zeros(digits: string) -> bool
+    for c in digits.bytes
+        if c != u8('0') then return false
+
+    true
 
 // Whether the two bytes after an `e` make it an exponent: a digit, or a sign and a digit. Both
 // readers' float literals ask it.
@@ -277,7 +314,9 @@ private quoted(s: *Scanner, report: *Report, q: u8) -> Option[string]
     loop
         s.peek() match
             None ->
-                report.add(error(s.span_from(start), if q == u8('"') then "this string is never closed" else "this quoted atom is never closed"))
+                val what = if q == u8('"') then "this string is never closed" elif q == u8('`') then "this back-quoted text is never closed" else "this quoted atom is never closed"
+
+                report.add(error(s.span_from(start), what))
                 return None
             Some(c) ->
                 if c == q

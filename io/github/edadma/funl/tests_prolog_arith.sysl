@@ -241,3 +241,18 @@ BETWEEN_RAISES_THE_ISO_ERRORS()
     assert_eq(holds("between(_, 3, _)"), ok("instantiation_error"))
     assert_eq(holds("between(1, foo, _)"), ok("type_error(integer,foo)"))
     assert_eq(holds("between(1, 3, a)"), ok("type_error(integer,a)"))
+
+// `random/1` draws from the operating system's seed, so a test can pin only the range and the type
+// of what it gives, never the value.
+@test
+RANDOM_GIVES_AN_INTEGER_FROM_ZERO_TO_BELOW_ITS_BOUND()
+    assert_eq(holds("forall(between(1, 500, _), (X is random(10), integer(X), X >= 0, X < 10))"), ok("yes"))
+    assert_eq(holds("forall(between(1, 50, _), 0 is random(1))"), ok("yes"))
+    assert_eq(holds("findall(X, (between(1, 60, _), X is random(3)), L), msort(L, S), S = [0|_], last(S, 2)"), ok("yes"))
+
+@test
+RANDOM_WANTS_A_POSITIVE_INTEGER()
+    assert_eq(value_of("random(0)"), ok("domain_error(positive_integer,0)"))
+    assert_eq(value_of("random(-3)"), ok("domain_error(positive_integer,-3)"))
+    assert_eq(value_of("random(2.5)"), ok("type_error(integer,2.5)"))
+    assert_eq(value_of("random(_)"), ok("instantiation_error"))

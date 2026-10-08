@@ -1,16 +1,20 @@
 import io.github.edadma.funl.*
+import sh.sysl.linenoise.{history_add, history_set_max_len, read}
+import sysl.text.Search
 
 // The driver: `funl <program.funl>` compiles the program, runs it, and prints what it wrote. A file
 // named `.lfunl` is literate FunL, tangled first. A file named `.pl` is a Prolog program: it is
-// loaded, its directives and `initialization/1` goals run.
+// loaded, its directives and `initialization/1` goals run, and a file with no `initialization/1` goal
+// then starts the ISO top level, whose lines are read through linenoise as the `prolog` executable
+// reads them.
 //
 // **It sits at the project root, outside the module**, so the package can be a dependency too: the
 // `prolog` executable (`prolog/`) is a second program over the same module, and a program has one
 // `main`.
 //
-// **The status says which of three things happened**: 0 for a program that ran, 1 for one that was
-// refused or faulted -- the diagnostics are on standard error -- and 2 when `funl` could not work out
-// what it was asked to do.
+// **The status says which thing happened** (`run_source`): 0 for a program that ran, 1 for one that
+// was refused or faulted -- the diagnostics are on standard error -- 2 when `funl` could not work out
+// what it was asked to do, and `N` for a program that ran `halt(N)`.
 
 const FunlVersion: string = "0.0.1"
 
@@ -23,37 +27,16 @@ main(args: []string)
         eprints("usage: funl <program.funl | program.lfunl | program.pl>\n")
         exit(2)
 
-    exit(run_file(args[1]))
+    history_set_max_len(500)
+    exit(run_file(args[1], (prompt) -> line(prompt), (text) -> print(text), (text) -> eprints(text)))
 end main
 
-// Compile and run `file`; the status to exit with.
-private run_file(file: string) -> int
-    var v = new_vm(HeapBytes, CollectFloor, Growth)
-    val was = enter(&v)
-    var status = 0
+// A line, remembered for the arrow keys unless it is blank.
+private line(prompt: string) -> Option[string]
+    val got = read(prompt)
 
-    compile_file(file) match
-        CannotRead(why) ->
-            eprints(s"funl: cannot read $file: $why\n")
-            status = 2
-        Refused(said) ->
-            eprints(said)
-            status = 1
-        Ready(at, said) ->
-            eprints(said)
+    got match
+        Some(l) -> if !l.trim().is_empty() then history_add(l)
+        None -> ()
 
-            val outcome = run(&v, at)
-
-            for line in v.output.view()
-                print(line)
-
-            outcome match
-                Faulted(m) ->
-                    eprints(s"funl: $m\n")
-                    status = 1
-                _ -> ()
-
-    dispose_vm(&v)
-    leave(was)
-    status
-end run_file
+    got

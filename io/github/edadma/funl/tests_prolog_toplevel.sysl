@@ -142,6 +142,65 @@ A_FILE_THAT_CANNOT_BE_READ_IS_AN_EXISTENCE_ERROR_AND_THE_SESSION_STARTS_ALL_THE_
     assert_eq(session([s"$d/no_such_file.pl"], ["X = 1."]),
         s"uncaught exception: error(existence_error(source_sink,'$d/no_such_file.pl'),_)\n?- X = 1.\nX = 1.\nstatus: 0")
 
+@test
+A_FILE_WITH_A_SYNTAX_ERROR_IS_REPORTED_WITH_WHERE_AND_WHAT_WAS_EXPECTED()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad = put(d, "bad.pl", "foo(a).\nbar(X :- .\n")
+    val where = s"$d/bad.pl"
+
+    assert_eq(session([], [s"consult('$bad').", "X = 1."]),
+        s"?- consult('$bad').\nuncaught exception: error(syntax_error('$where'),_)\n" +
+        s"consult could not load $where:\nerror: `,` or `)` was expected here\n --> $where:2:7\n  |\n2 | bar(X :- .\n  |       ^^\n" +
+        "?- X = 1.\nX = 1.\nstatus: 0")
+
+@test
+A_FILE_ON_THE_COMMAND_LINE_WITH_A_SYNTAX_ERROR_IS_REPORTED_WITH_WHERE_TOO()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad = put(d, "bad.pl", "p(X) :- X = (1 + ).\n")
+    val said = session([bad], [])
+
+    assert(said.contains(s" --> $d/bad.pl:1:18"), said)
+    assert(said.contains("error: a term was expected here"), said)
+
+// -- read/1 and read_term/2 read the lines after the query ------------------------------------------
+
+@test
+READ_TAKES_THE_NEXT_TERM_FROM_THE_LINES_AFTER_THE_QUERY()
+    assert_eq(session([], ["read(X).", "hello(world).", "Y = 1."]),
+        "?- read(X).\n|: hello(world).\nX = hello(world).\n?- Y = 1.\nY = 1.\nstatus: 0")
+
+@test
+READ_GOES_ON_OVER_LINES_AND_LEAVES_WHAT_FOLLOWS_A_TERM_FOR_THE_NEXT_READ()
+    assert_eq(session([], ["read(A), read(B), read(C).", "a. b(", "  1). c."]),
+        "?- read(A), read(B), read(C).\n|: a. b(\n|:   1). c.\nA = a,\nB = b(1),\nC = c.\nstatus: 0")
+
+@test
+READ_AT_THE_END_OF_THE_INPUT_IS_END_OF_FILE()
+    assert_eq(session([], ["read(X)."]), "?- read(X).\nX = end_of_file.\nstatus: 0")
+
+@test
+READ_TERM_NAMES_THE_VARIABLES_AND_FINDS_THE_SINGLETONS()
+    val query = "read_term(_T, [variable_names(_V), singletons(_S), variables(_Vs)]), _T = f(_A, _B, _C, _D, _E), " +
+        "_V == ['X'=_A, 'Y'=_B, '_Z'=_D], _S == ['Y'=_B, '_Z'=_D], _Vs == [_A, _B, _D, _E], _A == _C."
+
+    assert_eq(session([], [query, "f(X, Y, X, _Z, _)."]), s"?- $query\n|: f(X, Y, X, _Z, _).\ntrue.\nstatus: 0")
+
+@test
+READ_TERM_AT_THE_END_OF_THE_INPUT_GIVES_EMPTY_LISTS()
+    assert_eq(session([], ["read_term(T, [variable_names(V), singletons(S)])."]),
+        "?- read_term(T, [variable_names(V), singletons(S)]).\nT = end_of_file,\nV = [],\nS = [].\nstatus: 0")
+
+@test
+READ_OF_TEXT_THAT_DOES_NOT_READ_IS_A_SYNTAX_ERROR_SAYING_WHERE()
+    assert_eq(session([], ["read(X).", "foo(.", "read(Y).", "bar."]),
+        "?- read(X).\n|: foo(.\nuncaught exception: error(syntax_error('a term was expected here'),_)\n" +
+        "error: a term was expected here\n --> user_input:1:5\n  |\n1 | foo(.\n  |     ^\n" +
+        "?- read(Y).\n|: bar.\nY = bar.\nstatus: 0")
+
 // -- It knows standard Prolog and no FunL ---------------------------------------------------------
 
 @test
@@ -167,3 +226,80 @@ A_PROLOG_FILE_CANNOT_IMPORT_FUNL_THERE()
 AN_IMPORT_QUERY_IS_AN_UNKNOWN_PROCEDURE_THERE()
     assert_eq(session([], ["import(\"geometry.funl\")."]),
         "?- import(\"geometry.funl\").\nuncaught exception: error(existence_error(procedure,import/1),_)\nstatus: 0")
+
+@test
+HALT_IN_A_NESTED_GOAL_ENDS_THE_SESSION_WITH_ITS_STATUS_AFTER_WHAT_IT_WROTE()
+    assert_eq(session([], ["write(a), nl, (true -> halt(3) ; true).", "X = 1."]),
+        "?- write(a), nl, (true -> halt(3) ; true).\na\nstatus: 3")
+
+@test
+HALT_IS_NOT_CAUGHT_BY_CATCH()
+    assert_eq(session([], ["catch(halt(2), _, true).", "X = 1."]), "?- catch(halt(2), _, true).\nstatus: 2")
+
+@test
+HALT_WITH_A_STATUS_THAT_IS_NOT_AN_INTEGER_IS_A_TYPE_ERROR_AND_THE_SESSION_GOES_ON()
+    assert_eq(session([], ["halt(foo).", "catch(halt(1.5), error(E, _), true).", "halt(X)."]),
+        "?- halt(foo).\nuncaught exception: error(type_error(integer,foo),_)\n" +
+        "?- catch(halt(1.5), error(E, _), true).\nE = type_error(integer,1.5).\n" +
+        "?- halt(X).\nuncaught exception: error(instantiation_error,_)\nstatus: 0")
+
+@test
+HALT_IN_A_CONSULTED_FILES_DIRECTIVE_ENDS_THE_SESSION_BEFORE_ANY_QUERY()
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, "stop.pl", "p :- write(stopping), nl, halt(4).\n:- p.\n:- write(never), nl.\n")
+
+    assert_eq(session([file], ["X = 1."]), "stopping\nstatus: 4")
+
+// `funl file`'s transcript over `text` as the contents of `file`, reading `lines`: what was said, the
+// complaints after `complained:` where there were any, and the status after `status:`.
+private driven(file: string, text: string, lines: []string) -> string
+    var script: Buf[string] = buf()
+
+    for l in lines
+        script.push(l)
+
+    val s: &Session = Session(script, 0, buf())
+    val c: &Session = Session(buf(), 0, buf())
+
+    val status = run_source(file, text, (prompt) -> next_line(s, prompt), (t) -> s.said.push(t), (t) -> if !t.is_empty() then c.said.push(t.trim()))
+
+    if c.said.len() > 0 then s.said.push(s"complained: ${join(c.said.view(), "\n")}")
+
+    s.said.push(s"status: $status")
+    join(s.said.view(), "\n")
+
+@test
+FUNL_RUNNING_A_PROLOG_FILE_STARTS_THE_TOP_LEVEL_ONCE_IT_IS_LOADED()
+    assert_eq(driven("family.pl", FamilyPl, ["X = 1.", "parent(tom, C).", ";"]),
+        "loaded\n?- X = 1.\nX = 1.\n?- parent(tom, C).\nC = bob\n;\nC = liz.\nstatus: 0")
+
+@test
+FUNL_RUNNING_A_PROLOG_FILE_WITH_AN_INITIALIZATION_GOAL_RUNS_IT_AND_READS_NO_QUERY()
+    assert_eq(driven("main.pl", "main :- write(hello), nl.\n:- initialization(main).\n", ["X = 1."]),
+        "hello\nstatus: 0")
+
+@test
+FUNL_RUNNING_A_PROLOG_FILE_ENDS_WITH_THE_STATUS_A_DIRECTIVE_HALTS_WITH()
+    assert_eq(driven("main.pl", "main :- write(hello), nl, halt(6).\n:- initialization(main).\n", []), "hello\nstatus: 6")
+    assert_eq(driven("stop.pl", ":- halt.\n", ["X = 1."]), "status: 0")
+
+@test
+FUNL_RUNNING_A_PROLOG_FILE_REFUSED_READS_NO_QUERY()
+    val said = driven("bad.pl", "p :- .\n", ["X = 1."])
+
+    assert(said.contains("complained: ") && said.ends_with("status: 1") && !said.contains("?-"), said)
+
+@test
+A_FUNL_PROGRAM_CALLING_A_PREDICATE_THAT_HALTS_ENDS_WITH_ITS_STATUS()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "stop.pl", "stop(N) :- write(stopping), nl, halt(N).\n")
+
+    assert_eq(driven("main.funl", s"import \"$pl\"\nwrite( 1 )\nstop( 9 )\nwrite( 2 )\n", ["X = 1."]), "1\nstopping\nstatus: 9")
+
+@test
+A_FUNL_FILE_STARTS_NO_TOP_LEVEL()
+    assert_eq(driven("main.funl", "write( 1 )\n", ["X = 1."]), "1\nstatus: 0")
