@@ -344,6 +344,43 @@ write( max(3, 1/2, 4.5) )
 4.5
 ```
 
+## `odd` and `even`
+
+`odd(n)` and `even(n)` take an integer, of any size. Like a comparison, each produces `n` when it holds
+and fails when it does not.
+
+```funl
+write( [x | x <- 1..8 if odd(x)] )
+write( even(-4) )
+write( odd(2 ^ 70 + 1) )
+write( if even(7) then 'even' else 'odd' )
+```
+
+```output
+[1, 3, 5, 7]
+-4
+1180591620717411303425
+odd
+```
+
+Anything but an integer is a fault.
+
+```funl
+write( odd(0.5) )
+```
+
+```error
+'odd' wants an integer and was given the real 0.5
+```
+
+```funl
+write( even(1/2) )
+```
+
+```error
+'even' wants an integer and was given the rational 1/2
+```
+
 ## Arithmetic on something that is not a number
 
 An arithmetic operator given something other than a number is a fault. (`+` is the exception: on
