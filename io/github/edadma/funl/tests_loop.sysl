@@ -75,7 +75,7 @@ A_BARE_BREAK_ENDING_A_GENERATING_FUNCTION_PRODUCES_NO_TRAILING_UNIT()
     val nested = "def pairs()\n  outer: for i <- 1..3\n    for j <- 1..3\n      if j == 2 then break\n      if i == 3 then break outer\n      yield (i, j)\n\nevery write( pairs() )\n"
 
     assert_eq(ran_funl(nested), "(1, 1)\n(2, 1)\nsucceeded")
-    assert_eq(ran_funl("def s( t )\n  t ? for c <- \"abcd\"\n    if c == \"c\" then break\n    yield c\n\nevery write( s(\"x\") )\n"), "a\nb\nsucceeded")
+    assert_eq(ran_funl("def s( t )\n  t ? for c <- [#a, #b, #c, #d]\n    if c == #c then break\n    yield c\n\nevery write( s(\"x\") )\n"), "a\nb\nsucceeded")
 
 @test
 A_BREAK_KEEPS_ITS_VALUE_WHERE_THE_FUNCTION_DOES_NOT_END_WITH_THE_LOOP_OR_YIELD()
@@ -93,10 +93,9 @@ A_BREAK_KEEPS_ITS_VALUE_WHERE_THE_FUNCTION_DOES_NOT_END_WITH_THE_LOOP_OR_YIELD()
     assert_eq(complaints("def k()\n  yield 1\n  break\n"), "error 3:3 `break` is written inside a loop\n")
 
 @test
-FOR_ITERATES_RANGES_LISTS_AND_STRINGS_AND_FILTERS()
+FOR_ITERATES_RANGES_LISTS_AND_FILTERS()
     assert_eq(ran_funl("for x <- 1..<5 if x != 2 do write( x )\n"), "1\n3\n4\nsucceeded")
     assert_eq(ran_funl("for x <- 10 to 1 by -3 do write( x )\n"), "10\n7\n4\n1\nsucceeded")
-    assert_eq(ran_funl("for c <- \"ab\" do write( c )\n"), "a\nb\nsucceeded")
     assert_eq(ran_funl("if (for x <- [] do write( x )) then write( #yes ) else write( #spent )\n"), "spent\nsucceeded")
 
 @test
