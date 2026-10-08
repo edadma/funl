@@ -59,7 +59,7 @@ a value is success.
 > (a comparison still fails rather than answering `false`) while making `if done then …` mean what
 > every reader expects. **Rejected:** a condition that only fails on failure,
 > which is Icon's, and costs a `== true` wherever a boolean is tested; or make every operation that
-> could produce `false` fail instead, which removes booleans as values and breaks `write(x is integer)`.
+> could produce `false` fail instead, which removes booleans as values: `val flag = false` could not store `false`, and `write(flag)` could not print it.
 
 ## Generators: an expression may produce more than one value
 
@@ -87,6 +87,19 @@ exhaustion, and `every` keeps asking until the outer generator is exhausted too.
 easy to get wrong: `1..5` is a range object you can store and iterate, `1 to 5` produces five values
 one after another. `..<` excludes its end, `..+n` counts `n` from the start, `a..` is an unbounded
 lazy list.
+
+> **Decided (2026-10-08) — what does the binding `x <- e` of a `for` or comprehension draw?**
+> **Decision: every value of `e`; each value that is a collection is iterated, and any other value
+> is drawn as it is.** So `[x | x <- g()]` collects everything the generating function `g` produces,
+> `x <- [1, 2]` and `x <- 1..2` still give the elements, and `x <- [[1, 2], [3]]` still gives the two
+> lists. The rule is one step, per value, so a generator of collections is flattened:
+> `x <- ([1, 2] | [3])` gives 1, 2, 3, and a generator of strings gives their characters. Keeping
+> each value whole is `x <- [e]`, whose values are lists of one. An unbound variable is still
+> refused. **Rejected:** choosing by whether `e` generates (it cannot be told from one value: a
+> generator's last value leaves no choice point, and an ordinary call may leave one), and refusing a
+> non-collection value (which was the old behaviour and made a generating function unusable in a
+> comprehension). This makes an iterator value unnecessary for drawing from a generator in a
+> `for` or comprehension: `x <- g()` does it.
 
 **Goal-directed evaluation is what makes a search an expression.** In n-queens the row is chosen by
 a generator, the three constraints are comparisons, and the placement is a reversible assignment —
@@ -264,12 +277,16 @@ choice, and never to nothing.
 | numbers | `123`, `1.5`, `2n` is `2 * n` (juxtaposition multiplies) |
 | strings | `'abc'` or `"abc"`; `$name` and `${expr}` interpolate, `$$` is a dollar |
 | regex | `` `a(b|c)*` `` |
-| booleans, nothing | `true`, `false`, `null`, `undefined`, `()` |
+| booleans, nothing | `true`, `false`, `undefined`, `()` |
 | tuple | `(1, 2)` |
 | list | `[1, 2, 3]`, `x:xs`, comprehensions `[x^2 \| x <- 1..10 if odd(x)]` |
 | set, map | `{1, 2}`, `{a: 1, "b": 2}`, set comprehension `{x \ 2 \| x <- 1..5}` |
 | mutable | `array(n)`, `buffer()`, `map(m)`, `map(m, default)`, `set(s)` |
 | records | `data point(x, y)`; `data shape = circle(r) \| square(s)` |
+
+> **Decided — a compound term needs a `data` declaration (user, 2026-10-08).** Outside a relation
+> head, `point(1, 2)` builds a record only when `data point(x, y)` is declared; an undeclared
+> functor is "not defined", as any other unknown name is.
 
 Elements are reached by call syntax and by field syntax: `r.a`, `r("b")`, `r(1)`, `m.a`, `m("a")`,
 `[3, 4, 5](1)`. A field write on a mutable map adds the key.
@@ -279,7 +296,7 @@ missing keys read as `x` instead of failing. So counting needs no membership tes
 
 ```
 val counts = map( {}, 0 )
-every counts( words(text) ) += 1     ;; a new word reads 0, and the assignment adds it
+every counts( !words ) += 1          ;; words is a list of strings; a new word reads 0, and the assignment adds it
 write( counts("zzz") )               ;; 0, and "zzz" is still not a key
 ```
 
@@ -343,6 +360,12 @@ every write( (1 | 'a' | 2.5 | #b) is number )     ;; 1, then 2.5
   that unification or Prolog made is one too.
 - **A bound logic variable is tested by its value**; only an unbound one is a `variable`.
 
+> **Decided — what `is` produces (user, 2026-10-08).** `x is t` is a test that produces `x` or fails,
+> like a comparison; it never produces `true` or `false`.
+
+> **Decided — `var` is a keyword (user, 2026-10-08).** The type test for an unbound logic variable is
+> `x is variable`, and `not (x is variable)` is its negation; there is no `var(x)` or `nonvar(x)`.
+
 | name | the values of that type |
 |---|---|
 | `number` | every number: `integer`, `rational` and `real` |
@@ -374,6 +397,9 @@ rational 1/3``, `a function`), and the ones of the builtins that make the mutabl
 **The numeric tower is exact until a program asks for inexactness**: integers grow without bound,
 dividing two integers that do not divide evenly gives a rational, and a real or a decimal appears
 only when a literal or an operation introduces one.
+
+> **Decided — a real literal needs a digit before the point (user, 2026-10-08).** `0.5` is a real;
+> `.5` is a syntax error, because `.` is field access.
 
 ```
 write( 7 / 2 )       ;; 7/2

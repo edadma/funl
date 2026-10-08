@@ -198,8 +198,9 @@ enum Op
     // -- generators (`gen.sysl`) --------------------------------------------------------------------
 
     // Replace the collection on top with its first cursor, two cells: what is left of it and a
-    // position in it.
-    GenStart
+    // position in it. With `draw` -- the start of a binding `p <- e` -- a value that is not a
+    // collection is drawn as it is: its cursor is a one-element list of it.
+    GenStart(draw: bool)
 
     // Replace the cursor on top with its next element, leaving a choice point that resumes here on
     // the advanced cursor; fail when it is exhausted.

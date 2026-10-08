@@ -44,8 +44,12 @@ struct VarObj
 [trail chapter](vm.md#the-trail) has the mechanism, and the stamp is what decides whether a binding
 needs recording at all. Every operation that inspects a value first **dereferences** it: follows
 bound variables until it reaches something that is not one. Arithmetic, comparison, printing,
-indexing and pattern matching all dereference; only unification and the type tests `var(x)` /
-`nonvar(x)` look at a variable as a variable.
+indexing and pattern matching all dereference; only unification and the type test `x is variable`
+(`not (x is variable)` for its negation) look at a variable as a variable.
+
+> **Decided — `var` is a keyword (user, 2026-10-08).** FunL's test for an unbound variable is
+> `x is variable`; it has no `var(x)` or `nonvar(x)`. (Prolog's own `var/1` and `nonvar/1` are
+> unchanged in Prolog text.)
 
 **An unbound variable reaching an operation that needs a value is an instantiation error**, raised
 as an ordinary FunL error that names the operation: `instantiation error: '+' was given an unbound
@@ -163,10 +167,14 @@ fresh each time the clause is entered:
 
 1. a head parameter is a clause variable;
 2. a name that resolves to something in an enclosing scope — a function, a relation, a `val` — means
-   that thing, by FunL's ordinary lexical rule;
+   that thing, by FunL's ordinary lexical rule (see the decision below);
 3. any other name is a fresh, unbound variable local to the clause: `p` in `ancestor`, `f` and `m`
    in `full_siblings`;
 4. `_` is a new anonymous variable at each occurrence.
+
+> **Decided — what a relation body sees (user, 2026-10-08).** A top-level `var`, a `free` variable or
+> an assignment name is not seen inside a relation body; only `val`s, functions, relations and
+> constructors are. Any other name there is a fresh clause variable.
 
 **A clause variable that appears exactly once is warned about**, as every Prolog does, because it is
 almost always a misspelling of another one. A name starting with `_` (`_rest`) is the way to say the
