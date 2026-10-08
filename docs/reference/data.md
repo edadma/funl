@@ -409,6 +409,32 @@ write( s.x )
 point(1, 2, 3)
 ```
 
+Because a record is known by its name and number of fields, two constructors with one name and one
+number of fields cannot be declared in a program, in any block or in a FunL file it imports. The
+second declaration is refused, naming where the first is:
+
+```funl
+data point(x, y)
+data point(a, b)
+```
+
+```error
+the constructor `point` of 2 fields is already declared at
+```
+
+The same name with a different number of fields is a different constructor and is allowed:
+
+```funl
+data point(x)
+data point(x, y)
+
+write( point(1, 2).y )
+```
+
+```output
+2
+```
+
 A name is looked up first among the program's own `data` types, then among its constructors, and
 then among the built-in names, so a program's own `data list` hides the built-in `list` from `is`:
 

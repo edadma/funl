@@ -307,6 +307,12 @@ operators test it: `\x` succeeds if `x` is defined and `/x` if it is undefined. 
 assignable, so `\a = 123` assigns only if `a` already has a value and `/b = 123` only if `b` has
 none.
 
+> **Decided — may two `data` constructors share a name and a number of fields?**
+> **Decision: no; it is a compile-time error at the second declaration**, naming the first one's
+> position, wherever the two are written (a nested block, or a FunL file Prolog imports). A record is
+> known by its functor and number of fields, so two such constructors could not be told apart in a
+> term Prolog made. The same name with a different number of fields is a different functor and is allowed.
+
 ### Types, and `is`
 
 **Every value has a type, and `x is t` tests it.** Like a comparison, it **succeeds producing `x`**

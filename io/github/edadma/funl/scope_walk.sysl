@@ -125,8 +125,19 @@ walk_stmt(w: *Walk, s: Stmt)
             for d in ctors.view()
                 if refused_as_variable(w, d.name, d.at) then continue
 
+                val origin = located(w.res.src, d.at.start)
+
+                // The same declaration read again -- a file loaded once more after a refusal -- is
+                // not a second constructor.
+                declared_ctor(d.name, d.fields.len()) match
+                    Some(first) ->
+                        if first.origin != origin
+                            w.report.add(error(d.at, s"the constructor `${d.name}` of ${counted(d.fields.len(), "field")} is already declared at ${first.origin}; two constructors with one name and one number of fields cannot be told apart"))
+                            continue
+                    None -> ()
+
                 val slot = w.sc.declare(w.blk, d.name, d.at, d.at.end, true)
-                val id = declare_ctor(d.name, d.fields)
+                val id = declare_ctor(d.name, d.fields, origin)
 
                 w.sc.ctors.put(slot, id)
                 ids.push(id)
