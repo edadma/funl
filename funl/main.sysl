@@ -16,7 +16,7 @@ import sysl.text.Search
 // was refused or faulted -- the diagnostics are on standard error -- 2 when `funl` could not work out
 // what it was asked to do, and `N` for a program that ran `halt(N)`.
 
-const FunlVersion: string = "0.0.1"
+const FunlVersion: string = "0.0.2"
 
 main(args: []string)
     if args.len > 1 && args[1] == "--version"

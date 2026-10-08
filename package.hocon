@@ -16,7 +16,7 @@
 
 package {
   name    = "funl-vm"
-  version = "0.0.1"
+  version = "0.0.2"
 
   // alpha.2 is the first compiler that gives each file its own file-private name, which the tests
   // rely on: `Family` is a private const in two test files and a private struct in a third. The
