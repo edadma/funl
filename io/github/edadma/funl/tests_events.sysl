@@ -160,10 +160,18 @@ A_TASK_WAITING_ON_A_PENDING_PROMISE_RUNS_WHEN_IT_IS_SETTLED()
 A_REJECTED_PROMISE_NOTHING_AWAITS_IS_THE_RUNS_FAULT()
     val text = "import { reject } from funl:async\n" +
         "\n" +
-        "reject( \"nobody waited\" )\n" +
+        "p = reject( \"nobody waited\" )\n" +
         "write( \"top done\" )\n"
 
     assert_eq(ran_funl(text), "top done\nfault: nobody waited")
+
+    // Thrown away, it can never be awaited, and ends the run where it is made.
+    val gone = "import { reject } from funl:async\n" +
+        "\n" +
+        "reject( \"nobody waited\" )\n" +
+        "write( \"top done\" )\n"
+
+    assert_eq(ran_funl(gone), "fault: nobody waited")
 
 @test
 THE_MAKERS_REFUSE_WHAT_IS_NOT_THEIRS()

@@ -270,8 +270,26 @@ write( (await boom( 1 )) catch e -> e.message )
 boom 1
 ```
 
-**A fault nothing awaits is the program's fault.** It is reported once everything else has had its
-turn, and the program ends with it:
+**A `catch` around an `await` is still there when the waiting is over**, so it catches a fault
+raised after the function resumes as well as one the awaited promise brings with it:
+
+```funl
+import { sleep } from funl:async
+
+async def later( n ) = ((await sleep( n )) + 1 / 0) catch e -> "caught after $n: ${e.message}"
+
+write( await later( 5 ) )
+write( ((await sleep( 1 )) + error( "top" )) catch e -> "caught at the top: ${e.message}" )
+```
+
+```output
+caught after 5: 1 / 0 divides by zero
+caught at the top: top
+```
+
+**A fault nothing awaits is the program's fault**, and the program ends with it. A promise kept in
+a name could still be awaited by a line yet to run, so its fault waits to be reported until
+everything else has had its turn:
 
 ```funl
 async def boom() =
@@ -279,10 +297,112 @@ async def boom() =
   await ()
   1 / 0
 
-boom()
+p = boom()
 write( "the top level ends" )
 ```
 
 ```error
 1 / 0 divides by zero
+```
+
+Everything else includes the top level, which here goes on after `boom` has faulted and meets a
+fault of its own first:
+
+```funl
+import { sleep } from funl:async
+
+async def boom() =
+  await ()
+  1 / 0
+
+p = boom()
+await sleep( 5 )
+error( "the top level carried on" )
+```
+
+```error
+the top level carried on
+```
+
+**A call written as a statement of its own gave its promise to nobody**, so nothing can ever await
+it, and its fault ends the program as it happens. The same program with `boom()` on a line of its
+own ends while the top level is still waiting:
+
+```funl
+import { sleep } from funl:async
+
+async def boom() =
+  await ()
+  1 / 0
+
+boom()
+await sleep( 5 )
+error( "the top level carried on" )
+```
+
+```error
+1 / 0 divides by zero
+```
+
+A call that fails is not a fault: a statement whose `async` call fails is a statement that failed,
+and the program carries on from it as from any other.
+
+## Logic variables and tasks
+
+**A logic variable belongs to the task that made it** -- the top level, or the call of an `async`
+function -- and only that task binds it. Each task undoes its own bindings when it backtracks, so a
+binding one task made in another's variable could be undone by neither. Binding another task's
+variable raises `permission_error(bind, variable, X)`, naming both tasks; unifying a variable of
+one's own with another's binds one's own:
+
+```funl
+free shared
+
+async def grab( n ) =
+  await ()
+  (shared ~ n) catch error(permission_error(bind, variable, _), context(_, m)) -> write( m )
+  free mine
+  mine ~ shared
+  write( "mine is shared now" )
+
+async def fresh() =
+  free x
+  x
+
+grab( 1 )
+x = await fresh()
+write( (x ~ 2) catch e -> e.message )
+write( shared ~ 5 )
+```
+
+```output
+task 1 (`grab`) cannot bind a logic variable the top level made
+mine is shared now
+the top level cannot bind a logic variable task 2 made
+5
+```
+
+Tasks are numbered in the order they start, and a task still running is named by its function as
+well. A value that crosses through a promise, as `fresh`'s variable did, arrives as it stands.
+
+Tasks that backtrack in turn keep their choice points and bindings apart:
+
+```funl
+def pick( x, x:_ )
+def pick( x, _:t ) :- pick( x, t )
+
+async def hunt( name, xs, want ) =
+  free a, b
+  pick( a, xs ) & pick( b, xs ) & (await (a + b)) == want
+  "$name: $a + $b = $want"
+
+p = hunt( "p", [1, 2, 3], 5 )
+q = hunt( "q", [10, 20], 40 )
+write( await p )
+write( await q )
+```
+
+```output
+p: 2 + 3 = 5
+q: 20 + 20 = 40
 ```

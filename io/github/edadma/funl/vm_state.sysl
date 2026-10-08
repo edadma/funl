@@ -49,7 +49,8 @@ struct Vm
     // Index in `control` of the innermost mark, or `NoMark`.
     mark: usize
 
-    // Bumped by every entry pushed; dates logic variables against the control stack.
+    // Bumped by every entry pushed; dates logic variables against the control stack. Each task has
+    // its own, parked and unparked with the rest of its machine.
     stamp: u64
 
     // The scan state: the string `s ? e` is scanning, `Undefined` outside every scan, and the position
@@ -219,6 +220,22 @@ struct Vm
     // The chunk a task's first frame returns to, once made.
     task_chunk: Option[usize]
 
+    // The running machine's task: 0 for the top level, otherwise its number in the order tasks
+    // started; and the chunk of the `async` function it runs, `NoMachine` for the top level.
+    task: u32
+    task_fn: usize
+
+    // How many tasks the run has started: the next one is numbered one more.
+    tasks_started: u32
+
+    // A logic variable the last instruction tried to bind though another task made it, or null:
+    // the instruction is then the fault `refused_binding` raises rather than whatever it answered.
+    refused: *VarObj
+
+    // The fault of a promise whose call was thrown away, once it has one: the run ends with it at
+    // once rather than when everything else has settled.
+    quit: Option[string]
+
     // -- the loop (`events.sysl`) -------------------------------------------------------------------
 
     // The event loop and the clock it reads, made by the first timer a program sets.
@@ -264,7 +281,8 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         buf(), map(), buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf(), buf(),
-        null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, None, None, None, buf(), buf())
+        null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
+        buf())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

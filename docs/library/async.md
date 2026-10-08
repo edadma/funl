@@ -185,12 +185,13 @@ no such row
 ```
 
 A rejected promise nothing ever awaits is the program's fault, reported once everything else has
-run:
+run -- or at once, when the call that made it was a statement of its own, nothing being able to
+await it then ([faults](../reference/async.md#faults)):
 
 ```funl
 import { reject } from funl:async
 
-reject( "nobody waited" )
+p = reject( "nobody waited" )
 write( "the top level is done" )
 ```
 

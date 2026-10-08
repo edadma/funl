@@ -106,6 +106,17 @@ private unify_with(a: Value, b: Value, check: bool) -> bool
     true
 end unify_with
 
+// Two unbound variables, `p` read as `x` and `q` as `y`: the younger is bound to the older -- unless
+// only one of them is the running task's, which is then the one bound, the other not being its to bind.
+private bind_pair(p: *VarObj, q: *VarObj, x: Value, y: Value) -> bool
+    val task = current().task
+
+    if p.task != q.task
+        if p.task == task then return bind(p, y)
+        if q.task == task then return bind(q, x)
+
+    if p.id < q.id then bind(q, x) else bind(p, y)
+
 // One pair, both dereferenced; `check` refuses a binding the occurs check fails.
 private step(x: Value, y: Value, check: bool) -> bool
     if identical(x, y) then return true
@@ -113,21 +124,18 @@ private step(x: Value, y: Value, check: bool) -> bool
     x match
         Var(p) ->
             y match
-                Var(q) -> if p.id < q.id then bind(q, x) else bind(p, y)
+                Var(q) -> return bind_pair(p, q, x, y)
                 _ ->
                     if check && occurs_in(x, y) then return false
 
-                    bind(p, y)
-
-            return true
+                    return bind(p, y)
         _ -> ()
 
     y match
         Var(q) ->
             if check && occurs_in(y, x) then return false
 
-            bind(q, x)
-            return true
+            return bind(q, x)
         _ -> ()
 
     x match
@@ -321,7 +329,8 @@ get_compound(v: *Vm, functor: u32, n: usize, src: Src) -> Result[bool, string]
             for i in 0..<n
                 c.args.set(i, Var(new_var()?))
 
-            bind(p, Compound(c))
+            if !bind(p, Compound(c)) then return Ok(false)
+
             push_args(v, c)
             Ok(true)
         Compound(c) ->
@@ -341,9 +350,7 @@ end get_compound
 // or range.
 get_nil(v: *Vm, src: Src) -> Result[bool, string]
     deref(source(v, src)?) match
-        Var(p) ->
-            bind(p, Nil)
-            Ok(true)
+        Var(p) -> Ok(bind(p, Nil))
         Nil -> Ok(true)
         Range(r) -> Ok(range_empty(r))
         _ -> Ok(false)
@@ -357,7 +364,8 @@ get_cons(v: *Vm, src: Src) -> Result[bool, string]
             val head = Var(new_var()?)
             val tail = Var(new_var()?)
 
-            bind(p, new_cons(head, tail)?)
+            if !bind(p, new_cons(head, tail)?) then return Ok(false)
+
             v.stack.push(tail)
             v.stack.push(head)
             Ok(true)

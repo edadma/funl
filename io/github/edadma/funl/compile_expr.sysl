@@ -166,6 +166,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         ApplyE(f, args) -> apply(e, c, f, args, false)?
         Conj(a, b) ->
             compile_value(e, c, a)?
+            thrown_away(e, a)
             e.op(Pop)
             compile_value(e, c, b)?
         Disj(a, b) -> alternation(e, c, a, b, false)?
@@ -622,6 +623,14 @@ condition(e: *Emit, c: Ctx, cond: &Expr, other: usize) -> Result[unit, string]
     e.op(Unmark)
     Ok(())
 
+// `x`'s value, on top, is about to be dropped: where `x` is a call, its answer may be a promise
+// nothing can ever await, which `Orphan` marks.
+thrown_away(e: *Emit, x: &Expr)
+    x.kind match
+        CallE(_, _, _) -> e.op(Orphan)
+        ApplyE(_, _) -> e.op(Orphan)
+        _ -> ()
+
 // A block's statements, each bounded but the last, whose value is the block's.
 private block(e: *Emit, c: Ctx, stmts: Buf[Stmt]) -> Result[unit, string]
     for i in 0..<stmts.len()
@@ -653,6 +662,7 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
 
             e.op(Mark(next))
             compile_value(e, c, x)?
+            thrown_away(e, x)
             e.op(Unmark)
             e.place(next)
         ValS(pat, x, fixed) ->

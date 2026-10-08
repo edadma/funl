@@ -470,6 +470,25 @@ the regex captures. A **task** is exactly those fields, in their own `Machine`:
 > imported by that name, `fail` being reserved; the promise-shaped `fetch`, `read_file`, `write_file`
 > and `run`, with kairos's `uv` feature behind FunL's `async`; and per-task trails and stamps.
 
+> **Built — what a task keeps to itself, and faults nothing awaits (milestone 10, part 3).** The
+> `Machine` now carries its stamp, its task number (0 the top level, then 1, 2, … in the order tasks
+> start) and its function's chunk, so **each task has its own trail and stamp**: a task starts at
+> stamp 0, and parking moves both out with the rest. A `VarObj` records the task that made it, and
+> **`bind` refuses another task's variable**: it leaves it unbound, the unification fails, and the
+> instruction that tried is replaced by the fault `permission_error(bind, variable, X)` (the design
+> names no term; this is Prolog's for an operation the culprit does not allow), its message naming
+> both tasks -- `task 1 (`grab`) cannot bind a logic variable the top level made`, a finished task by
+> its number alone. Two unbound variables of different tasks unify by binding the running task's
+> own. A trial unification (`unifiable/3`, `subsumes_term/2`) binds nothing that lasts and is not
+> refused. **A call written as a statement of its own, or before `&` or a body's next line, is
+> thrown away**: the compiler emits `Orphan` after it, which marks a promise as one nothing can await,
+> and its fault ends the run at once -- already faulted, at the `Orphan`; later, at the next turn of
+> the queue -- as slate's `Discard` does, so a fault in a server's task is not held until a loop that
+> never drains. Every other unawaited fault is still reported when everything has settled, the
+> first first. **A FunL failure is not reported**: the design makes a *fault* nothing awaited the
+> program's failure, and a thrown-away call that fails is a statement that failed. A `catch` around
+> an `await` is a `Trap` on the parked control stack, so it catches a fault raised after the resume.
+
 ## The prelude — the first module written in FunL
 
 > **Decided (user, 2026-10-08) — the prelude is the first module written in FunL, and it is

@@ -481,6 +481,10 @@ enum Op
     // A task's function has answered: pop its value into the task's promise, which settles, and
     // give the machine up. The one instruction of the chunk a task's first frame returns to.
     Settle
+
+    // The value on top, left where it is, is a call's answer about to be thrown away: a promise is
+    // marked as one nothing can await, and one already faulted ends the run (`task.sysl`).
+    Orphan
 end Op
 
 // What a first argument is keyed by in a relation's index. A head argument of any other kind, and

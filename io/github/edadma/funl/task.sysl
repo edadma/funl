@@ -8,7 +8,8 @@ import sysl.buf.{Buf, buf}
 // whole of a suspended computation -- operands, control stack and saved cells, trail, frame, scan
 // state, captures -- is data, and `park` moves it out of the VM into `Vm.parked` as one `Machine`,
 // leaving an empty one in its place; `unpark` puts it back. The collector walks every parked machine
-// as it walks the running one.
+// as it walks the running one. **Each task has its own trail and stamp**, and the logic variables it
+// makes are its own: binding another task's is refused (`refused_binding`).
 //
 // **Calling an `async` function starts a task** (`start_async`, reached from both call paths through
 // `open_frame`): the caller's machine is parked with the task's promise already standing where the
@@ -49,16 +50,19 @@ struct Machine
     saved: Buf[Value]
     trail: Buf[Undo]
     mark: usize
+    stamp: u64
     subject: Value
     pos: usize
     scans: Buf[ScanSaved]
     captures: Buf[GroupSpan]
     promise: *PromiseObj
     back_to: usize
+    task: u32
+    task_fn: usize
 
 // An empty slot of `Vm.parked`.
 private free_slot() -> Machine =
-    Machine(false, 0, 0, buf(), null, buf(), buf(), buf(), NoMark, Undefined, 1, buf(), buf(), null, NoMachine)
+    Machine(false, 0, 0, buf(), null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), null, NoMachine, 0, NoMachine)
 
 // Empty the VM's machine: what `park` leaves, and what a finished task becomes.
 private clear_machine(v: *Vm)
@@ -70,17 +74,20 @@ private clear_machine(v: *Vm)
     v.saved = buf()
     v.trail = buf()
     v.mark = NoMark
+    v.stamp = 0
     v.subject = Undefined
     v.pos = 1
     v.scans = buf()
     v.captures = buf()
     v.promise = null
     v.back_to = NoMachine
+    v.task = 0
+    v.task_fn = NoMachine
 
 // Set the running machine aside, and answer where it went.
 park(v: *Vm) -> usize
-    val m = Machine(true, v.code, v.ip, v.stack, v.frame, v.control, v.saved, v.trail, v.mark, v.subject, v.pos, v.scans,
-                    v.captures, v.promise, v.back_to)
+    val m = Machine(true, v.code, v.ip, v.stack, v.frame, v.control, v.saved, v.trail, v.mark, v.stamp, v.subject, v.pos,
+                    v.scans, v.captures, v.promise, v.back_to, v.task, v.task_fn)
 
     clear_machine(v)
 
@@ -106,12 +113,15 @@ unpark(v: *Vm, id: usize)
     v.saved = m.saved
     v.trail = m.trail
     v.mark = m.mark
+    v.stamp = m.stamp
     v.subject = m.subject
     v.pos = m.pos
     v.scans = m.scans
     v.captures = m.captures
     v.promise = m.promise
     v.back_to = m.back_to
+    v.task = m.task
+    v.task_fn = m.task_fn
 end unpark
 
 // The chunk a task's first frame returns to: `Settle`, made the first time a task starts.
@@ -162,6 +172,9 @@ start_async(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, F
     f.entry = 0
     f.cut = 0
 
+    v.tasks_started += 1
+    v.task = v.tasks_started
+    v.task_fn = target
     v.promise = pr
     v.back_to = caller
     v.frame = f
@@ -243,7 +256,78 @@ settle_promise(v: *Vm, p: *PromiseObj, state: u8, x: Value, message: string)
 
     p.waiters.clear()
 
-    if state == PromiseFaulted && !p.awaited then v.rejected.push(Promise(p))
+    if state != PromiseFaulted || p.awaited then return
+
+    if p.orphaned then quit_with(v, p.message) else v.rejected.push(Promise(p))
+
+// `Orphan`: the value on top is the answer of a call written as a statement of its own, about to be
+// thrown away. **A promise thrown away can never be awaited, so its fault is final where it happens**:
+// one already faulted ends the run now (false), and one still pending is marked to end it when it
+// faults. "Was it handled?" is otherwise asked only when everything has settled, which a server never
+// does.
+orphan_top(v: *Vm) -> bool
+    val top = v.stack.len()
+
+    if top == 0 then return true
+
+    deref(v.stack.at(top - 1)) match
+        Promise(p) ->
+            if p.awaited then return true
+
+            p.orphaned = true
+
+            if p.state != PromiseFaulted then return true
+
+            quit_with(v, p.message)
+            false
+        _ -> true
+
+// Keep the first fault of a thrown-away promise, to end the run with.
+private quit_with(v: *Vm, message: string)
+    v.quit match
+        Some(_) -> ()
+        None -> v.quit = Some(message)
+
+// The run's fault, if a thrown-away promise has faulted; it is taken, so it is reported once.
+quit_fault(v: *Vm) -> Option[Outcome]
+    v.quit match
+        Some(m) ->
+            v.quit = None
+            v.rejected.clear()
+            Some(Faulted(m))
+        None -> None
+
+// What a task is called in a diagnostic: the top level, or its number and its function's name.
+private task_named(v: *Vm, task: u32, fn_chunk: usize) -> string
+    if task == 0 then return "the top level"
+
+    if fn_chunk == NoMachine then return s"task $task"
+
+    s"task $task (`${v.chunks.at(fn_chunk).name}`)"
+
+// The task numbered `task`, named from its parked machine where it is still waiting, by its number
+// alone where it is over.
+private task_by_number(v: *Vm, task: u32) -> string
+    if task == v.task then return task_named(v, task, v.task_fn)
+
+    for m in v.parked.view()
+        if m.live && m.task == task then return task_named(v, task, m.task_fn)
+
+    task_named(v, task, NoMachine)
+
+// **Binding a logic variable another task made is a fault naming both tasks**: each task has its own
+// trail and stamp, so a binding one task made in another's variable could be undone by neither
+// correctly. `bind` refuses it and leaves the variable in `Vm.refused`; the instruction that tried
+// becomes `permission_error(bind, variable, X)` (`Prolog`'s error term for an operation its culprit
+// does not allow).
+refused_binding(v: *Vm) -> Fault
+    val x = v.refused
+
+    v.refused = null
+
+    val said = s"${task_named(v, v.task, v.task_fn)} cannot bind a logic variable ${task_by_number(v, x.task)} made"
+
+    permission_error("bind", "variable", Var(x), said)
 
 // What became of handing the turn to the next ready machine.
 enum Resumed
@@ -264,10 +348,18 @@ enum Resumed
 // loop waited on for the next one (`next_event`). With neither queue holding anything, end.
 next_ready(v: *Vm) -> Resumed
     while v.ready_head >= v.ready.len()
+        quit_fault(v) match
+            Some(o) -> return Ends(o)
+            None -> ()
+
         v.ready.clear()
         v.ready_head = 0
 
         if !next_event(v) then return Ends(finished(v))
+
+    quit_fault(v) match
+        Some(o) -> return Ends(o)
+        None -> ()
 
     val id = v.ready.at(v.ready_head)
 
@@ -315,6 +407,10 @@ private finished(v: *Vm) -> Outcome
 
 // The first fault a task raised that nothing ever awaited, as the run's fault; otherwise success.
 private unawaited_fault(v: *Vm) -> Outcome
+    quit_fault(v) match
+        Some(o) -> return o
+        None -> ()
+
     for x in v.rejected.view()
         x match
             Promise(p) ->

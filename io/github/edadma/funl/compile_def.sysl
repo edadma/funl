@@ -369,6 +369,7 @@ private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 _ -> returning(e, c, x)?
         Conj(a, b) ->
             compile_value(e, c, a)?
+            thrown_away(e, a)
             e.op(Pop)
             tail(e, c, b)?
         Disj(a, b) ->

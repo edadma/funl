@@ -50,10 +50,12 @@ struct HandleObj
 // A promise: what state it is in (`PromisePending`, `PromiseKept`, `PromiseFailed`,
 // `PromiseFaulted`), whether anything has awaited it, the value it was kept with -- or, faulted, the
 // ball thrown, `Undefined` when the fault was not a throw -- the fault's text, and the machines parked
-// waiting for it, by their index in `Vm.parked`.
+// waiting for it, by their index in `Vm.parked`. `orphaned` says the call that made it was a statement
+// of its own, its value thrown away, so nothing can ever await it.
 struct PromiseObj
     state: u8
     awaited: bool
+    orphaned: bool
     value: Value
     message: string
     waiters: Buf[usize]
@@ -106,11 +108,15 @@ struct ArrayObj
 // **`stamp` dates it against the control stack**: it is the machine's stamp when the variable was
 // made, and a binding needs a trail entry only when the variable is older than the newest entry.
 // `id` is what an unbound variable prints as, unique within the run.
+//
+// **`task` is the task that made it** (`Vm.task`), and the only one that may bind it: **each task has
+// its own trail and stamp**, so a binding by another could be undone by neither correctly.
 struct VarObj
     value: Value
     bound: bool
     stamp: u64
     id: u64
+    task: u32
 
 // A function value: the chunk of its code and the frame it was made in, which becomes the static
 // link of every frame a call of it makes.
@@ -213,6 +219,8 @@ new_promise() -> Result[*PromiseObj, string]
     val o: *PromiseObj = ptr_cast(take(v, sizeof(PromiseObj), &promise_kind)?)
 
     o.state = PromisePending
+    o.awaited = false
+    o.orphaned = false
     o.value = Undefined
     o.message = ""
     o.waiters = buf()
@@ -230,7 +238,7 @@ new_tuple(n: usize) -> Result[*TupleObj, string]
     v.allocated += n * sizeof(Value)
     Ok(o)
 
-// A fresh unbound variable, dated by the machine's current stamp.
+// A fresh unbound variable, dated by the running machine's stamp and owned by its task.
 new_var() -> Result[*VarObj, string]
     val v = current()
     val o: *VarObj = ptr_cast(take(v, sizeof(VarObj), &var_kind)?)
@@ -238,6 +246,7 @@ new_var() -> Result[*VarObj, string]
     o.value = Undefined
     o.bound = false
     o.stamp = v.stamp
+    o.task = v.task
     o.id = v.var_count
     v.var_count += 1
     Ok(o)

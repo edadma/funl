@@ -43,13 +43,24 @@ enum Undo
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
 // surviving entry predates it. The stamp says which side of that entry it was made on -- a collected
 // heap has no address order to ask instead.
-bind(x: *VarObj, to: Value)
+//
+// **Only the task that made a variable binds it**: another's binding is refused -- false, the variable
+// left unbound and kept in `Vm.refused`, which makes the instruction that tried a fault. A trial binds
+// nothing that lasts, so it may.
+bind(x: *VarObj, to: Value) -> bool
     val v = current()
+
+    if x.task != v.task && !v.trailing_all
+        if v.refused == null then v.refused = x
+
+        return false
 
     x.value = to
     x.bound = true
 
     if v.trailing_all || needs_trail(v, x) then v.trail.push(Bind(x))
+
+    true
 
 // Unify `a` with `b` only to see what it would bind, and take every binding back: whether they unify,
 // and with each variable that unification bound beside the value it bound it to, in the order bound.

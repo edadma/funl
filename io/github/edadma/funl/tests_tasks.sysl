@@ -1,0 +1,199 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// What each task keeps to itself: its own trail and stamp, so tasks that backtrack in turn do not
+// tangle; the refusal to bind a logic variable another task made; a `catch` around an `await` that
+// still stands when the task resumes; and a fault nothing can await, which ends the run at once when
+// its call was thrown away and once everything has settled otherwise. Every program runs on both
+// heaps, the small one collecting before every instruction.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// Two tasks each search by backtracking, and each candidate waits a turn: the turns alternate between
+// the tasks while each is in the middle of its search, with choice points and trailed bindings of its
+// own parked between the turns.
+private const Hunting: string = "def pick( x, x:_ )\n" +
+    "def pick( x, _:t ) :- pick( x, t )\n" +
+    "\n" +
+    "async def hunt( name, xs, want ) =\n" +
+    "    free a, b\n" +
+    "    pick( a, xs ) & pick( b, xs ) & write( \"$name tries $a $b\" ) & (await (a + b)) == want\n" +
+    "    \"$name: $a + $b = $want\"\n" +
+    "\n" +
+    "async def main() =\n" +
+    "    p = hunt( \"p\", [1, 2, 3], 5 )\n" +
+    "    q = hunt( \"q\", [10, 20], 40 )\n" +
+    "    write( await p )\n" +
+    "    write( await q )\n" +
+    "\n" +
+    "main()\n"
+
+@test
+INTERLEAVED_TASKS_EACH_BACKTRACK_AND_THEIR_TRAILS_DO_NOT_TANGLE()
+    assert_eq(ran_funl(Hunting),
+        "p tries 1 1\nq tries 10 10\np tries 1 2\nq tries 10 20\np tries 1 3\nq tries 20 10\np tries 2 1\n" +
+        "q tries 20 20\np tries 2 2\np tries 2 3\np: 2 + 3 = 5\nq: 20 + 20 = 40\nsucceeded")
+
+@test
+BACKTRACKING_TASKS_COLLECTED_AT_EVERY_STEP_LEAVE_NO_TRAIL()
+    val tight = stressed(() -> compiled_text(Hunting))
+
+    assert(tight.collections > 100, s"the stressed heap collected ${tight.collections} times")
+    assert_eq(tight.trail, 0)
+
+// A variable made before another task's choice point, and bound by that task, would be unbound by
+// neither's failure: each task binds only its own, and the other way round is refused, naming both.
+// A task may still bind a variable of its own TO another's.
+@test
+A_TASK_BINDS_ONLY_THE_LOGIC_VARIABLES_IT_MADE()
+    val text = "free shared\n" +
+        "\n" +
+        "async def grab( n ) =\n" +
+        "    await ()\n" +
+        "    (shared ~ n) catch error(permission_error(bind, variable, _), context(_, m)) -> write( m )\n" +
+        "    free mine\n" +
+        "    mine ~ shared\n" +
+        "    write( \"mine is shared now\" )\n" +
+        "\n" +
+        "async def fresh() =\n" +
+        "    free x\n" +
+        "    x\n" +
+        "\n" +
+        "grab( 1 )\n" +
+        "x = await fresh()\n" +
+        "write( (x ~ 2) catch e -> e.message )\n" +
+        "write( shared ~ 5 )\n"
+
+    assert_eq(ran_funl(text),
+        "task 1 (`grab`) cannot bind a logic variable the top level made\nmine is shared now\n" +
+        "the top level cannot bind a logic variable task 2 made\n5\nsucceeded")
+
+// Uncaught, the refusal is the task's fault like any other.
+@test
+AN_UNCAUGHT_REFUSAL_IS_THE_TASKS_FAULT()
+    val text = "free other\n" +
+        "\n" +
+        "async def careless() =\n" +
+        "    await ()\n" +
+        "    other ~ 3\n" +
+        "\n" +
+        "write( (await careless()) catch e -> \"awaited: ${e.message}\" )\n" +
+        "careless()\n"
+
+    assert_eq(unplaced(ran_funl(text)),
+        "awaited: task 1 (`careless`) cannot bind a logic variable the top level made\n" +
+        "fault: careless: task 2 (`careless`) cannot bind a logic variable the top level made")
+
+// Unification that only looks binds nothing that lasts, so it is not refused.
+@test
+A_TRIAL_UNIFICATION_OF_ANOTHER_TASKS_VARIABLE_IS_NOT_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "check.pl", "check(X, U) :- unifiable(X, 7, U).\n")
+    val text = s"import \"$pl\"\n" +
+        "\n" +
+        "free outside\n" +
+        "\n" +
+        "async def look() =\n" +
+        "    await ()\n" +
+        "    free u\n" +
+        "    if check( outside, u ) then write( u )\n" +
+        "    write( outside )\n" +
+        "\n" +
+        "await look()\n"
+
+    assert_eq(ran_funl(text), "[=(_G0, 7)]\n_G0\nsucceeded")
+
+// The `catch` frame is part of the parked machine, so it is there when the task comes back.
+@test
+A_CATCH_AROUND_AN_AWAIT_CATCHES_A_FAULT_RAISED_AFTER_IT_RESUMES()
+    val text = "import { sleep } from funl:async\n" +
+        "\n" +
+        "async def later( n ) = ((await sleep( n )) + 1 / 0) catch e -> \"caught after $n: ${e.message}\"\n" +
+        "\n" +
+        "async def picky() = ((await ()) + error( \"wrong\" )) catch error(type_error(_, _), _) -> \"not this\"\n" +
+        "\n" +
+        "write( await later( 5 ) )\n" +
+        "write( ((await sleep( 1 )) + error( \"top\" )) catch e -> \"caught at the top: ${e.message}\" )\n" +
+        "write( (await picky()) catch e -> \"passed on: ${e.message}\" )\n"
+
+    assert_eq(ran_funl(text),
+        "caught after 5: 1 / 0 divides by zero\ncaught at the top: top\npassed on: wrong\nsucceeded")
+
+// A call written as a statement of its own was given to nobody, so nothing can ever await its
+// promise: its fault ends the run as it happens, while other tasks still have turns to come.
+@test
+A_THROWN_AWAY_CALL_THAT_FAULTS_ENDS_THE_RUN_AT_ONCE()
+    val text = "import { sleep } from funl:async\n" +
+        "\n" +
+        "async def boom() =\n" +
+        "    await ()\n" +
+        "    error( \"boom\" )\n" +
+        "\n" +
+        "async def tick( n ) =\n" +
+        "    i = 0\n" +
+        "    while i < n do\n" +
+        "        await sleep( 1 )\n" +
+        "        write( \"tick $i\" )\n" +
+        "        i += 1\n" +
+        "\n" +
+        "tick( 3 )\n" +
+        "boom()\n" +
+        "write( \"the top level ends\" )\n"
+
+    assert_eq(unplaced(ran_funl(text)), "the top level ends\nfault: boom: boom")
+
+// Kept in a name, the same promise could still be awaited, so the run asks only once everything has
+// settled.
+@test
+A_KEPT_PROMISE_THAT_FAULTS_IS_REPORTED_WHEN_EVERYTHING_HAS_SETTLED()
+    val text = "import { sleep } from funl:async\n" +
+        "\n" +
+        "async def boom() =\n" +
+        "    await ()\n" +
+        "    error( \"boom\" )\n" +
+        "\n" +
+        "async def tick( n ) =\n" +
+        "    i = 0\n" +
+        "    while i < n do\n" +
+        "        await sleep( 1 )\n" +
+        "        write( \"tick $i\" )\n" +
+        "        i += 1\n" +
+        "\n" +
+        "tick( 3 )\n" +
+        "p = boom()\n" +
+        "write( \"the top level ends\" )\n"
+
+    assert_eq(unplaced(ran_funl(text)), "the top level ends\ntick 0\ntick 1\ntick 2\nfault: boom: boom")
+
+// A task that faults before its first `await` has faulted before the statement is over: the lines
+// after it never run.
+@test
+A_THROWN_AWAY_CALL_THAT_HAS_ALREADY_FAULTED_STOPS_THE_STATEMENTS_AFTER_IT()
+    val now = "async def now() = error( \"at once\" )\n" +
+        "\n" +
+        "async def outer() =\n" +
+        "    now()\n" +
+        "    write( \"never printed\" )\n" +
+        "\n" +
+        "write( \"before\" )\n"
+
+    assert_eq(unplaced(ran_funl(now + "now()\nwrite( \"never printed\" )\n")), "before\nfault: now: at once")
+    assert_eq(unplaced(ran_funl(now + "p = outer()\nwrite( \"never printed\" )\n")), "before\nfault: now: at once")
+
+// Failure is not a fault: a thrown-away call whose function failed is a statement that failed, which
+// a program carries on from.
+@test
+A_THROWN_AWAY_CALL_THAT_FAILS_IS_NOT_REPORTED()
+    val text = "async def no() =\n" +
+        "    await ()\n" +
+        "    1 == 2\n" +
+        "\n" +
+        "no()\n" +
+        "p = no()\n" +
+        "write( \"the top level ends\" )\n"
+
+    assert_eq(ran_funl(text), "the top level ends\nsucceeded")

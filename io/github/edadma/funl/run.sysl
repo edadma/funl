@@ -33,10 +33,15 @@ private enum Flow
     // ready machine is owed the turn (`task.sysl`).
     Idle
 
+    // A promise thrown away has faulted: the run ends with its fault now.
+    Quits
+
 // Run chunk `chunk` as the top level, from its first instruction. A line Prolog's `write/1` began
 // and nothing ended is written out when the run ends, however it ends.
 run(v: *Vm, chunk: usize) -> Outcome
     forget_events(v)
+    v.quit = None
+    v.refused = null
 
     val outcome = run_loop(v, chunk)
 
@@ -90,7 +95,12 @@ private drive(v: *Vm) -> Outcome
                 if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
 
                 v.ip = at + 1
-                execute(v, code.at(at))
+
+                val r = execute(v, code.at(at))
+
+                // An instruction that tried to bind another task's variable is that fault, whatever
+                // it answered.
+                if v.refused != null then Err(refused_binding(v)) else r
 
         step match
             Ok(Next) -> ()
@@ -103,6 +113,10 @@ private drive(v: *Vm) -> Outcome
                 main_halts(v) match
                     Some(o) -> return o
                     None -> injected = Some(Ok(Idle))
+            Ok(Quits) ->
+                quit_fault(v) match
+                    Some(o) -> return o
+                    None -> return Faulted("`Orphan` ended the run with no fault to end it with")
             Ok(Idle) ->
                 next_ready(v) match
                     Runs -> ()
@@ -609,6 +623,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Rethrow -> Err(Thrown(pop(v)?))
         Await -> Ok(if await_top(v)? then Next else Idle)
         Settle -> Ok(if settle_top(v)? then Next else Idle)
+        Orphan -> Ok(if orphan_top(v) then Next else Quits)
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it
