@@ -18,11 +18,12 @@ package {
   name    = "funl-vm"
   version = "0.0.2"
 
-  // alpha.2 is the first compiler that gives each file its own file-private name, which the tests
-  // rely on: `Family` is a private const in two test files and a private struct in a third. The
+  // alpha.4 is the first compiler where a container field in zeroed `gc` storage reads as empty
+  // and `release()` on it is a no-op, which the collector's finalizers rely on; the heap objects'
+  // makers assign their container fields, as containers are reference types from alpha.3 on. The
   // floor moves only when something here genuinely needs a newer compiler, never to track the
   // newest release.
-  sysl = "0.1.0-alpha.2"
+  sysl = "0.1.0-alpha.4"
 }
 
 workspace = ["funl", "prolog"]

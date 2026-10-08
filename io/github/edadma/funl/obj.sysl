@@ -12,7 +12,9 @@ import sysl.buf.{Buf, buf}
 // fault against that instruction.
 //
 // **`gc.alloc` zeroes the payload**, and that is what makes assigning a `Buf` or a `string` into a
-// fresh object safe: the assignment releases the previous occupant, which is a null.
+// fresh object safe: the assignment releases the previous occupant, which is a null. A container
+// field in zeroed memory reads as empty but has no storage to push into, so every maker below
+// assigns each container field before anything is added to it.
 
 // A string: its UTF-8 bytes, how many characters they hold, and a cursor -- the character index last
 // asked for and the byte it begins at -- that `byte_at` (`strings.sysl`) walks from.
@@ -191,11 +193,14 @@ new_handle(kind: u32) -> Result[*HandleObj, string]
     val o: *HandleObj = ptr_cast(take(v, sizeof(HandleObj), &handle_kind)?)
 
     o.kind = kind
+    o.vals = buf()
     Ok(o)
 
 new_tuple(n: usize) -> Result[*TupleObj, string]
     val v = current()
     val o: *TupleObj = ptr_cast(take(v, sizeof(TupleObj), &tuple_kind)?)
+
+    o.items = buf()
 
     for _ in 0..<n
         o.items.push(Undefined)
@@ -221,6 +226,7 @@ new_compound(functor: u32, n: usize) -> Result[*CompoundObj, string]
     val o: *CompoundObj = ptr_cast(take(v, sizeof(CompoundObj), &compound_kind)?)
 
     o.functor = functor
+    o.args = buf()
 
     for _ in 0..<n
         o.args.push(Undefined)
@@ -249,18 +255,23 @@ new_range(from: long, last: long, step: long, inclusive: bool, endless: bool) ->
 new_set() -> Result[*SetObj, string]
     val o: *SetObj = ptr_cast(take(current(), sizeof(SetObj), &set_kind)?)
 
+    o.items = buf()
     Ok(o)
 
 // An empty map, which the caller fills.
 new_map() -> Result[*MapObj, string]
     val o: *MapObj = ptr_cast(take(current(), sizeof(MapObj), &map_kind)?)
 
+    o.keys = buf()
+    o.vals = buf()
     Ok(o)
 
 // An array of `n` elements, every one `Undefined` until something is stored.
 new_array(n: usize) -> Result[*ArrayObj, string]
     val v = current()
     val o: *ArrayObj = ptr_cast(take(v, sizeof(ArrayObj), &array_kind)?)
+
+    o.items = buf()
 
     for _ in 0..<n
         o.items.push(Undefined)
@@ -276,6 +287,8 @@ new_frame(chunk: usize) -> Result[*FrameObj, string]
     o.up = null
     o.caller = null
     o.captured = false
+    o.args = buf()
+    o.slots = buf()
     Ok(o)
 
 // A function value over `chunk`, made in frame `up`. **`up` and every frame above it are marked

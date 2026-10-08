@@ -61,7 +61,7 @@ trace_cset(p: *u8, h: *gc.Heap)
 finalize_cset(p: *u8)
     val o: *CSetObj = ptr_cast(p)
 
-    o.set = CharSet(0, 0, buf())
+    o.set.wide.release()
 
 trace_bytes(p: *u8, h: *gc.Heap)
     return
@@ -69,7 +69,7 @@ trace_bytes(p: *u8, h: *gc.Heap)
 finalize_bytes(p: *u8)
     val o: *BytesObj = ptr_cast(p)
 
-    o.b = buf()
+    o.b.release()
 
 trace_handle(p: *u8, h: *gc.Heap)
     val o: *HandleObj = ptr_cast(p)
@@ -91,7 +91,7 @@ trace_tuple(p: *u8, h: *gc.Heap)
 finalize_tuple(p: *u8)
     val o: *TupleObj = ptr_cast(p)
 
-    o.items = buf()
+    o.items.release()
 
 trace_compound(p: *u8, h: *gc.Heap)
     val o: *CompoundObj = ptr_cast(p)
@@ -101,7 +101,7 @@ trace_compound(p: *u8, h: *gc.Heap)
 finalize_compound(p: *u8)
     val o: *CompoundObj = ptr_cast(p)
 
-    o.args = buf()
+    o.args.release()
 
 trace_cons(p: *u8, h: *gc.Heap)
     val o: *ConsObj = ptr_cast(p)
@@ -120,7 +120,7 @@ trace_set(p: *u8, h: *gc.Heap)
 finalize_set(p: *u8)
     val o: *SetObj = ptr_cast(p)
 
-    o.items = buf()
+    o.items.release()
 
 trace_map(p: *u8, h: *gc.Heap)
     val o: *MapObj = ptr_cast(p)
@@ -133,8 +133,8 @@ trace_map(p: *u8, h: *gc.Heap)
 finalize_map(p: *u8)
     val o: *MapObj = ptr_cast(p)
 
-    o.keys = buf()
-    o.vals = buf()
+    o.keys.release()
+    o.vals.release()
 
 trace_array(p: *u8, h: *gc.Heap)
     val o: *ArrayObj = ptr_cast(p)
@@ -144,7 +144,7 @@ trace_array(p: *u8, h: *gc.Heap)
 finalize_array(p: *u8)
     val o: *ArrayObj = ptr_cast(p)
 
-    o.items = buf()
+    o.items.release()
 
 trace_var(p: *u8, h: *gc.Heap)
     val o: *VarObj = ptr_cast(p)
@@ -170,8 +170,8 @@ trace_frame(p: *u8, h: *gc.Heap)
 finalize_frame(p: *u8)
     val o: *FrameObj = ptr_cast(p)
 
-    o.args = buf()
-    o.slots = buf()
+    o.args.release()
+    o.slots.release()
 
 // process-wide: a `gc.Kind` is a table of hook addresses, written once at startup and never changed,
 // so every VM shares one per kind.

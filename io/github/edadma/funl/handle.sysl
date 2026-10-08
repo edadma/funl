@@ -91,7 +91,7 @@ close_handle(h: *HandleObj)
     h.closed = true
     current().handle_kinds.at(usize(h.kind)).release(h)
     h.res = null
-    h.vals = buf()
+    h.vals.release()
 
 // Argument `i` of a method or builtin, which must be an open handle of kind `kind`.
 open_handle(base: usize, i: usize, kind: u32, what: string) -> Result[*HandleObj, Fault]
