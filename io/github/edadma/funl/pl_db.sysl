@@ -560,7 +560,7 @@ term_value(t: &Term, vars: *Buf[Value]) -> Result[Value, string]
                 x -> Ok(x)
         TAtom(id) -> Ok(Atom(id))
         TInt(n) -> Ok(Int(n))
-        TNum(text) -> literal_value(text)
+        TNum(text) -> prolog_literal_value(text)
         TStr(s) -> new_str(s)
         TNil -> Ok(Nil)
         TCons(h, tl) -> new_cons(term_value(h, vars)?, term_value(tl, vars)?)

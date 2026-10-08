@@ -277,6 +277,13 @@ write( now() )
 
 slate's instant, duration and calendar kinds come later, on the same `sysl.time`.
 
+> **Decided — what `funl:time` is before it has kinds.** A point in time is a whole number of
+> milliseconds since 1970 (`now()`, the argument of `format` and `fields`, the answer of `parse` and
+> `make`); `monotonic()` is milliseconds as a real from an unnamed origin; `sleep(ms)` blocks. An offset
+> is whole minutes east of UTC and, left out, is UTC. The surface is `now monotonic sleep format parse
+> fields make local_offset`; `parse` of text that is not a timestamp and `make` of a date that does not
+> exist fail; a wrong-kind argument is a fault. The page is `docs/library/time.md`.
+
 ### `funl:http` — the `http` feature, over `sysl-lang/curl`
 
 ```
@@ -310,6 +317,16 @@ slate's surface: `sqlite(path)` answers the database, everything else is a metho
 **`query` is a generator of rows**, so a search over a table is an ordinary FunL search, and a query
 with no rows fails. **Not a feature, as in slate**: SQLite is the system's own library on macOS and a
 standard package elsewhere, and slate carries it unconditionally for that reason.
+
+> **Built — what the decision left open.** The handle is a `sqlite database`; `exec(sql)` runs every
+> statement in the text and answers `()`; `run` answers `{changes, last_insert_rowid}`. Every error
+> SQLite reports is `system_error` with SQLite's sentence; a parameter SQLite cannot hold is
+> `type_error(sql_value, X)`, an integer past 64 bits `representation_error(max_integer)`, the wrong
+> number of parameters `domain_error(sql_parameters, N)`; `true`/`false` bind as 1/0. Closing the
+> database ends every query still running over it. **A row is a map, and `x <- e` draws a map's
+> entries**, so the example's `for row <- db.query(...)` is written `for row <- [db.query(...)]` (or
+> `every write( db.query(...).title )`). Prolog cannot call a handle's methods, so the module is
+> FunL's alone for now.
 
 ## `async` and `await`
 

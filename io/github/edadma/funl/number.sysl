@@ -4,6 +4,7 @@ import sh.sysl.dal
 import sh.sysl.dal.{Number, NumberError, Policy}
 import sysl.math.Float
 import sysl.math.bigint as big
+import sysl.text.Search
 
 // The numbers, as `dal`'s tower holds them and as a `Value` does.
 //
@@ -93,10 +94,24 @@ num_value(n: Number) -> Result[Value, string] = n match
 // would read as an integer.
 num_text(n: Number) -> string = dal.to_string(n)
 
-// A number as Prolog writes it: a rational as SWI-Prolog does, `7r2`, and the rest as FunL does.
+// A number as Prolog writes it: a rational as SWI-Prolog does, `7r2`, an infinity `1.0Inf` or
+// `-1.0Inf` and a NaN `1.5NaN`, as SWI-Prolog writes them and both readers read them back, and the
+// rest as FunL does.
 prolog_num_text(n: Number) -> string = n match
     Number.Rat(q) -> s"${big.to_string(q.numerator())}r${big.to_string(q.denominator())}"
+    Number.Real(r) ->
+        if r.is_nan() then "1.5NaN"
+        elif r.is_infinite() then (if r > 0.0 then "1.0Inf" else "-1.0Inf")
+        else num_text(n)
     _ -> num_text(n)
+
+// A Prolog number literal's text as a value: `1.0Inf`, `-1.0Inf` and `1.5NaN` as the reader carries
+// them, and any other as `literal_value` reads it.
+prolog_literal_value(text: string) -> Result[Value, string]
+    if text.ends_with("Inf") then return Ok(Real(if text.starts_with("-") then -real.infinity() else real.infinity()))
+    if text.ends_with("NaN") then return Ok(Real(real.nan()))
+
+    literal_value(text)
 
 // A number value as Prolog writes it, for `atom_number/2`, `number_codes/2` and the rest.
 written_number(x: Value) -> string = prolog_num_text(num_of(x).unwrap())

@@ -24,7 +24,7 @@ the language cannot disagree for long.
 | [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |
 | [Modules](modules.md) | a file is a module, `export`, `import { ... } from`, `import * as`, qualified names, imports resolved first and run once, exports as a snapshot, circles of imports, what Prolog sees of a module |
 | [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
-| [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader and reading terms, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic and rationals, standard order, cyclic terms, grammar rules, `format`, the builtin set |
+| [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader and reading terms, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic, rationals, infinities and NaN, standard order, cyclic terms, grammar rules, `format`, the builtin set |
 
 ## How a page is checked
 

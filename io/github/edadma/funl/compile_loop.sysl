@@ -21,7 +21,10 @@ import sysl.buf.{Buf, buf}
 // then computed outside the scans.
 //
 // **Every loop fails when it runs out** -- its condition fails, its generators are spent -- and a
-// `break` makes it succeed, with the `break`'s value or `()`.
+// `break` makes it succeed, with the `break`'s value or `()`. The one exception is a loop that is
+// the last thing a `yield`ing function clause does (`last`): its values are the ones it yielded, so
+// a bare `break` ends it as running out does, by failing (`UnmarkTo(whole); Fail`), and the
+// function produces no `()` after them. A `break (v)` there still produces `v`.
 
 // A loop being compiled, which a `break` or a `continue` inside it can leave.
 struct Looping
@@ -37,21 +40,25 @@ struct Looping
     // How many scans were open around the loop: a `break` or `continue` leaves the ones opened since.
     scans: usize
 
+    // Whether a bare `break` fails rather than producing `()`: the loop is the last thing a
+    // `yield`ing function clause does.
+    last: bool
+
 // `every g do b`.
-compile_every(e: *Emit, c: Ctx, id: usize, label: Option[string], g: &Expr, body: Option[&Expr]) -> Result[unit, string]
+compile_every(e: *Emit, c: Ctx, id: usize, label: Option[string], g: &Expr, body: Option[&Expr], last: bool) -> Result[unit, string]
     val slots = c.res.loops.get(id)
     val exit = e.label()
 
     whole_mark(e, slots)
     compile_value(e, c, g)?
     e.op(Pop)
-    turn(e, c, Looping(id, label, exit, exit, true, c.scans), slots, body, MarkThrough)?
+    turn(e, c, Looping(id, label, exit, exit, true, c.scans, last), slots, body, MarkThrough)?
     e.op(Fail)
     e.place(exit)
     Ok(())
 
 // `while c do b`.
-compile_while(e: *Emit, c: Ctx, id: usize, label: Option[string], cond: &Expr, body: Option[&Expr]) -> Result[unit, string]
+compile_while(e: *Emit, c: Ctx, id: usize, label: Option[string], cond: &Expr, body: Option[&Expr], last: bool) -> Result[unit, string]
     val slots = c.res.loops.get(id)
     val top = e.label()
     val exit = e.label()
@@ -62,27 +69,27 @@ compile_while(e: *Emit, c: Ctx, id: usize, label: Option[string], cond: &Expr, b
     compile_value(e, c, cond)?
     e.op(FailIfFalse)
     e.op(Unmark)
-    turn(e, c, Looping(id, label, exit, top, false, c.scans), slots, body, Mark(top))?
+    turn(e, c, Looping(id, label, exit, top, false, c.scans, last), slots, body, Mark(top))?
     e.op(Branch(top))
     e.place(exit)
     Ok(())
 
 // `repeat b`.
-compile_repeat(e: *Emit, c: Ctx, id: usize, label: Option[string], body: &Expr) -> Result[unit, string]
+compile_repeat(e: *Emit, c: Ctx, id: usize, label: Option[string], body: &Expr, last: bool) -> Result[unit, string]
     val slots = c.res.loops.get(id)
     val top = e.label()
     val exit = e.label()
 
     whole_mark(e, slots)
     e.place(top)
-    turn(e, c, Looping(id, label, exit, top, false, c.scans), slots, Some(body), Mark(top))?
+    turn(e, c, Looping(id, label, exit, top, false, c.scans, last), slots, Some(body), Mark(top))?
     e.op(Branch(top))
     e.place(exit)
     Ok(())
 
 // `for p <- c if f, ... do b`: each binding's collection iterated, its element matched against the
 // pattern -- an element that does not match is passed over -- and filtered, in the loop's block.
-compile_for(e: *Emit, c: Ctx, id: usize, label: Option[string], gens: Buf[ForGen], body: Option[&Expr]) -> Result[unit, string]
+compile_for(e: *Emit, c: Ctx, id: usize, label: Option[string], gens: Buf[ForGen], body: Option[&Expr], last: bool) -> Result[unit, string]
     val inner = c.in_block(id)?
     val slots = c.res.loops.get(id)
     val exit = e.label()
@@ -92,7 +99,7 @@ compile_for(e: *Emit, c: Ctx, id: usize, label: Option[string], gens: Buf[ForGen
     for g in gens.view()
         bind_generator(e, inner, g)?
 
-    turn(e, inner, Looping(id, label, exit, exit, true, c.scans), slots, body, MarkThrough)?
+    turn(e, inner, Looping(id, label, exit, exit, true, c.scans, last), slots, body, MarkThrough)?
     e.op(Fail)
     e.place(exit)
     Ok(())
@@ -107,7 +114,12 @@ compile_break(e: *Emit, c: Ctx, label: Option[string], v: Option[&Expr]) -> Resu
 
     v match
         Some(x) -> compile_value(e, c, x)?
-        None -> e.op(PushUnit)
+        None ->
+            if l.last
+                e.op(Fail)
+                return Ok(())
+
+            e.op(PushUnit)
 
     e.op(Branch(l.exit))
     Ok(())

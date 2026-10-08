@@ -316,6 +316,114 @@ THE_NEW_FUNCTIONS_REFUSE_ARGUMENTS_OUTSIDE_THEIR_DOMAIN()
     assert_eq(value_of("cosh(1000)"), ok("evaluation_error(float_overflow)"))
     assert_eq(value_of("sinh(a)"), ok("type_error(evaluable,a/0)"))
 
+// What `X is expr` binds `X` to, or the formal term of its error, after `flags` -- a list of
+// `Flag-Value` pairs -- are set.
+private value_under(flags: string, expr: string) -> string =
+    ran_prolog(s":- forall(member(F-V, $flags), set_prolog_flag(F, V)), catch((X is $expr, writeq(X)), error(E, _), writeq(E)), nl.\n")
+
+private all_on() -> string = "[float_overflow-infinity, float_zero_div-infinity, float_undefined-nan]"
+
+// Every expected answer below is what swipl 10.0.2 gives for the same goal under the same flags.
+@test
+A_FLOAT_THAT_IS_NOT_FINITE_IS_AN_EVALUATION_ERROR_BY_DEFAULT()
+    assert_eq(value_of("10 ** 400.0"), ok("evaluation_error(float_overflow)"))
+    assert_eq(value_of("1 / 0.0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_of("1 / 0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_of("0 / 0.0"), ok("evaluation_error(undefined)"))
+    assert_eq(value_of("0.0 ** -1"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_of("sqrt(-1.0)"), ok("evaluation_error(undefined)"))
+    assert_eq(value_of("inf + 1"), ok("evaluation_error(float_overflow)"))
+    assert_eq(value_of("nan + 1"), ok("evaluation_error(undefined)"))
+    assert_eq(value_of("inf - inf"), ok("evaluation_error(undefined)"))
+
+@test
+INF_AND_NAN_ARE_THE_INFINITY_AND_THE_NAN_WHATEVER_THE_FLAGS_SAY()
+    assert_eq(value_of("inf"), ok("1.0Inf"))
+    assert_eq(value_of("nan"), ok("1.5NaN"))
+    assert_eq(value_of("-inf"), ok("-1.0Inf"))
+    assert_eq(value_of("abs(-inf)"), ok("1.0Inf"))
+    assert_eq(value_of("sign(-inf)"), ok("-1.0"))
+    assert_eq(value_of("1.0Inf"), ok("1.0Inf"))
+    assert_eq(value_of("max(1, nan)"), ok("1.5NaN"))
+    assert_eq(value_of("min(nan, 1)"), ok("1.5NaN"))
+    assert_eq(value_of("atan(inf)"), ok("1.5707963267948966"))
+    assert_eq(value_of("infinite"), ok("type_error(evaluable,infinite/0)"))
+
+@test
+FLOAT_OVERFLOW_INFINITY_MAKES_AN_OVERFLOW_AN_INFINITY()
+    val on = "[float_overflow-infinity]"
+
+    assert_eq(value_under(on, "10 ** 400.0"), ok("1.0Inf"))
+    assert_eq(value_under(on, "-(10 ** 400.0)"), ok("-1.0Inf"))
+    assert_eq(value_under(on, "1.0e308 * 10"), ok("1.0Inf"))
+    assert_eq(value_under(on, "float(10 ** 400)"), ok("1.0Inf"))
+    assert_eq(value_under(on, "10 ** 400 + 0.5"), ok("1.0Inf"))
+    assert_eq(value_under(on, "log(0.0)"), ok("-1.0Inf"))
+    assert_eq(value_under(on, "atanh(1.0)"), ok("1.0Inf"))
+    assert_eq(value_under(on, "exp(1000)"), ok("1.0Inf"))
+    // The other two kinds are still refused.
+    assert_eq(value_under(on, "1 / 0.0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_under(on, "inf - inf"), ok("evaluation_error(undefined)"))
+    assert_eq(value_under(on, "0 * inf"), ok("evaluation_error(undefined)"))
+
+@test
+FLOAT_ZERO_DIV_INFINITY_MAKES_A_DIVISION_BY_ZERO_AN_INFINITY()
+    val on = "[float_zero_div-infinity]"
+
+    assert_eq(value_under(on, "1 / 0.0"), ok("1.0Inf"))
+    assert_eq(value_under(on, "-1 / 0.0"), ok("-1.0Inf"))
+    assert_eq(value_under(on, "1 / -0.0"), ok("-1.0Inf"))
+    assert_eq(value_under(on, "1 / 0"), ok("1.0Inf"))
+    assert_eq(value_under(on, "1.0 / 0"), ok("1.0Inf"))
+    assert_eq(value_under(on, "0.0 ** -1"), ok("1.0Inf"))
+    assert_eq(value_under(on, "0 ** -1"), ok("1.0Inf"))
+    assert_eq(value_under(on, "0 ^ -1"), ok("1.0Inf"))
+    // Integer division, and what has no value, are still refused.
+    assert_eq(value_under(on, "1 // 0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_under(on, "5 mod 0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_under(on, "1 rdiv 0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_under(on, "0 / 0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_under(on, "0 / 0.0"), ok("evaluation_error(undefined)"))
+    assert_eq(value_under(on, "10 ** 400.0"), ok("evaluation_error(float_overflow)"))
+
+@test
+FLOAT_UNDEFINED_NAN_MAKES_WHAT_HAS_NO_VALUE_A_NAN()
+    val on = "[float_undefined-nan]"
+
+    assert_eq(value_under(on, "sqrt(-1)"), ok("1.5NaN"))
+    assert_eq(value_under(on, "inf - inf"), ok("1.5NaN"))
+    assert_eq(value_under(on, "0 / 0.0"), ok("1.5NaN"))
+    assert_eq(value_under(on, "0 / 0"), ok("1.5NaN"))
+    assert_eq(value_under(on, "acos(2)"), ok("1.5NaN"))
+    assert_eq(value_under(on, "acosh(0.5)"), ok("1.5NaN"))
+    assert_eq(value_under(on, "log(-1)"), ok("1.5NaN"))
+    assert_eq(value_under(on, "(-8.0) ** 0.5"), ok("1.5NaN"))
+    assert_eq(value_under(on, "nan + 1"), ok("1.5NaN"))
+    assert_eq(value_under(on, "sin(inf)"), ok("1.5NaN"))
+    assert_eq(value_under(on, "1 / 0.0"), ok("evaluation_error(zero_divisor)"))
+    assert_eq(value_under(on, "exp(1000)"), ok("evaluation_error(float_overflow)"))
+
+@test
+WITH_EVERY_FLAG_SET_ARITHMETIC_IS_IEEE_754S()
+    assert_eq(value_under(all_on(),"1 / 0"), ok("1.0Inf"))
+    assert_eq(value_under(all_on(),"inf * 2"), ok("1.0Inf"))
+    assert_eq(value_under(all_on(),"0 * inf"), ok("1.5NaN"))
+    assert_eq(value_under(all_on(),"cosh(1000)"), ok("1.0Inf"))
+    assert_eq(value_under(all_on(),"1.0Inf + 1"), ok("1.0Inf"))
+    // A rounding of an infinity or a NaN has no integer to be, whatever the flags say -- where
+    // SWI-Prolog answers the float itself, which is no integer.
+    assert_eq(value_under(all_on(),"truncate(inf)"), ok("evaluation_error(undefined)"))
+    assert_eq(value_under(all_on(),"integer(nan)"), ok("evaluation_error(undefined)"))
+
+@test
+AN_INFINITY_AND_A_NAN_COMPARE_AS_IEEE_754_HAS_THEM()
+    assert_eq(holds("X is nan, X =:= X"), ok("no"))
+    assert_eq(holds("X is nan, X == X"), ok("yes"))
+    assert_eq(holds("1.0Inf =:= inf"), ok("yes"))
+    assert_eq(holds("-1.0Inf < -(10 ** 300)"), ok("yes"))
+    assert_eq(holds("1.5NaN < 1"), ok("no"))
+    assert_eq(holds("1.5NaN > 1"), ok("no"))
+
 // The expected answers of the two below are what swipl 10.0.2 gives for the same goals.
 @test
 RDIV_IS_THE_EXACT_QUOTIENT_WHATEVER_PREFER_RATIONALS_SAYS()

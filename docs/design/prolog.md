@@ -84,7 +84,9 @@ table at all.
 
 **Tokens follow ISO**: a variable starts with a capital or `_`; an atom is a lower-case name, a run
 of symbol characters, a quoted `'atom'`, or one of `[]`, `{}`, `!`, `;`, `,`; numbers include
-`0'c`, `0x1F`, `0o17`, `0b101` and floats; `%` and `/* */` are comments.
+`0'c`, `0x1F`, `0o17`, `0b101` and floats; `%` and `/* */` are comments. SWI-Prolog's number
+syntax is read too: `16'1F` in any base from 2 to 36, digit groups (`1 000 000`, `1_000_000`, a `_`
+followed by layout or a comment), rationals `7r2`, and `1.0Inf`, `-1.0Inf` and `1.5NaN`.
 
 **A double-quoted string is a string**, not a list of codes — the `double_quotes` flag defaults to
 `string`, as in SWI-Prolog 7 and later. That is the setting under which a Prolog string and a FunL
@@ -197,6 +199,18 @@ is `/`: in Prolog `7 / 2` is `3.5` (ISO; with the `prefer_rationals` flag, `7r2`
 
 **An unbound variable inside an arithmetic expression is an `instantiation_error`**, and an atom
 that is not an evaluable is a `type_error(evaluable, Name/Arity)`.
+
+> **Decided — infinities and NaN (user, 2026-10-08).**
+> **Decision:** Prolog follows SWI-Prolog's three flags. `float_overflow` (`error` | `infinity`),
+> `float_zero_div` (`error` | `infinity`) and `float_undefined` (`error` | `nan`) each default to
+> `error`, ISO's behaviour: `evaluation_error(float_overflow)`, `zero_divisor` and `undefined`. Set,
+> arithmetic answers the infinity or the NaN, written as SWI-Prolog writes it — `1.0Inf`, `-1.0Inf`,
+> `1.5NaN` — and the reader reads those back as floats; the evaluable atoms `inf` and `nan` are the
+> two values whatever the flags say. Integer division by zero stays `zero_divisor`, and rounding an
+> infinity or a NaN to an integer stays `evaluation_error(undefined)` (where SWI-Prolog answers the
+> float itself, which is no integer). FunL's own arithmetic is separate and unchanged.
+> **Rejected:** IEEE results always (ISO conformance is the default here); a single on/off switch
+> (SWI-Prolog's three flags are what a program written for it sets).
 
 **Standard order of terms** — what `@<`, `compare/3`, `sort/2` and `msort/2` use — is: variables
 (by age), then numbers (by value; an integer and a float of equal value put the float first), then

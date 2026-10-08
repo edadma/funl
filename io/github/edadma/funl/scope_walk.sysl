@@ -445,6 +445,7 @@ walk(w: *Walk, e: &Expr)
                 w.report.add(error(e.span, "`yield` is written inside a function")
                     .with_note("it hands a value to the function's caller, and the top level and a relation have none"))
 
+            w.sc.yields = true
             walk(w, x)
         AssignE(n, x) ->
             walk(w, x)

@@ -59,6 +59,19 @@ write( uncurry(curry(mul))(2, 9) )
 18
 ```
 
+In braces, a lambda after a key is that key's value, so a map can hold functions; a set holding a
+lambda whose parameter is a cons, `x:xs -> x`, writes it in parentheses:
+
+```funl
+ops = {double: (x) -> 2x, sum: (a, b) -> a + b}
+firsts = {(x:xs -> x)}
+write( ops.double(4), ops.sum(1, 2), firsts.length )
+```
+
+```output
+8, 3, 1
+```
+
 ## Operators as functions
 
 An operator in parentheses is a function of two arguments: `(+)`. A **section** fixes one side of
@@ -433,6 +446,40 @@ b
 2
 4
 6
+```
+
+A loop that is the last thing a `yield`ing function does ends it with no value of its own when a
+plain `break` leaves it, just as when the loop runs out: the function's values are the ones it
+yielded. A `break (v)` there produces `v` as one more value, and in a function that does not
+`yield`, a loop's `break` gives the function's result as anywhere else.
+
+```funl
+def below( limit )
+  for i <- 1..
+    if i * i > limit then break
+    yield i * i
+
+def then_root( limit )
+  for i <- 1..
+    if i * i > limit then break (i - 1)
+    yield i * i
+
+def has_negative( xs ) = for x <- xs do if x < 0 then break
+
+every write( below(10) )
+every write( then_root(10) )
+write( has_negative([1, -2]) )
+```
+
+```output
+1
+4
+9
+1
+4
+9
+3
+()
 ```
 
 `yield` of an expression that generates yields each of its values. This prints every permutation
