@@ -49,6 +49,49 @@ write( {x \ 2 | x <- 1..5} )
 {0, 1, 2}
 ```
 
+## `sum`
+
+`sum(c)` adds the elements of a list, range, tuple, set, array or buffer with `+`, so rationals stay
+exact and the kinds mix as they do in `+`. The sum of nothing is `0`.
+
+```funl
+write( sum([1, 2, 3]) )
+write( sum(1..100) )
+write( sum([1/2, 1/3]) )
+write( sum([1, 2.5]) )
+write( sum([]) )
+write( sum(array([4, 5, 6])) )
+write( sum([x^2 | x <- 1..4]) )
+```
+
+```output
+6
+5050
+5/6
+3.5
+0
+15
+30
+```
+
+An element that is not a number is a fault, and so is something that is not a collection.
+
+```funl
+write( sum([1, 'a']) )
+```
+
+```error
+'sum' wants numbers and was given the string 'a'
+```
+
+```funl
+write( sum(5) )
+```
+
+```error
+'sum' wants a list and reached the integer 5
+```
+
 ## Reaching an element
 
 An element is reached by calling the collection with its index or key, and a map's or record's

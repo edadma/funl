@@ -395,6 +395,11 @@ denominator is 1 is an integer — **and an inexact result is never demoted**: `
 `5.0`, not the integer `5`. Whole-valued doubles are never demoted
 to integers.
 
+> **Decided — what is `^` with a power that is not an integer?** **A real.** An exact base to an
+> integer power stays exact (`2 ^ -2` is `1/4`); a real or fractional power is C's `pow` on reals
+> (`2 ^ 0.5` is `1.4142135623730951`, `4 ^ (1/2)` is `2.0`), a negative base to one has no value and
+> faults as every non-finite real does, and zero to any negative power divides by zero.
+
 ## Assignment, and assignment that undoes itself
 
 `=` assigns, `+=` and the other compound forms update, and several targets take several values at

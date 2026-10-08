@@ -100,14 +100,16 @@ rx_lit_of(v: *Vm, s: Value, back: bool) -> Result[bool, Fault]
 
     Ok(compared(v, p, text, 1, n, v.pos, false, false)?)
 
+// A backreference to a group that has captured nothing -- not yet, or not on the path the match took
+// -- matches the empty string, as in JavaScript.
 rx_backref(v: *Vm, n: usize, fold: bool, back: bool) -> Result[bool, Fault]
     val p = rx_subject(v)?
 
-    if n >= v.captures.len() then return Ok(false)
+    if n >= v.captures.len() then return Ok(true)
 
     val g = v.captures.at(n)
 
-    if g.start == 0 then return Ok(false)
+    if g.start == 0 then return Ok(true)
 
     val len = g.end - g.start
 
