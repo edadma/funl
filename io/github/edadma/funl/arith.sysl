@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.dal
 import sh.sysl.dal.Number
-import sysl.math.{checked_add, checked_mul, checked_sub}
+import sysl.math.{checked_add, checked_mul, checked_sub, Float}
 
 // FunL's arithmetic and ordering operators. `+` on a list or a range is `list_add` (`seq.sysl`), and
 // `+` and `-` on a set or a map are `combined` and `removed` (`data.sysl`).
@@ -112,11 +112,30 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], Fault]
         Rem -> p.rem(n, m)
         Modulo -> p.modulo(n, m)
         Divides -> return divides(x, y, n, m)
-        Pow -> p.pow(n, m)
+        Pow -> powered(p, n, m)
         _ -> return Err(Broken(s"'${op_text(o)}' reached arithmetic"))
 
     Ok(Some(num_answer(r, op_text(o), x, y)?))
 end arith
+
+// `a ^ b`: exact for an exact base and an integer power, and a real otherwise. A real or fractional
+// power is C's `pow` on the two as reals, so `2 ^ 0.5` is the square root of 2 and `4 ^ (1/2)` is
+// `2.0`. Zero to a negative power divides by zero whatever the kinds, and a power with no real value
+// (a negative base to a fractional power) is refused, as every non-finite real is.
+private powered(p: dal.Policy, n: Number, m: Number) -> Result[Number, dal.NumberError]
+    val fractional = m match
+        Number.Real(_) -> true
+        Number.Rat(r) -> !r.is_integer()
+        _ -> false
+
+    if !fractional then return p.pow(n, m)
+
+    val b = dal.to_real(n)
+    val e = dal.to_real(m)
+
+    if b == 0.0 && e < 0.0 then return Err(dal.NumberError.DivisionByZero)
+
+    p.admit(Number.Real(b.pow(e)))
 
 // `a div b`: `b` when integer `a` divides integer `b`, which only 0 does of 0.
 private divides(x: Value, y: Value, a: Number, b: Number) -> Result[Option[Value], Fault]

@@ -130,8 +130,9 @@ BACKWARD_THE_RIGHTMOST_PART_OF_A_LOOKBEHIND_IS_MATCHED_FIRST()
     assert_eq(regex_searched("(?<=(a?)(a?))b", "ab"), "(1,2)(0,0)(0,1)")
     // A group keeps its last turn, which backward is the leftmost.
     assert_eq(regex_searched("(?<=(ab){2})c", "ababc"), "(4,5)(0,2)")
-    // The backreference is reached before its group, which has captured nothing yet.
-    assert_eq(regex_searched("(?<=(\\w)\\1)x", "aax"), "NOMATCH")
+    // The backreference is reached before its group, which has captured nothing yet, so it matches
+    // the empty string.
+    assert_eq(regex_searched("(?<=(\\w)\\1)x", "aax"), "(2,3)(1,2)")
     // The group is matched first, so the backreference on its left sees it.
     assert_eq(regex_searched("(?<=\\1(\\w))x", "aax"), "(2,3)(1,2)")
     // The atomic group is entered from its right end, where only ab fits.
@@ -193,11 +194,28 @@ A_BACKREFERENCE_MATCHES_ONLY_WHAT_ITS_GROUP_CAPTURED()
     assert_eq(regex_searched("(?i)(a)\\1", "aA"), "(0,2)(0,1)")
     assert_eq(regex_searched("(a*)\\1b", "aaaab"), "(0,5)(0,2)")
     assert_eq(regex_searched("(?<n>x)\\k<n>", "xx"), "(0,2)(0,1)")
-    // A group that captured nothing makes its backreference fail.
-    assert_eq(regex_searched("(a)?b\\1", "b"), "NOMATCH")
-    assert_eq(regex_searched("(a)|\\1b", "b"), "NOMATCH")
-    assert_eq(regex_searched("(?:(a)|b)\\1", "ba"), "NOMATCH")
-    assert_eq(regex_searched("(a)(b)?\\2", "ab"), "NOMATCH")
+    // A group that has captured something still wants exactly that text.
+    assert_eq(regex_searched("(a)\\1", "ab"), "NOMATCH")
+    assert_eq(regex_searched("(a)b\\1", "abb"), "NOMATCH")
+    assert_eq(regex_searched("(?i)(a)\\1", "ab"), "NOMATCH")
+
+@test
+A_BACKREFERENCE_TO_A_GROUP_THAT_CAPTURED_NOTHING_MATCHES_THE_EMPTY_STRING()
+    // The group was skipped, or is in an alternative not taken.
+    assert_eq(regex_searched("(a)?b\\1", "b"), "(0,1)(?,?)")
+    assert_eq(regex_searched("(a)|\\1b", "b"), "(0,1)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b)\\1", "ba"), "(0,1)(?,?)")
+    assert_eq(regex_searched("(?:(a)|b)\\1", "bb"), "(0,1)(?,?)")
+    // The backreference comes before its group.
+    assert_eq(regex_searched("\\1(a)", "a"), "(0,1)(0,1)")
+    assert_eq(regex_searched("(?<n>\\k<n>x)", "x"), "(0,1)(0,1)")
+    // Backtracking out of a group unsets it again: (b)? first takes the b, \2 then wants a second b,
+    // and the match gives the b back, leaving group 2 unset and \2 empty.
+    assert_eq(regex_searched("(a)(b)?\\2", "ab"), "(0,1)(0,1)(?,?)")
+    // (a) captures, c fails, and the other alternative is taken: \1 is empty, not a.
+    assert_eq(regex_searched("(?:(a)c|a)\\1y", "ay"), "(0,2)(?,?)")
+    // Inside a negative lookahead, an unset \1 fits everywhere, so the lookahead fails everywhere.
+    assert_eq(regex_searched("(?!\\1)(a)", "a"), "NOMATCH")
     // A backreference inside a lookbehind, to a group already matched on its left.
     assert_eq(regex_searched("(a)x(?<=\\1x)y", "axy"), "(0,3)(0,1)")
     assert_eq(regex_searched("(a)x(?<=\\1x)y", "axay"), "NOMATCH")
