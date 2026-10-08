@@ -74,10 +74,10 @@ ANCHORS_AND_ESCAPES_MATCH_WHERE_THEY_SAY()
     assert_eq(ran_funl(text), "not at the start\nno boundary\na b\nab\nab\nnot the very end\na.b\t\na+b\nsucceeded")
 
 @test
-A_BACKREFERENCE_MATCHES_WHAT_ITS_GROUP_CAPTURED_AND_FAILS_ON_ONE_THAT_CAPTURED_NOTHING()
-    val text = "write('abab' ? `(ab)\\1`)\nwrite('xyxy' ? `(?<pair>xy)\\k<pair>`)\nwrite('aAa' ? `(?i)(a)\\1\\g{-1}`)\nwrite('b' ? `(a)?b\\1` | 'unset group')\nwrite('aa' ? `(a)\\g1`)\n"
+A_BACKREFERENCE_MATCHES_WHAT_ITS_GROUP_CAPTURED_AND_THE_EMPTY_STRING_FOR_ONE_THAT_CAPTURED_NOTHING()
+    val text = "write('abab' ? `(ab)\\1`)\nwrite('xyxy' ? `(?<pair>xy)\\k<pair>`)\nwrite('aAa' ? `(?i)(a)\\1\\g{-1}`)\nwrite('bb' ? `(a)?b\\1`)\nwrite('aa' ? `(a)\\g1`)\nwrite('ab' ? `(a)\\1` | 'set group wants its text')\n"
 
-    assert_eq(ran_funl(text), "abab\nxyxy\naAa\nunset group\naa\nsucceeded")
+    assert_eq(ran_funl(text), "abab\nxyxy\naAa\nb\naa\nset group wants its text\nsucceeded")
 
 @test
 THE_COMBINATORS_BUILD_THE_PATTERNS_A_LITERAL_DOES()
