@@ -442,6 +442,16 @@ bound by `where` cannot be assigned at all. **A name read after its block has en
 `undefined`**; a name that
 no block has declared before the read is refused.
 
+> **Decided — a program's names shadow the builtins (2026-10-07).** The builtins are names
+> outside every block of the program. A `val`, `var`, `free`, assignment, pattern, parameter or local
+> `def` of a builtin's name hides the builtin wherever the declaration is in scope, and a top-level
+> `def` of one is the program's definition in place of the builtin. Otherwise every builtin added
+> later would take a name away from programs already written, and ordinary names (`sum`, `log`,
+> `round`, `sign`) would be unusable as variables. What stays refused is a top-level variable of a
+> name the program itself defines at the top level — a function, a relation, or an imported Prolog
+> predicate — since those are hoisted and a variable could not hide them lexically. The Prolog side
+> is unaffected: a Prolog builtin predicate cannot be redefined (`permission_error`).
+
 **`x <- e` is reversible assignment**: it assigns, and if the expression it is part of is later
 backtracked into, the previous value comes back. It is what lets the n-queens placement above undo
 itself when a later column fails.

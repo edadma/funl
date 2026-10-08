@@ -304,4 +304,4 @@ A_FUNCTION_ASSIGNS_A_VARIABLE_OF_THE_TOP_LEVEL()
 @test
 ASSIGNING_A_FUNCTION_IS_REFUSED()
     assert_eq(complaints("def f() = 1\nwrite( (f = 2) )\n"),
-        "error 2:8 `f` is a function, a relation or a builtin, and cannot be assigned\n")
+        "error 2:8 `f` is a function or a relation, and cannot be assigned\n")

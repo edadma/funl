@@ -165,6 +165,56 @@ write( z )
 `z` is not defined
 ```
 
+## A builtin's name is free to use
+
+The builtins — `sqrt`, `round`, `log`, `sum`, `sign`, `pi` and the rest — are names outside every
+block of the program. A `val`, a `var`, `free`, an assignment, a parameter or a local `def` that uses
+one hides the builtin wherever that name is in scope, and the builtin answers everywhere else. A
+top-level `def` of a builtin's name is the program's definition, used in place of the builtin.
+
+```funl
+write( round(2.6) )
+val round = 3
+write( round )
+
+log = []
+write( log )
+
+if true
+  val sqrt = 7
+  write( sqrt )
+
+write( sqrt(9) )
+
+def scale( sign ) = sign * 2
+write( scale(5), sign(-5) )
+
+def sum( xs ) = 'mine'
+write( sum([1, 2]) )
+```
+
+```output
+3
+3
+[]
+7
+3.0
+10, -1
+mine
+```
+
+A name the program itself defines at the top level — a function, a relation, or a Prolog predicate
+it imports — is not a builtin, and the top level cannot also make it a variable.
+
+```funl
+def parent( #ann, #bob )
+val parent = 1
+```
+
+```error
+`parent` is already a relation, and cannot also be a variable
+```
+
 ## `=` stores into the nearest variable
 
 `x = e` stores into the nearest `x` in scope: this block's, an enclosing block's, or an enclosing
