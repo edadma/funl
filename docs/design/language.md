@@ -319,6 +319,14 @@ write( counts("zzz") )               ;; 0, and "zzz" is still not a key
 > in an immutable map always fails on a missing key. A default belongs to a map that is being
 > filled, which is a mutable one; `map({a: 1}, 0)` is the way to get both.
 
+> **Decided (2026-10-07) — is there slicing?** **Decision: `c(r)` with a range `r` is the slice of
+> a string, list, range, tuple, array or buffer**: the elements at the 0-based indexes `r` names, in
+> its order (every range form, `by` steps included, backwards too), as a value of `c`'s kind; an
+> array's or buffer's slice is a copy, and a string is sliced by characters through its cursor. **A
+> slice naming any index that is not there fails**, as a single index does, rather than clamping; an
+> open-ended `a..` runs to the end and may start at the length. A map is not sliced: the range is a
+> key like any other. `c[r]` is not a slice and is refused.
+
 **`undefined` is the value of a declared variable that was never assigned**, and two prefix
 operators test it: `\x` succeeds if `x` is defined and `/x` if it is undefined. Both are
 assignable, so `\a = 123` assigns only if `a` already has a value and `/b = 123` only if `b` has

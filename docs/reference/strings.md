@@ -14,6 +14,22 @@ A string is Unicode text, and these functions count, compare and change it by **
 bytes. Every argument a function names as a string must be one; anything else is an error that names
 what was given.
 
+## Slices
+
+A string called with a range gives its **slice**, counted by characters from 0, with every form of
+range [Data](data.md#slices) shows. A slice reaching past either end fails.
+
+```funl
+s = 'naïve café'
+write( s(0..4), s(6..), s(2..+3), s(4..0 by -1) )
+write( s(6..20) | 'too far' )
+```
+
+```output
+naïve, café, ïve, evïan
+too far
+```
+
 ## `split`
 
 `split(s)` cuts `s` into its **words**: the runs of characters between spaces. Spaces at either end

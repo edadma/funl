@@ -170,7 +170,8 @@ same_map(p: *MapObj, q: *MapObj) -> Result[bool, Fault]
 // a range, a tuple, a string or a record is indexed by an integer, and a record also by its field's
 // name; a map is looked up by its key. **`None` where there is nothing there** -- a key the map does not
 // hold, a field the record lacks, an index past the end -- which is failure, not an error. A key of
-// the wrong kind is still a type error.
+// the wrong kind is still a type error. `c(r)` for a range `r` is a slice of a string, a list, a range,
+// a tuple, an array or a buffer, and a map's key like any other.
 element_get(c: Value, key: Value, bracket: bool) -> Result[Option[Value], Fault]
     val x = deref(c)
 
@@ -185,6 +186,12 @@ element_get(c: Value, key: Value, bracket: bool) -> Result[Option[Value], Fault]
                         None -> Ok(None)
                 _ -> ()
         _ -> ()
+
+    // `c(r)` for a range `r` is a slice.
+    if !bracket
+        deref(key) match
+            Range(r) -> if sliceable(x) then return slice_of(x, r)
+            _ -> ()
 
     var i = integer(key)?
 

@@ -287,6 +287,41 @@ SWAP_EXCHANGES_TWO_ELEMENTS()
     assert_eq(complaints("val a = array(1)\nswap( a(0) )\n"), "error 2:1 `swap` exchanges two elements, and this call gives 1\n")
     assert_eq(ran_funl("val a = array([1])\nif swap( a(0), a(5) ) then write( \"swapped\" ) else write( \"failed\" )\nwrite( a )\n"), "failed\nArray(1)\nsucceeded")
 
+// -- slices --------------------------------------------------------------------------------------------
+
+@test
+A_STRING_INDEXED_BY_A_RANGE_IS_THE_SLICE_OF_ITS_CHARACTERS()
+    val s = "val s = 'héllo wörld'\n"
+
+    assert_eq(ran_funl(s + "write( s(1..3), s(0..<5), s(6..+2), s(6..), s(11..), s(0.. by 2), s(4..0 by -1), s(3..<3) )\n"),
+        "éll, héllo, wö, wörld, , hlowrd, olléh, \nsucceeded")
+    assert_eq(ran_funl("write( 'abc'(0..2) is string, ''(0..) is string )\n"), "abc, \nsucceeded")
+
+@test
+A_LIST_A_TUPLE_AND_A_RANGE_INDEXED_BY_A_RANGE_KEEP_THEIR_KIND()
+    assert_eq(ran_funl("write( [1, 2, 3, 4, 5](1..3), [1, 2, 3](3..), [1, 2, 3](0..<0), [](0..), [1, 2, 3](2..0 by -1) )\n"),
+        "[2, 3, 4], [], [], [], [3, 2, 1]\nsucceeded")
+    assert_eq(ran_funl("write( (1, 2, 3, 4)(1..2), (1, 2)(2..), (1, 2, 3, 4)(0.. by 3) )\n"), "(2, 3), (), (1, 4)\nsucceeded")
+    assert_eq(ran_funl("write( (1..10)(2..4), (1..10 by 2)(1..), (0..)(3..5), (0..)(2.. by 3), (0..)(5..1 by -2), (1..10)(3..<3) )\n"),
+        "3..5, 3..9 by 2, 3..5, 2.. by 3, 5..1 by -2, []\nsucceeded")
+
+@test
+AN_ARRAY_OR_A_BUFFER_INDEXED_BY_A_RANGE_IS_A_NEW_COPY()
+    assert_eq(ran_funl("val a = array([1, 2, 3, 4])\nval b = a(1..2)\nb(0) = 9\nwrite( a, b )\nval c = buffer([5, 6, 7])\nval d = c(0..<2)\nd += 8\nwrite( c, d )\n"),
+        "Array(1, 2, 3, 4), Array(9, 3)\nBuffer(5, 6, 7), Buffer(5, 6, 8)\nsucceeded")
+
+@test
+A_SLICE_REACHING_PAST_EITHER_END_FAILS()
+    assert_eq(ran_funl("val s = 'abc'\nwrite( s(1..3) | 'a', s(-1..1) | 'b', s(4..) | 'c', s(3..) | 'd', s(0.. by -1) | 'e' )\n"), "a, b, c, , e\nsucceeded")
+    assert_eq(ran_funl("write( [1, 2](0..5) | 'a', (1, 2)(1..2) | 'b', array(2)(0..2) | 'c', (0..)(-1..2) | 'd', (0..)(1.. by -1) | 'e' )\n"),
+        "a, b, c, d, e\nsucceeded")
+
+@test
+A_RANGE_THAT_IS_NOT_A_SLICE_IS_REFUSED_OR_LOOKED_UP()
+    faults_with("write( 'abc'(0.5..2) )\n", "a range counts with integers, and its start is the real 0.5")
+    faults_with("data point(x, y)\nwrite( point(1, 2)(0..1) )\n", "an index is an integer, and this one is the range 0..1")
+    assert_eq(ran_funl("val m = map()\nm(1..2) = #r\nwrite( m(1..2), m(1..3) | #none, {}(0..1) | #none )\n"), "r, none, none\nsucceeded")
+
 // -- interpolation -------------------------------------------------------------------------------------
 
 @test

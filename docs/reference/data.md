@@ -139,6 +139,58 @@ write( 'done' )
 done
 ```
 
+### Slices
+
+Called with a range, a string, a list, a range, a tuple, an array or a buffer gives its **slice**:
+the elements at the indexes the range names, in that order, as a value of the same kind. `a..b`
+includes `b`, `a..<b` stops before it, `a..+n` takes `n` elements, `a..` runs to the end, and `by`
+steps, backwards too. An array's or a buffer's slice is a new one, so changing it leaves the
+original as it was. A string is sliced by characters ([String functions](strings.md#slices)).
+
+```funl
+l = [10, 20, 30, 40, 50]
+write( l(1..3), l(1..<3), l(1..+2), l(3..), l(0.. by 2), l(4..0 by -2) )
+write( (1, 2, 3)(1..), (1..10)(2..4) )
+a = array([1, 2, 3])
+b = a(0..1)
+b(0) = 9
+write( a, b )
+```
+
+```output
+[20, 30, 40], [20, 30], [20, 30], [40, 50], [10, 30, 50], [50, 30, 10]
+(2, 3), 3..5
+Array(1, 2, 3), Array(9, 2)
+```
+
+A slice fails if any index it names is not there, as a single index does. A range that runs to the
+end may start at the length, which gives an empty slice.
+
+```funl
+l = [1, 2, 3]
+write( l(3..) )
+write( l(2..3) )
+write( l(-1..1) )
+write( 'done' )
+```
+
+```output
+[]
+done
+```
+
+A map is not sliced: a range is looked up as a key like any other.
+
+```funl
+m = map()
+m(1..2) = 'r'
+write( m(1..2) )
+```
+
+```output
+r
+```
+
 ## Mutable collections
 
 `array(n)` is an array of `n` elements, each `undefined` until one is stored. `buffer()` is an

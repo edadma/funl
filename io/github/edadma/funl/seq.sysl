@@ -3,6 +3,7 @@ module io.github.edadma.funl
 import sh.sysl.parsing.counted
 import sysl.buf.{Buf, buf}
 import sysl.math.{checked_add, checked_mul}
+import sysl.text.str_builder
 
 // Lists, ranges and sets as values: building them, taking them apart, and what the operators on
 // them -- `+`, `in`, indexing, `.length` -- answer.
@@ -279,6 +280,155 @@ element_at(c: Value, index: Value) -> Result[Option[Value], Fault]
         Str(p) -> Ok(Some(new_str(chars_between(p, usize(i), usize(i) + 1))?))
         _ -> Err(type_error("indexable", x, s"${described(x)} cannot be indexed"))
 end element_at
+
+// -- slicing -------------------------------------------------------------------------------------------
+
+// Whether `c(r)`, for a range `r`, takes a slice of `x`: a string, a list, a range, a tuple, an array
+// or a buffer.
+sliceable(x: Value) -> bool = deref(x) match
+    Str(_) -> true
+    Nil -> true
+    Cons(_) -> true
+    Range(_) -> true
+    Tuple(_) -> true
+    Array(_) -> true
+    Buffer(_) -> true
+    _ -> false
+
+// `c(r)` for a range `r`: the elements of `c` at the indexes `r` names, counting from 0, in the order
+// `r` names them, as a value of `c`'s kind -- a string, a list, a range, a tuple, or a new array or
+// buffer. **`None` where one of those indexes is not there**, which is failure, as a single index
+// past the end is. An open-ended range runs to the end of `c`, and may start at its length, which
+// names nothing.
+slice_of(c: Value, r: *RangeObj) -> Result[Option[Value], Fault]
+    val x = deref(c)
+
+    x match
+        Range(q) -> if q.endless then return slice_endless(x, q, r)
+        _ -> ()
+
+    slice_span(r, length_of(x)?) match
+        Some((first, count)) -> Ok(Some(sliced(x, first, count, r.step)?))
+        None -> Ok(None)
+
+// The first index range `r` names in a collection of `n` elements, and how many it names; `None`
+// where one of them is outside the collection.
+private slice_span(r: *RangeObj, n: long) -> Option[(long, long)]
+    if r.endless
+        if r.step < 0 || r.from < 0 || r.from > n then return None
+
+        if r.from == n then return Some((r.from, 0))
+
+        return Some((r.from, (n - r.from - 1) / r.step + 1))
+
+    val count = range_count(r)
+
+    if count == 0 then return Some((r.from, 0))
+
+    // The last index is an element of `r`, so it fits.
+    val last = r.from + (count - 1) * r.step
+
+    if r.from < 0 || r.from >= n || last < 0 || last >= n then return None
+
+    Some((r.from, count))
+
+// The `count` elements of `x` from index `first`, `step` apart, as a value of `x`'s kind.
+private sliced(x: Value, first: long, count: long, step: long) -> Result[Value, Fault]
+    x match
+        Str(p) ->
+            if step == 1 then return Ok(new_str(chars_between(p, usize(first), usize(first + count)))?)
+
+            var out = str_builder()
+
+            for k in 0..<count
+                out.push_char(char_at(p, usize(first + k * step)))
+
+            Ok(new_str(out.finish())?)
+        Range(q) ->
+            if count == 0 then return Ok(Nil)
+
+            // Every element taken is an element of `q`, so each fits, and so does the step between
+            // two of them.
+            val from = q.from + first * q.step
+            val last = q.from + (first + (count - 1) * step) * q.step
+            val stride = if count == 1 then 1 else q.step * step
+
+            Ok(new_range(from, last, stride, true, false)?)
+        Tuple(t) ->
+            if count == 0 then return Ok(Unit)
+
+            val o = new_tuple(usize(count))?
+
+            for k in 0..<count
+                o.items.set(usize(k), t.items.at(usize(first + k * step)))
+
+            Ok(Tuple(o))
+        Array(a) -> Ok(Array(picked(&a.items, first, count, step)?))
+        Buffer(a) -> Ok(Buffer(picked(&a.items, first, count, step)?))
+        _ ->
+            var items: Buf[Value] = buf()
+
+            elements(x, "a slice", &items)?
+
+            var out: Buf[Value] = buf()
+
+            for k in 0..<count
+                out.push(items.at(usize(first + k * step)))
+
+            Ok(list_of(&out, Nil)?)
+end sliced
+
+// A new array of the `count` elements of `items` from index `first`, `step` apart.
+private picked(items: *Buf[Value], first: long, count: long, step: long) -> Result[*ArrayObj, string]
+    val o = new_array(usize(count))?
+
+    for k in 0..<count
+        o.items.set(usize(k), items.at(usize(first + k * step)))
+
+    Ok(o)
+
+// A slice of the endless range `x`, whose every index from 0 on is there: a range with an end where
+// `r` has one, and an endless range where `r` is endless too.
+private slice_endless(x: Value, q: *RangeObj, r: *RangeObj) -> Result[Option[Value], Fault]
+    if r.from < 0 then return Ok(None)
+
+    if r.endless
+        if r.step < 0 then return Ok(None)
+
+        val from = endless_element(x, q, r.from)?
+
+        val stride = checked_mul(q.step, r.step) match
+            Some(s) -> s
+            None -> return Err(evaluation_error("int_overflow", s"a step of ${render(x)} taken every ${r.step} does not fit in 64 bits"))
+
+        return Ok(Some(new_range(from, from, stride, false, true)?))
+
+    val count = range_count(r)
+
+    if count == 0 then return Ok(Some(Nil))
+
+    val last = r.from + (count - 1) * r.step
+
+    if last < 0 then return Ok(None)
+
+    val from = endless_element(x, q, r.from)?
+    val to = endless_element(x, q, last)?
+
+    val stride = if count == 1 then 1 else checked_mul(q.step, r.step) match
+        Some(s) -> s
+        None -> return Err(evaluation_error("int_overflow", s"a step of ${render(x)} taken every ${r.step} does not fit in 64 bits"))
+
+    Ok(Some(new_range(from, to, stride, true, false)?))
+
+// Element `i` of the endless range `x`.
+private endless_element(x: Value, q: *RangeObj, i: long) -> Result[long, Fault]
+    val e = checked_mul(i, q.step) match
+        Some(off) -> checked_add(q.from, off)
+        None -> None
+
+    e match
+        Some(n) -> Ok(n)
+        None -> Err(evaluation_error("int_overflow", s"element $i of ${render(x)} does not fit in 64 bits"))
 
 // How many elements a list, a range with an end, a tuple, a set, an array, a buffer, a map, a term or
 // a string -- in characters -- has.
