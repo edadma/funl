@@ -64,6 +64,10 @@ enum Tok
     UndefinedW
     CatchW
 
+    // `async` before `def` or a lambda, and `await e`.
+    AsyncW
+    AwaitW
+
     LParen
     RParen
     LBracket
@@ -189,6 +193,8 @@ private spelling(t: Tok) -> string
         DataW -> "data"
         UndefinedW -> "undefined"
         CatchW -> "catch"
+        AsyncW -> "async"
+        AwaitW -> "await"
         Semi -> ";"
         Colon -> ":"
         LeftArrow -> "<-"
@@ -277,6 +283,8 @@ keyword(s: string) -> Option[Tok]
     if s == "data" then return Some(DataW)
     if s == "undefined" then return Some(UndefinedW)
     if s == "catch" then return Some(CatchW)
+    if s == "async" then return Some(AsyncW)
+    if s == "await" then return Some(AwaitW)
 
     None
 end keyword
@@ -439,6 +447,8 @@ starts_expr(t: Tok) -> bool
         Bang -> true
         Bar -> true
         YieldW -> true
+        AsyncW -> true
+        AwaitW -> true
         LBracket -> true
         LBrace -> true
         Backslash -> true

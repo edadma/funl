@@ -256,6 +256,14 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             compile_value(e, c, a)?
             e.op(ChangeMark(top))
         YieldE(a) -> suspend(e, c, a, false)?
+        AwaitE(a) ->
+            // **Bounded, like `return`**: the operand's first value, its choice points discarded,
+            // and no choice point of `await`'s own -- so failure after it passes back over it to
+            // whatever was resumable before, and what was waited for is never waited for again.
+            e.op(MarkThrough)
+            compile_value(e, c, a)?
+            e.op(UnmarkKeep)
+            e.op(Await)
         AssignE(n, a) ->
             compile_value(e, c, a)?
             e.op(Dup)

@@ -224,6 +224,8 @@ tag(t: Tok) -> u8
         NumLit(_) -> 84
         Is -> 85
         CatchW -> 86
+        AsyncW -> 87
+        AwaitW -> 88
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
@@ -254,6 +256,9 @@ parse(src: Source, report: *Report) -> Program
 
         if p.accept(Def)
             definition(&p, &clauses)
+        elif p.at_tok(AsyncW) && p.next_is(Def)
+            p.take()
+            async_definition(&p, &clauses)
         elif at_export(&p)
             exported(&p, &clauses, &stmts, &exports)
         elif at_import(&p)
@@ -299,22 +304,25 @@ private at_export(p: *Parser) -> bool
     p.toks.peek_at(1) match
         Some(t) -> t.value match
             Def -> true
+            AsyncW -> true
             Val -> true
             VarW -> true
             DataW -> true
             _ -> false
         None -> false
 
-// `export def ...`, `export val ...`, `export var ...`, `export data ...`: the definition or the
-// statement, read as it would be without the word, and the names it declares added to `exports`. A
-// `def` block under `export def` exports every definition in it.
+// `export def ...`, `export async def ...`, `export val ...`, `export var ...`, `export data ...`: the
+// definition or the statement, read as it would be without the word, and the names it declares added
+// to `exports`. A `def` block under `export def` exports every definition in it.
 private exported(p: *Parser, clauses: *Buf[Clause], stmts: *Buf[Stmt], exports: *Buf[Spanned[string]])
     p.take()
 
-    if p.accept(Def)
+    val promised = p.accept(AsyncW)
+
+    if promised || p.accept(Def)
         val before = clauses.len()
 
-        definition(p, clauses)
+        if promised then async_definition(p, clauses) else definition(p, clauses)
 
         for i in before..<clauses.len()
             val c = clauses.at(i)
@@ -512,6 +520,13 @@ statement(p: *Parser) -> Stmt
         var clauses: Buf[Clause] = buf()
 
         definition(p, &clauses)
+        return DefS(clauses)
+
+    if p.at_tok(AsyncW) && p.next_is(Def)
+        var clauses: Buf[Clause] = buf()
+
+        p.take()
+        async_definition(p, &clauses)
         return DefS(clauses)
 
     if p.accept(Val)

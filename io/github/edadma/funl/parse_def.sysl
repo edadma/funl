@@ -29,6 +29,28 @@ definition(p: *Parser, clauses: *Buf[Clause])
         p.skip_line()
 end definition
 
+// `async def ...`, the `async` already read: the definition, every clause of it `async`. **Only a
+// function can be**: a fact or a rule answers by unifying, and has no value to promise.
+async_definition(p: *Parser, clauses: *Buf[Clause])
+    if !p.expect(Def, "`def` after `async`")
+        p.skip_line()
+        return
+
+    val before = clauses.len()
+
+    definition(p, clauses)
+
+    for i in before..<clauses.len()
+        var c = clauses.at(i)
+
+        if !is_function(c.kind)
+            p.report.add(error(c.head, s"`${c.name}` is a relation, and only a function is `async`")
+                .with_note("a fact or a `:-` rule answers by unifying, and has no value to promise"))
+
+        c.is_async = true
+        clauses.set(i, c)
+end async_definition
+
 // `name(args)`, then what makes it a fact, a rule or a function clause.
 private clause(p: *Parser, clauses: *Buf[Clause])
     val first = p.toks.peek() match
@@ -50,12 +72,12 @@ private clause(p: *Parser, clauses: *Buf[Clause])
     val head = first.span.to(p.toks.previous())
 
     if p.accept(Turnstile)
-        clauses.push(Clause(name, head, params, Rule(rule_body(p))))
+        clauses.push(Clause(name, head, params, Rule(rule_body(p)), false))
         return
 
     fn_body(p) match
-        Some(b) -> clauses.push(Clause(name, head, params, FunctionC(b)))
-        None -> clauses.push(Clause(name, head, params, Fact))
+        Some(b) -> clauses.push(Clause(name, head, params, FunctionC(b), false))
+        None -> clauses.push(Clause(name, head, params, Fact, false))
 end clause
 
 // A function clause's guards and `where`, the head already read; `None` when nothing that makes a
@@ -172,7 +194,7 @@ private binding(p: *Parser) -> Stmt
                 var clauses: Buf[Clause] = buf()
 
                 fn_body(p) match
-                    Some(b) -> clauses.push(Clause(n, head, params, FunctionC(b)))
+                    Some(b) -> clauses.push(Clause(n, head, params, FunctionC(b), false))
                     None -> p.fail_here("`=` or a guard")
 
                 return DefS(clauses)

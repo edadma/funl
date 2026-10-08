@@ -190,6 +190,31 @@ struct Vm
     // What the program was given after its own name, which `funl:process`'s `args` reads: set by the
     // driver before the program is compiled.
     program_args: Buf[string]
+
+    // -- tasks (`task.sysl`) ------------------------------------------------------------------------
+
+    // The promise the running machine settles when its function answers: null for the top level's.
+    promise: *PromiseObj
+
+    // The machine that started the running task and waits for it to give way -- to settle or to
+    // reach an `await` -- the first time; `NoMachine` once it has, and for a task the queue resumed.
+    back_to: usize
+
+    // Machines set aside, by index: those not `live` are free for the next.
+    parked: Buf[Machine]
+
+    // The machines whose awaited value is ready, in the order they became so, from `ready_head` on.
+    ready: Buf[usize]
+    ready_head: usize
+
+    // The top level's machine, set aside once it has halted while tasks are still owed a turn.
+    main_parked: usize
+
+    // Promises a fault settled that nothing has awaited, reported when the program ends.
+    rejected: Buf[Value]
+
+    // The chunk a task's first frame returns to, once made.
+    task_chunk: Option[usize]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -219,7 +244,8 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
         buf(), map(), buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
-        rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf(), buf())
+        rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf(), buf(),
+        null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None)
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

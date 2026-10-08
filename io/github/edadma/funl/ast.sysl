@@ -154,6 +154,10 @@ enum ExprKind
     // asked for the next.
     YieldE(e: &Expr)
 
+    // `await e`: `e`'s first value, which, when it is a promise, the promise's value once it has
+    // settled -- the running `async` function or top level set aside until then.
+    AwaitE(e: &Expr)
+
     // `name = e`, as a statement or where an expression is delimited -- inside parentheses, at the
     // head of `every` -- storing each of `e`'s values in the variable `name` and producing it. The
     // variable is the nearest `name` in scope, or a new one of the block when there is none.
@@ -285,6 +289,10 @@ struct Clause
     head: Span
     params: Buf[&Expr]
     kind: ClauseKind
+
+    // Written under `async`: a call of the function answers a promise and starts a task, and its
+    // body may `await`. One such clause makes the whole function `async`.
+    is_async: bool
 
 // What a file holds, in order: its top-level clauses, wherever they were written, and its
 // statements.

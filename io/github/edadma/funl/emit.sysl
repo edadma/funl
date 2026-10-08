@@ -22,6 +22,9 @@ struct Emit
     // How many arguments a call into the finished chunk must pass, or `AnyArity`.
     arity: usize
 
+    // Whether the finished chunk is an `async` function's: a call of it starts a task.
+    is_async: bool
+
     // A fresh label, placed later.
     label(*self) -> usize
         self.labels.push(Unplaced)
@@ -40,17 +43,17 @@ struct Emit
         self.consts.len() - 1
 end Emit
 
-emit(name: string) -> Emit = Emit(name, buf(), buf(), buf(), AnyArity)
+emit(name: string) -> Emit = Emit(name, buf(), buf(), buf(), AnyArity, false)
 
 // The chunk of a function, whose calls must pass `arity` arguments.
-emit_function(name: string, arity: usize) -> Emit = Emit(name, buf(), buf(), buf(), arity)
+emit_function(name: string, arity: usize) -> Emit = Emit(name, buf(), buf(), buf(), arity, false)
 
 // A chunk index to call before the chunk is written, so a relation can call itself or one written
 // after it. `install` fills it.
 reserve_chunk(name: string) -> usize
     val v = current()
 
-    v.chunks.push(Chunk(name, buf(), buf(), AnyArity))
+    v.chunks.push(Chunk(name, buf(), buf(), AnyArity, false))
     v.chunks.len() - 1
 
 // Resolve `e`'s labels and install it as chunk `at`, which `reserve_chunk` answered.
@@ -64,7 +67,7 @@ install(e: Emit, at: usize) -> Result[unit, string]
     for o in e.code.view()
         code.push(resolved(e, o)?)
 
-    v.chunks.set(at, Chunk(e.name, code, e.consts, e.arity))
+    v.chunks.set(at, Chunk(e.name, code, e.consts, e.arity, e.is_async))
     Ok(())
 
 // Reserve and install in one step, answering the chunk's index.

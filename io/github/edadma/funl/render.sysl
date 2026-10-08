@@ -141,6 +141,21 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
             out.push(if p.closed then "<closed " else "<")
             out.push(handle_kind_name(p))
             out.push(" handle>")
+        Promise(p) ->
+            // What it has come to so far: `<promise pending>`, `<promise 42>` once kept, `<promise
+            // failed>` when the task failed, and `<promise faulted: ...>` with the fault's text.
+            if p.state == PromiseKept
+                out.push("<promise ")
+                write_value(out, n, p.value, depth + 1)
+                out.push(">")
+            elif p.state == PromiseFailed
+                out.push("<promise failed>")
+            elif p.state == PromiseFaulted
+                out.push("<promise faulted: ")
+                out.push(p.message)
+                out.push(">")
+            else
+                out.push("<promise pending>")
 end write_value
 
 // A map's entries, `key: value`, keys and values written as elements are.

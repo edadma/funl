@@ -26,6 +26,8 @@ import sysl.buf.{Buf, buf}
 compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
     var e = emit_function(r.name, r.arity)
 
+    e.is_async = is_async_rel(r)
+
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
         val sid = r.scopes.at(i)

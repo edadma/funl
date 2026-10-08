@@ -1,0 +1,242 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `async` and `await`: tasks started from every call path, the queue's order, what a promise prints
+// as, failure and faults crossing an `await`, generators backtracked into across one, and what is
+// refused. Every program runs on both heaps, so each is also run with the collector going before
+// every instruction while tasks are parked.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// slate's interleaving, with the queue alone deciding the turns: everything above a task's first
+// `await` runs before its caller sees the promise, and the turns alternate after that.
+private const Interleaving: string = "async def work( name, turns ) =\n" +
+    "    i = 0\n" +
+    "    while i < turns do\n" +
+    "        write( \"$name turn $i\" )\n" +
+    "        await ()\n" +
+    "        i += 1\n" +
+    "    name + \" finished\"\n" +
+    "\n" +
+    "async def main() =\n" +
+    "    a = work( \"a\", 3 )\n" +
+    "    b = work( \"b\", 2 )\n" +
+    "    write( \"started both\" )\n" +
+    "    write( await a )\n" +
+    "    write( await b )\n" +
+    "\n" +
+    "main()\n" +
+    "write( \"main returned\" )\n"
+
+@test
+TWO_TASKS_TAKE_TURNS_AND_EACH_RUNS_TO_ITS_FIRST_AWAIT_BEFORE_ITS_CALLER_GOES_ON()
+    assert_eq(ran_funl(Interleaving),
+        "a turn 0\nb turn 0\nstarted both\nmain returned\na turn 1\nb turn 1\na turn 2\na finished\nb finished\nsucceeded")
+
+@test
+THE_COLLECTOR_RUNS_WHILE_TASKS_ARE_PARKED_AND_CHANGES_NOTHING()
+    val calm = roomy(() -> compiled_text(Interleaving))
+    val tight = stressed(() -> compiled_text(Interleaving))
+
+    assert_eq(tight.text, calm.text)
+    assert(tight.collections > 100, s"the stressed heap collected ${tight.collections} times")
+
+// A settled promise and a value that is not a promise both go round the queue, so the ones queued
+// first run first.
+@test
+AWAITING_WHAT_IS_ALREADY_THERE_STILL_TAKES_A_TURN()
+    val text = "async def now( x ) = x\n" +
+        "\n" +
+        "async def first() =\n" +
+        "    write( \"first awaits a settled promise\" )\n" +
+        "    write( await done )\n" +
+        "    write( \"first resumes\" )\n" +
+        "\n" +
+        "async def second() =\n" +
+        "    write( \"second awaits a plain value\" )\n" +
+        "    write( await 7 )\n" +
+        "    write( \"second resumes\" )\n" +
+        "\n" +
+        "done = now( \"kept\" )\n" +
+        "first()\n" +
+        "second()\n" +
+        "write( \"the top level goes on\" )\n" +
+        "write( await done )\n" +
+        "write( \"the top level resumes\" )\n"
+
+    assert_eq(ran_funl(text),
+        "first awaits a settled promise\nsecond awaits a plain value\nthe top level goes on\nkept\nfirst resumes\n7\nsecond resumes\nkept\n" +
+        "the top level resumes\nsucceeded")
+
+@test
+A_PROMISE_PRINTS_WHAT_IT_HAS_COME_TO_AND_IS_TESTED_WITH_IS()
+    val text = "async def small( n ) = (await n) < 5\n" +
+        "\n" +
+        "async def broken( n ) =\n" +
+        "    await n\n" +
+        "    n / 0\n" +
+        "\n" +
+        "p = small( 9 )\n" +
+        "q = small( 2 )\n" +
+        "r = broken( 1 )\n" +
+        "write( p, q, r )\n" +
+        "write( await p | \"small(9) failed\" )\n" +
+        "write( await q )\n" +
+        "write( (await r) catch e -> e.message )\n" +
+        "write( p, q )\n" +
+        "write( r )\n" +
+        "write( q is promise, 5 is promise | \"5 is not a promise\" )\n"
+
+    assert_eq(ran_funl(text),
+        "<promise pending>, <promise pending>, <promise pending>\nsmall(9) failed\n5\n1 / 0 divides by zero\n" +
+        "<promise failed>, <promise 5>\n<promise faulted: broken@13: 1 / 0 divides by zero>\n<promise 5>, 5 is not a promise\nsucceeded")
+
+// `await` is bounded: failure after it passes back over it, so what was awaited is asked for once.
+// The choice points made before it are still live in the machine that comes back.
+@test
+A_FAILURE_AFTER_AN_AWAIT_DOES_NOT_REDO_IT_AND_GENERATORS_ARE_BACKTRACKED_INTO_ACROSS_ONE()
+    val text = "var asked = 0\n" +
+        "\n" +
+        "async def ask( n ) =\n" +
+        "    asked += 1\n" +
+        "    write( \"asked $n\" )\n" +
+        "    n\n" +
+        "\n" +
+        "def three() =\n" +
+        "    yield 1\n" +
+        "    yield 2\n" +
+        "    yield 3\n" +
+        "\n" +
+        "async def main() =\n" +
+        "    for x <- three() do\n" +
+        "        write( \"got \" + await ask( x ) )\n" +
+        "\n" +
+        "    every write( (10 | 20) + await ask( 1 ) )\n" +
+        "\n" +
+        "    write( await ask( 5 ) == 6 | \"not six\" )\n" +
+        "    write( \"$asked asks\" )\n" +
+        "\n" +
+        "main()\n"
+
+    assert_eq(ran_funl(text),
+        "asked 1\ngot 1\nasked 2\ngot 2\nasked 3\ngot 3\nasked 1\n11\nasked 1\n21\nasked 5\nnot six\n6 asks\nsucceeded")
+
+// A direct call, a call through a value, a tail call, an `async` lambda, a function the prelude's
+// `map` calls, and a builtin's callback -- `zipWith`'s, which calls by turns -- all start a task.
+@test
+EVERY_CALL_PATH_STARTS_A_TASK()
+    val text = "async def double( x ) = (await x) * 2\n" +
+        "\n" +
+        "def tail( x ) = double( x )\n" +
+        "\n" +
+        "f = double\n" +
+        "g = async x -> (await x) + 1\n" +
+        "\n" +
+        "write( await double( 1 ) )\n" +
+        "write( await f( 2 ) )\n" +
+        "write( await tail( 3 ) )\n" +
+        "write( await g( 4 ) )\n" +
+        "write( map( async x -> x * 10, [1, 2] ) )\n" +
+        "sums = zipWith( async (a, b) -> a + b, [1, 2], [10, 20] )\n" +
+        "write( sums )\n" +
+        "write( await sums(1) )\n"
+
+    assert_eq(ran_funl(text), "2\n4\n6\n5\n[<promise 10>, <promise 20>]\n[<promise 11>, <promise 22>]\n22\nsucceeded")
+
+// A fault raised in a task settles its promise, and is raised again where the promise is awaited.
+@test
+A_FAULT_AFTER_AN_AWAIT_IS_CAUGHT_WHERE_THE_TASK_IS_AWAITED()
+    val text = "async def boom( n ) =\n" +
+        "    await n\n" +
+        "    error( \"boom $n\" )\n" +
+        "\n" +
+        "async def careful() = (await boom( 1 )) catch error(user_error(m), _) -> \"caught $m\"\n" +
+        "\n" +
+        "write( await careful() )\n" +
+        "write( (await boom( 2 )) catch e -> e.message )\n"
+
+    assert_eq(ran_funl(text), "caught boom 1\nboom 2\nsucceeded")
+
+// **A fault no `await` ever met is the program's**: the run faults once nothing is left to run, after
+// everything else has had its turn.
+@test
+A_FAULT_NOTHING_AWAITS_IS_THE_PROGRAMS_FAULT()
+    val text = "async def boom() =\n" +
+        "    write( \"boom starts\" )\n" +
+        "    await ()\n" +
+        "    1 / 0\n" +
+        "    write( \"never printed\" )\n" +
+        "\n" +
+        "boom()\n" +
+        "write( \"the top level ends\" )\n"
+
+    assert_eq(unplaced(ran_funl(text)), "boom starts\nthe top level ends\nfault: boom: 1 / 0 divides by zero")
+
+// The program ends when nothing is left to run, even with a task waiting for a promise nothing will
+// settle: the lines below its `await` never run.
+@test
+A_TASK_WAITING_FOR_WHAT_NOTHING_WILL_SETTLE_DOES_NOT_KEEP_THE_PROGRAM()
+    val text = "var p = undefined\n" +
+        "\n" +
+        "async def selfish() =\n" +
+        "    await ()\n" +
+        "    write( \"waiting for itself\" )\n" +
+        "    await p\n" +
+        "    write( \"never printed\" )\n" +
+        "\n" +
+        "p = selfish()\n" +
+        "write( \"the top level is done\" )\n"
+
+    assert_eq(ran_funl(text), "the top level is done\nwaiting for itself\nsucceeded")
+
+// An imported file's top level settles before a line of its importer runs.
+@test
+AN_IMPORTED_FILES_AWAIT_SETTLES_BEFORE_THE_IMPORTER_GOES_ON()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "slow.funl", "async def slow( x ) =\n    await x\n    write( \"the module's task is done\" )\n    x\n\n" +
+        "export val answer = await slow( 42 )\nwrite( \"the module's top level is done\" )\n")
+
+    assert_eq(ran_funl(s"import { answer } from \"$m\"\nwrite( \"the importer starts\" )\nwrite( answer )\n"),
+        "the module's task is done\nthe module's top level is done\nthe importer starts\n42\nsucceeded")
+
+// Prolog cannot await: a FunL `async` function called from Prolog unifies its last argument with
+// the promise, which unifies only with itself.
+@test
+PROLOG_GETS_THE_PROMISE_AN_ASYNC_FUNCTION_ANSWERS()
+    val d = scratch()
+    defer scrap(d)
+
+    val lib = put(d, "twice.funl", "export async def twice( x ) = (await x) * 2\n")
+    val said = ran_prolog(s":- import(\"$lib\").\n:- twice(21, P), write(P), nl, (P == P -> write(same) ; write(different)), nl.\n" +
+        ":- twice(1, P), twice(1, Q), (P = Q -> write(unified) ; write(apart)), nl.\n")
+
+    assert_eq(said, "<promise pending>\nsame\napart\nsucceeded")
+
+@test
+AWAIT_OUTSIDE_AN_ASYNC_FUNCTION_IS_REFUSED()
+    val text = "def plain( p ) = await p\n" +
+        "h = x -> await x\n" +
+        "async def outer() =\n" +
+        "    k = y -> await y\n" +
+        "    k\n"
+    val said = complaints(text)
+
+    assert_eq(said,
+        "error 1:18 `await` is written in an `async` function or at the top level\n" +
+        "error 2:10 `await` is written in an `async` function or at the top level\n" +
+        "error 4:14 `await` is written in an `async` function or at the top level\n")
+
+@test
+ONLY_A_FUNCTION_OR_A_LAMBDA_IS_ASYNC()
+    assert_eq(complaints("async def parent( #a, #b )\n"), "error 1:11 `parent` is a relation, and only a function is `async`\n")
+    assert_eq(complaints("g = async 5\n"), "error 1:5 `async` is written before `def` or a lambda\n")
+
+// The words are taken: a program cannot name a variable `async` or `await`.
+@test
+ASYNC_AND_AWAIT_ARE_WORDS_A_PROGRAM_CANNOT_NAME_A_VARIABLE()
+    assert(has(complaints("await = 1\n"), "error 1:"), "`await` named a variable")
+    assert(has(complaints("val async = 1\n"), "error 1:"), "`async` named a variable")

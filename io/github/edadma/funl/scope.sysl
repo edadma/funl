@@ -56,6 +56,13 @@ struct Rel
     // The scope of each clause, once its clauses are resolved.
     scopes: Buf[usize]
 
+// Whether `r` is an `async` function: one of its clauses was written under `async`.
+is_async_rel(r: Rel) -> bool
+    for c in r.clauses.view()
+        if c.is_async then return true
+
+    false
+
 // A source offset after every other: where a function nested in a scope looks its names up from,
 // since its body runs after the scope's own code has declared every name it is going to.
 const Anywhere: usize = 4294967295
@@ -546,7 +553,7 @@ resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report)
         if res.rels.at(i).function then pending.push(i)
 
     var top = scope()
-    var w = walker(&res, report, &pending, &top, res.top, false, false)
+    var w = walker(&res, report, &pending, &top, res.top, false, false, true)
 
     hoist_stmts(&w, prog.stmts)
 
@@ -626,7 +633,7 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
         for p in written.params.view()
             params.push(head_atoms(res, p, report))
 
-        val c = Clause(written.name, written.head, params, written.kind)
+        val c = Clause(written.name, written.head, params, written.kind, written.is_async)
 
         clauses.push(c)
 
@@ -635,7 +642,7 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
 
         sc.head = sc.count()
 
-        var w = walker(res, report, pending, &sc, sid, true, false)
+        var w = walker(res, report, pending, &sc, sid, true, false, false)
 
         c.kind match
             Rule(body) -> walk(&w, body)
@@ -742,11 +749,12 @@ end walk_head
 private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report: *Report)
     val r = res.rels.at(ri)
     var ids: Buf[usize] = buf()
+    val waits = is_async_rel(r)
 
     for c in r.clauses.view()
         val sid = new_scope_id(res)
         var sc = child_scope(r.outer, r.outer_block)
-        var w = walker(res, report, pending, &sc, sid, false, true)
+        var w = walker(res, report, pending, &sc, sid, false, true, waits)
 
         for p in c.params.view()
             declare_pattern(&w, p, 0, false)

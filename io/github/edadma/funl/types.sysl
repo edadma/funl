@@ -41,6 +41,7 @@ enum TypeTest
     CSetT
     BytesT
     HandleT
+    PromiseT
     UndefinedT
 
     // An unbound logic variable.
@@ -75,6 +76,7 @@ builtin_type(name: string) -> Option[TypeTest]
     if name == "cset" then return Some(CSetT)
     if name == "bytes" then return Some(BytesT)
     if name == "handle" then return Some(HandleT)
+    if name == "promise" then return Some(PromiseT)
     if name == "undefined" then return Some(UndefinedT)
     if name == "variable" then return Some(VariableT)
 
@@ -165,6 +167,9 @@ of_type(v: *Vm, x: Value, t: TypeTest) -> bool
             _ -> false
         HandleT -> y match
             Handle(_) -> true
+            _ -> false
+        PromiseT -> y match
+            Promise(_) -> true
             _ -> false
         UndefinedT -> y match
             Undefined -> true

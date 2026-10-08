@@ -32,6 +32,7 @@ mark_value(h: *gc.Heap, v: Value)
         CSet(p) -> gc.mark(h, ptr_cast(p))
         Bytes(p) -> gc.mark(h, ptr_cast(p))
         Handle(p) -> gc.mark(h, ptr_cast(p))
+        Promise(p) -> gc.mark(h, ptr_cast(p))
         _ -> ()
 
 private mark_values(h: *gc.Heap, vs: Buf[Value])
@@ -82,6 +83,19 @@ finalize_handle(p: *u8)
     val o: *HandleObj = ptr_cast(p)
 
     close_handle(o)
+
+// A promise keeps alive what it was kept with, or the ball its fault threw. The machines waiting
+// for it are parked, and `roots` walks those.
+trace_promise(p: *u8, h: *gc.Heap)
+    val o: *PromiseObj = ptr_cast(p)
+
+    mark_value(h, o.value)
+
+finalize_promise(p: *u8)
+    val o: *PromiseObj = ptr_cast(p)
+
+    o.message = ""
+    o.waiters.release()
 
 trace_tuple(p: *u8, h: *gc.Heap)
     val o: *TupleObj = ptr_cast(p)
@@ -190,7 +204,10 @@ var bytes_kind: gc.Kind = gc.Kind(&trace_bytes, &finalize_bytes, null, null)
 var handle_kind: gc.Kind = gc.Kind(&trace_handle, &finalize_handle, null, null)
 
 // process-wide: a table of hook addresses, as above.
-var compound_kind: gc.Kind = gc.Kind(&trace_compound, &finalize_compound, null, null)
+var promise_kind: gc.Kind = gc.Kind(&trace_promise, &finalize_promise, null, null)
+
+// process-wide: a table of hook addresses, as above.
+var compound_kind:gc.Kind = gc.Kind(&trace_compound, &finalize_compound, null, null)
 
 // process-wide: a table of hook addresses, as above.
 var tuple_kind: gc.Kind = gc.Kind(&trace_tuple, &finalize_tuple, null, null)
@@ -228,44 +245,17 @@ var closure_kind: gc.Kind = gc.Kind(&trace_closure, null, null, null)
 roots(h: *gc.Heap)
     val v = current()
 
-    // The expression being evaluated.
-    mark_values(h, v.stack)
+    // The machine running now.
+    mark_machine(h, v.stack, v.saved, v.control, v.subject, v.scans, v.trail, v.frame, v.promise)
 
-    // Operand cells a choice point or a restore entry will write back.
-    mark_values(h, v.saved)
+    // **Every machine set aside, each walked exactly as the running one is**: a task parked at an
+    // `await` -- the promise it waits for standing on its stack -- and one waiting for a task it
+    // started to give way.
+    for m in v.parked.view()
+        if m.live then mark_machine(h, m.stack, m.saved, m.control, m.subject, m.scans, m.trail, m.frame, m.promise)
 
-    // A resumable alternative runs in its entry's frame.
-    for e in v.control.view()
-        gc.mark(h, ptr_cast(e.frame))
-
-    // The string being scanned.
-    mark_value(h, v.subject)
-
-    // The strings open scans will put back.
-    for s in v.scans.view()
-        mark_value(h, s.subject)
-
-    // Failure will unbind these.
-    for u in v.trail.view()
-        u match
-            Bind(x) -> gc.mark(h, ptr_cast(x))
-            Assign(f, _, old) ->
-                gc.mark(h, ptr_cast(f))
-                mark_value(h, old)
-            Elem(c, key, old, _) ->
-                mark_value(h, c)
-                mark_value(h, key)
-                mark_value(h, old)
-            Scan(subject, _) -> mark_value(h, subject)
-            ScanOpened -> ()
-            ScanClosed(subject, _) -> mark_value(h, subject)
-            Capture(_, _) -> ()
-            Global(key, old, _) ->
-                mark_value(h, key)
-                mark_value(h, old)
-
-    // The code running now, and through it the static and dynamic chains.
-    gc.mark(h, ptr_cast(v.frame))
+    // Promises whose fault nothing has awaited yet, reported when the program ends.
+    mark_values(h, v.rejected)
 
     // The top level's frame, the static link of every top-level function's frames.
     gc.mark(h, ptr_cast(v.globals))
@@ -285,6 +275,52 @@ roots(h: *gc.Heap)
     // Prolog's global variables.
     mark_value(h, v.pl_globals)
 end roots
+
+// What one machine can still reach: its operands, its control stack and the cells it saved, its scan
+// state, its trail, its frame, and the promise it will settle.
+private mark_machine(h: *gc.Heap, stack: Buf[Value], saved: Buf[Value], control: Buf[Entry], subject: Value, scans: Buf[ScanSaved],
+                     trail: Buf[Undo], frame: *FrameObj, promise: *PromiseObj)
+    // The expression being evaluated.
+    mark_values(h, stack)
+
+    // Operand cells a choice point or a restore entry will write back.
+    mark_values(h, saved)
+
+    // A resumable alternative runs in its entry's frame.
+    for e in control.view()
+        gc.mark(h, ptr_cast(e.frame))
+
+    // The string being scanned.
+    mark_value(h, subject)
+
+    // The strings open scans will put back.
+    for s in scans.view()
+        mark_value(h, s.subject)
+
+    // Failure will unbind these.
+    for u in trail.view()
+        u match
+            Bind(x) -> gc.mark(h, ptr_cast(x))
+            Assign(f, _, old) ->
+                gc.mark(h, ptr_cast(f))
+                mark_value(h, old)
+            Elem(c, key, old, _) ->
+                mark_value(h, c)
+                mark_value(h, key)
+                mark_value(h, old)
+            Scan(subject, _) -> mark_value(h, subject)
+            ScanOpened -> ()
+            ScanClosed(subject, _) -> mark_value(h, subject)
+            Capture(_, _) -> ()
+            Global(key, old, _) ->
+                mark_value(h, key)
+                mark_value(h, old)
+
+    // The code running, and through it the static and dynamic chains.
+    if frame != null then gc.mark(h, ptr_cast(frame))
+
+    if promise != null then gc.mark(h, ptr_cast(promise))
+end mark_machine
 
 // Collect if enough has been allocated since the last collection.
 //

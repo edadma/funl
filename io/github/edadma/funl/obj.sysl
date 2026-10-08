@@ -47,6 +47,17 @@ struct HandleObj
     n: long
     vals: Buf[Value]
 
+// A promise: what state it is in (`PromisePending`, `PromiseKept`, `PromiseFailed`,
+// `PromiseFaulted`), whether anything has awaited it, the value it was kept with -- or, faulted, the
+// ball thrown, `Undefined` when the fault was not a throw -- the fault's text, and the machines parked
+// waiting for it, by their index in `Vm.parked`.
+struct PromiseObj
+    state: u8
+    awaited: bool
+    value: Value
+    message: string
+    waiters: Buf[usize]
+
 struct CompoundObj
     functor: u32
     args: Buf[Value]
@@ -194,6 +205,17 @@ new_handle(kind: u32) -> Result[*HandleObj, string]
 
     o.kind = kind
     o.vals = buf()
+    Ok(o)
+
+// A pending promise, which nothing waits for yet.
+new_promise() -> Result[*PromiseObj, string]
+    val v = current()
+    val o: *PromiseObj = ptr_cast(take(v, sizeof(PromiseObj), &promise_kind)?)
+
+    o.state = PromisePending
+    o.value = Undefined
+    o.message = ""
+    o.waiters = buf()
     Ok(o)
 
 new_tuple(n: usize) -> Result[*TupleObj, string]

@@ -1,0 +1,321 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// Tasks: what `async` and `await` run on.
+//
+// **A task is a machine set aside.** There is no host recursion in the instruction loop, so the
+// whole of a suspended computation -- operands, control stack and saved cells, trail, frame, scan
+// state, captures -- is data, and `park` moves it out of the VM into `Vm.parked` as one `Machine`,
+// leaving an empty one in its place; `unpark` puts it back. The collector walks every parked machine
+// as it walks the running one.
+//
+// **Calling an `async` function starts a task** (`start_async`, reached from both call paths through
+// `open_frame`): the caller's machine is parked with the task's promise already standing where the
+// call's value goes, and a fresh machine whose first frame is the call runs at once -- in the same
+// instruction loop, never under a sysl frame -- until its function answers or it reaches an `await`.
+// Then it gives way, and the caller carries on with the promise.
+//
+// **`Await` parks the machine with the awaited value left on its operand stack**, where it is a root,
+// and the answer is written over it when the machine comes back. A promise not yet settled takes the
+// machine onto its waiters; a settled one, or a value that is not a promise, puts it straight on the
+// ready queue -- **it still goes round the queue**, so a program cannot tell which it awaited by
+// watching what runs next. Settling a promise queues every waiter. The top level's machine is no
+// different, so `await` at the top level waits as a task's does.
+//
+// **The queue is drained to empty** whenever nothing else is running: when a resumed task gives way,
+// when the top level awaits, and when the top level halts with tasks still owed a turn -- the top
+// level then set aside until the queue is empty, so the program ends once nothing is left to run.
+
+// What `back_to` and `main_parked` hold when there is no such machine.
+const NoMachine: usize = 4294967295
+
+// A promise's states (`PromiseObj.state`).
+const PromisePending: u8 = 0
+const PromiseKept: u8 = 1
+const PromiseFailed: u8 = 2
+const PromiseFaulted: u8 = 3
+
+// A machine set aside: the VM's machine fields (`vm_state.sysl`), and whether the slot holds one.
+struct Machine
+    live: bool
+    code: usize
+    ip: usize
+    stack: Buf[Value]
+    frame: *FrameObj
+    control: Buf[Entry]
+    saved: Buf[Value]
+    trail: Buf[Undo]
+    mark: usize
+    subject: Value
+    pos: usize
+    scans: Buf[ScanSaved]
+    captures: Buf[GroupSpan]
+    promise: *PromiseObj
+    back_to: usize
+
+// An empty slot of `Vm.parked`.
+private free_slot() -> Machine =
+    Machine(false, 0, 0, buf(), null, buf(), buf(), buf(), NoMark, Undefined, 1, buf(), buf(), null, NoMachine)
+
+// Empty the VM's machine: what `park` leaves, and what a finished task becomes.
+private clear_machine(v: *Vm)
+    v.code = 0
+    v.ip = 0
+    v.stack = buf()
+    v.frame = null
+    v.control = buf()
+    v.saved = buf()
+    v.trail = buf()
+    v.mark = NoMark
+    v.subject = Undefined
+    v.pos = 1
+    v.scans = buf()
+    v.captures = buf()
+    v.promise = null
+    v.back_to = NoMachine
+
+// Set the running machine aside, and answer where it went.
+park(v: *Vm) -> usize
+    val m = Machine(true, v.code, v.ip, v.stack, v.frame, v.control, v.saved, v.trail, v.mark, v.subject, v.pos, v.scans,
+                    v.captures, v.promise, v.back_to)
+
+    clear_machine(v)
+
+    for i in 0..<v.parked.len()
+        if !v.parked.at(i).live
+            v.parked.set(i, m)
+            return i
+
+    v.parked.push(m)
+    v.parked.len() - 1
+end park
+
+// Put machine `id` back as the running one, whatever was running in its place gone.
+unpark(v: *Vm, id: usize)
+    val m = v.parked.at(id)
+
+    v.parked.set(id, free_slot())
+    v.code = m.code
+    v.ip = m.ip
+    v.stack = m.stack
+    v.frame = m.frame
+    v.control = m.control
+    v.saved = m.saved
+    v.trail = m.trail
+    v.mark = m.mark
+    v.subject = m.subject
+    v.pos = m.pos
+    v.scans = m.scans
+    v.captures = m.captures
+    v.promise = m.promise
+    v.back_to = m.back_to
+end unpark
+
+// The chunk a task's first frame returns to: `Settle`, made the first time a task starts.
+private task_chunk(v: *Vm) -> Result[usize, string]
+    v.task_chunk match
+        Some(c) -> return Ok(c)
+        None -> ()
+
+    var e = emit("task")
+
+    e.op(Settle)
+
+    val c = finish(e)?
+
+    v.task_chunk = Some(c)
+    Ok(c)
+
+// Call `async` function chunk `target` over the top `argc` values, with static link `up`: the caller
+// parked with the new promise where the call's value goes, and a task running the call in its place.
+//
+// **Everything is allocated before the arguments leave the stack**, and nothing collects before the
+// task's frame holds them: allocation never collects.
+start_async(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, Fault]
+    val n = v.stack.len()
+
+    if argc > n then return Err(Broken(s"a call wants $argc arguments and the operand stack holds $n"))
+
+    val pr = new_promise()?
+    val base = new_frame(task_chunk(v)?)?
+    val f = new_frame(target)?
+    var args: Buf[Value] = buf()
+
+    for i in n - argc..<n
+        args.push(v.stack.at(i))
+
+    v.stack.truncate(n - argc)
+    v.stack.push(Promise(pr))
+    v.allocated += argc * sizeof(Value)
+
+    val caller = park(v)
+
+    f.args = args
+    f.up = up
+    f.caller = base
+    f.return_ip = 0
+    f.caller_mark = NoMark
+    f.base = 0
+    f.entry = 0
+    f.cut = 0
+
+    v.promise = pr
+    v.back_to = caller
+    v.frame = f
+    v.code = target
+    v.ip = 0
+    Ok(())
+end start_async
+
+// Hand the VM back to the machine `back` names, if one waits: true when it carries on, false when
+// nothing does and the next ready machine is owed the turn.
+private give_way(v: *Vm, back: usize) -> bool
+    if back == NoMachine then return false
+
+    unpark(v, back)
+    true
+
+// `Await`: park the running machine, the value it awaits left on top of its stack, on that value's
+// promise or -- settled, or no promise at all -- on the ready queue; then give way. True when a machine
+// carries on at once, as `give_way` answers.
+await_top(v: *Vm) -> Result[bool, string]
+    val top = v.stack.len()
+
+    if top == 0 then return Err("`await` with nothing on the operand stack")
+
+    val x = deref(v.stack.at(top - 1))
+    val back = v.back_to
+
+    v.back_to = NoMachine
+
+    val id = park(v)
+
+    x match
+        Promise(p) ->
+            p.awaited = true
+
+            if p.state == PromisePending then p.waiters.push(id) else v.ready.push(id)
+        _ -> v.ready.push(id)
+
+    Ok(give_way(v, back))
+end await_top
+
+// `Settle`: the task's function answered the value on top; its promise is kept with it, and the task
+// is over.
+settle_top(v: *Vm) -> Result[bool, string]
+    val x = v.stack.pop() match
+        Some(x) -> x
+        None -> return Err("`Settle` with nothing on the operand stack")
+
+    if v.promise == null then return Err("`Settle` outside a task")
+
+    Ok(task_ends(v, PromiseKept, x, ""))
+
+// Whether the running machine is a task's, which settles a promise, rather than the top level's.
+in_task(v: *Vm) -> bool = v.promise != null
+
+// The running task is over -- its function answered (`PromiseKept`), failed (`PromiseFailed`) or
+// raised a fault nothing caught (`PromiseFaulted`, `x` the ball or `Undefined`, `message` the fault's
+// text): settle its promise, and give way.
+task_ends(v: *Vm, state: u8, x: Value, message: string) -> bool
+    settle(v, v.promise, state, x, message)
+
+    val back = v.back_to
+
+    clear_machine(v)
+    give_way(v, back)
+
+// Settle `p`, once: every machine waiting for it is ready. A fault no machine has awaited is kept to
+// be reported when the program ends, unless something awaits it first.
+private settle(v: *Vm, p: *PromiseObj, state: u8, x: Value, message: string)
+    if p.state != PromisePending then return
+
+    p.state = state
+    p.value = x
+    p.message = message
+
+    for id in p.waiters.view()
+        v.ready.push(id)
+
+    p.waiters.clear()
+
+    if state == PromiseFaulted && !p.awaited then v.rejected.push(Promise(p))
+
+// What became of handing the turn to the next ready machine.
+enum Resumed
+    // A machine is running and carries on.
+    Runs
+
+    // A machine is running, and the task it awaited failed: so does the `await`.
+    Misses
+
+    // A machine is running, and the task it awaited raised `f`: the `await` raises it.
+    Raises(f: Fault)
+
+    // Nothing is left to run: the run is over, and this is how it ended.
+    Ends(o: Outcome)
+
+// Run the next ready machine, its awaited value's answer written over it; or, the queue empty, end.
+next_ready(v: *Vm) -> Resumed
+    if v.ready_head >= v.ready.len()
+        v.ready.clear()
+        v.ready_head = 0
+        return Ends(finished(v))
+
+    val id = v.ready.at(v.ready_head)
+
+    v.ready_head += 1
+    unpark(v, id)
+
+    val top = v.stack.len() - 1
+
+    deref(v.stack.at(top)) match
+        Promise(p) ->
+            if p.state == PromiseKept
+                v.stack.set(top, p.value)
+                return Runs
+
+            if p.state == PromiseFailed then return Misses
+
+            p.value match
+                Undefined -> Raises(Broken(p.message))
+                ball -> Raises(Thrown(ball))
+        _ -> Runs
+end next_ready
+
+// The top level has halted. With nothing owed a turn the run is over at once, as it always was;
+// otherwise the top level is set aside, to come back when the queue is empty. `None` when it was.
+main_halts(v: *Vm) -> Option[Outcome]
+    if v.ready_head >= v.ready.len() then return Some(unawaited_fault(v))
+
+    v.main_parked = park(v)
+    None
+
+// The queue is empty: the top level comes back, if it halted, and the run ends -- with the first fault
+// a task raised that nothing awaited, or as it succeeded. A top level still waiting for a promise
+// nothing will settle has nothing to come back to, and the statements below its `await` never run.
+private finished(v: *Vm) -> Outcome
+    if v.main_parked != NoMachine
+        val m = v.main_parked
+
+        v.main_parked = NoMachine
+        unpark(v, m)
+    else
+        clear_machine(v)
+
+    unawaited_fault(v)
+
+// The first fault a task raised that nothing ever awaited, as the run's fault; otherwise success.
+private unawaited_fault(v: *Vm) -> Outcome
+    for x in v.rejected.view()
+        x match
+            Promise(p) ->
+                if !p.awaited
+                    v.rejected.clear()
+                    return Faulted(p.message)
+            _ -> ()
+
+    v.rejected.clear()
+    Succeeded
+end unawaited_fault

@@ -69,7 +69,7 @@ however even the halves look. The first layout, to be revisited by counting once
 | the tree | `ast.sysl` |
 | resolving | `scope.sysl` (names to slots, relation variables, singleton warnings, mixed-kind refusal), `scope_walk.sysl` (reading one scope's code, hoisting), `scope_block.sysl` (blocks, loop targets, assignment targets) |
 | compiling | `emit.sysl` (the chunk being built, labels, constants), `compile_expr.sysl` (`if`, alternation, statements, assignment), `compile_loop.sysl` (`every`, `while`, `repeat`, `for`, `break`, `continue`), `compile_def.sysl` (committed-choice clauses, relation clauses, heads), `compile_regex.sysl` (both directions) |
-| the machine | `vm_state.sysl` (`struct Vm`, `current()`), `op.sysl` (the instruction set), `run.sysl` (the dispatch loop), `control.sysl` (entries, `fail`, marks, cut, `Restore`), `trail.sysl`, `frame.sysl`, `gen.sysl` (cursors: `!`, `to`/`until`, and `|e`'s `ChangeMark`), `regex_run.sysl` (the regex instructions) |
+| the machine | `vm_state.sysl` (`struct Vm`, `current()`), `op.sysl` (the instruction set), `run.sysl` (the dispatch loop), `control.sysl` (entries, `fail`, marks, cut, `Restore`), `trail.sysl`, `frame.sysl`, `task.sysl` (parked machines, `start_async`, `await` and the ready queue), `gen.sysl` (cursors: `!`, `to`/`until`, and `|e`'s `ChangeMark`), `regex_run.sysl` (the regex instructions) |
 | logic | `unify.sysl` (unification, dereferencing, standard order), `copy.sysl` (`copy_term`, `findall`'s copies), `index.sysl` (first-argument indexing, the instantiation check on a function's patterns) |
 | values | `value.sysl`, `obj.sysl` (heap objects and constructors), `atom.sysl` (the intern table), `collector.sysl` (kinds, roots, the schedule), `seq.sysl` (lists, ranges and sets as values: `+`, `in`, indexing, `.length`, the list patterns, what a comprehension collects) |
 | numbers | `number.sysl` (mapping `dal`'s number to and from `Value`, the FunL and ISO policies, `dal`'s refusals as ISO error terms), `arith.sysl` (FunL's operators over `dal`, with `Int` arithmetic inline), `render.sysl` (printing values) |
@@ -154,6 +154,8 @@ root function is the complete statement of what is live:
 | every chunk's constant pool | strings, compiled patterns and literals the code pushes |
 | the clause database | asserted clauses and their compiled chunks |
 | the shadow stack | values a native is holding in sysl locals |
+| every parked machine, each row above walked for it, and its promise | a task waiting at an `await` -- the awaited promise on its stack -- or for a task it started to give way |
+| the running machine's promise, and every fault-settled promise nothing has awaited | what a task will settle, and the faults reported when the run ends |
 
 **The dangerous rows are the second, third and fourth**, because they look like bookkeeping rather
 than data. A choice point that has been pushed and not yet discarded keeps alive the frame of a

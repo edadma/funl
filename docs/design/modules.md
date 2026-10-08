@@ -431,6 +431,28 @@ the regex captures. A **task** is exactly those fields, in their own `Machine`:
   What FunL's generators never needed — resumption from anywhere but backtracking inside their own
   bounded expression — is precisely what a task adds.
 
+> **Built — tasks (milestone 10, part 1), and what the decisions left open.** `task.sysl` holds the
+> `Machine` (the VM's machine fields, moved out whole by `park` and back by `unpark`), `start_async`,
+> `Await` and `Settle`. **Starting a task never re-enters the loop**: the caller is parked with the
+> promise already where the call's value goes, the task's first frame returns into a one-instruction
+> chunk, `Settle`, and the same `drive` runs whichever machine is current. A task gives way to the
+> machine that started it at its first stop; a task the queue resumed gives way to the next ready one.
+> `open_frame` is the one place a call becomes a frame, so a direct call, `CallValue`, a tail call
+> (never reusing the frame), a builtin's callback and a Prolog call all start the task. A minimal
+> queue of ready machines stands in for the loop until kairos: it is drained whenever nothing else
+> runs, and when the top level halts with tasks still owed a turn the top level is parked until it is
+> empty. As slate does: `await` of a value that is not a promise is that value and still takes a turn;
+> a settled promise still goes round the queue; `async` is written before `def` (any clause makes the
+> whole function `async`, as `export` does) or before a lambda, and a relation is refused; the program
+> ends, without a word, when nothing is left to run though a task still waits; a fault no `await` met
+> is the run's fault, reported once the queue is empty. **FunL's own answers, slate having no
+> failure**: an `async` function whose body fails settles its promise as failed, and `await` of it
+> fails where it is written, as the call would have; a promise prints as `<promise pending>`,
+> `<promise 42>`, `<promise failed>` or `<promise faulted: …>`, and `x is promise` tests for one. A
+> fault after an `await` is raised again where the promise is awaited (part 3 owes the rest of it).
+> **The stamp is still one counter for every machine** -- per-task stamps and the refusal to bind
+> another task's variable come with the loop.
+
 ## The prelude — the first module written in FunL
 
 > **Decided (user, 2026-10-08) — the prelude is the first module written in FunL, and it is

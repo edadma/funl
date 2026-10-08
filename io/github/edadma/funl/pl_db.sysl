@@ -442,7 +442,7 @@ private recycle_chunks(v: *Vm) -> usize
         if busy.get(c).is_some()
             still.push(c)
         else
-            v.chunks.set(c, Chunk("", buf(), buf(), AnyArity))
+            v.chunks.set(c, Chunk("", buf(), buf(), AnyArity, false))
             v.db.spare.push(c)
 
     v.db.retired = still

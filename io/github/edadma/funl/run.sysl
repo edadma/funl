@@ -29,6 +29,10 @@ private enum Flow
     Fails
     Halts
 
+    // The running machine has been set aside or is over, and nothing took its place: the next
+    // ready machine is owed the turn (`task.sysl`).
+    Idle
+
 // Run chunk `chunk` as the top level, from its first instruction. A line Prolog's `write/1` began
 // and nothing ended is written out when the run ends, however it ends.
 run(v: *Vm, chunk: usize) -> Outcome
@@ -60,30 +64,73 @@ resume(v: *Vm) -> Outcome
     outcome
 
 // The instruction loop proper, from `v.ip` in `v.code`.
+//
+// **It runs whichever machine is current**, which a call of an `async` function, an `await` and the
+// end of a task change (`task.sysl`): a task that fails or raises a fault nothing catches settles its
+// promise and gives way, where the top level's failure or fault ends the run. A machine resumed from
+// the queue whose awaited task failed or raised has that `injected` as its next step.
 private drive(v: *Vm) -> Outcome
+    var injected: Option[Result[Flow, Fault]] = None
+
     loop
-        maybe_collect(v)
+        var at = v.ip
 
-        val at = v.ip
-        val code = v.chunks.at(v.code).code
+        val step = injected match
+            Some(r) ->
+                injected = None
+                at = if at > 0 then at - 1 else 0
+                r
+            None ->
+                maybe_collect(v)
 
-        if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
+                val code = v.chunks.at(v.code).code
 
-        v.ip = at + 1
+                if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
 
-        execute(v, code.at(at)) match
+                v.ip = at + 1
+                execute(v, code.at(at))
+
+        step match
             Ok(Next) -> ()
-            Ok(Fails) -> if !fail(v) then return Failed
-            Ok(Halts) -> return Succeeded
-            Err(Broken(e)) -> return Faulted(s"${v.chunks.at(v.code).name}@$at: $e")
+            Ok(Fails) ->
+                if !fail(v)
+                    if !in_task(v) then return Failed
+
+                    if !task_ends(v, PromiseFailed, Undefined, "") then injected = Some(Ok(Idle))
+            Ok(Halts) ->
+                main_halts(v) match
+                    Some(o) -> return o
+                    None -> injected = Some(Ok(Idle))
+            Ok(Idle) ->
+                next_ready(v) match
+                    Runs -> ()
+                    Misses -> injected = Some(Ok(Fails))
+                    Raises(f) -> injected = Some(Err(f))
+                    Ends(o) -> return o
+            Err(Broken(e)) ->
+                val said = s"${v.chunks.at(v.code).name}@$at: $e"
+
+                if !in_task(v) then return Faulted(said)
+
+                if !task_ends(v, PromiseFaulted, Undefined, said) then injected = Some(Ok(Idle))
             Err(Exits(n)) -> return Halted(n)
             Err(Thrown(ball)) ->
                 // Read before unwinding, which undoes the bindings the ball was made with.
                 val said = s"${v.chunks.at(v.code).name}@$at: ${uncaught_text(ball)}"
 
+                // What a task's promise is faulted with, should nothing catch the ball.
+                val kept = if in_task(v) then copy_term(ball) else Ok(Undefined)
+
                 throw_ball(v, ball) match
                     Ok(true) -> ()
-                    Ok(false) -> return Faulted(said)
+                    Ok(false) ->
+                        if !in_task(v) then return Faulted(said)
+
+                        val x = kept match
+                            Ok(k) -> k
+                            Err(e) -> return Faulted(e)
+
+                        if !task_ends(v, PromiseFaulted, x, said) then injected = Some(Ok(Idle))
                     Err(e) -> return Faulted(e)
 end drive
 
@@ -558,6 +605,8 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             exit_trap(v, slot)?
             Ok(Next)
         Rethrow -> Err(Thrown(pop(v)?))
+        Await -> Ok(if await_top(v)? then Next else Idle)
+        Settle -> Ok(if settle_top(v)? then Next else Idle)
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it

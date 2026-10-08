@@ -472,6 +472,15 @@ enum Op
 
     // Pop a ball and throw it again: the fault no pattern of a `catch` wanted.
     Rethrow
+
+    // `await`: set the running machine aside until the value on top -- a promise, or anything else,
+    // which is its own answer -- is ready, leaving it on the operand stack, where the answer is
+    // written over it when the machine comes back (`task.sysl`).
+    Await
+
+    // A task's function has answered: pop its value into the task's promise, which settles, and
+    // give the machine up. The one instruction of the chunk a task's first frame returns to.
+    Settle
 end Op
 
 // What a first argument is keyed by in a relation's index. A head argument of any other kind, and
@@ -520,3 +529,6 @@ struct Chunk
 
     // How many arguments a call must pass, or `AnyArity`.
     arity: usize
+
+    // An `async` function's: a call of it starts a task and answers its promise (`task.sysl`).
+    is_async: bool

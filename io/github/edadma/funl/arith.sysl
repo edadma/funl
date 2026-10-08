@@ -207,6 +207,7 @@ described(x: Value) -> string
         CSet(_) -> "a cset"
         Bytes(_) -> s"the byte string ${render(x)}"
         Handle(_) -> s"the handle ${render(x)}"
+        Promise(_) -> s"the promise ${render(x)}"
         Var(_) -> "an unbound variable"
         y -> render(y)
 

@@ -133,6 +133,12 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             val e = parse_expr(p, ReturnPower)
 
             expr(YieldE(e), t.span.to(e.span))
+        AwaitW ->
+            // One operand, as tight as a prefix minus: `await f() + 1` adds to what `f` answered.
+            val e = parse_expr(p, NegPower)
+
+            expr(AwaitE(e), t.span.to(e.span))
+        AsyncW -> async_lambda(p, t.span)
         LBracket -> list(p, t.span)
         LBrace -> braces(p, t.span)
         Backslash ->
@@ -258,7 +264,7 @@ private map_entry(e: &Expr) -> Option[KeyValue] = e.kind match
 
                 var clauses: Buf[Clause] = buf()
 
-                clauses.push(Clause(c.name, v.span.to(c.head), params, c.kind))
+                clauses.push(Clause(c.name, v.span.to(c.head), params, c.kind, c.is_async))
                 Some(KeyValue(map_key(k), expr(LambdaE(id, clauses), v.span.to(e.span))))
             _ -> None
     _ -> None
@@ -743,12 +749,30 @@ private catching(p: *Parser, left: &Expr) -> &Expr
 
     expr(CatchE(id, left, pat, guard, body), left.span.to(body.span))
 
+// `async params -> body`, the `async` already read at `at`: the lambda, its clauses `async`.
+private async_lambda(p: *Parser, at: Span) -> &Expr
+    val e = parse_expr(p, 0)
+
+    e.kind match
+        LambdaE(id, cs) ->
+            var clauses: Buf[Clause] = buf()
+
+            for c in cs.view()
+                clauses.push(Clause(c.name, c.head, c.params, c.kind, true))
+
+            expr(LambdaE(id, clauses), at.to(e.span))
+        BadE -> e
+        _ ->
+            p.report.add(error(at, "`async` is written before `def` or a lambda")
+                .with_note("it makes a function whose call answers a promise: `async def f(x) = ...`, `async x -> ...`"))
+            expr(BadE, at.to(e.span))
+
 private one_clause_lambda(p: *Parser, params: Buf[&Expr], guard: Option[&Expr], body: &Expr, at: Span) -> &Expr
     var guards: Buf[Guard] = buf()
     var clauses: Buf[Clause] = buf()
 
     guards.push(Guard(guard, body))
-    clauses.push(Clause("lambda", at, params, FunctionC(FnBody(guards, buf()))))
+    clauses.push(Clause("lambda", at, params, FunctionC(FnBody(guards, buf())), false))
     expr(LambdaE(p.lambda_id(), clauses), at)
 
 // `name(args)`, the name already read and the `(` next.

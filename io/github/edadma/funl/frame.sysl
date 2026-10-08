@@ -65,8 +65,14 @@ make_closure(v: *Vm, target: usize, up: usize) -> Result[unit, string]
 //
 // **The frame is allocated before the arguments leave the stack**, so they are rooted while the
 // allocation runs -- and allocation never collects in any case.
+//
+// **An `async` function's call starts a task instead** (`task.sysl`), and every call path comes
+// through here -- a direct call, a call through a value, a tail call, a builtin's callback -- so no
+// `await` ever runs in a frame a sysl call made.
 private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, Fault]
     check_target(v, target, argc)?
+
+    if v.chunks.at(target).is_async then return start_async(v, target, argc, up)
 
     val f = new_frame(target)?
 
@@ -98,7 +104,8 @@ tail_call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Faul
 private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, Fault]
     val f = v.frame
 
-    if f == null || f.caller == null || v.control.len() != f.entry || f.captured || up == f
+    // An `async` callee starts a task, whose promise the `Return` after the `TailCall` returns.
+    if f == null || f.caller == null || v.control.len() != f.entry || f.captured || up == f || is_async_chunk(v, target)
         return open_frame(v, target, argc, up)
 
     check_target(v, target, argc)?
@@ -112,6 +119,8 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
     v.code = target
     v.ip = 0
     Ok(())
+
+private is_async_chunk(v: *Vm, target: usize) -> bool = target < v.chunks.len() && v.chunks.at(target).is_async
 
 // Call the function value beneath the top `argc` values, in tail position when `tail`. False where
 // the callee was a collection and held nothing under the key: the call fails.

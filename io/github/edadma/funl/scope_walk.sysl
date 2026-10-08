@@ -25,6 +25,9 @@ struct Walk
     // Whether this is a function's clause, where `return` means something.
     function: bool
 
+    // Whether `await` may be written here: in an `async` function's clause, or at the top level.
+    waits: bool
+
     // The block being read.
     blk: usize
 
@@ -64,8 +67,9 @@ struct LoopSeen
     label: Option[string]
 
 // A walk over scope `sid`, from its root block, inside no loop.
-walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool) -> Walk =
-    Walk(res, report, pending, sc, sid, relation, function, 0, buf(), relation, false)
+walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool,
+       waits: bool) -> Walk =
+    Walk(res, report, pending, sc, sid, relation, function, waits, 0, buf(), relation, false)
 
 // Whether a call of `n`, which means `m`, is one of the all-solutions forms: the name, where nothing
 // the program declares takes it.
@@ -450,6 +454,12 @@ walk(w: *Walk, e: &Expr)
 
             w.sc.yields = true
             walk(w, x)
+        AwaitE(x) ->
+            if !w.waits
+                w.report.add(error(e.span, "`await` is written in an `async` function or at the top level")
+                    .with_note("it belongs to the function it is written in: make that one `async def`, or `async` before a lambda"))
+
+            walk(w, x)
         AssignE(n, x) ->
             walk(w, x)
             assigned(w, n, e.span, e.span.end)
@@ -736,6 +746,7 @@ hoist_expr(w: *Walk, e: &Expr)
         BangE(x) -> hoist_expr(w, x)
         RepAltE(x) -> hoist_expr(w, x)
         YieldE(x) -> hoist_expr(w, x)
+        AwaitE(x) -> hoist_expr(w, x)
         AssignE(_, x) -> hoist_expr(w, x)
         RangeE(a, b, by, _) ->
             hoist_two(w, a, b)

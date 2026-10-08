@@ -89,6 +89,10 @@ enum Value
     // A native resource -- a connection, a statement, an iterator's state -- opaque to the program
     // and reached only through its kind's methods (`handle.sysl`). Equal only to itself.
     Handle(p: *HandleObj)
+
+    // What a call of an `async` function answers: pending until the task settles it with a value, a
+    // failure or a fault (`task.sysl`). Opaque, and equal only to itself.
+    Promise(p: *PromiseObj)
 end Value
 
 // Follow bound variables until reaching something that is not one.
