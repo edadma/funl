@@ -49,7 +49,7 @@ write( 'next' )     ;; prints next
 **A fault is not a failure**, and no bounded context stops one: it unwinds until a `catch` takes it,
 and otherwise ends the program.
 
-> **Decided (user, 2026-10-08; [modules](modules.md#open-questions) question 4) — how does FunL catch
+> **Decided (user, 2026-10-08; [modules](modules.md#questions-decided) question 4) — how does FunL catch
 > a fault?** **Decision: slate's postfix form, `e catch p -> r`, with an optional guard
 > `e catch p | g -> r`.** A fault raised while `e` is evaluated — or while `e` is resumed for another
 > value — is the ISO error term Prolog's `catch/3` sees; it is matched against the pattern `p`, `g` is
