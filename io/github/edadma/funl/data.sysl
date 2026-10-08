@@ -24,15 +24,28 @@ struct CtorDef
     functor: u32
     fields: Buf[u32]
 
-// Register constructor `name` with `fields`, answering its id.
-declare_ctor(name: string, fields: Buf[string]) -> usize
+    // Where it was declared, as `file:line:column`.
+    origin: string
+
+// The constructor already declared as `name` with `n` fields, if any: two such could not be told
+// apart by the records Prolog makes.
+declared_ctor(name: string, n: usize) -> Option[CtorDef]
+    val f = intern(name)
+
+    for d in current().ctors.view()
+        if d.functor == f && d.fields.len() == n then return Some(d)
+
+    None
+
+// Register constructor `name` with `fields`, declared at `origin`, answering its id.
+declare_ctor(name: string, fields: Buf[string], origin: string) -> usize
     val v = current()
     var ids: Buf[u32] = buf()
 
     for f in fields.view()
         ids.push(intern(f))
 
-    v.ctors.push(CtorDef(intern(name), ids))
+    v.ctors.push(CtorDef(intern(name), ids, origin))
     v.ctors.len() - 1
 
 // -- making them ---------------------------------------------------------------------------------------
