@@ -2,7 +2,6 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 import sysl.text.{Search, char_from_u32, chars_of, from_utf8_unchecked, str_builder}
-import sysl.unicode.{to_lower as lower_char, to_upper as upper_char}
 
 // Prolog's builtins over the text of atoms: `atom_codes/2`, `atom_chars/2`, `char_code/2`,
 // `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `number_codes/2`, `number_chars/2` and
@@ -619,78 +618,18 @@ private pl_atom_string(base: usize, argc: usize, cursor: long) -> Result[Answer,
 // `upcase_atom/2`, `downcase_atom/2`, `string_upper/2` and `string_lower/2`: the text of the first
 // argument with every character in upper or lower case, made an atom or a string.
 private case_of(base: usize, who: string, upper: bool, as_string: bool) -> Result[Answer, Fault]
-    val s = bound_text(arg(base, 0), who, true)?
-    var out = str_builder()
-
-    for c in chars_of(s.bytes)
-        out.push_char(if upper then upper_char(c) else lower_char(c))
-
-    val t = out.finish()
+    val t = cased(bound_text(arg(base, 0), who, true)?, upper)
 
     if as_string then answer(same_text(arg(base, 1), t)?) else unified(arg(base, 1), atom(t))
 
-// The characters of `s`.
-private chars_in(s: string) -> Buf[char]
-    var out: Buf[char] = buf()
-
-    for c in chars_of(s.bytes)
-        out.push(c)
-
-    out
-
-private holds_char(set: *Buf[char], c: char) -> bool
-    for i in 0..<set.len()
-        if set.at(i) == c then return true
-
-    false
-
-// The characters `cs[from..<to]` as a string value.
-private span_string(cs: *Buf[char], from: usize, to: usize) -> Result[Value, Fault]
-    var out = str_builder()
-
-    for i in from..<to
-        out.push_char(cs.at(i))
-
-    made_text(out.finish(), true)
-
 // `split_string(S, SepChars, Pad, Subs)`, as SWI-Prolog has it: `S` with the `Pad` characters taken
 // off both ends, cut at every one of the `SepChars`, and each piece with the `Pad` characters taken off
-// both of its ends. Where a character is both a separator and padding, a run of them cuts once.
+// both of its ends (`split_text`).
 private pl_split_string(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val who = "split_string/4"
-    var cs = chars_in(bound_text(arg(base, 0), who, true)?)
-    var sep = chars_in(bound_text(arg(base, 1), who, true)?)
-    var pad = chars_in(bound_text(arg(base, 2), who, true)?)
-    var start: usize = 0
-    var end = cs.len()
+    val s = bound_text(arg(base, 0), who, true)?
+    val sep = char_set(bound_text(arg(base, 1), who, true)?)
+    val pad = char_set(bound_text(arg(base, 2), who, true)?)
+    var pieces = split_text(s, Among(sep), Among(pad))
 
-    while start < end && holds_char(&pad, cs.at(start))
-        start += 1
-
-    while end > start && holds_char(&pad, cs.at(end - 1))
-        end -= 1
-
-    var items: Buf[Value] = buf()
-
-    loop
-        var el = start
-
-        while el < end && !holds_char(&sep, cs.at(el))
-            el += 1
-
-        var e0 = el
-
-        while e0 > start && holds_char(&pad, cs.at(e0 - 1))
-            e0 -= 1
-
-        items.push(span_string(&cs, start, e0)?)
-
-        if el >= end then break
-
-        start = el + 1
-
-        while start < end && holds_char(&pad, cs.at(start))
-            start += 1
-
-    unified(arg(base, 3), list_of(&items, Nil)?)
-end pl_split_string
+    unified(arg(base, 3), string_list(&pieces)?)

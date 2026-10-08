@@ -283,7 +283,7 @@ missing keys read as `x` instead of failing. So counting needs no membership tes
 
 ```
 val counts = map( {}, 0 )
-every counts( !words ) += 1          ;; words is a list of strings; a new word reads 0, and the assignment adds it
+every counts( !split(text) ) += 1    ;; each word of the string text; a new word reads 0, and the assignment adds it
 write( counts("zzz") )               ;; 0, and "zzz" is still not a key
 ```
 
@@ -481,6 +481,16 @@ if 'aaa12cc' ? tab(many('a')) & write(repn(2, ccls(digits))) & write(rep1(string
 `string`, `ccls`, `rep`, `rep1`, `repn`, `opt` and their reluctant forms are compile-time
 constructors of the same patterns a regex literal produces; the [machine
 chapter](vm.md#regex-compiled-into-the-same-machine) shows that both become ordinary instructions.
+
+### Ordinary string functions
+
+Scanning takes a string apart; the everyday transformations are plain functions beside it:
+`split(s)` (the words), `split(s, sep)` (at a string, or at the characters of a cset), `join(c, sep)`,
+`trim`, `trim_start`, `trim_end`, `upper`, `lower` and `replace(s, old, new)`. The tests
+`starts_with(s, p)`, `ends_with(s, p)` and `contains(s, p)` produce `s` or fail, as `odd` does, so
+they serve as conditions and as filters. Where a string stands in another is scanning's `find(p, s)`,
+a generator of positions, and is not duplicated. Case is Unicode's simple mapping, one character for
+one.
 
 ## Source files, and literate FunL
 
