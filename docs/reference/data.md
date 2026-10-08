@@ -49,6 +49,25 @@ write( {x \ 2 | x <- 1..5} )
 {0, 1, 2}
 ```
 
+`x <- e` takes every value `e` produces, iterating each one that is a collection and taking any
+other as it is, so a comprehension collects what a generator produces
+([Generators](generators.md) has the whole rule):
+
+```funl
+def squares()
+  yield 1
+  yield 4
+  yield 9
+
+write( [x + 1 | x <- squares()] )
+write( [x | x <- ([1, 2] | 3)] )
+```
+
+```output
+[2, 5, 10]
+[1, 2, 3]
+```
+
 ## Reaching an element
 
 An element is reached by calling the collection with its index or key, and a map's or record's

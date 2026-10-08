@@ -136,6 +136,39 @@ BANG_REFUSES_WHAT_HAS_NO_ELEMENTS()
     generator_fault("write( !5 )\n", "`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map or a string, and was given the integer 5")
     generator_fault("free x\nwrite( !x )\n", "instantiation error: `!` was given an unbound variable")
 
+// -- a binding `p <- e` draws every value of `e` -----------------------------------------------------
+
+private val YieldsThree: string = "def g()\n  yield 1\n  yield 2\n  yield 3\n"
+
+@test
+A_COMPREHENSION_DRAWS_EVERY_VALUE_OF_A_GENERATOR()
+    val text = YieldsThree + "write( [x^2 | x <- g()] )\nwrite( {x \\ 2 | x <- g()} )\nwrite( [x | x <- (1 | 2 | 3)] )\n"
+
+    assert_eq(ran_funl(text), "[1, 4, 9]\n{0, 1}\n[1, 2, 3]\nsucceeded")
+
+@test
+A_FOR_DRAWS_EVERY_VALUE_OF_A_GENERATOR()
+    val text = YieldsThree + "for x <- g() if x != 2 do write( x )\n"
+
+    assert_eq(ran_funl(text), "1\n3\nsucceeded")
+
+// Each value that is a collection is iterated; any other value is drawn as it is.
+@test
+EACH_VALUE_THAT_IS_A_COLLECTION_IS_ITERATED()
+    val text = "write( [x | x <- (1 | [2, 3] | 4)] )\nwrite( [x | x <- [[1, 2], [3]]] )\nwrite( [x | x <- 5] )\nwrite( [w | w <- ['ab' | 'cd']] )\n"
+
+    assert_eq(ran_funl(text), "[1, 2, 3, 4]\n[[1, 2], [3]]\n[5]\n[\"ab\", \"cd\"]\nsucceeded")
+
+@test
+A_GENERATOR_THAT_FAILS_DRAWS_ONLY_WHAT_IT_PRODUCED()
+    val text = "def none()\n  fail\ndef one()\n  yield 1\n  fail\nwrite( [x | x <- none()] )\nfor x <- none() do write( x )\nwrite( [x | x <- one()] )\n"
+
+    assert_eq(ran_funl(text), "[]\n[1]\nsucceeded")
+
+@test
+A_BINDING_REFUSES_AN_UNBOUND_VARIABLE()
+    generator_fault("free x\nwrite( [y | y <- x] )\n", "instantiation error: `<-` was given an unbound variable")
+
 // -- backtracking into a generator ------------------------------------------------------------------
 
 // The comparison fails for 1 and 2; each failure resumes the range for its next value.

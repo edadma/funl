@@ -163,7 +163,7 @@ private iterate(e: *Emit, c: Ctx, iter: &Expr) -> Result[unit, string]
         _ -> ()
 
     compile_value(e, c, iter)?
-    e.op(GenStart)
+    e.op(GenStart(true))
     e.op(GenNext)
     Ok(())
 
