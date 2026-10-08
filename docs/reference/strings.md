@@ -257,6 +257,33 @@ write( find('x', 'banana') | 'not there' )
 not there
 ```
 
+## `bytes` and `decode`
+
+`bytes(s)` is the UTF-8 encoding of `s` as a [byte string](data.md#bytes), and `decode(b)` reads a
+byte string as UTF-8 text. A character outside ASCII takes more than one byte, so the two lengths
+can differ.
+
+```funl
+b = bytes('héllo')
+write( b, b.length, 'héllo'.length )
+write( decode(b), decode(b(0..0)) )
+```
+
+```output
+bytes([104, 195, 169, 108, 108, 111]), 6, 5
+héllo, h
+```
+
+Bytes that are not UTF-8 -- here a slice that cuts `é` in half -- are an error.
+
+```funl
+write( decode(bytes('héllo')(0..1)) )
+```
+
+```error
+'decode' was given the byte string bytes([104, 195]), which is not UTF-8
+```
+
 ## Putting them together
 
 Counting the words of a line, whatever its case and spacing:

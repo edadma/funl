@@ -182,6 +182,8 @@ private put_term(w: *Writer, x: Value, max: u16, depth: long)
         Buffer(_) -> emit(w, "<buffer>")
         Ctor(_) -> emit(w, "<constructor>")
         CSet(_) -> emit(w, "<cset>")
+        Bytes(_) -> emit(w, render(x))
+        Handle(_) -> emit(w, render(x))
 end put_term
 
 // An atom. `inner` says it stands inside a term, where `,` and `|` are quoted even by `write`: bare,

@@ -30,6 +30,15 @@ enum Answer
     // A value, and more to be had by calling again with cursor `next`.
     GivesMore(x: Value, next: long)
 
+// How a generator over a handle begins: called once per call with its arguments, it answers the
+// handle holding this call's iteration state (`Handle(p)`), or `None` when there is nothing to
+// iterate and the call fails at once.
+type StartGo = &Fn(usize, usize) -> Result[Option[Value], Fault]
+
+// How a generator over a handle steps: the next value from the state handle `start` made, or `None`
+// when it has run out, which is failure.
+type StepGo = &Fn(*HandleObj) -> Result[Option[Value], Fault]
+
 // How a builtin is run.
 enum Impl
     // Called with its arguments; answers one value.
@@ -37,6 +46,10 @@ enum Impl
 
     // Called with its arguments and a cursor; `NativeGen` runs it.
     Generating(go: GeneratorGo)
+
+    // A generator whose state is a handle: `start` makes it, `step` takes the next value from it.
+    // `NativeGen` runs it, with the handle in the cursor's cell (`call_stepping`).
+    Stepping(start: StartGo, step: StepGo)
 
     // A name for a value, `letters`: called with no arguments, once, when a program that names it is
     // compiled.
@@ -60,6 +73,12 @@ register_generator(v: *Vm, name: string, arity: usize, go: GeneratorGo) -> usize
     v.natives.push(Native(name, arity, Generating(go)))
     v.natives.len() - 1
 
+// Add a generator over a handle: each call makes a fresh state handle with `start` and takes values
+// from it with `step`, one per resumption, until `step` runs out (see `call_stepping`).
+register_stepping(v: *Vm, name: string, arity: usize, start: StartGo, step: StepGo) -> usize
+    v.natives.push(Native(name, arity, Stepping(start, step)))
+    v.natives.len() - 1
+
 // Add a name for the value `go` makes.
 register_constant(v: *Vm, name: string, go: NativeGo) -> usize
     v.natives.push(Native(name, 0, Constant(go)))
@@ -73,6 +92,7 @@ is_constant(id: usize) -> bool = current().natives.at(id).how match
 // Whether builtin `id` is run by `NativeGen`.
 is_generator(id: usize) -> bool = current().natives.at(id).how match
     Generating(_) -> true
+    Stepping(_, _) -> true
     _ -> false
 
 // The id of the builtin called `name`, if there is one.

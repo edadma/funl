@@ -54,6 +54,12 @@ private identical(a: Value, b: Value) -> bool = a match
     Ctor(i) -> b match
         Ctor(j) -> i == j
         _ -> false
+    Bytes(p) -> b match
+        Bytes(q) -> p == q
+        _ -> false
+    Handle(p) -> b match
+        Handle(q) -> p == q
+        _ -> false
     _ -> false
 
 // Unify `a` with `b`, binding variables. Answers false on a mismatch, leaving whatever bindings it
@@ -169,6 +175,12 @@ private step(x: Value, y: Value, check: bool) -> bool
         Range(_) -> equal_or_not(x, y)
         Set(_) -> equal_or_not(x, y)
         CSet(_) -> equal_or_not(x, y)
+
+        // A byte string holds no variable either, and unifies with one holding the same bytes.
+        Bytes(_) -> equal_or_not(x, y)
+
+        // A handle unifies only with itself, which `identical` has already tested.
+        Handle(_) -> false
 
         // A map, a mutable set, an array, a buffer and a constructor are opaque to unification: each
         // unifies only with itself, which `identical` has already tested.
@@ -444,6 +456,12 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, Fault]
                 CSet(q) -> p.set.same(q.set)
                 _ -> false
 
+            // A byte string equals one with the same bytes; a handle only itself.
+            Bytes(p) -> y match
+                Bytes(q) -> same_bytes(p, q)
+                _ -> false
+            Handle(_) -> false
+
             // An immutable map equals one with the same entries. What changes in place is equal only
             // to itself, which `identical` has already tested.
             Map(p) -> y match
@@ -525,6 +543,9 @@ compare_terms(a: Value, b: Value) -> int
             Ctor(i) -> y match
                 Ctor(j) -> ordered(u64(i), u64(j))
                 _ -> 0
+            Bytes(p) -> y match
+                Bytes(q) -> bytes_order(p, q)
+                _ -> 0
             _ ->
                 if rx == AtomRank
                     texts(atom_text(x), atom_text(y))
@@ -568,6 +589,8 @@ private rank(x: Value) -> int = x match
     Func(_) -> 14
     Ctor(_) -> 15
     CSet(_) -> 16
+    Bytes(_) -> 17
+    Handle(_) -> 18
 
 private ordered(a: u64, b: u64) -> int = if a < b then -1 elif a > b then 1 else 0
 
@@ -638,6 +661,7 @@ private identity(x: Value) -> usize = x match
     Buffer(p) -> usize(p)
     Func(p) -> usize(p)
     CSet(p) -> usize(p)
+    Handle(p) -> usize(p)
     _ -> 0
 
 // Push each pair of parts of two terms whose heads already agree (`heads`) and whose arity does.

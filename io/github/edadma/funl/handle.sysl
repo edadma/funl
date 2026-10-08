@@ -1,0 +1,157 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// Handles: how a native module gives a program a live resource -- a connection, a statement, a child
+// process, an iteration's state -- without the program seeing inside it.
+//
+// **A handle is opaque.** The program holds it, passes it, compares it (equal only to itself) and
+// calls its methods, `h.name(args)`; nothing else reads it. Prolog sees it as an opaque term that
+// unifies only with itself. It prints as `<kind handle>`, `<closed kind handle>` once closed.
+//
+// **Registering a kind** is what a native module does once, at install time:
+//
+//     val k = register_handle_kind(v, "statement", release_statement)
+//     register_method(v, k, "step", 0, statement_step)
+//     register_method(v, k, "bind", 2, statement_bind)
+//
+// The release hook gives the handle's resource back (`res`, and anything its `vals` stand for); it is
+// run exactly once, by `close()` or, for a handle the program forgot, by the collector's finalizer.
+// A maker native takes a handle with `new_handle(k)`, stores its resource, and answers `Handle(p)`.
+// A method is a builtin whose argument 0 is the handle (`open_handle` checks it) and which may fail
+// (`MethodGo`): `step` is called with one argument, `bind` with three.
+//
+// **Every kind has `close()`**, which the runtime supplies: it releases the resource now, and closing
+// a closed handle does nothing. Any other method called on a closed handle is a fault,
+// `existence_error(handle, H)`, as a closed stream is in Prolog; a method the kind does not have is
+// `existence_error(method, Name)`.
+//
+// **A native generator keeps its state in a handle** (`register_stepping`, `call_stepping`): one per
+// call, released when the generator runs out, by `close()`, or by the finalizer once a commit has
+// abandoned it.
+
+// What a kind's release hook is given: the handle whose resource it gives back.
+type ReleaseGo = &Fn(*HandleObj) -> unit
+
+// A method: called with its arguments on the stack from `base`, the handle first, and how many there
+// are, it answers a value, or `None` for failure -- "no such row", "nothing more" -- which the program
+// tests with `if` and `|` as it would a comparison.
+type MethodGo = &Fn(usize, usize) -> Result[Option[Value], Fault]
+
+// One method of a kind: its name, how many arguments it takes besides the handle, and the builtin.
+struct Method
+    name: string
+    arity: usize
+    go: MethodGo
+
+// A kind of handle: the name it prints with, its release hook and its methods.
+struct HandleKind
+    name: string
+    release: ReleaseGo
+    methods: Buf[Method]
+
+// Register a kind of handle and answer its id, which `new_handle` and `register_method` take.
+register_handle_kind(v: *Vm, name: string, release: ReleaseGo) -> u32
+    v.handle_kinds.push(HandleKind(name, release, buf()))
+    u32(v.handle_kinds.len() - 1)
+
+// Give kind `kind` the method `name`, taking `arity` arguments besides the handle (`Variadic` for any
+// number). `go` sees the handle as argument 0, so it is called with `arity + 1`.
+register_method(v: *Vm, kind: u32, name: string, arity: usize, go: MethodGo)
+    var k = v.handle_kinds.at(usize(kind))
+
+    k.methods.push(Method(name, arity, go))
+    v.handle_kinds.set(usize(kind), k)
+
+// The name of the kind of handle `h`.
+handle_kind_name(h: *HandleObj) -> string = current().handle_kinds.at(usize(h.kind)).name
+
+// Close `h`: run its kind's release hook, once. Closing a closed handle does nothing.
+close_handle(h: *HandleObj)
+    if h.closed then return
+
+    h.closed = true
+    current().handle_kinds.at(usize(h.kind)).release(h)
+    h.res = null
+    h.vals = buf()
+
+// Argument `i` of a method or builtin, which must be an open handle of kind `kind`.
+open_handle(base: usize, i: usize, kind: u32, what: string) -> Result[*HandleObj, Fault]
+    val x = deref(arg(base, i))
+
+    val h = x match
+        Handle(p) -> p
+        _ -> return Err(kind_error(x, "handle", s"$what wants a handle and was given ${described(x)}"))
+
+    if h.kind != kind
+        return Err(type_error(current().handle_kinds.at(usize(kind)).name, x, s"$what wants a ${current().handle_kinds.at(usize(kind)).name} handle and was given ${described(x)}"))
+
+    if h.closed then return Err(closed_handle(x, what))
+
+    Ok(h)
+
+private closed_handle(x: Value, what: string) -> Fault = existence_error("handle", x, s"$what was called on ${described(x)}")
+
+// `CallMethod(name, argc, tail)`: what `MethodOf(name)` left -- a handle and `()`, or `()` and a
+// callee -- under the top `argc` values. False where the call fails.
+call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
+    val n = v.stack.len()
+
+    if argc + 2 > n then return Err(Broken(s"a method call wants two cells and $argc arguments and the operand stack holds $n"))
+
+    val first = n - argc - 2
+    val recv = deref(v.stack.at(first))
+
+    val h = recv match
+        Handle(p) -> p
+        _ ->
+            // Not a handle: the field `MethodOf` read is called as `CallValue` would call it, once the
+            // `()` under it is gone.
+            for i in first + 1..<n
+                v.stack.set(i - 1, v.stack.at(i))
+
+            v.stack.truncate(n - 1)
+            return call_value(v, argc, tail)
+
+    // The `()` goes; the handle becomes argument 0.
+    for i in first + 2..<n
+        v.stack.set(i - 1, v.stack.at(i))
+
+    v.stack.truncate(n - 1)
+
+    val text = atom_name(name)
+    val kind = v.handle_kinds.at(usize(h.kind))
+    val shown = s"'$text' of ${described(recv)}"
+
+    if text == "close"
+        if argc != 0 then return Err(wrong_count(text, argc, s"$shown takes no arguments and was given $argc"))
+
+        close_handle(h)
+        v.stack.truncate(first)
+        v.stack.push(Unit)
+        return Ok(true)
+
+    var found: Option[Method] = None
+
+    for m in kind.methods.view()
+        if m.name == text then found = Some(m)
+
+    val m = found match
+        Some(m) -> m
+        None -> return Err(existence_error("method", Atom(name), s"${described(recv)} has no method '$text'"))
+
+    if h.closed then return Err(closed_handle(recv, s"'$text'"))
+
+    if m.arity != Variadic && argc != m.arity
+        return Err(wrong_count(text, argc, s"$shown takes ${m.arity} arguments and was given $argc"))
+
+    val answer = m.go(first, argc + 1)?
+
+    v.stack.truncate(first)
+
+    answer match
+        Some(x) ->
+            v.stack.push(x)
+            Ok(true)
+        None -> Ok(false)
+end call_method

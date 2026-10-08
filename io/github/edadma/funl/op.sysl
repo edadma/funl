@@ -237,6 +237,15 @@ enum Op
     // Replace the top with its field `name`, an atom id.
     Field(name: u32)
 
+    // The callee of `x.name(args)`, before the arguments are made: pop `x`; push `x` and `()` when it
+    // is a handle, whose method is chosen when it is called; otherwise push `()` and `x.name`, as
+    // `Field` makes it, or fail. Two cells either way, so `CallMethod` finds the arguments in one place.
+    MethodOf(name: u32)
+
+    // Call what `MethodOf(name)` left under the top `argc` values: method `name` of a handle, or the
+    // field's value as `CallValue` calls it (`tail` as `TailCallValue`, and then followed by `Return`).
+    CallMethod(name: u32, argc: usize, tail: bool)
+
     // Pop into slot `slot` of the frame `depth` static links up, recording what it held on the trail
     // for failure to put back.
     StoreBack(depth: usize, slot: usize)

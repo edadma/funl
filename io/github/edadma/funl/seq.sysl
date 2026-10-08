@@ -123,6 +123,11 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
             Buffer(a) ->
                 out.extend(a.items.view())
                 return Ok(())
+            Bytes(p) ->
+                for b in p.b.view()
+                    out.push(Int(long(b)))
+
+                return Ok(())
             Var(_) -> return Err(instantiation_error(s"instantiation error: $what reached an unbound tail of a list"))
             y -> return Err(type_error("list", y, s"$what wants a list and reached ${described(y)}"))
 
@@ -225,9 +230,19 @@ member(x: Value, c: Value) -> Result[bool, Fault]
             Buffer(a) -> return within(x, a.items)
             Map(m) -> return Ok(map_find(m, x)?.is_some())
             MutMap(m) -> return Ok(map_find(m, x)?.is_some())
+            Bytes(p) ->
+                val n = deref(x) match
+                    Int(n) -> n
+                    Var(_) -> return Err(instantiation_error("instantiation error: 'in' was given an unbound variable"))
+                    _ -> return Ok(false)
+
+                for b in p.b.view()
+                    if long(b) == n then return Ok(true)
+
+                return Ok(false)
             Var(_) -> return Err(instantiation_error("instantiation error: 'in' was given an unbound variable to look in"))
             y ->
-                val msg = s"'in' looks in a list, a range, a tuple, a set, an array, a buffer or a map's keys, and was given ${described(y)}"
+                val msg = s"'in' looks in a list, a range, a tuple, a set, an array, a buffer, a byte string or a map's keys, and was given ${described(y)}"
 
                 return Err(type_error("collection", y, msg))
 
@@ -278,15 +293,17 @@ element_at(c: Value, index: Value) -> Result[Option[Value], Fault]
                 None -> Err(evaluation_error("int_overflow", s"element $i of ${render(x)} does not fit in 64 bits"))
         Tuple(t) -> Ok(Some(t.items.at(usize(i))))
         Str(p) -> Ok(Some(new_str(chars_between(p, usize(i), usize(i) + 1))?))
+        Bytes(p) -> Ok(Some(Int(long(p.b.at(usize(i))))))
         _ -> Err(type_error("indexable", x, s"${described(x)} cannot be indexed"))
 end element_at
 
 // -- slicing -------------------------------------------------------------------------------------------
 
-// Whether `c(r)`, for a range `r`, takes a slice of `x`: a string, a list, a range, a tuple, an array
-// or a buffer.
+// Whether `c(r)`, for a range `r`, takes a slice of `x`: a string, a byte string, a list, a range, a
+// tuple, an array or a buffer.
 sliceable(x: Value) -> bool = deref(x) match
     Str(_) -> true
+    Bytes(_) -> true
     Nil -> true
     Cons(_) -> true
     Range(_) -> true
@@ -344,6 +361,7 @@ private sliced(x: Value, first: long, count: long, step: long) -> Result[Value, 
                 out.push_char(char_at(p, usize(first + k * step)))
 
             Ok(new_str(out.finish())?)
+        Bytes(p) -> Ok(bytes_slice(p, first, count, step)?)
         Range(q) ->
             if count == 0 then return Ok(Nil)
 
@@ -462,6 +480,7 @@ length_of(x: Value) -> Result[long, Fault]
         MutMap(m) -> Ok(long(m.keys.len()))
         Compound(p) -> Ok(long(p.args.len()))
         Str(p) -> Ok(long(p.chars))
+        Bytes(p) -> Ok(long(p.b.len()))
         Var(_) -> Err(instantiation_error("instantiation error: a length was asked of an unbound variable"))
         y -> Err(type_error("collection", y, s"${described(y)} has no length"))
 end length_of

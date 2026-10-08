@@ -110,13 +110,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
 
             e.op(if items.len() == 0 then PushUnit else MakeTuple(items.len()))
         CallE(n, at, args) -> call_named(e, c, n, at.start, args, false)?
-        ApplyE(f, args) ->
-            compile_value(e, c, f)?
-
-            for a in args.view()
-                compile_value(e, c, a)?
-
-            e.op(CallValue(args.len()))
+        ApplyE(f, args) -> apply(e, c, f, args, false)?
         Conj(a, b) ->
             compile_value(e, c, a)?
             e.op(Pop)
@@ -303,6 +297,31 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
 
     Ok(())
 end compile_value
+
+// `f(args)` for a callee that is an expression, in tail position when `tail` (and then followed by
+// `Return`). **`x.name(args)` is a method call**: `MethodOf` before the arguments and `CallMethod`
+// after, so a handle's method is found by name when it is called, and any other `x` has its field
+// read before the arguments are made, as `Field` then `CallValue` would.
+apply(e: *Emit, c: Ctx, f: &Expr, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    val method = f.kind match
+        FieldE(x, name) ->
+            compile_value(e, c, x)?
+            e.op(MethodOf(intern(name)))
+            Some(intern(name))
+        _ ->
+            compile_value(e, c, f)?
+            None
+
+    for a in args.view()
+        compile_value(e, c, a)?
+
+    method match
+        Some(name) -> e.op(CallMethod(name, args.len(), tail))
+        None -> e.op(if tail then TailCallValue(args.len()) else CallValue(args.len()))
+
+    if tail then e.op(Return)
+
+    Ok(())
 
 // `yield a`: `Choice(after); a; Return; after:` -- the choice point is pushed before `a`, so `a`'s
 // own generators are newer and are resumed first, and only when they are spent does the function

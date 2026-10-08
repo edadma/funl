@@ -1,0 +1,74 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Byte strings: `bytes` and `decode`, indexing, slicing, generating, `length`, equality and order,
+// `+`, `is bytes`, printing, and what Prolog sees. Every program runs on both heaps.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+BYTES_ARE_MADE_FROM_INTEGERS_OR_A_STRING_AND_PRINT_AS_THE_CALL()
+    assert_eq(ran_funl("write( bytes([104, 105, 255]), bytes([]), bytes(1..3), bytes((0, 255)), bytes(array([7])) )\n"),
+        "bytes([104, 105, 255]), bytes([]), bytes([1, 2, 3]), bytes([0, 255]), bytes([7])\nsucceeded")
+    assert_eq(ran_funl("write( bytes(\"hé\"), bytes(\"\") )\nval b = bytes([1])\nwrite( bytes(b) == b )\n"),
+        "bytes([104, 195, 169]), bytes([])\nbytes([1])\nsucceeded")
+
+@test
+A_BYTE_IS_AN_INTEGER_FROM_0_TO_255()
+    faults_with("write( bytes([1, 256]) )\n", "a byte is an integer from 0 to 255, and 'bytes' was given the integer 256")
+    faults_with("write( bytes([-1]) )\n", "'bytes' was given the integer -1")
+    faults_with("write( bytes([\"a\"]) )\n", "'bytes' was given the string 'a'")
+    faults_with("write( bytes(3) )\n", "'bytes' wants a list and reached the integer 3")
+
+@test
+DECODE_READS_UTF8_AND_REFUSES_ANYTHING_ELSE()
+    assert_eq(ran_funl("write( decode(bytes([104, 195, 169])), decode(bytes(\"\")).length, decode(bytes(\"日本\")) )\n"),
+        "hé, 0, 日本\nsucceeded")
+    faults_with("write( decode(bytes([255])) )\n", "'decode' was given the byte string bytes([255]), which is not UTF-8")
+    faults_with("write( decode(bytes([195])) )\n", "which is not UTF-8")
+    faults_with("write( decode(\"a\") )\n", "'decode' wants a byte string and was given the string 'a'")
+
+@test
+BYTES_ARE_INDEXED_AND_SLICED_FROM_0()
+    assert_eq(ran_funl("val b = bytes([104, 105, 255])\nwrite( b(0), b(2), b(3) | \"none\", b(-1) | \"none\" )\nwrite( b(1..2), b(0..<0), b(1..), b(0..2 by 2), b(2..5) | \"none\" )\n"),
+        "104, 255, none, none\nbytes([105, 255]), bytes([]), bytes([105, 255]), bytes([104, 255]), none\nsucceeded")
+
+@test
+BYTES_GENERATE_THEIR_BYTES_AS_INTEGERS()
+    assert_eq(ran_funl("val b = bytes([104, 105, 255])\nwrite( [x | x <- b], [x + 1 | x <- !b], b.length, bytes(\"é\").length )\nfor x <- bytes([]) do write( x )\nwrite( sum(b), 105 in b | \"no\", 7 in b | \"no\" )\n"),
+        "[104, 105, 255], [105, 106, 256], 3, 2\n464, 105, no\nsucceeded")
+
+@test
+BYTES_ARE_EQUAL_BY_VALUE_AND_ORDERED_BYTE_BY_BYTE()
+    assert_eq(ran_funl("val b = bytes([1, 2])\nwrite( b == bytes([1, 2]) | \"no\", b == bytes([1]) | \"no\", b != bytes([1]) | \"no\" )\nwrite( b < bytes([1, 3]) | \"no\", b < bytes([1, 2, 0]) | \"no\", bytes([2]) < b | \"no\" )\nwrite( {b, bytes([1, 2]), bytes([3])} )\n"),
+        "bytes([1, 2]), no, bytes([1])\nbytes([1, 3]), bytes([1, 2, 0]), no\n{bytes([1, 2]), bytes([3])}\nsucceeded")
+    assert_eq(ran_funl("val a = bytes([1])\nval b = bytes([1])\nval c = bytes([2])\nwrite( if a ~ b then \"same\" else \"differ\", if a ~ c then \"same\" else \"differ\" )\n"),
+        "same, differ\nsucceeded")
+    faults_with("write( bytes([1]) < \"a\" )\n", "'<' cannot compare the byte string bytes([1]) with the string 'a'")
+
+@test
+PLUS_JOINS_TWO_BYTE_STRINGS()
+    assert_eq(ran_funl("write( bytes([1, 2]) + bytes([3]), bytes([]) + bytes([]) )\n"), "bytes([1, 2, 3]), bytes([])\nsucceeded")
+    faults_with("write( bytes([1]) + \"a\" )\n", "'+' joins a byte string to another, and was given the string 'a'")
+    faults_with("write( bytes([1]) + 1 )\n", "and was given the integer 1")
+
+@test
+BYTES_IS_A_TYPE()
+    assert_eq(ran_funl("write( bytes([1]) is bytes, \"hi\" is bytes | \"no\", [1] is bytes | \"no\" )\n"),
+        "bytes([1]), no, no\nsucceeded")
+
+@test
+PROLOG_SEES_BYTES_AS_AN_ATOMIC_VALUE_UNIFYING_BY_VALUE()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "show.pl", "show(X) :- write(X), nl.\nsame(X, X).\nkind(X, K) :- ( atomic(X) -> K = atomic ; K = other ).\n")
+    val program = s"import \"$pl\"\nval b = bytes([1, 2])\nshow(b)\nwrite( if same(b, bytes([1, 2])) then \"same\" else \"differ\", if same(b, bytes([1])) then \"same\" else \"differ\" )\nfree k\nkind(b, k)\nwrite( k )\n"
+
+    assert_eq(ran_funl(program), "bytes([1, 2])\nsame, differ\natomic\nsucceeded")

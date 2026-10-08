@@ -383,6 +383,14 @@ before milestone 10.
 > handle as opaque and unifying by identity, the term mapping already decided for maps and closures.
 > FunL has no `using`, so there is no scoped form: `close()`, with the finalizer as the backstop.
 
+> **Decided (user, 2026-10-08) — as recommended.** Refinements made building it: a handle prints as
+> `<kind handle>`, `<closed kind handle>` once closed; `x is handle` tests for one; `close()` is
+> supplied by the runtime for every kind and is idempotent; a closed handle's other methods fault
+> with `existence_error(handle, H)` (Prolog's closed-stream error), and a method the kind lacks with
+> `existence_error(method, Name)`. **A method may fail** ("no such row"), so its builtin answers a
+> value or failure. `x.name(args)` compiles to `MethodOf`/`CallMethod`: on anything but a handle it
+> reads the field before the arguments and calls it, exactly as before.
+
 > **Open question 2 — iterators as generators.** slate answers a whole array (`db.query`) or a
 > promise; FunL's natural answer is a generator, and backtracking into it is what makes rows, lines
 > and directory entries searchable. The registry's generating builtin carries only a `long` cursor.
@@ -393,6 +401,11 @@ before milestone 10.
 > another's position. A bounded context that commits abandons the choice point; the abandoned state
 > is released by its finalizer, or at once by `close()` on the handle it came from. Where a list is
 > wanted, the program writes a comprehension or `findall`.
+
+> **Decided (user, 2026-10-08) — as recommended.** Built as a third way to run a builtin,
+> `register_stepping(name, arity, start, step)`: the handle `start` makes takes the cursor's cell,
+> and running out closes it at once. A **method** that generates (`stmt.rows()`) is not built yet:
+> a generator over a handle is called as a function, `rows(stmt)`.
 
 > **Open question 3 — failure or fault for a native's error.** slate's rule is that text from outside
 > the program is an answer and a mistake the program made itself is a fault. FunL has failure,
@@ -443,6 +456,12 @@ before milestone 10.
 > immutable, indexed from 0 like every FunL collection, `!b` generating each byte as an integer, and
 > the decoding to text explicit. Until it exists, a BLOB column and a binary body are faults naming
 > the missing kind.
+
+> **Decided (user, 2026-10-08) — as recommended.** No literal syntax: `bytes(ints)`, `bytes(string)`
+> (UTF-8) and `decode(b)`, which faults with `domain_error(utf8, B)` on bytes that are not UTF-8. It
+> prints as `bytes([1, 2, 255])`; `b(i)`, `b(range)`, `!b`, `in`, `.length`, `+`, equality and
+> byte-by-byte order, `is bytes`. Prolog sees an atomic value that unifies with one holding the
+> same bytes (open: whether Prolog should see a code list instead).
 
 > **Open question 9 — `await` and backtracking.** slate's `await` happens once; in FunL, failure
 > after an expression normally goes back into it for another value.
