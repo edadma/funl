@@ -78,6 +78,10 @@ struct Vm
     atom_ids: Map[string, u32]
     natives: Buf[Native]
 
+    // The chunk a builtin named as a value calls, by the builtin's id: made the first time a program
+    // names it without calling it (`native_fn.sysl`, `value_chunk`).
+    native_chunks: Map[usize, usize]
+
     // Every `data` constructor the program declares, by the id its `Ctor` values and records carry.
     ctors: Buf[CtorDef]
 
@@ -180,6 +184,12 @@ struct Vm
 
     // Every kind of handle registered, by the id a `HandleObj` carries.
     handle_kinds: Buf[HandleKind]
+
+    // -- the program's own arguments (`funl:process`) ---------------------------------------------
+
+    // What the program was given after its own name, which `funl:process`'s `args` reads: set by the
+    // driver before the program is compiled.
+    program_args: Buf[string]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -207,9 +217,9 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
 
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
-        buf(), map(), buf(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
+        buf(), map(), buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
-        rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf())
+        rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf(), buf())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

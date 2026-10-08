@@ -173,6 +173,7 @@ private indexable(x: Value) -> bool = x match
     Cons(_) -> true
     Range(_) -> true
     Tuple(_) -> true
+    Unit -> true
     Str(_) -> true
     Bytes(_) -> true
     Array(_) -> true

@@ -238,8 +238,8 @@ A_MODULE_NO_FILE_OR_KNOWN_NAME_PROVIDES_IS_REFUSED()
     val d = scratch()
     defer scrap(d)
 
-    assert_eq(complaints("import { parse } from funl:json\nimport { t } from tabular\nimport { u } from geometry.funl\nimport \"notes.txt\"\n"),
-        "error 1:23 unknown module `funl:json`\n" +
+    assert_eq(complaints("import { parse } from funl:nothing\nimport { t } from tabular\nimport { u } from geometry.funl\nimport \"notes.txt\"\n"),
+        "error 1:23 unknown module `funl:nothing`\n" +
         "error 2:19 unknown module `tabular`\n" +
         "error 3:19 unknown module `geometry.funl`\n" +
         "error 4:8 `notes.txt` is neither a FunL module nor a Prolog file\n")

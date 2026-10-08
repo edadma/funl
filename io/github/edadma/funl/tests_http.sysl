@@ -228,9 +228,9 @@ A_WRONG_ARGUMENT_OR_OPTION_IS_REFUSED_BY_NAME()
 @test
 FETCH_TAKES_ONE_OR_TWO_ARGUMENTS()
     assert_eq(complaints("import { fetch } from funl:http\nwrite( fetch() )\n"),
-        "error 2:8 `fetch` takes from 1 to 2 arguments, and this call gives 0\n")
+        "error 2:8 `fetch` takes 1 or 2 arguments, and this call gives 0\n")
     assert_eq(complaints("import * as http from funl:http\nwrite( http.fetch(\"a\", {}, 3) )\n"),
-        "error 2:8 `http.fetch` takes from 1 to 2 arguments, and this call gives 3\n")
+        "error 2:8 `http.fetch` takes 1 or 2 arguments, and this call gives 3\n")
     assert(has(complaints("import { get } from funl:http\n"), "`funl:http` does not export `get`"))
 
 // -- from Prolog ---------------------------------------------------------------------------------

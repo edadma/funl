@@ -40,13 +40,22 @@ workspace = ["funl", "prolog"]
 // **`dal` is the numeric tower** -- integers that grow past 64 bits, exact rationals and doubles,
 // with FunL's arithmetic under `dal.funl()` and Prolog's under `dal.iso_prolog(prefer_rationals)`.
 //
+// **`json` is `funl:json`'s reader and writer**, pure sysl, so it costs no link line and needs no
+// feature.
+//
 // **`curl` is `funl:http`'s, and it is optional, behind the `http` feature.** libcurl is not on every
 // machine a `funl` is built on, and a link directive is never pruned, so bound in the core it would
 // sit on the link line of every `funl` and `prolog` build whether a program fetched anything or not.
 dependencies {
   dal     { git = "github.com/sysl-lang/dal", version = "0.1.1" }
   gc      { git = "github.com/sysl-lang/gc", version = "0.2.7" }
+  json    { git = "github.com/sysl-lang/json", version = "0.2.0" }
   parsing { git = "github.com/sysl-lang/parsing", version = "0.12.1" }
+
+  // `funl:sqlite`. Not a feature: SQLite is the system's own library on macOS and a standard
+  // package elsewhere, so every `funl` carries it.
+  sqlite3 { git = "github.com/sysl-lang/sqlite3", version = "0.7.0" }
+
   curl    { git = "github.com/sysl-lang/curl", version = "0.1.1", optional = true }
 }
 

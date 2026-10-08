@@ -97,6 +97,10 @@ builtin_modules() -> Buf[ModuleProvider]
     var out: Buf[ModuleProvider] = buf()
 
     out.push(ModuleProvider("fs", fs_exports))
+    out.push(ModuleProvider("process", process_exports))
+    out.push(ModuleProvider("json", json_exports))
+    out.push(ModuleProvider("sqlite", sqlite_exports))
+    out.push(ModuleProvider("time", time_exports))
 #if feature_http
     out.push(ModuleProvider("http", http_exports))
 #endif
@@ -589,13 +593,10 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
             ExNative(id) -> id
             _ -> continue
 
-        val b = current().natives.at(id)
+        val nat = current().natives.at(id)
 
-        // A builtin taking a range of counts -- an optional last argument -- is one predicate per
-        // count. A `Variadic` one has no count to make a predicate of.
-        if b.arity == Variadic then continue
-
-        for arity in b.least..<b.arity + 1
+        // A builtin whose trailing arguments are optional is one predicate per count it takes.
+        for arity in nat.least..nat.arity
             val key = pred_key(s"$name:${x.name}", arity + 1)
 
             if pred_defined(key) then continue

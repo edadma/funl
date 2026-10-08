@@ -209,8 +209,9 @@ private step_lines(h: *HandleObj) -> Result[Option[Value], Fault]
     h.n = long(next)
     Ok(Some(new_str(line)?))
 
-// The line of `text` starting at byte `from`, and where the one after it starts.
-private line_at(text: string, from: usize) -> (string, usize)
+// The line of `text` starting at byte `from`, and where the one after it starts. Not `private`:
+// `funl:process`'s `run_lines` cuts a child's output with it.
+line_at(text: string, from: usize) -> (string, usize)
     val b = text.bytes
     var end = from
 

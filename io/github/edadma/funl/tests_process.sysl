@@ -1,0 +1,149 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.set_permissions
+import sysl.text.Search
+
+// `funl:process` (`docs/library/process.md`): the program's arguments and environment, `exit`, and
+// running another program -- `run` for its output and how it ended, `run_lines` for its output a line
+// at a time. A thing that is not there fails; a program that may not be run faults with
+// `permission_error`. The children are real programs every POSIX system has: `/bin/echo` and
+// `/bin/sh`.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// FunL program `body` run with every name of `funl:process` imported.
+private with_process(body: string) -> string =
+    ran_funl("import { args, env, exit, run, run_lines } from funl:process\n" + body)
+
+// The same, the program given `given` as its arguments.
+private given_args(given: []const string, body: string) -> string =
+    ran(() -> compiled_with_args(given, "import { args } from funl:process\n" + body))
+
+private compiled_with_args(given: []const string, text: string) -> Result[usize, string]
+    for a in given
+        current().program_args.push(a)
+
+    compiled_text(text)
+
+@test
+ARGS_IS_THE_LIST_OF_WHAT_FOLLOWED_THE_PROGRAMS_NAME()
+    assert_eq(given_args(["one", "two words"], "write( args )\nfor a <- args do write( a )\nxs = args\nwrite( xs(1) )\n"),
+        "[\"one\", \"two words\"]\none\ntwo words\ntwo words\nsucceeded")
+    assert_eq(given_args([], "write( args )\nxs = args\nwrite( xs(0) | #none )\n"), "[]\nnone\nsucceeded")
+
+@test
+ARGS_IS_A_VALUE_AND_CALLING_IT_IS_REFUSED()
+    assert_eq(complaints("import { args } from funl:process\nwrite( args() )\n"),
+        "error 2:8 `args` is a value, and is used without calling it\n")
+    assert_eq(ran_funl("import * as p from funl:process\nwrite( p.args )\n"), "[]\nsucceeded")
+
+@test
+ENV_READS_A_VARIABLE_AND_AN_UNSET_ONE_FAILS()
+    assert_eq(with_process("if env(\"PATH\") then write( #set )\nwrite( env(\"FUNL_SURELY_UNSET_VARIABLE\") | \"unset\" )\n" +
+        "write( if env(\"FUNL_SURELY_UNSET_VARIABLE\") then #there else #absent )\n"),
+        "set\nunset\nabsent\nsucceeded")
+
+@test
+RUN_GIVES_THE_OUTPUT_THE_ERRORS_AND_THE_STATUS()
+    assert_eq(with_process("r = run( \"/bin/echo\", [\"hi\", \"there\"] )\nwrite( r )\n" +
+        "r2 = run( \"/bin/sh\", [\"-c\", \"echo oops >&2; exit 3\"] )\nwrite( r2.status, r2.out, r2.err )\n" +
+        "write( run(\"/bin/echo\").out )\n"),
+        "{\"out\": \"hi there\n\", \"err\": \"\", \"status\": 0}\n3, , oops\n\n\n\nsucceeded")
+
+@test
+ONLY_THE_WAY_A_CHILD_ENDED_IS_A_KEY()
+    val text = "r = run( \"/bin/sh\", [\"-c\", 'kill -9 $$'] )\nwrite( r.signal, r.status | #no_status, r.timed_out | #in_time )\n" +
+        "t = run( \"/bin/sh\", [\"-c\", \"sleep 5\"], {timeout: 100} )\nwrite( t.timed_out, t.status | #no_status, t.out )\n" +
+        "e = run( \"/bin/sh\", [\"-c\", \"exit 0\"] )\nwrite( e.status, e.signal | #no_signal )\n"
+
+    assert_eq(with_process(text), "9, no_status, in_time\ntrue, no_status, \n0, no_signal\nsucceeded")
+
+@test
+A_PROGRAM_THAT_IS_NOT_THERE_FAILS()
+    assert_eq(with_process("write( run(\"funl-no-such-program\") | \"missing\" )\n" +
+        "write( [l | l <- run_lines(\"funl-no-such-program\", [])] )\n" +
+        "write( if run(\"/bin/funl-no-such-program\", [\"x\"]) then #ran else #absent )\n"),
+        "missing\n[]\nabsent\nsucceeded")
+
+@test
+RUN_LINES_GENERATES_EACH_LINE_A_CHILD_WROTE()
+    assert_eq(with_process("for l <- run_lines( \"/bin/sh\", [\"-c\", \"echo a; echo b; echo c\"] ) do write( l )\n" +
+        "write( [l | l <- run_lines(\"/bin/sh\", [\"-c\", \"printf 'x\\\\r\\\\ny'\"])] )\n" +
+        "write( [l | l <- run_lines(\"/bin/sh\", [\"-c\", \"exit 0\"])] )\n" +
+        "write( [l | l <- run_lines(\"/bin/sh\", [\"-c\", \"echo first; exit 2\"])] )\n"),
+        "a\nb\nc\n[\"x\", \"y\"]\n[]\n[\"first\"]\nsucceeded")
+
+@test
+THE_OPTIONS_SET_THE_DIRECTORY_ADD_VARIABLES_AND_BOUND_THE_TIME()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "marker.txt", "x")
+
+    assert_eq(with_process(s"write( run(\"/bin/ls\", [], {cwd: \"$d\"}).out )\n" +
+        "write( run(\"/bin/sh\", [\"-c\", 'echo $FUNL_GREETING'], {env: {FUNL_GREETING: \"hello\"}}).out )\n" +
+        "write( run(\"/bin/echo\", [\"quick\"], {timeout: 5000}).out )\n"),
+        "marker.txt\n\nhello\n\nquick\n\nsucceeded")
+
+@test
+A_MISTAKE_IN_THE_CALL_IS_A_FAULT_THE_PROGRAM_CAN_CATCH()
+    val text = "write( run(\"/bin/echo\", \"x\") catch e -> e )\n" +
+        "write( run(\"/bin/echo\", [1]) catch e -> e )\n" +
+        "write( run(\"/bin/echo\", [], {bogus: 1}) catch e -> e )\n" +
+        "write( run(\"/bin/echo\", [], {timeout: \"x\"}) catch e -> e )\n" +
+        "write( run(\"/bin/echo\", [], [1]) catch e -> e )\n" +
+        "write( env(3) catch e -> e )\n"
+
+    assert_eq(with_process(text),
+        "error(type_error(list, \"x\"), context(_G2, \"'run' wants a list and reached the string 'x'\"))\n" +
+        "error(type_error(string, 1), context(_G5, \"'run' wants an argument as a string, and was given the integer 1\"))\n" +
+        "error(domain_error(process_option, \"bogus\"), context(_G8, \"'run' has no option `bogus`: its options are `cwd`, `env` and `timeout`\"))\n" +
+        "error(type_error(integer, \"x\"), context(_G11, \"'run' wants its `timeout` in whole milliseconds, and was given the string 'x'\"))\n" +
+        "error(type_error(map, [1]), context(_G14, \"'run' wants its options as a map, and was given the list [1]\"))\n" +
+        "error(type_error(string, 3), context(_G17, \"'env' wants a variable's name as a string, and was given the integer 3\"))\n" +
+        "succeeded")
+
+@test
+A_PROGRAM_THAT_MAY_NOT_BE_RUN_FAULTS_WITH_A_PERMISSION_ERROR()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "plain.txt", "not a program")
+
+    set_permissions(f, 0o644).unwrap()
+
+    assert_eq(with_process(s"write( run(\"$f\") catch e -> e )\n"),
+        s"error(permission_error(execute, source_sink, \"$f\"), context(_G2, \"'run' cannot start `$f`: permission denied\"))\nsucceeded")
+    assert_eq(unplaced(with_process(s"write( run(\"$f\") )\n")), s"fault: main: 'run' cannot start `$f`: permission denied")
+
+@test
+THE_ARGUMENT_COUNT_OF_RUN_IS_CHECKED_WHEN_THE_PROGRAM_IS_COMPILED()
+    assert_eq(complaints("import { run, run_lines } from funl:process\nwrite( run() )\nwrite( run(\"a\", [], {}, 4) )\nfor l <- run_lines() do write( l )\n"),
+        "error 2:8 `run` takes 1 to 3 arguments, and this call gives 0\n" +
+        "error 3:8 `run` takes 1 to 3 arguments, and this call gives 4\n" +
+        "error 4:10 `run_lines` takes 1 to 3 arguments, and this call gives 0\n")
+
+@test
+EXIT_ENDS_THE_PROGRAM_WITH_ITS_STATUS_AFTER_WHAT_IT_WROTE()
+    assert_eq(with_process("write( \"before\" )\nexit( 4 )\nwrite( \"never\" )\n"), "before\nhalted: 4")
+    assert_eq(with_process("write( exit(2) catch e -> e )\nwrite( \"never\" )\n"), "halted: 2")
+    assert_eq(with_process("write( exit(300) catch e -> e )\nwrite( exit(\"x\") catch e -> e )\n"),
+        "error(domain_error(exit_status, 300), context(_G2, \"'exit' wants a status from 0 to 255, and was given 300\"))\n" +
+        "error(type_error(integer, \"x\"), context(_G5, \"'exit' wants an integer status, and was given the string 'x'\"))\n" +
+        "succeeded")
+
+@test
+PROLOG_REACHES_THE_MODULE_BY_QUALIFIED_GOALS()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "proc.pl", ":- import(\"funl:process\").\n" +
+        ":- process:run(\"/bin/sh\", [\"-c\", \"exit 3\"], R), S = R, write(S), nl.\n" +
+        ":- process:run(\"/bin/echo\", [hi], R), write(R), nl.\n" +
+        ":- findall(L, process:run_lines(\"/bin/sh\", [\"-c\", \"echo a; echo b\"], L), Ls), write(Ls), nl.\n" +
+        ":- ( process:env(\"FUNL_SURELY_UNSET_VARIABLE\", _) -> write(set) ; write(unset) ), nl.\n" +
+        ":- ( process:run(\"funl-no-such-program\", _) -> write(ran) ; write(missing) ), nl.\n" +
+        ":- process:args(A), write(A), nl.\n")
+
+    assert_eq(ran_funl(s"import \"$pl\"\n"), "<map>\n<map>\n[a,b]\nunset\nmissing\n[]\nsucceeded")

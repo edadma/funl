@@ -1,0 +1,126 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `funl:json` (`docs/library/json.md`): text read into maps, lists, strings, numbers, booleans and
+// `undefined`, and values written back compactly or laid out. Text that is not JSON fails; a value
+// JSON cannot hold faults with `type_error(json, Culprit)`.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// FunL program `body` run with both names of `funl:json` imported.
+private with_json(body: string) -> string = ran_funl("import { parse, stringify } from funl:json\n" + body)
+
+@test
+A_DOCUMENT_READS_AS_MAPS_LISTS_AND_SCALARS()
+    val text = "v = parse( '{\"name\": \"funl\", \"tags\": [\"vm\", \"prolog\"], \"n\": null}' )\n" +
+        "write( v.name, v.tags(1), if v.tags is list then #list else #other, if v is map then #map else #other, v.n )\n" +
+        "write( parse('[1, 2.5, -3e2, 123456789012345678901234567890, true, false, null]') )\n" +
+        "write( parse('\"a\\\\u00e9\\\\t!\"') )\n" +
+        "write( parse(' 42 ') + 1, parse('{}'), parse('[]') )\n"
+
+    assert_eq(with_json(text),
+        "funl, prolog, list, map, undefined\n" +
+        "[1, 2.5, -300.0, 123456789012345678901234567890, true, false, undefined]\n" +
+        "aé\t!\n" +
+        "43, {}, []\n" +
+        "succeeded")
+
+@test
+A_REPEATED_KEY_KEEPS_THE_LAST_VALUE()
+    assert_eq(with_json("write( parse('{\"k\": 1, \"k\": 2}') )\n"), "{\"k\": 2}\nsucceeded")
+
+@test
+TEXT_THAT_IS_NOT_JSON_FAILS()
+    val text = "if not parse( '{oops' ) then write( #malformed )\n" +
+        "write( parse('[1,]') | #trailing, parse('1 2') | #two, parse('') | #empty, parse('nul') | #word )\n"
+
+    assert_eq(with_json(text), "malformed\ntrailing, two, empty, word\nsucceeded")
+
+@test
+A_VALUE_IS_WRITTEN_COMPACTLY()
+    val text = "write( stringify({name: \"funl\", version: [0, 0, 2]}) )\n" +
+        "write( stringify([undefined, true, false, 1.0, 2 ^ 70, 1/4, \"tab\\there \\\"q\\\"\"]) )\n" +
+        "write( stringify((1, \"x\")), stringify(array(2)), stringify(1..3), stringify(42, 0) )\n"
+
+    assert_eq(with_json(text),
+        "{\"name\":\"funl\",\"version\":[0,0,2]}\n" +
+        "[null,true,false,1.0,1180591620717411303424,0.25,\"tab\\there \\\"q\\\"\"]\n" +
+        "[1,\"x\"], [null,null], [1,2,3], 42\n" +
+        "succeeded")
+
+@test
+AN_INDENT_LAYS_A_VALUE_OUT_ONE_MEMBER_TO_A_LINE()
+    val text = "write( stringify(parse('{\"a\": [1, {\"b\": null}], \"c\": {}}'), 2) )\n"
+
+    assert_eq(with_json(text),
+        "{\n  \"a\": [\n    1,\n    {\n      \"b\": null\n    }\n  ],\n  \"c\": {}\n}\nsucceeded")
+
+@test
+WHAT_IS_WRITTEN_READS_BACK_AS_THE_SAME_VALUE()
+    val text = "v = {name: \"funl\", tags: [\"vm\", \"prolog\"], n: undefined, big: 2 ^ 70, x: 0.1}\n" +
+        "write( if parse(stringify(v)) == v then #same else #changed )\n" +
+        "write( if parse(stringify(v, 4)) == v then #same else #changed )\n" +
+        "write( if parse(stringify({a: 1})) == {a: 2} then #same else #changed )\n"
+
+    assert_eq(with_json(text), "same\nsame\nchanged\nsucceeded")
+
+@test
+A_VALUE_JSON_CANNOT_HOLD_FAULTS()
+    val text = "write( stringify({a: (x -> x)}) catch e -> e )\n" +
+        "write( stringify({1, 2}) catch error(t, _) -> t )\n" +
+        "write( stringify(#abc) catch error(t, _) -> t )\n" +
+        "write( stringify({1: 2}) catch error(t, _) -> t )\n" +
+        "free u\nwrite( stringify([u]) catch error(t, _) -> t )\n" +
+        "write( stringify(1..) catch error(t, _) -> t )\n" +
+        "m = map()\nm(\"self\") = m\nwrite( stringify(m) catch error(t, _) -> t )\n"
+
+    assert_eq(with_json(text),
+        "error(type_error(json, <function lambda>), context(_G2, \"'stringify' cannot write a function as JSON, which holds maps, lists, strings, numbers, booleans and undefined\"))\n" +
+        "type_error(json, {1, 2})\n" +
+        "type_error(json, abc)\n" +
+        "type_error(json_key, 1)\n" +
+        "instantiation_error\n" +
+        "domain_error(finite, 1..)\n" +
+        "system_error\n" +
+        "succeeded")
+
+@test
+THE_ARGUMENTS_ARE_CHECKED()
+    val text = "write( parse(5) catch error(t, _) -> t )\n" +
+        "write( stringify(1, \"x\") catch error(t, _) -> t )\n" +
+        "write( stringify(1, 17) catch error(t, _) -> t )\n" +
+        "write( stringify(1, -1) catch error(t, _) -> t )\n"
+
+    assert_eq(with_json(text),
+        "type_error(string, 5)\ntype_error(integer, \"x\")\ndomain_error(json_indent, 17)\ndomain_error(json_indent, -1)\nsucceeded")
+
+@test
+AN_OPTIONAL_ARGUMENT_BOUNDS_THE_COUNT_A_CALL_MAY_GIVE()
+    assert_eq(complaints("import { stringify } from funl:json\nwrite( stringify() )\n"),
+        "error 2:8 `stringify` takes 1 or 2 arguments, and this call gives 0\n")
+    assert_eq(complaints("import * as json from funl:json\nwrite( json.stringify(1, 2, 3) )\n"),
+        "error 2:8 `json.stringify` takes 1 or 2 arguments, and this call gives 3\n")
+    assert_eq(complaints("import { parse } from funl:json\nwrite( parse(\"1\", 2) )\n"),
+        "error 2:8 `parse` takes 1 argument, and this call gives 2\n")
+
+@test
+IMPORT_STAR_REACHES_JSON_BY_QUALIFIED_NAMES()
+    assert_eq(ran_funl("import * as json from funl:json\nwrite( json.stringify(json.parse('[1, 2]')) )\n"),
+        "[1,2]\nsucceeded")
+
+@test
+PROLOG_READS_AND_WRITES_JSON_QUALIFIED_BY_THE_MODULE()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "doc.pl", ":- import(\"funl:json\").\n" +
+        ":- json:parse(\"[1, {\\\"a\\\": true}]\", V), json:stringify(V, T), write(T), nl.\n" +
+        ":- json:stringify([1, 2], 2, T), write(T), nl.\n" +
+        ":- ( json:parse(\"{oops\", _) -> write(read) ; write(refused) ), nl.\n" +
+        ":- catch(json:stringify(foo, _), error(E, _), true), write(E), nl.\n" +
+        ":- json:parse('{\"n\": 12}', M), json:stringify(M, S), write(S), nl.\n")
+
+    assert_eq(ran_funl(s"import \"$pl\"\n"),
+        "[1,{\"a\":true}]\n[\n  1,\n  2\n]\nrefused\ntype_error(json,foo)\n{\"n\":12}\nsucceeded")

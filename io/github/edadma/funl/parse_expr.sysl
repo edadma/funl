@@ -198,7 +198,11 @@ private braces(p: *Parser, open: Span) -> &Expr
                     keys.push(kv.key)
                     vals.push(kv.value)
                 else
-                    p.report.add(error(item.span, "a set's items are values, and this is a map's `key: value`"))
+                    val hint = item.kind match
+                        LambdaE(_, _) -> "; a lambda whose parameter is a cons goes in a set in parentheses, `(x:xs -> x)`"
+                        _ -> ""
+
+                    p.report.add(error(item.span, s"a set's items are values, and this is a map's `key: value`$hint"))
                     bad = true
             None ->
                 if is_map
@@ -225,14 +229,43 @@ private struct KeyValue
     value: &Expr
 
 // A map's entry, `key: value`. A key written as a bare name is that name as a string.
+//
+// **The map reading wins over a lambda**: `f: (x) -> e` was read as one lambda whose parameter is the
+// cons `f:(x)`, and in braces it is the key `f` and the lambda `(x) -> e`. A set holds such a lambda
+// only in parentheses, `{(x:xs -> x)}`, and a parenthesized parameter, `(x:xs) -> x`, is a lambda too.
 private map_entry(e: &Expr) -> Option[KeyValue] = e.kind match
-    ConsE(k, v) ->
-        val key = k.kind match
-            Ref(n) -> expr(StrE(n), k.span)
-            _ -> k
+    ConsE(k, v) -> Some(KeyValue(map_key(k), v))
+    LambdaE(id, cs) ->
+        if cs.len() != 1 then return None
 
-        Some(KeyValue(key, v))
+        val c = cs.at(0)
+
+        if c.params.len() != 1 then return None
+
+        val head = c.params.at(0)
+
+        head.kind match
+            ConsE(k, v) ->
+                if e.span.start != k.span.start || head.span.start != k.span.start then return None
+
+                var params: Buf[&Expr] = buf()
+
+                v.kind match
+                    TupleE(items) ->
+                        for x in items.view()
+                            params.push(x)
+                    _ -> params.push(v)
+
+                var clauses: Buf[Clause] = buf()
+
+                clauses.push(Clause(c.name, v.span.to(c.head), params, c.kind))
+                Some(KeyValue(map_key(k), expr(LambdaE(id, clauses), v.span.to(e.span))))
+            _ -> None
     _ -> None
+
+private map_key(k: &Expr) -> &Expr = k.kind match
+    Ref(n) -> expr(StrE(n), k.span)
+    _ -> k
 
 // The element and first pattern of a comprehension, `e | p` read as one alternation with `<-` next:
 // the `|` that separates them is read as alternation's, and its right side is the pattern.

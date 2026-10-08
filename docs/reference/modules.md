@@ -498,14 +498,15 @@ The thing after `from` names the module in one of three ways:
 - **a bare word** names a package;
 - **`funl:name`** names one of FunL's own modules.
 
-No packages or modules of FunL's own are available yet, so a bare word or a `funl:name` is refused:
+No packages are available yet, so a bare word is refused, and so is a `funl:name` that is not one of
+FunL's own modules (the [library](../library/README.md) lists those):
 
 ```funl
-import { parse } from funl:json
+import { parse } from funl:nothing
 ```
 
 ```error
-unknown module `funl:json`
+unknown module `funl:nothing`
 ```
 
 A file name written without quotes is a bare word, not a file:

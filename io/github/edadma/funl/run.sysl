@@ -199,7 +199,14 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             ret_commit(v)?
             Ok(Next)
         Native(id, argc) ->
-            call_native(v, id, argc)?
+            call_native(v, id, passed(v, argc))?
+            Ok(Next)
+        LoadArgs ->
+            val args = v.frame.args
+
+            for i in 0..<args.len()
+                v.stack.push(args.at(i))
+
             Ok(Next)
         GetVar(slot, src) -> Ok(fails_if(get_var(v, slot, src)?))
         GetValue(slot, src) -> Ok(fails_if(get_value(v, slot, src)?))
@@ -437,7 +444,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Concat(n) ->
             concat(v, n)?
             Ok(Next)
-        NativeGen(id, argc) -> call_generator(v, id, argc)
+        NativeGen(id, argc) -> call_generator(v, id, passed(v, argc))
         ScanBegin ->
             scan_begin(v)?
             Ok(Next)
@@ -589,6 +596,10 @@ private compare(v: *Vm, want: bool, op: string) -> Result[Flow, Fault]
     v.stack.push(b)
     Ok(Next)
 
+// How many arguments a builtin call passes: `argc`, or for `Variadic` as many as the running frame --
+// a builtin's function value -- was called with.
+private passed(v: *Vm, argc: usize) -> usize = if argc == Variadic then v.frame.args.len() else argc
+
 // Builtin `id`, checked against a call of it with `argc` arguments and `extra` cells above them.
 // The compiler checks a builtin's arity, so a mismatch here is the machine's own fault.
 private native_called(v: *Vm, id: usize, argc: usize, extra: usize) -> Result[Native, string]
@@ -597,7 +608,7 @@ private native_called(v: *Vm, id: usize, argc: usize, extra: usize) -> Result[Na
     val n = v.natives.at(id)
     val top = v.stack.len()
 
-    if argc < n.least || argc > n.arity then return Err(s"'${n.name}' takes ${n.arity} arguments and was given $argc")
+    if !takes_count(n, argc) then return Err(s"'${n.name}' takes ${takes_text(n)} and was given $argc")
 
     if argc + extra > top then return Err(s"'${n.name}' wants ${argc + extra} operands and the stack holds $top")
 

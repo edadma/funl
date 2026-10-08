@@ -34,6 +34,54 @@ name, true, false, ()
 
 A map's key written as a bare name is a string, so `{a: 1}` and `{"a": 1}` are the same map.
 
+A lambda after a key is the entry's value, so `{f: (x) -> x + 1}` is a map. A set that holds a
+lambda whose parameter is a cons writes the lambda, or its parameter, in parentheses:
+
+```funl
+val m = {inc: (x) -> x + 1, add: (a, b) -> a + b, dec: x -> x - 1}
+write( m.inc(1), m.add(2, 3), m.dec(10) )
+
+val s = {(x:xs -> x)}
+val t = {(x:xs) -> x}
+write( s.length, t.length )
+for f <- s do write( f([4, 5]) )
+```
+
+```output
+2, 5, 9
+1, 1
+4
+```
+
+```funl
+write( {1, f: (x) -> x} )
+```
+
+```error
+a lambda whose parameter is a cons goes in a set in parentheses
+```
+
+### `()`, the tuple of nothing
+
+`()` is the empty tuple: a tuple of length 0, which is also the value an expression produces when it
+has nothing else to give. It is a `tuple` and a `unit`, it generates nothing, and the pattern `()`
+matches it:
+
+```funl
+def kind( () ) = 'empty'
+def kind( (a, b) ) = 'pair'
+
+write( (), ().length, () is tuple, () is unit )
+write( [x | x <- ()], (1, 2)(1..<1) )
+write( kind(()), kind((1, 2)) )
+```
+
+```output
+(), 0, (), ()
+[], ()
+empty, pair
+```
+
 ## Comprehensions
 
 A comprehension makes a list, or with braces a set, from the values a generator produces, keeping
@@ -532,7 +580,7 @@ The type names are these:
 | `boolean` | `true`, `false` |
 | `list` | `[]`, a list cell `x:xs`, and a range |
 | `range` | `1..10`, `1..<n`, `1..` |
-| `tuple` | `(1, 2)` |
+| `tuple` | `(1, 2)`, and `()` |
 | `unit` | `()` |
 | `map` | `{a: 1}`, and a mutable map, `map()` |
 | `set` | `{1, 2}`, and a mutable set, `set(s)` |

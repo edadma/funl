@@ -1,6 +1,7 @@
 module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
+import sysl.math.Float
 import sysl.math.bigint as big
 import sysl.text.{Search, char_from_u32, chars_of, from_utf8_unchecked, str_builder}
 
@@ -539,8 +540,9 @@ private next_place(ask: *SubAtomAsk, from_b: long, from_l: long) -> Option[(long
     None
 end next_place
 
-// The number text `s` spells, with layout before it and a `-` touching it allowed: a decimal
-// integer of any size, a float, `0x`, `0o`, `0b`, or `0'c`. `None` when it spells no number.
+// The number text `s` spells, with layout before it and a `-` or `+` touching it allowed: a decimal
+// integer of any size, a float, `1.0Inf` or `1.5NaN`, `0x`, `0o`, `0b`, `16'ff`, or `0'c`. `None`
+// when it spells no number.
 parse_number(s: string) -> Result[Option[Value], Fault]
     val b = s.bytes
     var i: usize = 0
@@ -553,8 +555,17 @@ parse_number(s: string) -> Result[Option[Value], Fault]
     if i < b.len && b[i] == u8('-')
         negative = true
         i += 1
+    elif i < b.len && b[i] == u8('+')
+        i += 1
 
     if i >= b.len || b[i] < u8('0') || b[i] > u8('9') then return Ok(None)
+
+    // A comment, which the reader allows after a `_` in a digit group, is no part of a number's text.
+    if s.contains("/*") || s.contains("%") then return Ok(None)
+
+    val unsigned = from_utf8_unchecked(b[i..<b.len])
+
+    if unsigned.ends_with("Inf") || unsigned.ends_with("NaN") then return non_finite_number(unsigned, negative)
 
     if b[i] == u8('0') && i + 1 < b.len && b[i + 1] == u8('\'')
         val rest = from_utf8_unchecked(b[i + 2..<b.len])
@@ -573,6 +584,19 @@ parse_number(s: string) -> Result[Option[Value], Fault]
         radix = if r == u8('x') then 16 elif r == u8('o') then 8 elif r == u8('b') then 2 else 10
 
         if radix != 10 then i += 2
+
+    // `16'ff`: a base from 2 to 36, a quote, and digits in that base.
+    if radix == 10
+        var j = i
+        var r: long = 0
+
+        while j < b.len && j - i < 3 && b[j] >= u8('0') && b[j] <= u8('9')
+            r = r * 10 + long(b[j] - u8('0'))
+            j += 1
+
+        if j + 1 < b.len && b[j] == u8('\'') && r >= 2 && r <= 36
+            radix = r
+            i = j + 1
 
     // Digit groups, as the reader takes them -- `1 000`, `1_000`, `0xff_ff`, `1r2_0` -- in an integer
     // or a rational and nowhere else: a float with groups is no number here.
@@ -627,6 +651,27 @@ parse_number(s: string) -> Result[Option[Value], Fault]
             Err(e) -> Err(Broken(e))
         Err(_) -> Ok(None)
 end parse_number
+
+// `text`, which ends in `Inf` or `NaN`, as the reader reads it: a float's digits, with no exponent,
+// then `Inf` for an infinity, or `NaN` after a mantissa above 1 and below 2 for a NaN.
+private non_finite_number(text: string, negative: bool) -> Result[Option[Value], Fault]
+    val mantissa = text.slice(0, text.len - 3)
+    val b = mantissa.bytes
+    var dot: usize = 0
+
+    while dot < b.len && b[dot] >= u8('0') && b[dot] <= u8('9')
+        dot += 1
+
+    if dot == 0 || dot + 1 >= b.len || b[dot] != u8('.') then return Ok(None)
+
+    for k in dot + 1..<b.len
+        if b[k] < u8('0') || b[k] > u8('9') then return Ok(None)
+
+    if text.ends_with("Inf") then return Ok(Some(Real(if negative then -real.infinity() else real.infinity())))
+
+    if dot != 1 || b[0] != u8('1') || all_zeros(mantissa.slice(2, mantissa.len)) then return Ok(None)
+
+    Ok(Some(Real(real.nan())))
 
 // `N/M` for text `NrM` -- digits, an `r`, and digits not all `0` -- and `None` for any other text.
 private rational_text(s: string) -> Option[string]

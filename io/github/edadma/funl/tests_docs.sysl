@@ -482,12 +482,12 @@ EVERY_PAGE_CARRIES_THE_BLOCKS_IT_IS_EXPECTED_TO()
 // What every page holds, as `path runnable refused fragment warned`.
 private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/assignment.md 11 6 0 0\n" +
-    "docs/reference/data.md 30 13 0 0\n" +
-    "docs/reference/functions.md 16 5 0 0\n" +
+    "docs/reference/data.md 32 14 0 0\n" +
+    "docs/reference/functions.md 20 8 0 0\n" +
     "docs/reference/generators.md 23 5 0 0\n" +
     "docs/reference/modules.md 17 20 0 0\n" +
     "docs/reference/numbers.md 19 18 0 0\n" +
-    "docs/reference/prolog.md 38 5 0 0\n" +
+    "docs/reference/prolog.md 42 6 0 0\n" +
     "docs/reference/regex.md 21 8 0 0\n" +
     "docs/reference/relations.md 18 6 0 1\n" +
     "docs/reference/scanning.md 16 3 0 0\n" +
@@ -495,7 +495,12 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/strings.md 14 5 0 0\n" +
     "docs/reference/success-and-failure.md 17 5 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
-    "docs/library/fs.md 12 3 0 0\n" + HttpCensus
+    "docs/library/fs.md 13 2 0 0\n" +
+    HttpCensus +
+    "docs/library/json.md 7 1 0 0\n" +
+    "docs/library/process.md 13 4 0 0\n" +
+    "docs/library/sqlite.md 10 1 0 0\n" +
+    "docs/library/time.md 8 1 0 0\n"
 
 // `docs/library/http.md`'s line, which a build without the `http` feature does not run.
 #if feature_http
