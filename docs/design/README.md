@@ -67,3 +67,11 @@ Each is argued where it arises; this is the list.
 | What is the module path? | `io.github.edadma.funl`, the repository `github.com/edadma/funl` reversed | [implementation](implementation.md#the-repository) |
 | Does juxtaposition multiply? | only a number literal touching a name or `(`: `2n`, `3(x + 1)` | [implementation](implementation.md#the-front-end) |
 | How strict is the regex conformance oracle? | exact on match and span, exact on captures outside a named exclusion list | [implementation](implementation.md#regex-the-att-data-and-tests-worked-by-hand) |
+| What does `\` do on negative operands? | it floors (user, 2026-10-08) | [language](language.md#numbers) |
+| How does lookbehind match? | as JavaScript's does, right to left (user, 2026-10-08) | [implementation](implementation.md#regex-the-att-data-and-tests-worked-by-hand) |
+| Is there a regex oracle? | no (user, 2026-10-08) | [implementation](implementation.md#regex-the-att-data-and-tests-worked-by-hand) |
+| What does `x is t` produce? | `x` or failure, like a comparison (user, 2026-10-08) | [language](language.md#types-and-is) |
+| How is an unbound variable tested? | `x is variable`; `var` is a keyword, no `var(x)`/`nonvar(x)` (user, 2026-10-08) | [logic](logic.md#logic-variables-in-ordinary-code) |
+| What does a relation body see of top-level names? | only `val`s, functions, relations, constructors; not `var`, `free` or assignment names (user, 2026-10-08) | [logic](logic.md#variables-in-a-relation) |
+| Can a real literal start with the point? | no: `.5` is a syntax error, `.` is field access (user, 2026-10-08) | [language](language.md#numbers) |
+| Can ordinary code build a compound term without `data`? | no: outside a relation head an undeclared functor is "not defined" (user, 2026-10-08) | [language](language.md#data) |

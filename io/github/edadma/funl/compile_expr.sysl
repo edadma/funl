@@ -16,7 +16,7 @@ import sysl.buf.{Buf, buf}
 //     if c then t else e     Mark(no); c; FailIfFalse; Unmark; t; Branch(end); no: e; end:
 //     every g do b           g; Pop; MarkThrough; b; Unmark; Fail
 //     a statement            Mark(next); e; Unmark; next:
-//     !c                     c; GenStart; GenNext
+//     !c                     c; GenStart(false); GenNext
 //     i to j by k            i; j; k; PushInt(0); GenRange(true)
 //     |e                     top: MarkThrough; e; ChangeMark(top)
 //     yield e                Choice(after); e; [ScanLeave(n)]; Return; after: PushUnit
@@ -37,7 +37,7 @@ import sysl.buf.{Buf, buf}
 //     h:t                    h; t; MakeCons
 //     a..b by k              a; b; k; MakeRange
 //     a..+n by k             a; n; k; MakeRange(counted)
-//     [e | p <- c if f]      PushNil; StoreSlot(acc); Mark(done); c; GenStart; GenNext; match p;
+//     [e | p <- c if f]      PushNil; StoreSlot(acc); Mark(done); c; GenStart(true); GenNext; match p;
 //                            MarkThrough; f; FailIfFalse; Unmark; e; Collect(acc); Fail;
 //                            done: Collected(acc)
 
@@ -189,7 +189,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 e.op(MakeCons)
         BangE(a) ->
             compile_value(e, c, a)?
-            e.op(GenStart)
+            e.op(GenStart(false))
             e.op(GenNext)
         RangeE(from, upto, by, inclusive) ->
             compile_value(e, c, from)?

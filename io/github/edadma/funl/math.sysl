@@ -1,0 +1,54 @@
+module io.github.edadma.funl
+
+// The math builtins: `sqrt`, `exp`, `log`, the trigonometric functions, the roundings, `sign`,
+// `float`, and the values `pi` and `epsilon`. Each is the Prolog evaluable function of the same
+// name (`pl_arith.sysl`), so a number is rounded, refused and faulted alike in both languages.
+
+install_math(v: *Vm)
+    for name in ["sqrt", "exp", "log2", "sin", "cos", "tan", "asin", "acos", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "cot", "acot", "floor", "ceiling", "round", "truncate", "sign", "float", "integer"]
+        register(v, name, 1, (b, n) -> math1(name, b))
+
+    register(v, "atan", Variadic, (b, n) -> atan_of(b, n))
+    register(v, "atan2", 2, (b, n) -> math2("atan2", b))
+    register(v, "copysign", 2, (b, n) -> math2("copysign", b))
+    register(v, "log", Variadic, (b, n) -> log_of(b, n))
+
+    // `e` is left to programs as a name: it is `exp(1)`.
+    for name in ["pi", "epsilon"]
+        register_constant(v, name, (b, n) -> math_constant(name))
+
+// The one-argument function `name` of the number at `base`.
+private math1(name: string, base: usize) -> Result[Value, Fault]
+    val a = number_arg(name, base, 0)?
+
+    math_unary(name, a)
+
+private math2(name: string, base: usize) -> Result[Value, Fault]
+    val a = number_arg(name, base, 0)?
+    val b = number_arg(name, base, 1)?
+
+    math_binary(name, a, b)
+
+// `atan(x)`, or `atan(y, x)`: the angle of the point (x, y).
+private atan_of(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc == 1 then return math1("atan", base)
+    if argc == 2 then return math2("atan", base)
+
+    Err(wrong_count("atan", argc, "'atan' wants one or two arguments"))
+
+// `log(x)`, the natural logarithm, or `log(base, x)`.
+private log_of(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc == 1 then return math1("log", base)
+    if argc == 2 then return math2("log", base)
+
+    Err(wrong_count("log", argc, "'log' wants one or two arguments"))
+
+private number_arg(name: string, base: usize, i: usize) -> Result[Value, Fault]
+    val x = arg(base, i)
+    val y = deref(x)
+
+    if is_num(y) then return Ok(y)
+
+    y match
+        Var(_) -> Err(instantiation_error(s"instantiation error: '$name' was given an unbound variable"))
+        _ -> Err(type_error("number", y, s"'$name' wants a number and was given ${described(x)}"))

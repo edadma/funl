@@ -391,6 +391,183 @@ write( max(3, 1/2, 4.5) )
 4.5
 ```
 
+## Functions
+
+The functions of a number are builtins, each answering the real it is the function of: `sqrt`, `exp`,
+`log` (natural), `sin`, `cos`, `tan`, `asin`, `acos` and `atan`, which takes one number or two,
+`atan(y, x)`, the angle of the point (x, y). `atan2` is the two-argument form alone. Angles are in
+radians.
+
+```funl
+write( sqrt(16), sqrt(2), sqrt(1/4) )
+write( exp(0), log(1) )
+write( sin(0), cos(0), tan(0) )
+write( asin(0), acos(1), atan(0) )
+write( atan(1, 1), atan2(1, 1) )
+```
+
+```output
+4.0, 1.4142135623730951, 0.5
+1.0, 0.0
+0.0, 1.0, 0.0
+0.0, 0.0, 0.0
+0.7853981633974483, 0.7853981633974483
+```
+
+`sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` are the hyperbolic functions and their inverses;
+`cot` and `acot` the cotangent and its inverse; `log2` the base-2 logarithm; `log` with two arguments,
+`log(base, x)`, the logarithm of `x` to `base`; and `copysign(x, y)` is `x` with the sign of `y`
+(a negative zero counts as negative).
+
+```funl
+write( sinh(0), cosh(0), tanh(0), asinh(0), acosh(1), atanh(0) )
+write( sinh(1), atanh(0.5) )
+write( log(2, 8), log2(8), log(1) )
+write( cot(1), acot(1), acot(0) )
+write( copysign(3, -0.0), copysign(-2.5, 1) )
+```
+
+```output
+0.0, 1.0, 0.0, 0.0, 0.0, 0.0
+1.1752011936438014, 0.5493061443340549
+3.0, 3.0, 0.0
+0.6420926159343308, 0.7853981633974483, 1.5707963267948966
+-3.0, 2.5
+```
+
+`floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `round`)
+answer integers, and exactly: a rational is rounded as a rational, an integer is its own. `sign`
+keeps its argument's kind, and `float` makes a real.
+
+```funl
+write( floor(7/2), ceiling(7/2), round(7/2), truncate(-7/2), floor(-7/2) )
+write( floor(2.5), round(-2.5), integer(2.5), floor(5) )
+write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )
+```
+
+```output
+3, 4, 4, -3, -4
+2, -3, 3, 5
+-1, 1.0, 0, 0.25, 3.0
+```
+
+`pi` and `epsilon` (the gap between 1.0 and the next real above it) are values, written without
+parentheses. Euler's number is `exp(1)`, which leaves `e` free as a name. `pi` is a builtin like the
+functions, so `val pi = 3` is refused; a parameter may still be called `pi`.
+
+```funl
+write( pi, epsilon, exp(1) )
+write( 2 * pi )
+val f = pi -> pi + 1
+write( f(1) )
+```
+
+```output
+3.141592653589793, 2.220446049250313e-16, 2.718281828459045
+6.283185307179586
+2
+```
+
+A function given an argument it has no value for is a fault, as `(-8) ^ (1/3)` is.
+
+```funl
+write( sqrt(-1) )
+```
+
+```error
+sqrt(-1) has no value
+```
+
+```funl
+write( log(0) )
+```
+
+```error
+log(0) has no value
+```
+
+`log(base, x)` has no value when `base` is 1, `base` or `x` is not positive; `acosh` wants at least 1;
+`atanh` wants a number strictly between -1 and 1; `cot(0)` has no value.
+
+```funl
+write( log(1, 5) )
+```
+
+```error
+log(1, 5) has no value
+```
+
+```funl
+write( acosh(0.5) )
+```
+
+```error
+acosh(0.5) has no value
+```
+
+```funl
+write( atanh(1) )
+```
+
+```error
+atanh(1) has no value
+```
+
+```funl
+write( exp(1000) )
+```
+
+```error
+exp(1000) is too large for a float
+```
+
+Something that is not a number is a fault too.
+
+```funl
+write( sqrt('a') )
+```
+
+```error
+'sqrt' wants a number and was given the string 'a'
+```
+
+## `odd` and `even`
+
+`odd(n)` and `even(n)` take an integer, of any size. Like a comparison, each produces `n` when it holds
+and fails when it does not.
+
+```funl
+write( [x | x <- 1..8 if odd(x)] )
+write( even(-4) )
+write( odd(2 ^ 70 + 1) )
+write( if even(7) then 'even' else 'odd' )
+```
+
+```output
+[1, 3, 5, 7]
+-4
+1180591620717411303425
+odd
+```
+
+Anything but an integer is a fault.
+
+```funl
+write( odd(0.5) )
+```
+
+```error
+'odd' wants an integer and was given the real 0.5
+```
+
+```funl
+write( even(1/2) )
+```
+
+```error
+'even' wants an integer and was given the rational 1/2
+```
+
 ## Arithmetic on something that is not a number
 
 An arithmetic operator given something other than a number is a fault. (`+` is the exception: on

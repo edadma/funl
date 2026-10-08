@@ -5,6 +5,7 @@ module io.github.edadma.funl
 install_natives(v: *Vm)
     install_io(v)
     install_predef(v)
+    install_math(v)
     install_data(v)
     install_scan(v)
     install_prolog(v)

@@ -55,7 +55,7 @@ private compile_funl(src: Source, top_up: usize, report: *Report) -> Result[usiz
 
     if report.has_errors() then return Err(Unreadable)
 
-    var res = resolve(prog, top_up, report)
+    var res = resolve(src, prog, top_up, report)
 
     if report.has_errors() then return Err(Unreadable)
 

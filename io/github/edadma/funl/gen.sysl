@@ -22,13 +22,14 @@ import sysl.text.{from_utf8_unchecked, is_char_boundary}
 // map's position is an index, a string's a byte offset and a range's its next element, the collection
 // itself staying put. A map produces its entries as pairs `(key, value)`.
 
-// `GenStart`: the collection on top becomes its first cursor.
-gen_start(v: *Vm) -> Result[unit, Fault]
+// `GenStart`: the collection on top becomes its first cursor. Under `draw` (a binding `p <- e`) any
+// other value is drawn as it is, the cursor of a one-element list of it.
+gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
     val top = v.stack.len()
 
     if top == 0 then return Err(Broken("the operand stack is empty"))
 
-    val c = deref(v.stack.at(top - 1))
+    var c = deref(v.stack.at(top - 1))
 
     var first: long = 0
 
@@ -44,8 +45,17 @@ gen_start(v: *Vm) -> Result[unit, Fault]
         Map(_) -> ()
         MutMap(_) -> ()
         Range(r) -> first = r.from
-        Var(_) -> return Err(instantiation_error("instantiation error: `!` was given an unbound variable"))
+        Var(_) ->
+            val what = if draw then "`<-`" else "`!`"
+
+            return Err(instantiation_error(s"instantiation error: $what was given an unbound variable"))
         _ ->
+            if draw
+                c = new_cons(c, Nil)?
+                v.stack.set(top - 1, c)
+                v.stack.push(Int(0))
+                return Ok(())
+
             val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map or a string, and was given ${described(c)}"
 
             return Err(type_error("collection", c, msg))

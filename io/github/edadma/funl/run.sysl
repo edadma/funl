@@ -327,8 +327,8 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
                     v.stack.push(x)
                     Ok(Next)
                 None -> Ok(Fails)
-        GenStart ->
-            gen_start(v)?
+        GenStart(draw) ->
+            gen_start(v, draw)?
             Ok(Next)
         GenNext -> Ok(fails_if(gen_next(v)?))
         GenRange(inclusive) -> Ok(fails_if(gen_range(v, inclusive)?))
