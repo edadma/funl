@@ -357,9 +357,9 @@ standard package elsewhere, and slate carries it unconditionally for that reason
 > SQLite reports is `system_error` with SQLite's sentence; a parameter SQLite cannot hold is
 > `type_error(sql_value, X)`, an integer past 64 bits `representation_error(max_integer)`, the wrong
 > number of parameters `domain_error(sql_parameters, N)`; `true`/`false` bind as 1/0. Closing the
-> database ends every query still running over it. **A row is a map, and `x <- e` draws a map's
-> entries**, so the example's `for row <- db.query(...)` is written `for row <- [db.query(...)]` (or
-> `every write( db.query(...).title )`). Prolog cannot call a handle's methods, so the module is
+> database ends every query still running over it. **A row is a map, and `x <- e` draws a map
+> whole** (language.md, Decided 2026-10-08), so the example's `for row <- db.query(...)` gives each
+> row as written. Prolog cannot call a handle's methods, so the module is
 > FunL's alone for now.
 
 ## `async` and `await`

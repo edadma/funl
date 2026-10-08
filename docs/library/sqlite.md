@@ -108,9 +108,7 @@ absent
 no such note
 ```
 
-A row is a map, and `x <- e` draws the entries of a map one by one, so a binding that wants each
-row whole puts the query in a list, `row <- [db.query(...)]`, as it would any generator of
-collections:
+A row is a map, and `x <- e` draws a map whole, so `for row <- db.query(...)` gives each row:
 
 ```funl
 import { sqlite } from funl:sqlite
@@ -120,8 +118,8 @@ db.exec( "create table notes (id integer primary key, title text)" )
 db.run( "insert into notes (title) values (?)", "a note" )
 db.run( "insert into notes (title) values (?)", "another" )
 
-for row <- [db.query("select id, title from notes order by id")] do write( row.id, row.title )
-write( [row.title | row <- [db.query("select title from notes order by title desc")]] )
+for row <- db.query("select id, title from notes order by id") do write( row.id, row.title )
+write( [row.title | row <- db.query("select title from notes order by title desc")] )
 db.close()
 ```
 
@@ -139,7 +137,7 @@ import { sqlite } from funl:sqlite
 
 db = sqlite( ":memory:" )
 db.exec( "create table n (x integer); insert into n values (1); insert into n values (2)" )
-write( [(a.x, b.x) | a <- [db.query("select x from n")], b <- [db.query("select x from n")]] )
+write( [(a.x, b.x) | a <- db.query("select x from n"), b <- db.query("select x from n")] )
 db.close()
 ```
 
@@ -154,7 +152,7 @@ import { sqlite } from funl:sqlite
 
 db = sqlite( ":memory:" )
 db.exec( "create table n (x integer); insert into n values (1); insert into n values (2); insert into n values (3)" )
-for row <- [db.query("select x from n order by x")] do
+for row <- db.query("select x from n order by x") do
   write( row.x )
   if row.x == 2 then db.close()
 ```
