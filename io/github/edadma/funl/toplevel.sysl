@@ -177,7 +177,7 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
                 val answer = answer_of(names, vals)
 
                 if !resumable(v)
-                    say(answer + ".")
+                    say(answer_closed(answer))
                     break
 
                 say(answer)
@@ -367,7 +367,10 @@ private binding_text(name: string, x: Value, factored: *Factored, vn: *VarNames)
     val o = answer_opts()
     val c = cycles_of(x)
 
-    if c.heads.len() == 0 then return s"$name = ${term_text_vars(x, o, c, buf(), false, 699, vn)}"
+    if c.heads.len() == 0
+        val text = term_text_vars(x, o, c, buf(), false, 699, vn)
+
+        return if operator_atom(x) then s"$name = ($text)" else s"$name = $text"
 
     val root = node_of(x)
     var names: Buf[string] = buf()

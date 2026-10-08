@@ -243,15 +243,15 @@ private number(s: *Scanner, report: *Report) -> PlTok
             PlBad -> return PlBad
             _ -> ()
 
-        val numerator = plain_digits(s.text_from(start))
+        val numerator = plain_groups(s.text_from(start))
 
         s.bump()
 
         val from = s.offset
 
-        s.accept_while(is_digit)
+        s.skip(digit_run(s.rest(), 10).len)
 
-        val denominator = plain_digits(s.text_from(from))
+        val denominator = plain_groups(s.text_from(from))
 
         if all_zeros(denominator)
             report.add(error(s.span_from(start), "this rational's denominator is 0"))
@@ -260,7 +260,9 @@ private number(s: *Scanner, report: *Report) -> PlTok
         return PlNumT(s"$numerator/$denominator")
 
     val fraction = s.peek() == Some(u8('.')) && s.peek_at(1).map((d) -> is_digit(d)).unwrap_or(false)
-    val exponent = (s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))) && exponent_digits(s.peek_at(1), s.peek_at(2))
+    // A number written with digit groups has no exponent without a fraction: `1_000e5` is not read.
+    val grouped = s.text_from(start).len != plain_groups(s.text_from(start)).bytes.len
+    val exponent = !grouped && (s.peek() == Some(u8('e')) || s.peek() == Some(u8('E'))) && exponent_digits(s.peek_at(1), s.peek_at(2))
 
     if fraction || exponent
         if fraction
@@ -273,7 +275,7 @@ private number(s: *Scanner, report: *Report) -> PlTok
                 s.accept_any("+-".bytes)
                 s.accept_while(is_digit)
 
-        return PlNumT(plain_digits(s.text_from(start)))
+        return PlNumT(plain_groups(s.text_from(start)))
 
     n
 end number
@@ -294,9 +296,78 @@ exponent_digits(a: Option[u8], b: Option[u8]) -> bool = a match
         else false
     None -> false
 
+// A run of digits as SWI-Prolog groups them: `len` bytes, of which the digits are the number. Between
+// two digits stand a `_`, which may be followed by layout (`1_ 000`), or, for a base up to 10, one
+// space (`1 000`); neither may end the run, and a second space or a tab after a digit does not join
+// the next digits on. `spaced` says that some separator was layout and not a bare `_`.
+struct DigitRun
+    len: usize
+    spaced: bool
+
+digit_run(b: []const u8, base: int) -> DigitRun
+    var k: usize = 0
+    var spaced = false
+
+    loop
+        if k >= b.len then break
+
+        val c = b[k]
+
+        if c.digit_value(base).is_some()
+            k += 1
+        elif c == u8('_') && k > 0
+            var j = k + 1
+
+            while j < b.len && is_layout(b[j])
+                j += 1
+
+            if j < b.len && b[j].digit_value(base).is_some()
+                if j > k + 1 then spaced = true
+
+                k = j
+            else
+                break
+        elif c == u8(' ') && k > 0 && base <= 10 && k + 1 < b.len && b[k + 1].digit_value(base).is_some()
+            spaced = true
+            k += 1
+        else
+            break
+
+    DigitRun(k, spaced)
+
+private is_layout(c: u8) -> bool = c == u8(' ') || c == u8('\t') || c == u8('\n') || c == u8('\r')
+
+// A number's text with its digit separators -- `_` and layout -- taken out.
+plain_groups(bs: []const u8) -> string
+    var out: Buf[u8] = buf()
+
+    for b in bs
+        if b != u8('_') && !is_layout(b) then out.push(b)
+
+    from_utf8_unchecked(out.view())
+
+// A grouped integer whose separators include layout, carried as its decimal text for the tower to
+// read.
+private spaced_integer(s: *Scanner, report: *Report, start: usize, base: int, len: usize) -> PlTok
+    val digits = plain_groups(s.rest()[0..<len])
+
+    s.skip(len)
+
+    if base == 10 then return PlNumT(digits)
+
+    big.parse_radix(digits, base) match
+        Some(n) -> PlNumT(big.to_string(n))
+        None ->
+            report.add(error(s.span_from(start), "this integer is malformed"))
+            PlBad
+
 // The digits of an integer in `base`, from where the scanner stands; `start` is the whole literal's.
 // An integer past 64 bits is carried as its decimal text, for the tower to read.
 private integer_of(s: *Scanner, report: *Report, start: usize, base: int) -> PlTok
+    val run = digit_run(s.rest(), base)
+
+    if run.spaced then return spaced_integer(s, report, start, base, run.len)
+
     read_digits(s, base) match
         Ok(n) -> if n <= 9223372036854775807 then return PlIntT(long(n))
         Err(e) -> e match
@@ -305,12 +376,12 @@ private integer_of(s: *Scanner, report: *Report, start: usize, base: int) -> PlT
                 report.add(error(where(e), s"this number is malformed: $e"))
                 return PlBad
 
-    if base == 10 then return PlNumT(plain_digits(s.text_from(start)))
+    if base == 10 then return PlNumT(plain_groups(s.text_from(start)))
 
     // Past 64 bits in a radix: carried as its decimal text, for the tower to read as a decimal one is.
     val all = s.text_from(start)
 
-    big.parse_radix(plain_digits(all[2..<all.len]), base) match
+    big.parse_radix(plain_groups(all[2..<all.len]), base) match
         Some(n) -> PlNumT(big.to_string(n))
         None ->
             report.add(error(s.span_from(start), "this integer is malformed"))
