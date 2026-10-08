@@ -104,6 +104,9 @@ stored_clause(x: Value, who: string) -> Result[(Value, string, usize), Fault]
                 body = c.args.at(1)
         _ -> ()
 
+    // **A cyclic term cannot be a clause**, as in SWI-Prolog: compiled, it would have no end.
+    if !is_acyclic(t) then return Err(representation_error("cyclic_term", s"representation error: $who cannot store a cyclic term"))
+
     val (name, arity) = head_parts(head, who)?
 
     val goal = as_body(body)? match

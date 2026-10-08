@@ -4,7 +4,8 @@ import sysl.buf.{Buf, buf}
 import sysl.container.{Map, map}
 
 // Prolog's builtins that inspect and build terms: the type tests, `functor/3`, `arg/3`, `=../2`,
-// `copy_term/2`, `term_variables/2`, `compare/3` and `unify_with_occurs_check/2`.
+// `copy_term/2`, `term_variables/2`, `compare/3`, `unify_with_occurs_check/2`, `acyclic_term/1`,
+// `cyclic_term/1`, `subsumes_term/2`, `unifiable/3`, `?=/2` and `numbervars/3`.
 //
 // **A list cell is the compound `'[|]'(H, T)`** to all of them, as in SWI-Prolog 7, where `'.'` is no
 // longer the list functor; and a FunL tuple is the compound `tuple(...)` the term mapping makes it.
@@ -30,6 +31,12 @@ install_prolog_terms(v: *Vm)
     register_generator(v, "term_variables/2", 2, pl_term_variables)
     register_generator(v, "compare/3", 3, pl_compare)
     register_generator(v, "unify_with_occurs_check/2", 2, (b, n, c) -> answer(unify_checked(arg(b, 0), arg(b, 1))))
+    register_generator(v, "acyclic_term/1", 1, (b, n, c) -> answer(is_acyclic(arg(b, 0))))
+    register_generator(v, "cyclic_term/1", 1, (b, n, c) -> answer(!is_acyclic(arg(b, 0))))
+    register_generator(v, "subsumes_term/2", 2, (b, n, c) -> answer(subsumes(arg(b, 0), arg(b, 1))))
+    register_generator(v, "unifiable/3", 3, pl_unifiable)
+    register_generator(v, "?=/2", 2, (b, n, c) -> answer(decided(arg(b, 0), arg(b, 1))))
+    register_generator(v, "numbervars/3", 3, pl_numbervars)
 
 // -- What every Prolog builtin answers with --------------------------------------------------------
 
@@ -315,6 +322,94 @@ variables_of(x: Value, first: bool) -> Buf[Value]
 
     found
 end variables_of
+
+// -- subsumes_term/2, unifiable/3, ?=/2, numbervars/3 ----------------------------------------------
+
+// `subsumes_term(General, Specific)`: `Specific` is an instance of `General` -- they unify, binding no
+// variable of `Specific`. Binds nothing either way.
+//
+// **The test is ISO's**: after the unification each variable of `Specific` is still an unbound
+// variable, and no two of them are the same one, so `f(X, X)` does not subsume `f(Y, Z)`.
+private subsumes(general: Value, specific: Value) -> bool
+    val vars = variables_of(specific, false)
+    val h = begin_trial()
+    var ok = unify(general, specific)
+
+    if ok
+        var seen: Map[u64, bool] = map()
+
+        for x in vars.view()
+            deref(x) match
+                Var(p) ->
+                    if seen.get(p.id).is_some()
+                        ok = false
+                        break
+
+                    seen.put(p.id, true)
+                _ ->
+                    ok = false
+                    break
+
+    end_trial(h)
+    ok
+end subsumes
+
+// `unifiable(X, Y, Unifier)`: `X` and `Y` unify, and `Unifier` is the list of `Var = Value` bindings
+// that unification makes. Binds nothing in `X` or `Y`.
+//
+// **The bindings are listed in the order unification made them**, which visits a compound's arguments
+// right to left: `unifiable(f(X, Y), f(a, b), U)` gives `U = [Y=b, X=a]`, the order SWI-Prolog lists
+// them in.
+private pl_unifiable(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val (ok, bound) = trial_unify(arg(base, 0), arg(base, 1))
+
+    if !ok then return answer(false)
+
+    var pairs: Buf[Value] = buf()
+
+    for i in 0..<bound.len()
+        val (x, value) = bound.at(i)
+        var parts: Buf[Value] = buf()
+
+        parts.push(x)
+        parts.push(value)
+        pairs.push(build_compound(intern("="), parts)?)
+
+    unified(arg(base, 2), list_of(&pairs, Nil)?)
+end pl_unifiable
+
+// `?=(A, B)`: whether `A` and `B` are decided -- identical, or unable to unify -- so that no binding
+// could change whether they unify.
+private decided(a: Value, b: Value) -> bool
+    val (ok, bound) = trial_unify(a, b)
+
+    !ok || bound.len() == 0
+
+// `numbervars(Term, Start, End)`: bind each variable of `Term`, in depth-first left-to-right order, to
+// `'$VAR'(N)`, `N` counting up from `Start`; `End` is the next number after the last one used. The
+// writers that take `numbervars(true)` -- `print/1`, `writeq/1`, `write/1` -- show `'$VAR'(N)` as a
+// variable name: `A`, ..., `Z`, `A1`, ...
+private pl_numbervars(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val start = deref(arg(base, 1))
+
+    var n = start match
+        Int(k) -> k
+        Var(_) -> return Err(instantiation_error("instantiation error: numbervars/3 was given an unbound variable as its start"))
+        _ -> return Err(type_error("integer", start, s"numbervars/3 wants an integer start, and was given ${described(start)}"))
+
+    val vars = variables_of(arg(base, 0), false)
+
+    for x in vars.view()
+        var parts: Buf[Value] = buf()
+
+        parts.push(Int(n))
+
+        if !unify(x, build_compound(intern("$VAR"), parts)?) then return answer(false)
+
+        n += 1
+
+    unified(arg(base, 2), Int(n))
+end pl_numbervars
 
 // `compare(Order, A, B)`: `Order` is `<`, `=` or `>` as `A` stands to `B` in the standard order.
 private pl_compare(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]

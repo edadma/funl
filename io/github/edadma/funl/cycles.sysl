@@ -224,6 +224,9 @@ end cycles_of
 private const Grey: usize = 1
 private const Black: usize = 2
 
+// Whether `x` is a finite tree: no node of it is entered again from inside itself.
+is_acyclic(x: Value) -> bool = cycles_of(x).heads.len() == 0
+
 // Go into `y`: push it if it is a node not yet seen, and record it as a cycle's head if it is one
 // whose parts are still being walked.
 private enter(c: *Cycles, colour: *AddrTable, nodes: *Buf[Value], next: *Buf[usize], y: Value)

@@ -1,5 +1,7 @@
 module io.github.edadma.funl
 
+import sysl.buf.{Buf, buf}
+
 // The trail: what failure has to put back that the control entries do not already save.
 //
 // **A separate stack from the control entries, because a commit is not an undo.** A binding made
@@ -47,7 +49,47 @@ bind(x: *VarObj, to: Value)
     x.value = to
     x.bound = true
 
-    if needs_trail(v, x) then v.trail.push(Bind(x))
+    if v.trailing_all || needs_trail(v, x) then v.trail.push(Bind(x))
+
+// Unify `a` with `b` only to see what it would bind, and take every binding back: whether they unify,
+// and with each variable that unification bound beside the value it bound it to, in the order bound.
+// **Nothing is left bound either way**, the young variables conditional trailing would not record
+// among them. The values are as unification left them, so a value bound to another variable that the
+// same unification went on to bind reads, once taken back, as that variable.
+trial_unify(a: Value, b: Value) -> (bool, Buf[(Value, Value)])
+    val h = begin_trial()
+    val ok = unify(a, b)
+
+    (ok, end_trial(h))
+
+// Begin a trial: from here every binding is trailed, until `end_trial` takes them back. Answers the
+// trail's height, for `end_trial`.
+begin_trial() -> usize
+    val v = current()
+
+    v.trailing_all = true
+    v.trail.len()
+
+// End the trial `begin_trial` began at trail height `h`: unbind every variable bound since, and answer
+// each beside the value it was bound to, in the order bound.
+end_trial(h: usize) -> Buf[(Value, Value)]
+    val v = current()
+
+    v.trailing_all = false
+
+    var bound: Buf[(Value, Value)] = buf()
+    var i = h
+
+    while i < v.trail.len()
+        v.trail.at(i) match
+            Bind(x) -> bound.push((Var(x), x.value))
+            _ -> ()
+
+        i += 1
+
+    undo_trail_to(v, h)
+    bound
+end end_trial
 
 // Whether a binding of `x` must be recorded: it is older than the entry on top of the control stack.
 private needs_trail(v: *Vm, x: *VarObj) -> bool

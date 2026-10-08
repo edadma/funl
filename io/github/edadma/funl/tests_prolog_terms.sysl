@@ -2,7 +2,9 @@ module io.github.edadma.funl
 @tests
 
 // The Prolog builtins that inspect and build terms: the type tests, `functor/3`, `arg/3`, `=../2`,
-// `copy_term/2`, `term_variables/2` and `compare/3`, each with its ISO errors.
+// `copy_term/2`, `term_variables/2`, `compare/3`, `acyclic_term/1`, `cyclic_term/1`,
+// `subsumes_term/2`, `unifiable/3`, `?=/2` and `numbervars/3`, each with its errors; and the refusal
+// to store a cyclic term as a clause.
 
 private ok(text: string) -> string = text + "\nsucceeded"
 
@@ -115,3 +117,67 @@ COMPARE_ANSWERS_THE_STANDARD_ORDER()
 COMPARE_RAISES_THE_ISO_ERRORS()
     assert_eq(holds("compare(foo, a, b)"), ok("domain_error(order,foo)"))
     assert_eq(holds("compare(1, a, b)"), ok("type_error(atom,1)"))
+
+@test
+ACYCLIC_TERM_AND_CYCLIC_TERM_TELL_A_RATIONAL_TREE_FROM_A_FINITE_ONE()
+    assert_eq(holds("acyclic_term(f(_, g(a)))"), ok("yes"))
+    assert_eq(holds("cyclic_term(f(_, g(a)))"), ok("no"))
+    assert_eq(holds("A = f(A), acyclic_term(A)"), ok("no"))
+    assert_eq(holds("A = f(A), cyclic_term(A)"), ok("yes"))
+    assert_eq(holds("A = [a, b | A], cyclic_term(g(x, A))"), ok("yes"))
+    assert_eq(holds("A = f(B), B = g(_), C = h(A, A), acyclic_term(C)"), ok("yes"))
+
+@test
+SUBSUMES_TERM_ASKS_WHETHER_ONE_TERM_IS_AN_INSTANCE_OF_THE_OTHER()
+    assert_eq(holds("subsumes_term(f(_), f(a))"), ok("yes"))
+    assert_eq(holds("subsumes_term(f(a), f(_))"), ok("no"))
+    assert_eq(holds("subsumes_term(f(X, X), f(_, _))"), ok("no"))
+    assert_eq(holds("subsumes_term(f(_, _), f(Y, Y))"), ok("yes"))
+    assert_eq(holds("subsumes_term(X, f(X))"), ok("no"))
+    assert_eq(holds("subsumes_term(a, b)"), ok("no"))
+    assert_eq(holds("subsumes_term(f(X), f(a)), var(X)"), ok("yes"))
+    assert_eq(holds("A = f(A), B = f(B), subsumes_term(A, B)"), ok("yes"))
+    assert_eq(holds("A = f(A, _), subsumes_term(g(_), A)"), ok("no"))
+    assert_eq(holds("A = f(A, _), B = f(B, c), subsumes_term(A, B)"), ok("yes"))
+
+@test
+UNIFIABLE_LISTS_THE_BINDINGS_WITHOUT_MAKING_THEM()
+    assert_eq(gives("unifiable(f(A, B, C), f(a, b, c), X), A = 'A', B = 'B', C = 'C'"), ok("['C'=c,'B'=b,'A'=a]"))
+    assert_eq(gives("unifiable(f(A, b), f(a, B), U), var(A), var(B), A = 'A', B = 'B', X = U"), ok("['B'=b,'A'=a]"))
+    assert_eq(gives("unifiable(f(a), f(a), X)"), ok("[]"))
+    assert_eq(holds("unifiable(a, b, _)"), ok("no"))
+    assert_eq(holds("A = f(A), B = f(B), unifiable(A, B, [])"), ok("yes"))
+
+@test
+DECIDED_IS_IDENTITY_OR_A_SURE_MISMATCH()
+    assert_eq(holds("?=(a, a)"), ok("yes"))
+    assert_eq(holds("?=(a, b)"), ok("yes"))
+    assert_eq(holds("?=(X, X)"), ok("yes"))
+    assert_eq(holds("?=(_, a)"), ok("no"))
+    assert_eq(holds("?=(f(X), f(Y))"), ok("no"))
+    assert_eq(holds("?=(f(X, a), f(Y, b))"), ok("yes"))
+    assert_eq(gives("?=(f(X), f(a)) ; X = unbound"), ok("unbound"))
+
+@test
+NUMBERVARS_NAMES_EACH_VARIABLE_BY_A_VAR_TERM()
+    assert_eq(ran_prolog(":- T = f(X, Y, X, g(Z)), numbervars(T, 0, E), print(T-E), nl, write_canonical(T), nl.\n"),
+        ok("f(A,B,A,g(C))-3\nf('$VAR'(0),'$VAR'(1),'$VAR'(0),g('$VAR'(2)))"))
+    assert_eq(gives("T = f(_, _), numbervars(T, 25, E), X = T-E"), ok("f(Z,A1)-27"))
+    assert_eq(gives("numbervars(abc, 7, X)"), ok("7"))
+    assert_eq(holds("numbervars(f(_), 0, 5)"), ok("no"))
+    assert_eq(gives("A = f(A, _), numbervars(A, 0, X)"), ok("1"))
+
+@test
+NUMBERVARS_RAISES_THE_ERRORS_SWI_PROLOG_DOES()
+    assert_eq(holds("numbervars(f(_), _, _)"), ok("instantiation_error"))
+    assert_eq(holds("numbervars(f(_), a, _)"), ok("type_error(integer,a)"))
+    assert_eq(holds("numbervars(f(_), 1.0, _)"), ok("type_error(integer,1.0)"))
+
+@test
+A_CYCLIC_TERM_IS_NOT_STORED_AS_A_CLAUSE()
+    assert_eq(holds("A = f(A), assertz(p(A))"), ok("representation_error(cyclic_term)"))
+    assert_eq(holds("A = f(A), asserta(p(A))"), ok("representation_error(cyclic_term)"))
+    assert_eq(holds("A = f(A), assert(p(A))"), ok("representation_error(cyclic_term)"))
+    assert_eq(holds("A = (q :- A), assertz(A)"), ok("representation_error(cyclic_term)"))
+    assert_eq(holds("A = (a, A), assertz((q :- A))"), ok("representation_error(cyclic_term)"))
+    assert_eq(holds("A = f(A), findall(A, true, [L]), L = f(L), cyclic_term(L)"), ok("yes"))

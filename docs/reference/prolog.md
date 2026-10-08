@@ -903,6 +903,48 @@ refused
 f(a)
 ```
 
+`cyclic_term/1` and `acyclic_term/1` tell a cyclic term from a finite one. A cyclic term cannot be
+stored as a clause: `assert/1`, `asserta/1` and `assertz/1` raise
+`representation_error(cyclic_term)` for one. `findall/3` collects cyclic terms like any others.
+
+`subsumes_term(General, Specific)` succeeds when `Specific` is an instance of `General`: they unify
+without binding any variable of `Specific`. `unifiable(X, Y, Unifier)` gives the bindings that
+unifying `X` and `Y` would make, as a list of `Var = Value`, and binds nothing. `?=(A, B)` succeeds
+when whether `A` and `B` unify is already decided: they are identical, or cannot unify.
+`numbervars(Term, Start, End)` binds each variable of `Term`, left to right, to `'$VAR'(N)`, with `N`
+counting from `Start`, and `End` the next number; `write/1`, `print/1` and `writeq/1` write
+`'$VAR'(N)` as the variable name `A`, …, `Z`, `A1`, …, and `write_canonical/1` writes it as it is. All
+four end on cyclic terms.
+
+```prolog
+:- X = f(X), (cyclic_term(X) -> write(cyclic) ; write(acyclic)), nl.
+:- (acyclic_term(f(_, g(a))) -> write(acyclic) ; write(cyclic)), nl.
+:- X = f(X), catch(assertz(p(X)), error(E, _), (write(E), nl)).
+:- (subsumes_term(f(_, b), f(a, b)) -> write(instance) ; write(not_instance)), nl.
+:- (subsumes_term(f(a, b), f(_, b)) -> write(instance) ; write(not_instance)), nl.
+:- X = f(X), Y = f(Y), (subsumes_term(X, Y) -> write(instance) ; write(not_instance)), nl.
+:- unifiable(f(X, Y), f(a, b), U), (var(X) -> write(unbound) ; write(bound)), nl, X = 'X', Y = 'Y', write(U), nl.
+:- (?=(a, b) -> write(decided) ; write(open)), nl.
+:- (?=(f(_), f(a)) -> write(decided) ; write(open)), nl.
+:- T = f(X, Y, X), numbervars(T, 0, End), print(T), write(' '), write(End), nl.
+:- T = g(_, _), numbervars(T, 25, _), writeq(T), write(' '), write_canonical(T), nl.
+```
+
+```output
+cyclic
+acyclic
+representation_error(cyclic_term)
+instance
+not_instance
+instance
+unbound
+[Y=b,X=a]
+decided
+open
+f(A,B,A) 2
+g(Z,A1) g('$VAR'(25),'$VAR'(26))
+```
+
 The `prolog` top level writes a binding that is its own cycle with the variable's own name, and
 names every other cycle `_S1`, `_S2`, and so on, spelling each out in a `% where` block under the
 binding. Given these lines on its input:
@@ -1110,9 +1152,9 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 | group | predicates |
 |---|---|
 | control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0`, `halt/1`, `between/3`, `repeat/0` *(library)* |
-| unification and comparison | `=/2`, `\=/2`, `unify_with_occurs_check/2`, `==/2`, `\==/2`, `@</2`, `@>/2`, `@=</2`, `@>=/2`, `=@=/2`, `\=@=/2`, `compare/3` |
-| type tests | `var/1`, `nonvar/1`, `atom/1`, `number/1`, `integer/1`, `float/1`, `rational/1`, `atomic/1`, `compound/1`, `callable/1`, `is_list/1`, `string/1`, `ground/1` |
-| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2` |
+| unification and comparison | `=/2`, `\=/2`, `unify_with_occurs_check/2`, `==/2`, `\==/2`, `@</2`, `@>/2`, `@=</2`, `@>=/2`, `=@=/2`, `\=@=/2`, `compare/3`, `subsumes_term/2`, `unifiable/3`, `?=/2` |
+| type tests | `var/1`, `nonvar/1`, `atom/1`, `number/1`, `integer/1`, `float/1`, `rational/1`, `atomic/1`, `compound/1`, `callable/1`, `is_list/1`, `string/1`, `ground/1`, `cyclic_term/1`, `acyclic_term/1` |
+| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2`, `numbervars/3` |
 | arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3` |
 | database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1` *(library)*, `retractall/1` *(library)*, `abolish/1`, `clause/2`, `dynamic/1`, `current_predicate/1` *(library)* |
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3`, `aggregate_all/3` *(library)* |
