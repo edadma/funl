@@ -277,6 +277,13 @@ write( now() )
 
 slate's instant, duration and calendar kinds come later, on the same `sysl.time`.
 
+> **Decided — what `funl:time` is before it has kinds.** A point in time is a whole number of
+> milliseconds since 1970 (`now()`, the argument of `format` and `fields`, the answer of `parse` and
+> `make`); `monotonic()` is milliseconds as a real from an unnamed origin; `sleep(ms)` blocks. An offset
+> is whole minutes east of UTC and, left out, is UTC. The surface is `now monotonic sleep format parse
+> fields make local_offset`; `parse` of text that is not a timestamp and `make` of a date that does not
+> exist fail; a wrong-kind argument is a fault. The page is `docs/library/time.md`.
+
 ### `funl:http` — the `http` feature, over `sysl-lang/curl`
 
 ```
