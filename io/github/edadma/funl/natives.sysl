@@ -17,6 +17,7 @@ install_natives(v: *Vm)
     install_json(v)
     install_sqlite(v)
     install_time(v)
+    install_async(v)
     install_prelude(v)
 #if feature_http
     install_http(v)

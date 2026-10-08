@@ -26,6 +26,8 @@ import sysl.buf.{Buf, buf}
 // **The queue is drained to empty** whenever nothing else is running: when a resumed task gives way,
 // when the top level awaits, and when the top level halts with tasks still owed a turn -- the top
 // level then set aside until the queue is empty, so the program ends once nothing is left to run.
+// The queue is the microtask queue; the loop (`events.sysl`) is the other one, and is asked for its
+// next event only when this one is empty.
 
 // What `back_to` and `main_parked` hold when there is no such machine.
 const NoMachine: usize = 4294967295
@@ -219,7 +221,7 @@ in_task(v: *Vm) -> bool = v.promise != null
 // raised a fault nothing caught (`PromiseFaulted`, `x` the ball or `Undefined`, `message` the fault's
 // text): settle its promise, and give way.
 task_ends(v: *Vm, state: u8, x: Value, message: string) -> bool
-    settle(v, v.promise, state, x, message)
+    settle_promise(v, v.promise, state, x, message)
 
     val back = v.back_to
 
@@ -227,8 +229,9 @@ task_ends(v: *Vm, state: u8, x: Value, message: string) -> bool
     give_way(v, back)
 
 // Settle `p`, once: every machine waiting for it is ready. A fault no machine has awaited is kept to
-// be reported when the program ends, unless something awaits it first.
-private settle(v: *Vm, p: *PromiseObj, state: u8, x: Value, message: string)
+// be reported when the program ends, unless something awaits it first. Not `private`: a timer
+// (`events.sysl`) and `funl:async`'s makers settle promises too.
+settle_promise(v: *Vm, p: *PromiseObj, state: u8, x: Value, message: string)
     if p.state != PromisePending then return
 
     p.state = state
@@ -256,12 +259,15 @@ enum Resumed
     // Nothing is left to run: the run is over, and this is how it ended.
     Ends(o: Outcome)
 
-// Run the next ready machine, its awaited value's answer written over it; or, the queue empty, end.
+// Run the next ready machine, its awaited value's answer written over it. **The ready queue is drained
+// to empty before the loop is asked for anything**: only then is a fired timer's promise kept, or the
+// loop waited on for the next one (`next_event`). With neither queue holding anything, end.
 next_ready(v: *Vm) -> Resumed
-    if v.ready_head >= v.ready.len()
+    while v.ready_head >= v.ready.len()
         v.ready.clear()
         v.ready_head = 0
-        return Ends(finished(v))
+
+        if !next_event(v) then return Ends(finished(v))
 
     val id = v.ready.at(v.ready_head)
 
@@ -284,10 +290,11 @@ next_ready(v: *Vm) -> Resumed
         _ -> Runs
 end next_ready
 
-// The top level has halted. With nothing owed a turn the run is over at once, as it always was;
-// otherwise the top level is set aside, to come back when the queue is empty. `None` when it was.
+// The top level has halted. With nothing owed a turn and no timer set the run is over at once, as it
+// always was; otherwise the top level is set aside, to come back when both queues are empty and every
+// timer has fired. `None` when it was.
 main_halts(v: *Vm) -> Option[Outcome]
-    if v.ready_head >= v.ready.len() then return Some(unawaited_fault(v))
+    if v.ready_head >= v.ready.len() && !events_owed(v) then return Some(unawaited_fault(v))
 
     v.main_parked = park(v)
     None

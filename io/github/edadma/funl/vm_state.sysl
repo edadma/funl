@@ -1,9 +1,12 @@
 module io.github.edadma.funl
 
 import sh.sysl.gc
+import sh.sysl.kairos.Loop
+import sh.sysl.kairos.host.Host
 import sysl.buf.{Buf, buf}
 import sysl.container.{Map, map}
 import sysl.rand.{Rng, rng}
+import sysl.time.Duration
 
 // The machine's state, and the one way to reach it.
 //
@@ -215,6 +218,22 @@ struct Vm
 
     // The chunk a task's first frame returns to, once made.
     task_chunk: Option[usize]
+
+    // -- the loop (`events.sysl`) -------------------------------------------------------------------
+
+    // The event loop and the clock it reads, made by the first timer a program sets.
+    events: Option[&Loop[Host]]
+    clock: Option[&Host]
+
+    // The clock's reading when the stretch of FunL since the loop's last pass first set a timer.
+    stretch: Option[Duration]
+
+    // The promises a timer will keep, until it fires.
+    timed: Buf[Value]
+
+    // The promises whose timers fired in the loop's last pass, in the order they fired: kept together
+    // once the ready queue is empty.
+    fired: Buf[Value]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -245,7 +264,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         buf(), map(), buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf(), buf(),
-        null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None)
+        null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, None, None, None, buf(), buf())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")
@@ -260,6 +279,7 @@ end new_vm
 
 // Give a VM's heap back, running every finalizer still outstanding.
 dispose_vm(v: *Vm)
+    forget_events(v)
     gc.dispose(&v.heap)
     free(v.block)
     v.block = null

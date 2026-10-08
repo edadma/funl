@@ -112,7 +112,9 @@ the top level resumes
 
 **The top level may `await`**, as the last lines show: it waits as a call does. The program ends
 once the top level has finished and nothing waiting can run any more. A call still waiting for a
-promise nothing will keep does not hold the program open; the lines below its `await` never run.
+promise nothing will keep does not hold the program open; the lines below its `await` never run. A
+timer does hold it open: [`funl:async`](../library/async.md)'s `sleep` answers a promise a timer
+keeps, and a call waiting for that one runs when the timer fires.
 
 ```funl
 var p = undefined

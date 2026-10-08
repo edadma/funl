@@ -19,4 +19,5 @@ The prelude is the one exception: every program sees it without an import.
 | [`funl:json`](json.md) | `parse` and `stringify`: JSON text read into maps, lists, strings, numbers, booleans and `undefined`, values written compactly or with an indent, what fails and what faults, the module from Prolog |
 | [`funl:sqlite`](sqlite.md) | opening a database in a file or in memory, `exec`, `run` with parameters, `query` as a generator of rows, the values that cross, what faults |
 | [`funl:time`](time.md) | the wall and monotonic clocks, `sleep`, making, formatting and parsing ISO 8601 timestamps, the calendar reading of a time, the host's offset |
+| [`funl:async`](async.md) | `sleep` as a promise a timer keeps, timers keeping the program alive, the two queues and the order they run in, `resolve`, `reject`, `pending` and `settle`, a rejected promise nothing awaits |
 | [`funl:http`](http.md) | `fetch`: a request with a method, headers, a body and a timeout, the response as status, headers, text and bytes, what faults, the `http` feature, the module from Prolog |

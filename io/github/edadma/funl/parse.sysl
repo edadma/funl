@@ -486,6 +486,11 @@ private import_line(p: *Parser, imports: *Buf[ImportDecl])
                     Name(name) ->
                         p.take()
                         imports.push(ImportDecl(BuiltinSpec(name), s.span.to(m.span), form))
+
+                    // `funl:async` is named for the word, which is reserved everywhere else.
+                    AsyncW ->
+                        p.take()
+                        imports.push(ImportDecl(BuiltinSpec("async"), s.span.to(m.span), form))
                     _ -> p.fail_here("the name of one of FunL's modules")
 
                 return

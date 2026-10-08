@@ -1,0 +1,88 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+import sysl.time.micros
+
+// `funl:async`: promises that do not come from calling an `async` function.
+//
+// **`sleep(ms)` answers a promise a timer keeps** once that many milliseconds have passed, and the
+// timer keeps the program alive until it fires (`events.sysl`). It is the promise-answering twin of
+// `funl:time`'s `sleep`, which blocks: a file chooses which it means by its import.
+//
+// **`resolve(x)` and `reject(x)` adapt something that has already happened**: a promise already kept
+// with `x`, and one already faulted, so `await` of it raises what `error(x)` raises. **`pending()`
+// and `settle(p, x)` adapt something that has not**: a promise nobody has answered yet, and the
+// keeping of it. Settling a promise that is no longer pending changes nothing.
+//
+// Every native is registered as `async.name` and exported under the short name, as `funl:fs` does.
+
+// What `funl:async` exports, each the short form of a native `install_async` registered as `async.name`.
+private val AsyncNames: [5]string = ["sleep", "resolve", "reject", "pending", "settle"]
+
+install_async(v: *Vm)
+    register(v, "async.sleep", 1, do_sleep)
+    register(v, "async.resolve", 1, do_resolve)
+    register(v, "async.reject", 1, do_reject)
+    register(v, "async.pending", 0, do_pending)
+    register(v, "async.settle", 2, do_settle)
+
+// The exports of `funl:async`.
+async_exports() -> Buf[ModExport] = native_exports("async", AsyncNames)
+
+// `sleep(ms)`: a promise kept with `()` once `ms` milliseconds, whole or fractional, have passed. A
+// wait of zero or less still goes round the loop.
+private do_sleep(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = arg(base, 0)
+    val y = deref(x)
+
+    val us = y match
+        Int(n) -> n * 1000
+        Real(r) -> long(r * 1000.0)
+        Var(_) -> return Err(instantiation_error("instantiation error: 'sleep' was given an unbound variable"))
+        _ -> return Err(type_error("number", y, s"'sleep' wants a number of milliseconds and was given ${described(x)}"))
+
+    val p = promise_made()?
+
+    arm_timer(current(), p, micros(if us > 0 then us else 0))
+    Ok(Promise(p))
+
+// `resolve(x)`: a promise already kept with `x`.
+private do_resolve(base: usize, argc: usize) -> Result[Value, Fault]
+    val p = promise_made()?
+
+    settle_promise(current(), p, PromiseKept, arg(base, 0), "")
+    Ok(Promise(p))
+
+// `reject(x)`: a promise already faulted with the error `error(x)` raises, so `await` of it raises
+// that error and a `catch` there sees `x`'s text as the message. One nothing ever awaits is the run's
+// fault, as a task's is.
+private do_reject(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = arg(base, 0)
+
+    val ball = user_error(x, render(x)) match
+        Thrown(b) -> b
+        _ -> return Err(Broken("'reject' could not make its error term"))
+
+    val p = promise_made()?
+
+    settle_promise(current(), p, PromiseFaulted, ball, uncaught_text(ball))
+    Ok(Promise(p))
+
+// `pending()`: a promise nobody has answered yet.
+private do_pending(base: usize, argc: usize) -> Result[Value, Fault] = Ok(Promise(promise_made()?))
+
+// `settle(p, x)`: keep pending promise `p` with `x`, so every task waiting for it is owed a turn.
+private do_settle(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = arg(base, 0)
+
+    deref(x) match
+        Promise(p) ->
+            settle_promise(current(), p, PromiseKept, arg(base, 1), "")
+            Ok(Unit)
+        Var(_) -> Err(instantiation_error("instantiation error: 'settle' was given an unbound variable"))
+        y -> Err(type_error("promise", y, s"'settle' wants a promise and was given ${described(x)}"))
+
+// A new pending promise, or the heap's refusal as a fault.
+private promise_made() -> Result[*PromiseObj, Fault] = new_promise() match
+    Ok(p) -> Ok(p)
+    Err(e) -> Err(Broken(e))

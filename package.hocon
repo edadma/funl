@@ -40,6 +40,9 @@ workspace = ["funl", "prolog"]
 // **`dal` is the numeric tower** -- integers that grow past 64 bits, exact rationals and doubles,
 // with FunL's arithmetic under `dal.funl()` and Prolog's under `dal.iso_prolog(prefer_rationals)`.
 //
+// **`kairos` is the event loop** under `async`, used in callback form: a timer settles a promise and
+// the task waiting for it is queued, and a pending timer keeps the program alive.
+//
 // **`json` is `funl:json`'s reader and writer**, pure sysl, so it costs no link line and needs no
 // feature.
 //
@@ -56,7 +59,10 @@ dependencies {
   // package elsewhere, so every `funl` carries it.
   sqlite3 { git = "github.com/sysl-lang/sqlite3", version = "0.7.0" }
 
-  curl    { git = "github.com/sysl-lang/curl", version = "0.1.1", optional = true }
+  // `async`'s loop. Its timers and its host driver need no library, so it is not a feature.
+  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.1" }
+
+  curl   { git = "github.com/sysl-lang/curl", version = "0.1.1", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`

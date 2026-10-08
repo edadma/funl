@@ -36,6 +36,8 @@ private enum Flow
 // Run chunk `chunk` as the top level, from its first instruction. A line Prolog's `write/1` began
 // and nothing ended is written out when the run ends, however it ends.
 run(v: *Vm, chunk: usize) -> Outcome
+    forget_events(v)
+
     val outcome = run_loop(v, chunk)
 
     end_line(v)

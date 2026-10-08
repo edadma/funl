@@ -257,6 +257,11 @@ roots(h: *gc.Heap)
     // Promises whose fault nothing has awaited yet, reported when the program ends.
     mark_values(h, v.rejected)
 
+    // The promises a timer will keep, and those whose timer has fired and that are not yet kept:
+    // `sleep( 10 )` on a line of its own is held by nothing else.
+    mark_values(h, v.timed)
+    mark_values(h, v.fired)
+
     // The top level's frame, the static link of every top-level function's frames.
     gc.mark(h, ptr_cast(v.globals))
 

@@ -453,6 +453,23 @@ the regex captures. A **task** is exactly those fields, in their own `Machine`:
 > **The stamp is still one counter for every machine** -- per-task stamps and the refusal to bind
 > another task's variable come with the loop.
 
+> **Built — the loop and `funl:async` (milestone 10, part 2).** `events.sysl` holds kairos's loop,
+> made by a program's first timer over the host driver, in callback form: a timer's callback runs no
+> FunL, it moves its promise from `Vm.timed` to `Vm.fired` and stops the loop, so `run` returns at the
+> end of that pass. **The ready queue is the microtask queue and is drained to empty first**; only
+> then are the promises the last pass fired kept, all of them, in deadline order -- **a turn of the
+> loop is a pass, as slate's is**, so two timers due together are both kept before either waiting task
+> runs (checked against slate, which prints that order) -- and with none fired the loop runs until one
+> fires. A set timer keeps the program alive: the top level halting is parked while one is set. kairos
+> sets a timer from its last pass's reading, so the clock is read once per stretch of FunL between
+> passes, at its first timer, and the difference added: a wait starts when it was asked for, and two
+> timers set in one stretch with one delay are still due together. `funl:async` has `sleep`,
+> `resolve`, `reject`, `pending` and `settle`; `reject(x)` faults its promise with the error `error(x)`
+> raises, so a `catch` around the `await` sees it, and one nothing awaits is the run's fault. `funl:`
+> takes the reserved word `async` as a module name. **Left for later**: `fail(p, message)` cannot be
+> imported by that name, `fail` being reserved; the promise-shaped `fetch`, `read_file`, `write_file`
+> and `run`, with kairos's `uv` feature behind FunL's `async`; and per-task trails and stamps.
+
 ## The prelude — the first module written in FunL
 
 > **Decided (user, 2026-10-08) — the prelude is the first module written in FunL, and it is

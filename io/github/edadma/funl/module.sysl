@@ -101,6 +101,7 @@ builtin_modules() -> Buf[ModuleProvider]
     out.push(ModuleProvider("json", json_exports))
     out.push(ModuleProvider("sqlite", sqlite_exports))
     out.push(ModuleProvider("time", time_exports))
+    out.push(ModuleProvider("async", async_exports))
 #if feature_http
     out.push(ModuleProvider("http", http_exports))
 #endif
