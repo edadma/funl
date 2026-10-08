@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.math.bigint as big
 import sysl.text.{Ascii, char_from_u32, from_utf8_unchecked, str_builder}
 
 // Prolog's tokens, as ISO writes them.
@@ -55,10 +56,21 @@ private is_symbol_char(c: u8) -> bool =
     c == u8('<') || c == u8('>') || c == u8('=') || c == u8('~') || c == u8(':') || c == u8('.') ||
     c == u8('?') || c == u8('@') || c == u8('#') || c == u8('&') || c == u8('$')
 
+// A symbol character, or a back quote where the `back_quotes` flag is `symbol_char`, as SWI-Prolog
+// reads one then.
+private is_symbol_or_back(c: u8) -> bool = is_symbol_char(c) || (c == u8('`') && back_quote_is_symbol())
+
+private back_quote_is_symbol() -> bool = current().flags.back_quotes == "symbol_char"
+
 // Cut `src` into tokens, reporting each refusal.
-pl_lex(src: Source, report: *Report) -> Tokens[PlTok]
+pl_lex(src: Source, report: *Report) -> Tokens[PlTok] = pl_lex_from(src, report, 0)
+
+// The tokens of `src` from byte `from` on, their spans in the whole of `src`.
+pl_lex_from(src: Source, report: *Report, from: usize) -> Tokens[PlTok]
     var s = scan(src)
     var out: Buf[Spanned[PlTok]] = buf()
+
+    s.skip(from)
 
     // Where the last name ended, so that a `(` touching it opens an argument list.
     var name_end: usize = 0
@@ -83,7 +95,7 @@ pl_lex(src: Source, report: *Report) -> Tokens[PlTok]
     end loop
 
     tokens_of(out)
-end pl_lex
+end pl_lex_from
 
 // The token at the cursor, which is not layout; `touching` says a name ends just before it.
 private token(s: *Scanner, report: *Report, touching: bool) -> PlTok
@@ -110,7 +122,7 @@ private token(s: *Scanner, report: *Report, touching: bool) -> PlTok
             Some(text) -> PlStrT(text)
             None -> PlBad
 
-    if c == u8('`')
+    if c == u8('`') && !back_quote_is_symbol()
         return quoted(s, report, u8('`')) match
             Some(text) -> PlBackT(text)
             None -> PlBad
@@ -119,8 +131,11 @@ private token(s: *Scanner, report: *Report, touching: bool) -> PlTok
         s.bump()
         return PlName(from_utf8_unchecked(s.text_from(start)))
 
-    if is_symbol_char(c)
-        s.accept_while(is_symbol_char)
+    if is_symbol_or_back(c)
+        if back_quote_is_symbol()
+            symbol_run_with_back_quotes(s)
+        else
+            s.accept_while(is_symbol_char)
 
         val text = from_utf8_unchecked(s.text_from(start))
 
@@ -151,6 +166,28 @@ private punct_of(c: u8, touching: bool) -> PlTok
     PlBad
 
 // A `.` ends a clause when layout, a `%` comment or the end of the input follows it.
+// A run of symbol characters where a back quote is one: a `.` after a back quote that layout or the
+// end follows ends the clause rather than joining the run, as SWI-Prolog reads `` X = `+`. ``.
+private symbol_run_with_back_quotes(s: *Scanner)
+    var prev: u8 = 0
+
+    loop
+        val c = s.peek() match
+            Some(c) -> c
+            None -> break
+
+        if !is_symbol_or_back(c) then break
+
+        if c == u8('.') && prev == u8('`')
+            val after = s.peek_at(1) match
+                None -> true
+                Some(d) -> is_space(d) || d == u8('%')
+
+            if after then break
+
+        prev = c
+        s.bump()
+
 private ends_clause(s: Scanner) -> bool = s.peek() match
     None -> true
     Some(c) -> is_space(c) || c == u8('%')
@@ -258,8 +295,7 @@ exponent_digits(a: Option[u8], b: Option[u8]) -> bool = a match
     None -> false
 
 // The digits of an integer in `base`, from where the scanner stands; `start` is the whole literal's.
-// A decimal integer past 64 bits is carried as its text, for the tower to read; one in a radix has
-// to fit.
+// An integer past 64 bits is carried as its decimal text, for the tower to read.
 private integer_of(s: *Scanner, report: *Report, start: usize, base: int) -> PlTok
     read_digits(s, base) match
         Ok(n) -> if n <= 9223372036854775807 then return PlIntT(long(n))
@@ -271,9 +307,14 @@ private integer_of(s: *Scanner, report: *Report, start: usize, base: int) -> PlT
 
     if base == 10 then return PlNumT(plain_digits(s.text_from(start)))
 
-    report.add(error(s.span_from(start), "this integer is too large to hold")
-        .with_note("an integer written in a radix is 64 bits, signed"))
-    PlBad
+    // Past 64 bits in a radix: carried as its decimal text, for the tower to read as a decimal one is.
+    val all = s.text_from(start)
+
+    big.parse_radix(plain_digits(all[2..<all.len]), base) match
+        Some(n) -> PlNumT(big.to_string(n))
+        None ->
+            report.add(error(s.span_from(start), "this integer is malformed"))
+            PlBad
 
 // `0'c`: the code of one character, which may be an escape, or `''` for the quote itself.
 private char_code(s: *Scanner, report: *Report, start: usize) -> PlTok

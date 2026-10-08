@@ -29,6 +29,28 @@ install_prolog_arith(v: *Vm)
     register_generator(v, "succ/2", 2, pl_succ)
     register_generator(v, "plus/3", 3, pl_plus)
     register_generator(v, "between/3", 3, pl_between)
+    register_generator(v, "rational/3", 3, pl_rational)
+
+// `rational(X, N, D)`, SWI-Prolog's: `X` is an integer or a rational, `N/D` in lowest terms with `D`
+// positive. Anything else, an unbound `X` and a float among it, fails.
+private pl_rational(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+
+    if is_int(x)
+        if !unify(arg(base, 1), x) then return answer(false)
+
+        return unified(arg(base, 2), Int(1))
+
+    n_of_maybe(x) match
+        Some(Number.Rat(r)) ->
+            if !unify(arg(base, 1), of_big(r.numerator())?) then return answer(false)
+
+            unified(arg(base, 2), of_big(r.denominator())?)
+        _ -> answer(false)
+
+private n_of_maybe(x: Value) -> Option[Number] = x match
+    Rat(_) -> num_of(x)
+    _ -> None
 
 // The value of expression `x`: always a number.
 //
@@ -233,6 +255,14 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
     if name == "mod" then return num_answer(p.modulo(n_of(a), n_of(b)), name, a, b)
     if name == "rem" then return num_answer(p.rem(n_of(a), n_of(b)), name, a, b)
     if name == "div" then return num_answer(p.floor_div(n_of(a), n_of(b)), name, a, b)
+
+    // `rdiv`, SWI-Prolog's: the exact quotient of two integers or rationals, whatever
+    // `prefer_rationals` says; a float is `type_error(rational, F)`.
+    if name == "rdiv"
+        if is_float(a) then return Err(type_error("rational", a, s"rdiv wants an integer or a rational, and was given ${render(a)}"))
+        if is_float(b) then return Err(type_error("rational", b, s"rdiv wants an integer or a rational, and was given ${render(b)}"))
+
+        return num_answer(dal.iso_prolog(true).div(n_of(a), n_of(b)), name, a, b)
 
     // Of two equal numbers of different kinds, the first.
     if name == "min" then return Ok(if dal.compare(n_of(b), n_of(a)) == Some(-1) then b else a)

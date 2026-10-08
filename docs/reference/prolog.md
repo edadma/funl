@@ -89,6 +89,11 @@ waits: `;` asks for the next, and anything else stops. An answer with nothing le
 query is read. `halt.` ends the session with status 0 and `halt(N).` with status `N`; the end of the
 input ends it with status 0.
 
+An answer is written as SWI-Prolog writes one. Variables with the same value are one chain,
+`X = Y, Y = a`; an unbound variable of the query keeps its name wherever it appears, `X = f(Y)`; and
+any other unbound variable is `_` where it appears once in the answer and `_A`, `_B`, ... where it
+appears more than once: `copy_term(f(A, A, B), T).` answers `T = f(_A, _A, _).`
+
 Given these lines on its input:
 
 ```
@@ -755,7 +760,7 @@ The arithmetic functions:
 
 | kind | functions |
 |---|---|
-| operators | `+`, `-` (both also prefix), `*`, `/`, `//`, `mod`, `rem`, `div`, `**`, `^` |
+| operators | `+`, `-` (both also prefix), `*`, `/`, `//`, `mod`, `rem`, `div`, `rdiv`, `**`, `^` |
 | bits | `/\`, `\/`, `xor`, `\`, `<<`, `>>`, `msb` |
 | sign and size | `abs`, `sign`, `min`, `max`, `gcd`, `copysign` |
 | conversion | `float`, `integer`, `float_integer_part`, `float_fractional_part`, `truncate`, `round`, `ceiling`, `floor` |
@@ -848,6 +853,21 @@ number
 less
 equal
 0.5
+```
+
+`rdiv` divides exactly whatever the flag says, and takes no float; `rational(X, N, D)` splits an
+integer or a rational into its numerator and its positive denominator, and fails on anything else.
+
+```prolog
+:- X is 1 rdiv 3 + 1, write(X), nl.
+:- rational(-6r4, N, D), write(N/D), nl.
+:- catch(_ is 1.5 rdiv 2, error(E, _), (writeq(E), nl)).
+```
+
+```output
+4r3
+-3/2
+type_error(rational,1.5)
 ```
 
 ## Standard order
@@ -1200,12 +1220,12 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 | control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0`, `halt/1`, `between/3`, `repeat/0` *(library)* |
 | unification and comparison | `=/2`, `\=/2`, `unify_with_occurs_check/2`, `==/2`, `\==/2`, `@</2`, `@>/2`, `@=</2`, `@>=/2`, `=@=/2`, `\=@=/2`, `compare/3`, `subsumes_term/2`, `unifiable/3`, `?=/2` |
 | type tests | `var/1`, `nonvar/1`, `atom/1`, `number/1`, `integer/1`, `float/1`, `rational/1`, `atomic/1`, `compound/1`, `callable/1`, `is_list/1`, `string/1`, `ground/1`, `cyclic_term/1`, `acyclic_term/1` |
-| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2`, `numbervars/3` |
-| arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3` |
+| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2`, `numbervars/3`, `numbervars/4` |
+| arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3`, `rational/3` |
 | database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1` *(library)*, `retractall/1` *(library)*, `abolish/1`, `clause/2`, `dynamic/1`, `current_predicate/1` *(library)* |
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3`, `aggregate_all/3` *(library)* |
-| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `upcase_atom/2`, `downcase_atom/2`, `term_to_atom/2` |
-| strings | `atom_string/2`, `string_chars/2`, `string_codes/2`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`, `string_upper/2`, `string_lower/2` |
+| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `upcase_atom/2`, `downcase_atom/2`, `term_to_atom/2`, `atom_to_term/3` |
+| strings | `atom_string/2`, `string_to_atom/2` *(library)*, `string_chars/2`, `string_codes/2`, `string_code/3`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`, `string_upper/2`, `string_lower/2`, `number_string/2`, `term_string/2` |
 | lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
 | lists, built in | `length/2`, `msort/2`, `sort/2`, `keysort/2` |
 | global variables | `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2` |
@@ -1277,7 +1297,35 @@ type_error(atom,[a,b])
 domain_error(not_less_than_zero,-1)
 ```
 
+`string_code(I, S, C)` is the code of character `I` of `S`, counting from 1; an index past either
+end fails and an unbound one gives each character in turn. `string_to_atom(S, A)` is
+`atom_string(A, S)`. `number_string(N, S)` reads `S` as a number with no layout around it, failing
+where it is none. `term_string(T, S)` reads `S` as a term, or writes `T` as `writeq/1` does when `S`
+is unbound; `atom_to_term(A, T, Bindings)` reads `A` and gives the names of its variables as
+`'Name' = Var` pairs. A text with no term in it is `syntax_error(end_of_string)`.
+
+```prolog
+:- findall(I-C, string_code(I, "héj", C), L), writeq(L), nl.
+:- string_to_atom(S, abc), number_string(N, "0x1F"), writeq(S/N), nl.
+:- (number_string(_, " 42") -> true ; write(no)), nl.
+:- term_string(f(x, "y"), S), term_string(T, "g(A, B, A)"), writeq(S), nl, T = g(1, 2, Z), writeq(Z), nl.
+:- atom_to_term('p(X, Y, X)', T, B), B = ['X' = 1, 'Y' = 2], writeq(T), nl.
+:- catch(term_string(_, ""), error(E, _), (writeq(E), nl)).
+```
+
+```output
+[1-104,2-233,3-106]
+"abc"/31
+no
+"f(x,\"y\")"
+1
+p(1,2,1)
+syntax_error(end_of_string)
+```
+
 The flags `set_prolog_flag/2` changes are `unknown` (`error`, `fail`, `warning`), `double_quotes`
-(`string`, `codes`, `chars`, `atom`), `prefer_rationals` (`false`, `true`) and `debug` (`off`, `on`).
+(`string`, `codes`, `chars`, `atom`), `back_quotes` (`codes`, `chars`, `string`, `symbol_char`, as
+SWI-Prolog has it: what `` `text` `` reads as, or a back quote as a symbol character),
+`prefer_rationals` (`false`, `true`) and `debug` (`off`, `on`).
 The others describe the machine and cannot be changed: `bounded` is `false`, `max_integer` and
 `min_integer` are the 64-bit range, `integer_rounding_function` is `toward_zero`, and `max_arity`.
