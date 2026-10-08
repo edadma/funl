@@ -458,7 +458,16 @@ private put_infix(w: *Writer, name: string, o: PlOp, c: *CompoundObj, max: u16, 
     elif name == "|"
         emit(w, name)
     else
+        // A symbol operator that had to be set apart from its left operand is set apart from its
+        // right one too -- `@ = a` -- and a name operator always is: `a is -4`, `a is [b]`.
+        val token = if w.o.quoted then atom_token(name) else name
+        val apart = token.bytes.len > 0 && symbolic(token.bytes[0]) && glues(w.last, token.bytes[0])
+
         put_atom(w, name, false)
+
+        if apart || alnum(w.last)
+            w.out.push(" ")
+            w.last = u8(' ')
 
     put_operand(w, c.args.at(1), right_max, depth)
     close_if(w, bracket)
@@ -485,7 +494,7 @@ private put_prefix(w: *Writer, name: string, o: PlOp, x: Value, max: u16, depth:
 
         val text = sub.out.finish()
 
-        if text.bytes.len > 0 && text.bytes[0] == u8('(') then w.out.push(" ")
+        if text.bytes.len > 0 && (text.bytes[0] == u8('(') || (text.bytes[0] == u8('{') && alnum(w.last))) then w.out.push(" ")
 
         emit(w, text)
 
@@ -532,6 +541,14 @@ private put_operand(w: *Writer, x: Value, max: u16, depth: long)
     open_if(w, p > max)
     put_term(w, x, if p > max then 1200 else max, depth + 1)
     close_if(w, p > max)
+
+// The text of an answer's last binding `text`, closed with the end `.`. After a symbol character
+// the dot is set apart -- `X = # .` -- or the two would read as one token.
+answer_closed(text: string) -> string =
+    if text.bytes.len > 0 && symbolic(text.bytes[text.bytes.len - 1]) then text + " ." else text + "."
+
+// Whether `x` is an atom that is an operator, which an answer writes in brackets: `X = (-)`.
+operator_atom(x: Value) -> bool = is_op_atom(x)
 
 private is_op_atom(x: Value) -> bool = deref(x) match
     Atom(id) -> is_op(atom_name(id)) || atom_name(id) == ","

@@ -361,3 +361,17 @@ A_FUNL_PROGRAM_CALLING_A_PREDICATE_THAT_HALTS_ENDS_WITH_ITS_STATUS()
 @test
 A_FUNL_FILE_STARTS_NO_TOP_LEVEL()
     assert_eq(driven("main.funl", "write( 1 )\n", ["X = 1."]), "1\nstatus: 0")
+
+@test
+AN_OPERATOR_ATOM_AS_AN_ANSWER_VALUE_IS_BRACKETED_AND_A_SYMBOL_ATOM_BEFORE_THE_DOT_IS_SET_APART()
+    // SWI-Prolog 10.0.2: `X = (-).`, `X = (is).`, `X = # .`, `X = a- # .`.
+    assert_eq(session([], ["X = (-).", "X = (:-).", "X = (is).", "X = (',').", "X = '#'.", "X = a - '#'."]),
+        "?- X = (-).\nX = (-).\n?- X = (:-).\nX = (:-).\n?- X = (is).\nX = (is).\n?- X = (',').\nX = (',').\n" +
+        "?- X = '#'.\nX = # .\n?- X = a - '#'.\nX = a- # .\nstatus: 0")
+
+@test
+AN_ANSWER_THAT_NEEDS_NO_BRACKETS_OR_SPACE_GETS_NONE()
+    // SWI-Prolog 10.0.2 writes each of these as shown, and `A = #,` with the comma close.
+    assert_eq(session([], ["X = a.", "X = a - b.", "X = f(-).", "X = [-].", "X = (- - a).", "A = '#', B = 1."]),
+        "?- X = a.\nX = a.\n?- X = a - b.\nX = a-b.\n?- X = f(-).\nX = f(-).\n?- X = [-].\nX = [-].\n" +
+        "?- X = (- - a).\nX = - -a.\n?- A = '#', B = 1.\nA = #,\nB = 1.\nstatus: 0")

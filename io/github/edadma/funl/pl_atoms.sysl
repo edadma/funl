@@ -574,6 +574,22 @@ parse_number(s: string) -> Result[Option[Value], Fault]
 
         if radix != 10 then i += 2
 
+    // Digit groups, as the reader takes them -- `1 000`, `1_000`, `0xff_ff`, `1r2_0` -- in an integer
+    // or a rational and nowhere else: a float with groups is no number here.
+    val run = digit_run(b[i..<b.len], int(radix))
+    val grouped_text = plain_groups(b[i..<i + run.len])
+    val tail = b[i + run.len..<b.len]
+    val rational = radix == 10 && tail.len > 1 && tail[0] == u8('r') && digit_run(tail[1..<tail.len], 10).len == tail.len - 1
+    val denominator_text = if rational then plain_groups(tail[1..<tail.len]) else ""
+
+    if grouped_text.bytes.len != run.len || (rational && denominator_text.bytes.len != tail.len - 1)
+        if tail.len > 0 && !rational then return Ok(None)
+
+        val rest = if rational then s"r$denominator_text" else ""
+        val prefix = from_utf8_unchecked(b[0..<i])
+
+        return parse_number(s"$prefix$grouped_text$rest")
+
     // A decimal number is the tower's to read -- an integer of any size, a float, or a rational
     // written `7r2`, which the tower reads as `7/2`; a `/` is no part of Prolog's number syntax.
     if radix == 10

@@ -154,3 +154,9 @@ REPEAT_SUCCEEDS_AGAIN_EACH_TIME_IT_IS_BACKTRACKED_INTO()
         ok("3"))
     assert_eq(holds("(repeat, !, fail)"), ok("no"))
     assert_eq(holds("once(repeat)"), ok("yes"))
+
+@test
+A_BACK_QUOTE_ATOM_IS_WRITTEN_QUOTED_UNDER_SYMBOL_CHAR_AS_SWI_PROLOG_WRITES_IT()
+    // SWI-Prolog 10.0.2 writes `'#`'` and `` '`' `` quoted with the flag on, so the atoms read back.
+    assert_eq(ran_prolog(":- set_prolog_flag(back_quotes, symbol_char).\n:- X = '#`', writeq(X), nl.\n:- X = a-'`', writeq(X), nl.\n"),
+        "'#`'\na-'`'\nsucceeded")
