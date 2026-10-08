@@ -281,13 +281,12 @@ walk(w: *Walk, e: &Expr)
                 Gone -> ()
                 Relation(_) -> called_not_used(w, n, e.span)
                 Predicate(_) -> called_not_used(w, n, e.span)
-                Builtin(id) -> if !is_constant(id) then called_not_used(w, n, e.span)
+                Builtin(id) -> if !is_constant(id) && !is_function_value(id) then called_not_used(w, n, e.span)
                 Unknown ->
-                    if w.res.aliases.get(n).is_some()
-                        // `import * as fs from funl:fs`: a module of builtins has no value of its own.
-                        w.report.add(error(e.span, s"`$n` names a module of FunL's own, which is not a value")
-                            .with_note(s"what it exports is reached through it: `$n.name(...)`"))
-                    elif w.relation
+                    // `import * as fs from funl:fs`: the module is the map of its exports.
+                    if w.res.aliases.get(n).is_some() then return
+
+                    if w.relation
                         w.sc.note(n, e.span)
                     elif w.sid == w.res.top
                         w.report.add(error(e.span, s"`$n` is not defined")
@@ -446,6 +445,7 @@ walk(w: *Walk, e: &Expr)
                 w.report.add(error(e.span, "`yield` is written inside a function")
                     .with_note("it hands a value to the function's caller, and the top level and a relation have none"))
 
+            w.sc.yields = true
             walk(w, x)
         AssignE(n, x) ->
             walk(w, x)
@@ -609,6 +609,9 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
 
             return
         _ ->
+            // `fs("basename")`: a module of FunL's own is a map, which a call indexes.
+            if w.res.aliases.get(n).is_some() then return
+
             var d = error(at, s"`$n` is not defined").with_label("called here")
 
             nearest_name(n, global_names(w.res)) match

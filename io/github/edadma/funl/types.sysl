@@ -134,7 +134,7 @@ of_type(v: *Vm, x: Value, t: TypeTest) -> bool
             Range(_) -> true
             _ -> false
         TupleT -> y match
-            Tuple(_) -> true
+            Tuple(_) | Unit -> true
             _ -> false
         UnitT -> y match
             Unit -> true

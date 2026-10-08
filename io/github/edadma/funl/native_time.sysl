@@ -1,0 +1,169 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+import sysl.posix.time.{local_offset, sleep}
+import sysl.time.{Instant, LocalDateTime, Offset, at_offset, checked_date, day_of, from_offset, hour_of, micros,
+    minute_of, month_of, monotonic, now, parse_timestamp, second_of, time_at, timestamp_text, us_of, wall_of,
+    whole_micros, year_of}
+
+// `funl:time`: the clocks, waiting, and ISO 8601 timestamps, over sysl's `sysl.time`.
+//
+// **A point in time is a whole number of milliseconds since 1970-01-01T00:00:00Z**, the same count
+// `now()` answers, so instants compare, subtract and sort as plain numbers. `monotonic()` is a clock
+// for measuring: milliseconds as a real, counted from an origin nobody names, so only the difference
+// of two readings means anything. `sleep` takes milliseconds, whole or fractional.
+//
+// **Every native is registered as `time.name`** and exported under the short name, as `funl:fs` does.
+// An offset is whole minutes east of UTC, and where one is left out the answer is in UTC.
+//
+// **Text that is not a timestamp, and a date that does not exist, are failure**, so `parse(s) | 0`
+// and `make(2026, 2, 30)` as a test read the way a missing file does; an argument of the wrong kind
+// is a catchable `type_error`.
+
+// What `funl:time` exports, each the short form of a native `install_time` registered as `time.name`.
+private val TimeNames: [8]string = ["now", "monotonic", "sleep", "format", "parse", "fields", "make", "local_offset"]
+
+install_time(v: *Vm)
+    register(v, "time.now", 0, do_now)
+    register(v, "time.monotonic", 0, do_monotonic)
+    register(v, "time.sleep", 1, do_sleep)
+    register_generator(v, "time.format", Variadic, do_format)
+    register_generator(v, "time.parse", 1, do_parse)
+    register_generator(v, "time.fields", Variadic, do_fields)
+    register_generator(v, "time.make", Variadic, do_make)
+    register(v, "time.local_offset", 1, do_local_offset)
+end install_time
+
+// The exports of `funl:time`.
+time_exports() -> Buf[ModExport] = native_exports("time", TimeNames)
+
+// -- arguments -----------------------------------------------------------------------------------
+
+// Argument `i`, a whole number that fits a `long`.
+private int_arg(base: usize, i: usize, name: string) -> Result[long, Fault]
+    val x = arg(base, i)
+    val y = deref(x)
+
+    y match
+        Int(n) -> Ok(n)
+        Var(_) -> Err(instantiation_error(s"instantiation error: '$name' was given an unbound variable"))
+        _ -> Err(type_error("integer", y, s"'$name' wants a whole number and was given ${described(x)}"))
+
+// Argument `i`, an offset in minutes: absent (`argc` too small) is UTC.
+private offset_arg(base: usize, argc: usize, i: usize, name: string) -> Result[Offset, Fault]
+    if argc <= i then return Ok(Offset(0))
+
+    val m = int_arg(base, i, name)?
+
+    if m < -1439 || m > 1439
+        return Err(domain_error("offset", Int(m), s"'$name' wants an offset within a day, in minutes, and was given $m"))
+
+    Ok(Offset(int(m)))
+
+// `ms` milliseconds since 1970 as an instant, and back (rounding toward minus infinity).
+private instant_of(ms: long) -> Instant = Instant(ms * 1000)
+
+private ms_of(t: Instant) -> long = if t.us >= 0 then t.us / 1000 else -((-t.us + 999) / 1000)
+
+// -- the clocks ----------------------------------------------------------------------------------
+
+// `now()`: the wall clock, in whole milliseconds since 1970.
+private do_now(base: usize, argc: usize) -> Result[Value, Fault] = Ok(Int(ms_of(now())))
+
+// `monotonic()`: milliseconds, as a real, from an origin nobody names.
+private do_monotonic(base: usize, argc: usize) -> Result[Value, Fault] =
+    Ok(Real(real(whole_micros(monotonic())) / 1000.0))
+
+// `sleep(ms)`: wait that many milliseconds, whole or fractional. A negative or zero wait returns at once.
+private do_sleep(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = arg(base, 0)
+    val y = deref(x)
+
+    val us = y match
+        Int(n) -> n * 1000
+        Real(r) -> long(r * 1000.0)
+        Var(_) -> return Err(instantiation_error("instantiation error: 'sleep' was given an unbound variable"))
+        _ -> return Err(type_error("number", y, s"'sleep' wants a number of milliseconds and was given ${described(x)}"))
+
+    if us > 0 then sleep(micros(us))
+
+    Ok(Unit)
+
+// -- timestamps ----------------------------------------------------------------------------------
+
+// `format(t)` or `format(t, offset)`: `t` as an RFC 3339 timestamp, `2026-03-08T09:30:00-05:00`, or
+// `...Z` in UTC. A fraction is written only when `t` has one.
+private do_format(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    if argc < 1 || argc > 2 then return Err(wrong_count("format", argc, "'format' wants a time and, optionally, an offset"))
+
+    val t = instant_of(int_arg(base, 0, "format")?)
+    val o = offset_arg(base, argc, 1, "format")?
+
+    Ok(Gives(new_str(timestamp_text(t, o))?))
+
+// `parse(text)`: the milliseconds since 1970 a timestamp names, `2026-03-08T09:30:00-05:00` (a space
+// may stand for the `T`, seconds may be left out, `Z` is UTC). Fails when the text is not one.
+private do_parse(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = arg(base, 0)
+    val y = deref(x)
+
+    val text = y match
+        Str(p) -> p.s
+        Var(_) -> return Err(instantiation_error("instantiation error: 'parse' was given an unbound variable"))
+        _ -> return Err(kind_error(y, "string", s"'parse' wants a string and was given ${described(x)}"))
+
+    parse_timestamp(text) match
+        Ok(t) -> Ok(Gives(Int(ms_of(t))))
+        Err(_) -> Ok(Refuses)
+
+// `fields(t)` or `fields(t, offset)`: an immutable map of the calendar reading of `t`: `year`, `month`,
+// `day`, `hour`, `minute`, `second`, `millisecond` and `weekday` (1 Monday through 7 Sunday).
+private do_fields(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    if argc < 1 || argc > 2 then return Err(wrong_count("fields", argc, "'fields' wants a time and, optionally, an offset"))
+
+    val t = instant_of(int_arg(base, 0, "fields")?)
+    val o = offset_arg(base, argc, 1, "fields")?
+    val l = at_offset(t, o)
+    val out = new_map()?
+    val wd = (l.date.day % 7 + 7 + 3) % 7 + 1
+
+    map_put(out, new_str("year")?, Int(long(year_of(l.date))))?
+    map_put(out, new_str("month")?, Int(long(month_of(l.date))))?
+    map_put(out, new_str("day")?, Int(long(day_of(l.date))))?
+    map_put(out, new_str("hour")?, Int(long(hour_of(l.time))))?
+    map_put(out, new_str("minute")?, Int(long(minute_of(l.time))))?
+    map_put(out, new_str("second")?, Int(long(second_of(l.time))))?
+    map_put(out, new_str("millisecond")?, Int(us_of(l.time) / 1000))?
+    map_put(out, new_str("weekday")?, Int(long(wd)))?
+    Ok(Gives(Map(out)))
+
+// `make(year, month, day)` or `make(year, month, day, hour, minute, second)`, and with a seventh
+// argument the offset the reading is on: the milliseconds since 1970. Fails when the date or the time
+// of day does not exist.
+private do_make(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    if argc != 3 && argc != 6 && argc != 7
+        return Err(wrong_count("make", argc, "'make' wants year, month, day, then optionally hour, minute, second and offset"))
+
+    val y = int_arg(base, 0, "make")?
+    val mo = int_arg(base, 1, "make")?
+    val d = int_arg(base, 2, "make")?
+    val h = if argc >= 6 then int_arg(base, 3, "make")? else 0
+    val mi = if argc >= 6 then int_arg(base, 4, "make")? else 0
+    val s = if argc >= 6 then int_arg(base, 5, "make")? else 0
+    val o = offset_arg(base, argc, 6, "make")?
+
+    if y < -100000 || y > 100000 || mo < 1 || mo > 12 || d < 1 || d > 31 then return Ok(Refuses)
+    if h < 0 || h > 23 || mi < 0 || mi > 59 || s < 0 || s > 59 then return Ok(Refuses)
+
+    checked_date(int(y), int(mo), int(d)) match
+        Some(date) ->
+            val t = from_offset(LocalDateTime(date, time_at(int(h), int(mi), int(s))), o)
+
+            Ok(Gives(Int(ms_of(t))))
+        None -> Ok(Refuses)
+
+// `local_offset(t)`: the minutes east of UTC the host's own zone is set at the time `t`.
+private do_local_offset(base: usize, argc: usize) -> Result[Value, Fault]
+    val t = instant_of(int_arg(base, 0, "local_offset")?)
+
+    Ok(Int(long(local_offset(t).minutes)))

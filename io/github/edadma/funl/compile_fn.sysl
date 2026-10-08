@@ -139,17 +139,37 @@ body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                         e.op(Return)
         ReturnE(_) -> compile_value(e, c, x)?
         YieldE(a) -> suspend(e, c, a, true)?
+        EveryE(id, label, g, body) ->
+            compile_every(e, c, id, label, g, body, yielding(c))?
+            left(e, c)
+        WhileE(id, label, cond, body) ->
+            compile_while(e, c, id, label, cond, body, yielding(c))?
+            left(e, c)
+        RepeatE(id, label, body) ->
+            compile_repeat(e, c, id, label, body, yielding(c))?
+            left(e, c)
+        ForE(id, label, gens, body) ->
+            compile_for(e, c, id, label, gens, body, yielding(c))?
+            left(e, c)
         _ -> value_tail(e, c, x)?
 
     Ok(())
 end body_tail
 
+// Whether the clause being compiled generates by `yield`: then a loop that is the last thing it does
+// ends with no value of its own on a bare `break`, as the function would on running out.
+private yielding(c: Ctx) -> bool = c.res.scopes.at(c.sc).yields
+
+// The value on the stack, in tail position, returned with the scans around it left open.
+private left(e: *Emit, c: Ctx)
+    leave_scans(e, c.scans)
+    e.op(Return)
+
 // `x` in tail position as an ordinary value: each of its values leaves the scans open around it and
 // is returned.
 private value_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     compile_value(e, c, x)?
-    leave_scans(e, c.scans)
-    e.op(Return)
+    left(e, c)
     Ok(())
 
 // -- patterns ---------------------------------------------------------------------------------------
