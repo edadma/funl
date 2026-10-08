@@ -57,6 +57,7 @@ Each is argued where it arises; this is the list.
 |---|---|---|
 | Does `false` fail in a condition? | yes: a condition fails on failure *or* on `false` | [language](language.md#conditions-and-false) |
 | Is `return e` bounded? | yes: `return` takes the first result, a body expression passes every result through | [language](language.md#functions-are-generators-when-their-body-is) |
+| Does a loop ending a generator produce a trailing `()`? | no: a bare `break` out of the loop that ends a `yield`ing function fails, as running out does; `break (v)` still gives `v` (user, 2026-10-08) | [language](language.md#functions-are-generators-when-their-body-is) |
 | How is the operand stack restored on backtracking? | copy the bounded expression's slice into the choice point | [vm](vm.md#the-operand-stack-and-why-backtracking-has-to-copy-part-of-it) |
 | How are strings stored and indexed? | UTF-8 plus a character count and a forward cursor, as slate does | [vm](vm.md#strings) |
 | What is the unification operator? | `~` | [logic](logic.md#unification-has-its-own-operator) |

@@ -361,6 +361,40 @@ b
 6
 ```
 
+A loop that is the last thing a `yield`ing function does ends it with no value of its own when a
+plain `break` leaves it, just as when the loop runs out: the function's values are the ones it
+yielded. A `break (v)` there produces `v` as one more value, and in a function that does not
+`yield`, a loop's `break` gives the function's result as anywhere else.
+
+```funl
+def below( limit )
+  for i <- 1..
+    if i * i > limit then break
+    yield i * i
+
+def then_root( limit )
+  for i <- 1..
+    if i * i > limit then break (i - 1)
+    yield i * i
+
+def has_negative( xs ) = for x <- xs do if x < 0 then break
+
+every write( below(10) )
+every write( then_root(10) )
+write( has_negative([1, -2]) )
+```
+
+```output
+1
+4
+9
+1
+4
+9
+3
+()
+```
+
 `yield` of an expression that generates yields each of its values. This prints every permutation
 of a list, in the order of Heap's algorithm:
 

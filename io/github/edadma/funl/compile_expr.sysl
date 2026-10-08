@@ -177,10 +177,10 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 None -> e.op(Fail)
 
             e.place(end)
-        EveryE(id, label, g, body) -> compile_every(e, c, id, label, g, body)?
-        WhileE(id, label, cond, body) -> compile_while(e, c, id, label, cond, body)?
-        RepeatE(id, label, body) -> compile_repeat(e, c, id, label, body)?
-        ForE(id, label, gens, body) -> compile_for(e, c, id, label, gens, body)?
+        EveryE(id, label, g, body) -> compile_every(e, c, id, label, g, body, false)?
+        WhileE(id, label, cond, body) -> compile_while(e, c, id, label, cond, body, false)?
+        RepeatE(id, label, body) -> compile_repeat(e, c, id, label, body, false)?
+        ForE(id, label, gens, body) -> compile_for(e, c, id, label, gens, body, false)?
         BreakE(label, v) -> compile_break(e, c, label, v)?
         ContinueE(label) -> compile_continue(e, c, label)?
         BlockE(id, stmts) -> block(e, c.in_block(id)?, stmts)?
