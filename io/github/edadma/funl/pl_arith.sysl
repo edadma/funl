@@ -7,6 +7,7 @@ import sysl.math.bigint as big
 import sysl.math.{Float, checked_add, checked_mul, checked_sub}
 import sysl.posix.rand.seed_from_os
 import sysl.rand.rng
+import sysl.text.chars_of
 
 // Prolog arithmetic: `is/2`, the comparisons, `succ/2`, `plus/3` and `between/3`.
 //
@@ -47,7 +48,27 @@ eval(x: Value) -> Result[Value, Fault]
         Var(_) -> Err(instantiation_error("instantiation error: an arithmetic expression holds an unbound variable"))
         Atom(id) -> constant(atom_name(id))
         Nil -> Err(not_evaluable("[]", 0))
-        Cons(_) -> Err(not_evaluable("[|]", 2))
+        Cons(p) ->
+            // `[X]` with `X` an integer -- a character code, as `"a"` reads under `double_quotes`
+            // `codes` -- is `X`, as in GNU Prolog and SWI-Prolog alike.
+            val single = deref(p.tail) match
+                Nil -> true
+                _ -> false
+
+            if single
+                deref(p.head) match
+                    Int(_) -> return Ok(deref(p.head))
+                    Big(_) -> return Ok(deref(p.head))
+                    Var(_) -> return Err(instantiation_error("instantiation error: an arithmetic expression holds an unbound variable"))
+                    _ -> ()
+
+            Err(not_evaluable("[|]", 2))
+        Str(p) ->
+            // A string of one character is its code, and any other string `type_error(character, S)`,
+            // as in SWI-Prolog.
+            if one_char(p.s) then return Ok(Int(long(u32(chars_of(p.s.bytes).peek().unwrap()))))
+
+            Err(type_error("character", y, s"${described(y)} is not one character, which an arithmetic expression takes as its code"))
         Compound(c) ->
             val name = atom_name(c.functor)
 
@@ -134,14 +155,16 @@ private unary(name: string, a: Value) -> Result[Value, Fault]
     if name == "tanh" then return real_of(r.tanh(), name, a)
     if name == "asinh" then return real_of(r.asinh(), name, a)
 
-    // `acosh` wants at least 1, and `atanh` a number strictly between -1 and 1.
+    // `acosh` wants at least 1, and `atanh` a number from -1 to 1.
     if name == "acosh"
         if r < 1.0 then return Err(evaluation_error("undefined", s"acosh(${render(a)}) has no value"))
 
         return real_of(r.acosh(), name, a)
 
+    // `atanh(1)` and `atanh(-1)` are infinite, `float_overflow` as GNU Prolog and SWI-Prolog raise it.
     if name == "atanh"
-        if r <= -1.0 || r >= 1.0 then return Err(evaluation_error("undefined", s"atanh(${render(a)}) has no value"))
+        if r == -1.0 || r == 1.0 then return Err(evaluation_error("float_overflow", s"atanh(${render(a)}) is too large for a float"))
+        if r < -1.0 || r > 1.0 then return Err(evaluation_error("undefined", s"atanh(${render(a)}) has no value"))
 
         return real_of(r.atanh(), name, a)
 
@@ -153,9 +176,11 @@ private unary(name: string, a: Value) -> Result[Value, Fault]
 
     if name == "acot" then return real_of(1.0.atan2(r), name, a)
 
-    // The logarithm of 0 is not an overflow but has no value, as of a negative number.
+    // The logarithm of 0 is `float_overflow`, as GNU Prolog and SWI-Prolog both raise it, and of a
+    // negative number has no value.
     if name == "log" || name == "log2"
-        if r <= 0.0 then return Err(evaluation_error("undefined", s"$name(${render(a)}) has no value"))
+        if r == 0.0 then return Err(evaluation_error("float_overflow", s"$name(${render(a)}) is too large for a float"))
+        if r < 0.0 then return Err(evaluation_error("undefined", s"$name(${render(a)}) has no value"))
 
         return real_of(if name == "log" then r.ln() else r.log2(), name, a)
 
@@ -170,7 +195,7 @@ private random_below(a: Value) -> Result[Value, Fault]
         Big(_) -> return Err(representation_error("max_integer", s"random/1's bound ${render(a)} is too large"))
         _ -> return Err(type_error("integer", a, s"random/1 wants an integer, and was given ${described(a)}"))
 
-    if n <= 0 then return Err(domain_error("positive_integer", a, s"random/1 wants a positive bound, and was given $n"))
+    if n <= 0 then return Err(domain_error("not_less_than_one", a, s"random/1 wants a positive bound, and was given $n"))
 
     val v = current()
 
@@ -231,8 +256,7 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
         val y = dal.to_real(n_of(a))
         val x = dal.to_real(n_of(b))
 
-        if y == 0.0 && x == 0.0 then return Err(evaluation_error("undefined", s"$name(0, 0) has no value"))
-
+        // `atan2(0, 0)` is `0.0`, as C's `atan2` has it and GNU Prolog and SWI-Prolog answer.
         return real_of2(y.atan2(x), name, a, b)
 
     // `log(Base, X)`: the logarithm of `X` to `Base`, which must be positive and not 1.
@@ -244,7 +268,21 @@ private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
 
         return real_of2(x.ln() / base.ln(), name, a, b)
 
-    if name == "copysign" then return real_of2(dal.to_real(n_of(a)).copysign(dal.to_real(n_of(b))), name, a, b)
+    // `copysign(X, Y)`: `X` with the sign of `Y`, `-0.0` counting as negative. An integer `X` stays an
+    // integer, as in SWI-Prolog -- `0` has no sign to take.
+    if name == "copysign"
+        val negative = b match
+            Real(r) -> 1.0.copysign(r) < 0.0
+            _ -> dal.sign(n_of(b)) < 0
+
+        if is_int(a)
+            val s = dal.sign(n_of(a))
+
+            if s == 0 || (s < 0) == negative then return Ok(a)
+
+            return num_answer1(p.neg(n_of(a)), name, a)
+
+        return real_of2(dal.to_real(n_of(a)).copysign(dal.to_real(n_of(b))), name, a, b)
 
     if name == "gcd" then return of_big(big.gcd(whole(a, name)?, whole(b, name)?))
 
@@ -383,17 +421,33 @@ private pl_is(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     Ok(if unify(arg(base, 0), n) then Gives(Unit) else Refuses)
 
-// A comparison of two expressions' values, succeeding when `holds` says the order is right. The
-// comparison across kinds is exact, and a NaN is in no order, compared as 2.
+// A comparison of two expressions' values, succeeding when `holds` says the order is right. An
+// integer compared with a float is converted to a float, as ISO has it and GNU Prolog and SWI-Prolog
+// do, so `9007199254740993 =:= 9007199254740992.0`; an integer too large for a float is compared
+// exactly, as in SWI-Prolog. A NaN is in no order, compared as 2.
 private compared(base: usize, holds: int -> bool) -> Result[Answer, Fault]
     val a = eval(arg(base, 0))?
     val b = eval(arg(base, 1))?
 
     val o: int = (a, b) match
         (Int(x), Int(y)) -> if x < y then -1 elif x > y then 1 else 0
-        _ -> dal.compare(n_of(a), n_of(b)).unwrap_or(2)
+        _ ->
+            if is_float(a) && is_int(b) then by_float(a, b)
+            elif is_int(a) && is_float(b) then by_float(a, b)
+            else dal.compare(n_of(a), n_of(b)).unwrap_or(2)
 
     Ok(if holds(o) then Gives(Unit) else Refuses)
+
+// The order of `a` and `b`, one an integer and the other a float, the integer taken as a float when
+// it is in a float's range.
+private by_float(a: Value, b: Value) -> int
+    val x = dal.to_real(n_of(a))
+    val y = dal.to_real(n_of(b))
+
+    if x.is_infinite() || y.is_infinite() then return dal.compare(n_of(a), n_of(b)).unwrap_or(2)
+    if x.is_nan() || y.is_nan() then return 2
+
+    if x < y then -1 elif x > y then 1 else 0
 
 // An argument that must be an integer, or unbound when `open`: the integer, or `None` for unbound.
 private int_arg(x: Value, who: string, open: bool) -> Result[Option[long], Fault]
@@ -407,7 +461,7 @@ private int_arg(x: Value, who: string, open: bool) -> Result[Option[long], Fault
         y -> Err(type_error("integer", y, s"$who wants an integer, and was given ${described(y)}"))
 
 private natural(n: long, who: string) -> Result[unit, Fault]
-    if n < 0 then return Err(type_error("not_less_than_zero", Int(n), s"$who wants a natural number, and was given $n"))
+    if n < 0 then return Err(domain_error("not_less_than_zero", Int(n), s"$who wants a natural number, and was given $n"))
 
     Ok(())
 
@@ -503,11 +557,29 @@ private pl_between(base: usize, argc: usize, cursor: long) -> Result[Answer, Fau
 end pl_between
 
 // The Prolog evaluable function `name` of one number, for FunL's math builtins: one code path, so
-// both languages round, refuse and fault alike.
-math_unary(name: string, a: Value) -> Result[Value, Fault] = unary(name, a)
+// both languages round, refuse and fault alike -- but for the places where Prolog follows GNU Prolog
+// and SWI-Prolog and FunL keeps its own meaning: the logarithm of 0, and `atanh` of 1 or -1, have no
+// value in FunL, where Prolog raises `float_overflow`.
+math_unary(name: string, a: Value) -> Result[Value, Fault]
+    val r = dal.to_real(n_of(a))
 
-// The Prolog evaluable function `name` of two numbers.
-math_binary(name: string, a: Value, b: Value) -> Result[Value, Fault] = binary(name, a, b)
+    if (name == "log" || name == "log2") && r == 0.0
+        return Err(evaluation_error("undefined", s"$name(${render(a)}) has no value"))
+
+    if name == "atanh" && (r == 1.0 || r == -1.0)
+        return Err(evaluation_error("undefined", s"atanh(${render(a)}) has no value"))
+
+    unary(name, a)
+
+// The Prolog evaluable function `name` of two numbers -- but FunL's `atan(0, 0)` has no value, where
+// Prolog's is `0.0`, and its `copysign` is always a float, where Prolog keeps an integer an integer.
+math_binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
+    if (name == "atan2" || name == "atan") && dal.to_real(n_of(a)) == 0.0 && dal.to_real(n_of(b)) == 0.0
+        return Err(evaluation_error("undefined", s"$name(0, 0) has no value"))
+
+    if name == "copysign" then return real_of2(dal.to_real(n_of(a)).copysign(dal.to_real(n_of(b))), name, a, b)
+
+    binary(name, a, b)
 
 // The value of the evaluable atom `name` (`pi`, `e`, `epsilon`).
 math_constant(name: string) -> Result[Value, Fault] = constant(name)

@@ -24,20 +24,22 @@ private tricky() -> Buf[(string, string)]
 
     t.push(("1 + 2", "1+2"))
     t.push(("a :- b", "a:-b"))
-    t.push(("-(1)", "-(1)"))
-    t.push(("- 1", "-(1)"))
-    t.push(("- (1)", "-(1)"))
+    // A prefix operator's bracketed operand is set apart by a space, as GNU Prolog 1.5.0 writes it.
+    t.push(("-(1)", "- (1)"))
+    t.push(("- (1)", "- (1)"))
     t.push(("-(-1)", "- -1"))
-    t.push(("-(-(1))", "- -(1)"))
+    t.push(("-(-(1))", "- - (1)"))
     t.push(("1 - (-1)", "1- -1"))
     t.push(("a - -1", "a- -1"))
-    t.push(("1 - (-(1))", "1- -(1)"))
+    t.push(("1 - (-(1))", "1- - (1)"))
     t.push(("-a", "-a"))
     t.push(("- - a", "- -a"))
-    t.push(("- (1 + 2)", "-(1+2)"))
-    t.push(("- (1 ^ 2)", "-(1^2)"))
+    t.push(("- (1 + 2)", "- (1+2)"))
+    t.push(("- (1 ^ 2)", "- (1^2)"))
     t.push(("(- a) ^ 2", "(-a)^2"))
-    t.push(("-(2) ^ 2", "-(2)^2"))
+    t.push(("-(2) ^ 2", "(- (2))^2"))
+    t.push(("+(1)", "+1"))
+    t.push(("-(1.0)", "- (1.0)"))
     t.push(("1 - (2 - 3)", "1-(2-3)"))
     t.push(("(1 - 2) - 3", "1-2-3"))
     t.push(("2 ^ 3 ^ 4", "2^3^4"))
@@ -69,7 +71,7 @@ private tricky() -> Buf[(string, string)]
     t.push(("- (-)", "- (-)"))
     t.push(("f(a - (-))", "f(a-(-))"))
     t.push(("\\+ a", "\\+a"))
-    t.push(("\\+ (a, b)", "\\+((a,b))"))
+    t.push(("\\+ (a, b)", "\\+ (a,b)"))
     t.push(("a = (\\+ b)", "a=(\\+b)"))
     t.push(("a = -1", "a= -1"))
     t.push(("a = - b", "a= -b"))
@@ -78,7 +80,9 @@ private tricky() -> Buf[(string, string)]
     t.push(("a mod (b + c)", "a mod (b+c)"))
     t.push(("a = (mod)", "a=(mod)"))
     t.push(("x is (mod)", "x is (mod)"))
-    t.push(("f(- 1)", "f(-(1))"))
+    // `- 1` is `-(1)`, as SWI-Prolog reads it; GNU Prolog reads the number -1.
+    t.push(("- 1", "- (1)"))
+    t.push(("f(- 1)", "f(- (1))"))
     t.push(("f(-1)", "f(-1)"))
     t.push(("1 - - a", "1- -a"))
     t.push(("\"a \\\"string\\\"\"", "\"a \\\"string\\\"\""))
@@ -178,3 +182,25 @@ FUNL_VALUES_WITHOUT_A_TERM_ARE_WRITTEN_OPAQUE()
         "show_term(x -> x)\n"
 
     assert_eq(ran_funl(text), "loaded\ntuple(1,a)\n<map>\n<function>\nsucceeded")
+
+@test
+A_VAR_TERM_NAMED_BY_AN_ATOM_OR_A_NEGATIVE_NUMBER_IS_WRITTEN_AS_SWI_PROLOG_WRITES_IT()
+    // SWI-Prolog 10.0.2: a name spelled as a variable is written bare, `'$VAR'(-N)` is `S_N`.
+    assert_eq(ran_prolog(":- writeq(['$VAR'('Foo'), '$VAR'('_'), '$VAR'('_Foo'), '$VAR'(x), '$VAR'('foo bar'), '$VAR'(-1)]), nl.\n"),
+        ok("[Foo,_,_Foo,'$VAR'(x),'$VAR'('foo bar'),S_1]"))
+    assert_eq(ran_prolog(":- print('$VAR'('Foo')), nl, write_canonical('$VAR'('Foo')), nl, write_term('$VAR'('Foo'), [numbervars(false), quoted(true)]), nl.\n"),
+        ok("Foo\n'$VAR'('Foo')\n'$VAR'('Foo')"))
+
+@test
+THE_BAR_IS_AN_INFIX_OPERATOR_AT_1105()
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree on the term; running it as a disjunction is
+    // SWI-Prolog's.
+    assert_eq(ran_prolog(":- X = (a | b), X =.. L, writeq(L), nl.\n"), ok("['|',a,b]"))
+    assert_eq(ran_prolog(":- X = (a :- b | c), writeq(X), nl.\n"), ok("a:-b|c"))
+    assert_eq(ran_prolog(":- findall(P-T, current_op(P, T, '|'), L), writeq(L), nl.\n"), ok("[1105-xfy]"))
+    assert_eq(ran_prolog(":- forall((X = 1 | X = 2), write(X)), nl.\n"), ok("12"))
+
+@test
+XOR_IS_AN_OPERATOR_AT_400()
+    // SWI-Prolog 10.0.2's priority; ISO's table has no `xor`.
+    assert_eq(ran_prolog(":- findall(P-T, current_op(P, T, xor), L), writeq(L), nl, X is 1 + 6 xor 3, write(X), nl.\n"), ok("[400-yfx]\n6"))

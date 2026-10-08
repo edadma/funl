@@ -188,7 +188,8 @@ SETOF_SORTS_BY_THE_STANDARD_ORDER_OF_TERMS_AND_DROPS_DUPLICATES()
         "write( setof(x, r(x)) )\n" +
         "write( findall(x, r(x)).length )\n"
 
-    assert_eq(ran_funl(text), "[1, 2, [], a, b, \"s\", f(1), f(2), [1], g(1, 2)]\n11\nsucceeded")
+    // The standard order Prolog shares, SWI-Prolog's: strings before atoms, `[]` first among atoms.
+    assert_eq(ran_funl(text), "[1, 2, \"s\", [], a, b, f(1), f(2), [1], g(1, 2)]\n11\nsucceeded")
 
 @test
 SETOF_PUTS_VARIABLES_FIRST_BY_AGE()

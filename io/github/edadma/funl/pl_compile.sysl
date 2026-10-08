@@ -310,7 +310,7 @@ is_inline(name: string, arity: usize) -> bool
         return name == "\\+" || name == "not" || name == "once" || name == "ignore" || name == "consult"
 
     if arity == 2
-        return name == "," || name == ";" || name == "->" || name == "*->" || name == "=" ||
+        return name == "," || name == ";" || name == "|" || name == "->" || name == "*->" || name == "=" ||
             name == "\\=" || name == "forall"
 
     if arity == 3 then return name == "$findall"
@@ -321,7 +321,7 @@ is_inline(name: string, arity: usize) -> bool
 goal_args(name: string, arity: usize) -> bool
     if arity == 1 then return name == "\\+" || name == "not" || name == "once" || name == "ignore"
 
-    if arity == 2 then return name == "," || name == ";" || name == "->" || name == "*->" || name == "forall"
+    if arity == 2 then return name == "," || name == ";" || name == "|" || name == "->" || name == "*->" || name == "forall"
 
     false
 
@@ -399,7 +399,8 @@ private control(e: *Emit, cx: *ClauseCtx, t: &Term, name: string, args: Buf[&Ter
         goal(e, cx, args.at(0), false, cut)?
         e.op(Pop)
         goal(e, cx, args.at(1), tail, cut)?
-    elif name == ";"
+    elif name == ";" || name == "|"
+        // A bar between goals, `'|'(A, B)` as the reader keeps it, is a disjunction, as in SWI-Prolog.
         disjunction(e, cx, args.at(0), args.at(1), tail, cut)?
     elif name == "->"
         if_then(e, cx, args.at(0), args.at(1), None, false, tail, cut)?
@@ -569,7 +570,7 @@ private has_cut(g: &Term) -> bool
         TComp(f, args) ->
             val n = atom_name(f)
 
-            if args.len() == 2 && (n == "," || n == ";" || n == "->" || n == "*->")
+            if args.len() == 2 && (n == "," || n == ";" || n == "|" || n == "->" || n == "*->")
                 return has_cut(args.at(0)) || has_cut(args.at(1))
 
             false

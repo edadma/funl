@@ -27,12 +27,15 @@ TERM_TO_ATOM_WRITES_A_TERM_AS_WRITEQ_DOES()
 TERM_TO_ATOM_REFUSES_TEXT_THAT_DOES_NOT_READ()
     assert_eq(holds("term_to_atom(_, 'foo(')"), ok("syntax_error('a term was expected, and the input ended')"))
     assert_eq(holds("term_to_atom(_, 'a b')"), ok("syntax_error('an operator, or the end of the text, was expected here')"))
-    assert_eq(holds("term_to_atom(_, '')"), ok("syntax_error(end_of_file)"))
+    // SWI-Prolog 10.0.2's error for text with no term in it.
+    assert_eq(holds("term_to_atom(_, '')"), ok("syntax_error(end_of_string)"))
 
 @test
-TERM_TO_ATOM_WITH_NEITHER_SIDE_BOUND_IS_AN_INSTANTIATION_ERROR()
-    assert_eq(holds("term_to_atom(_, _)"), ok("instantiation_error"))
-    assert_eq(holds("term_to_atom(_, f(x))"), ok("type_error(atom,f(x))"))
+TERM_TO_ATOM_WITH_NEITHER_SIDE_BOUND_WRITES_THE_VARIABLE()
+    // SWI-Prolog 10.0.2 writes the unbound term, and reads a number's digits.
+    assert_eq(holds("term_to_atom(T, A), atom(A), term_to_atom(T2, A), var(T2)"), ok("yes"))
+    assert_eq(holds("term_to_atom(X, 12), X == 12"), ok("yes"))
+    assert_eq(holds("term_to_atom(_, f(x))"), ok("type_error(text,f(x))"))
 
 @test
 CURRENT_OP_ENUMERATES_THE_OPERATOR_TABLE()

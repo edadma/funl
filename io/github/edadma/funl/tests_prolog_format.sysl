@@ -13,6 +13,11 @@ private ok(text: string) -> string = text + "\nsucceeded"
 private raised(goal: string) -> string =
     ran_prolog(s":- catch(($goal, F = none), error(F, _), true), nl, write(F), nl.\n")
 
+// Whether `goal`, whose variable is `X`, raises an error whose formal term is `shape` with `Y` an
+// unbound variable, as the copy of `X` the error carries is.
+private kind(goal: string, shape: string) -> string =
+    ran_prolog(s":- catch(($goal, R = no), error($shape, _), (var(Y) -> R = yes ; R = other)), write(R), nl.\n")
+
 @test
 FORMAT_WRITES_A_FORMAT_WITH_NO_DIRECTIVES()
     assert_eq(shown("format(\"hello\")"), ok("hello"))
@@ -44,11 +49,22 @@ W_P_AND_Q_WRITE_THE_TERM_AS_WRITE_PRINT_AND_WRITEQ_DO()
     assert_eq(shown("format(\"~q\", [f('X', \"s\")])"), ok("f('X',\"s\")"))
 
 @test
-A_WRITES_THE_TEXT_OF_AN_ATOMIC_VALUE()
+A_WRITES_THE_TEXT_OF_AN_ATOM_OR_A_STRING()
     assert_eq(shown("format(\"~a\", ['A b'])"), ok("A b"))
     assert_eq(shown("format(\"~a\", [\"str\"])"), ok("str"))
-    assert_eq(shown("format(\"~a\", [42])"), ok("42"))
-    assert_eq(shown("format(\"~a\", [[]])"), ok("[]"))
+    assert_eq(raised("format(\"~a\", [42])"), ok("\nformat_argument_type(a,42)"))
+    assert_eq(raised("format(\"~a\", [[]])"), ok("\nformat_argument_type(a,[])"))
+
+@test
+NUMERIC_DIRECTIVES_EVALUATE_THEIR_ARGUMENT()
+    // SWI-Prolog 10.0.2's answers.
+    assert_eq(shown("format(\"~d\", [1 + 2])"), ok("3"))
+    assert_eq(shown("format(\"~d\", [\"a\"])"), ok("97"))
+    assert_eq(shown("format(\"~e\", [1 + 2])"), ok("3.000000e+00"))
+    assert_eq(shown("format(\"~f\", [\"1\"])"), ok("49.000000"))
+    assert_eq(shown("format(\"~*c\", [1 + 2, 0'z])"), ok("zzz"))
+    assert_eq(shown("format(\"~8r\", [60 + 4])"), ok("100"))
+    assert_eq(raised("format(\"~d\", [0.5 + 1])"), ok("\nformat_argument_type(d,0.5+1)"))
 
 @test
 D_WRITES_AN_INTEGER_AND_A_COLUMN_ARGUMENT_PLACES_A_DECIMAL_POINT()
@@ -75,6 +91,7 @@ S_WRITES_A_STRING_OR_A_LIST_OF_CODES_OR_CHARACTERS()
     assert_eq(shown("format(\"~s\", [[104, 105]])"), ok("hi"))
     assert_eq(shown("format(\"~s\", [[h, i]])"), ok("hi"))
     assert_eq(shown("format(\"[~s]\", [[]])"), ok("[]"))
+    assert_eq(shown("format(\"~s\", [abc])"), ok("abc"))
 
 @test
 E_F_AND_G_WRITE_A_FLOAT_WITH_A_PRECISION()
@@ -169,14 +186,16 @@ A_TABLE_OF_NUMBERS_LINES_UP()
 @test
 A_FORMAT_WITH_TOO_FEW_ARGUMENTS_RAISES_A_FORMAT_ERROR()
     assert_eq(raised("format(\"~w\", [])"), ok("\nformat(not enough arguments)"))
-    assert_eq(raised("format(\"~w ~w\", [a])"), ok("\nformat(not enough arguments)"))
+    // SWI-Prolog 10.0.2 writes what was made before the directive with no argument.
+    assert_eq(raised("format(\"~w ~w\", [a])"), ok("a \nformat(not enough arguments)"))
     assert_eq(raised("format(\"~d\")"), ok("\nformat(not enough arguments)"))
     assert_eq(raised("format(\"~*c\", [3])"), ok("\nformat(not enough arguments)"))
 
 @test
 A_FORMAT_WITH_TOO_MANY_ARGUMENTS_RAISES_A_FORMAT_ERROR()
-    assert_eq(raised("format(\"~w\", [a, b])"), ok("\nformat(too many arguments)"))
-    assert_eq(raised("format(\"hello\", [a])"), ok("\nformat(too many arguments)"))
+    // SWI-Prolog 10.0.2 writes the whole format, then raises.
+    assert_eq(raised("format(\"~w\", [a, b])"), ok("a\nformat(too many arguments)"))
+    assert_eq(raised("format(\"hello\", [a])"), ok("hello\nformat(too many arguments)"))
 
 @test
 AN_UNKNOWN_DIRECTIVE_IS_AN_EXISTENCE_ERROR()
@@ -184,48 +203,62 @@ AN_UNKNOWN_DIRECTIVE_IS_AN_EXISTENCE_ERROR()
     assert_eq(raised("format(\"~z\")"), ok("\nexistence_error(format_character,z)"))
 
 @test
-A_TRUNCATED_DIRECTIVE_AND_A_MISSING_RADIX_ARE_FORMAT_ERRORS()
-    assert_eq(raised("format(\"abc~\")"), ok("\nformat(truncated format specification)"))
-    assert_eq(raised("format(\"~3\")"), ok("\nformat(truncated format specification)"))
-    assert_eq(raised("format(\"~r\", [5])"), ok("\nformat(~r requires a radix argument)"))
-    assert_eq(raised("format(\"~1r\", [5])"), ok("\nformat(the radix of ~r must be between 2 and 36)"))
-    assert_eq(raised("format(\"~37r\", [5])"), ok("\nformat(the radix of ~r must be between 2 and 36)"))
+A_TRUNCATED_DIRECTIVE_AND_A_BAD_RADIX_ARE_ERRORS()
+    // SWI-Prolog 10.0.2's answers: a format ending where a directive was due names `'\0'`, or the
+    // last digit of a numeric argument.
+    assert_eq(ran_prolog(":- catch(format(\"abc~\"), error(existence_error(format_character, C), _), true), atom_codes(C, L), write(L), nl.\n"),
+        ok("abc[0]"))
+    assert_eq(raised("format(\"~3\")"), ok("\nexistence_error(format_character,3)"))
+    assert_eq(raised("format(\"~12\")"), ok("\nexistence_error(format_character,2)"))
+    assert_eq(raised("format(\"~1r\", [5])"), ok("\ndomain_error(radix,1)"))
+    assert_eq(raised("format(\"~37r\", [5])"), ok("\ndomain_error(radix,37)"))
 
 @test
-A_WRONG_ARGUMENT_TYPE_IS_A_TYPE_ERROR()
-    assert_eq(raised("format(\"~d\", [a])"), ok("\ntype_error(integer,a)"))
-    assert_eq(raised("format(\"~d\", [1.5])"), ok("\ntype_error(integer,1.5)"))
-    assert_eq(raised("format(\"~D\", [x])"), ok("\ntype_error(integer,x)"))
-    assert_eq(raised("format(\"~e\", [a])"), ok("\ntype_error(number,a)"))
-    assert_eq(raised("format(\"~f\", [\"1.5\"])"), ok("\ntype_error(number,1.5)"))
-    assert_eq(raised("format(\"~g\", [f(x)])"), ok("\ntype_error(number,f(x))"))
-    assert_eq(raised("format(\"~c\", [a])"), ok("\ntype_error(integer,a)"))
-    assert_eq(raised("format(\"~8r\", [a])"), ok("\ntype_error(integer,a)"))
-    assert_eq(raised("format(\"~8r\", [1.5])"), ok("\ntype_error(integer,1.5)"))
-    assert_eq(raised("format(\"~a\", [f(x)])"), ok("\ntype_error(atomic,f(x))"))
-    assert_eq(raised("format(\"~s\", [abc])"), ok("\ntype_error(text,abc)"))
-    assert_eq(raised("format(\"~s\", [[a, bc]])"), ok("\ntype_error(text,[a,bc])"))
-    assert_eq(raised("format(\"~*c\", [a, 0'x])"), ok("\ntype_error(integer,a)"))
-    assert_eq(raised("format(\"~*c\", [-1, 0'x])"), ok("\ntype_error(not_less_than_zero,-1)"))
+R_WITHOUT_A_RADIX_WRITES_IN_OCTAL()
+    assert_eq(shown("format(\"~r\", [10])"), ok("12"))
+    assert_eq(shown("format(\"~R\", [255])"), ok("377"))
+
+@test
+A_WRONG_ARGUMENT_TYPE_IS_A_FORMAT_ARGUMENT_TYPE_ERROR()
+    // SWI-Prolog 10.0.2's answers: a numeric directive evaluates its argument, so an atom is not
+    // evaluable; a value of the wrong kind is `format_argument_type(Directive, Argument)`.
+    assert_eq(raised("format(\"~d\", [a])"), ok("\ntype_error(evaluable,a/0)"))
+    assert_eq(raised("format(\"~d\", [1.5])"), ok("\nformat_argument_type(d,1.5)"))
+    assert_eq(raised("format(\"~D\", [1.0])"), ok("\nformat_argument_type(D,1.0)"))
+    assert_eq(raised("format(\"~e\", [a])"), ok("\ntype_error(evaluable,a/0)"))
+    assert_eq(raised("format(\"~e\", [\"ab\"])"), ok("\ntype_error(character,ab)"))
+    assert_eq(raised("format(\"~g\", [f(x)])"), ok("\ntype_error(evaluable,x/0)"))
+    assert_eq(raised("format(\"~c\", [a])"), ok("\nformat_argument_type(c,a)"))
+    assert_eq(raised("format(\"~c\", [-1])"), ok("\nformat_argument_type(c,-1)"))
+    assert_eq(raised("format(\"~8r\", [a])"), ok("\ntype_error(evaluable,a/0)"))
+    assert_eq(raised("format(\"~8r\", [1.5])"), ok("\nformat_argument_type(r,1.5)"))
+    assert_eq(raised("format(\"~a\", [f(x)])"), ok("\nformat_argument_type(a,f(x))"))
+    assert_eq(raised("format(\"~s\", [123])"), ok("\nformat_argument_type(s,123)"))
+    assert_eq(raised("format(\"~s\", [[a, bc]])"), ok("\nformat_argument_type(s,[a,bc])"))
+    assert_eq(raised("format(\"~*c\", [a, 0'x])"), ok("\ntype_error(evaluable,a/0)"))
+    assert_eq(raised("format(\"~*c\", [-1, 0'x])"), ok("\nformat_argument_type(*,-1)"))
     assert_eq(raised("format(123, [])"), ok("\ntype_error(text,123)"))
     assert_eq(raised("format(f(x), [])"), ok("\ntype_error(text,f(x))"))
     assert_eq(raised("format([a|b], [])"), ok("\ntype_error(text,[a|b])"))
-    assert_eq(raised("format([1114112], [])"), ok("\ntype_error(character_code,1114112)"))
+    assert_eq(raised("format([1114112], [])"), ok("\ntype_error(text,[1114112])"))
 
 @test
-AN_UNBOUND_ARGUMENT_OR_FORMAT_IS_AN_INSTANTIATION_ERROR()
+AN_UNBOUND_ARGUMENT_OR_FORMAT_IS_REFUSED()
+    // SWI-Prolog 10.0.2's answers.
     assert_eq(raised("format(_, [])"), ok("\ninstantiation_error"))
     assert_eq(raised("format(\"~d\", [_])"), ok("\ninstantiation_error"))
-    assert_eq(raised("format(\"~a\", [_])"), ok("\ninstantiation_error"))
-    assert_eq(raised("format(\"~s\", [_])"), ok("\ninstantiation_error"))
     assert_eq(raised("format(\"~e\", [_])"), ok("\ninstantiation_error"))
-    assert_eq(raised("format(\"~w\", [a | _])"), ok("\ninstantiation_error"))
-    assert_eq(raised("format([a | _], [])"), ok("\ninstantiation_error"))
-    assert_eq(raised("format([_], [])"), ok("\ninstantiation_error"))
+    assert_eq(kind("format(\"~a\", [X])", "format_argument_type(a, Y)"), ok("yes"))
+    assert_eq(kind("format(\"~s\", [X])", "format_argument_type(s, Y)"), ok("yes"))
+    assert_eq(kind("format(\"~w\", [a | X])", "type_error(list, [a | Y])"), ok("yes"))
+    assert_eq(kind("format([a | X], [])", "type_error(text, [a | Y])"), ok("yes"))
+    assert_eq(kind("format([X], [])", "type_error(text, [Y])"), ok("yes"))
 
 @test
-A_FORMAT_THAT_RAISES_WRITES_NOTHING()
-    assert_eq(ran_prolog(":- catch(format(\"abc~w~w\", [x]), _, true), write(after), nl.\n"), ok("after"))
+A_FORMAT_THAT_RAISES_WRITES_WHAT_IT_MADE_BEFORE()
+    // SWI-Prolog 10.0.2 writes `abcx` and then raises.
+    assert_eq(ran_prolog(":- catch(format(\"abc~w~w\", [x]), _, true), write(after), nl.\n"), ok("abcxafter"))
+    assert_eq(ran_prolog(":- catch(format(\"~w\", [a, b]), _, true), write(after), nl.\n"), ok("aafter"))
 
 @test
 FORMAT_IS_AVAILABLE_AS_A_PROLOG_GOAL_IN_A_RULE()

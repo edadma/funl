@@ -146,8 +146,8 @@ private step(x: Value, y: Value, check: bool) -> bool
             _ -> false
         Cons(p) -> y match
             Cons(q) ->
-                unify_later(p.head, q.head)
                 unify_later(p.tail, q.tail)
+                unify_later(p.head, q.head)
                 true
             _ -> false
         Unit -> y match
@@ -221,7 +221,11 @@ private equal_or_not(x: Value, y: Value) -> bool = equal_values(x, y, "~") match
 private unify_args(p: *CompoundObj, q: *CompoundObj) -> bool
     if p.functor != q.functor || p.args.len() != q.args.len() then return false
 
-    for i in 0..<p.args.len()
+    // Pushed last first, so the arguments are visited left to right, as SWI-Prolog unifies them.
+    var i = p.args.len()
+
+    while i > 0
+        i -= 1
         unify_later(p.args.at(i), q.args.at(i))
 
     true
@@ -229,7 +233,10 @@ private unify_args(p: *CompoundObj, q: *CompoundObj) -> bool
 private unify_items(p: *TupleObj, q: *TupleObj) -> bool
     if p.items.len() != q.items.len() then return false
 
-    for i in 0..<p.items.len()
+    var i = p.items.len()
+
+    while i > 0
+        i -= 1
         unify_later(p.items.at(i), q.items.at(i))
 
     true
@@ -239,7 +246,10 @@ private unify_items(p: *TupleObj, q: *TupleObj) -> bool
 private unify_tuple_compound(p: *TupleObj, q: *CompoundObj) -> bool
     if !is_tuple_functor(q.functor, p.items.len()) || q.args.len() != p.items.len() then return false
 
-    for i in 0..<p.items.len()
+    var i = p.items.len()
+
+    while i > 0
+        i -= 1
         unify_later(p.items.at(i), q.args.at(i))
 
     true
@@ -471,9 +481,9 @@ private unbound(x: Value) -> bool = x match
 // Where `a` stands against `b` in the standard order of terms: negative before, zero the same term,
 // positive after.
 //
-// **Variables by age, then numbers by value, then atoms by text, then strings by text, then
-// compounds by arity, then name, then arguments left to right** (`prolog.md` § "Arithmetic and
-// order"). The empty list is the atom `[]`, `true` and `false` are atoms, a list cell is the compound
+// **Variables by age, then numbers by value, then strings by text, then `[]`, then atoms by text,
+// then compounds by arity, then name, then arguments left to right**, as SWI-Prolog orders terms.
+// `true` and `false` are atoms, a list cell is the compound
 // `'.'(h, t)` and a tuple the compound `tuple(...)`, as the term mapping makes them. The kinds only
 // FunL has come after the compounds in a fixed order of kind, and within a kind by value where it
 // has one and by identity where it does not, so a sort of mixed values is total and repeatable.
@@ -540,34 +550,35 @@ compare_terms(a: Value, b: Value) -> int
     0
 end compare_terms
 
-private const AtomRank: int = 2
-private const CompoundRank: int = 4
+private const AtomRank: int = 4
+private const CompoundRank: int = 5
 
-// A kind's place in the standard order.
+// A kind's place in the standard order: strings before atoms, and `[]` before every other atom, as
+// SWI-Prolog orders them.
 private rank(x: Value) -> int = x match
     Var(_) -> 0
     Int(_) -> 1
     Big(_) -> 1
     Rat(_) -> 1
     Real(_) -> 1
+    Str(_) -> 2
+    Nil -> 3
     Atom(_) -> AtomRank
-    Nil -> AtomRank
-    Str(_) -> 3
     Compound(_) -> CompoundRank
     Cons(_) -> CompoundRank
     Tuple(_) -> CompoundRank
-    Unit -> 5
-    Undefined -> 6
-    Range(_) -> 7
-    Set(_) -> 8
-    MutSet(_) -> 9
-    Map(_) -> 10
-    MutMap(_) -> 11
-    Array(_) -> 12
-    Buffer(_) -> 13
-    Func(_) -> 14
-    Ctor(_) -> 15
-    CSet(_) -> 16
+    Unit -> 6
+    Undefined -> 7
+    Range(_) -> 8
+    Set(_) -> 9
+    MutSet(_) -> 10
+    Map(_) -> 11
+    MutMap(_) -> 12
+    Array(_) -> 13
+    Buffer(_) -> 14
+    Func(_) -> 15
+    Ctor(_) -> 16
+    CSet(_) -> 17
 
 private ordered(a: u64, b: u64) -> int = if a < b then -1 elif a > b then 1 else 0
 

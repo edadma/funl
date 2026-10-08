@@ -15,6 +15,15 @@ private holds(goal: string) -> string =
 private ok(text: string) -> string = text + "\nsucceeded"
 
 @test
+A_ONE_ELEMENT_CODE_LIST_AND_A_ONE_CHARACTER_STRING_EVALUATE_TO_THE_CODE()
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree on a one-integer list; the string is SWI-Prolog's.
+    assert_eq(value_of("[5] + 1"), ok("6"))
+    assert_eq(value_of("[0'a]"), ok("97"))
+    assert_eq(value_of("[_]"), ok("instantiation_error"))
+    assert_eq(value_of("\"a\" + 1"), ok("98"))
+    assert_eq(value_of("\"\""), ok("type_error(character,)"))
+
+@test
 IS_EVALUATES_THE_ADDITIVE_AND_MULTIPLICATIVE_OPERATORS()
     assert_eq(value_of("1 + 2 * 3"), ok("7"))
     assert_eq(value_of("10 - 4 - 3"), ok("3"))
@@ -107,7 +116,8 @@ A_NAME_THAT_IS_NOT_AN_ARITHMETIC_FUNCTION_IS_A_TYPE_ERROR_NAMING_IT()
     assert_eq(value_of("foo(1, 2, 3)"), ok("type_error(evaluable,foo/3)"))
     assert_eq(value_of("bar(1)"), ok("type_error(evaluable,bar/1)"))
     assert_eq(value_of("[]"), ok("type_error(evaluable,[]/0)"))
-    assert_eq(value_of("\"seven\""), ok("type_error(evaluable,seven)"))
+    // SWI-Prolog 10.0.2: a string of other than one character is no character code.
+    assert_eq(value_of("\"seven\""), ok("type_error(character,seven)"))
 
 @test
 DIVISION_BY_ZERO_IS_AN_EVALUATION_ERROR_FOR_EVERY_DIVISION()
@@ -140,7 +150,8 @@ SLASH_IS_A_FLOAT_WHERE_IT_DOES_NOT_DIVIDE_OR_A_RATIONAL_UNDER_PREFER_RATIONALS()
     assert_eq(ran_prolog(":- set_prolog_flag(prefer_rationals, true), X is 7 / 2, Y is X * 2, write(X/Y), nl.\n"), ok("7r2/7"))
     assert_eq(ran_prolog(":- set_prolog_flag(prefer_rationals, true), X is 2 ^ -2, write(X), nl.\n"), ok("1r4"))
     assert_eq(ran_prolog(":- set_prolog_flag(prefer_rationals, true), X is 1 / 3, rational(X), \\+ integer(X), number(X), write(yes), nl.\n"), ok("yes"))
-    assert_eq(holds("set_prolog_flag(prefer_rationals, maybe)"), ok("domain_error(flag_value,prefer_rationals+maybe)"))
+    // SWI-Prolog 10.0.2's error for its own boolean flag.
+    assert_eq(holds("set_prolog_flag(prefer_rationals, maybe)"), ok("type_error(bool,maybe)"))
 
 @test
 THE_FLOAT_FUNCTIONS()
@@ -153,10 +164,14 @@ THE_FLOAT_FUNCTIONS()
     assert_eq(holds("atan(1) * 4 =:= pi"), ok("yes"))
     assert_eq(value_of("exp(0)"), ok("1.0"))
     assert_eq(value_of("log(1)"), ok("0.0"))
-    assert_eq(value_of("log(0)"), ok("evaluation_error(undefined)"))
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree: the logarithm of 0 overflows.
+    assert_eq(value_of("log(0)"), ok("evaluation_error(float_overflow)"))
+    assert_eq(value_of("log(0.0)"), ok("evaluation_error(float_overflow)"))
     assert_eq(value_of("log(-1)"), ok("evaluation_error(undefined)"))
     assert_eq(value_of("atan2(1, 1) * 4"), ok("3.141592653589793"))
-    assert_eq(value_of("atan2(0, 0)"), ok("evaluation_error(undefined)"))
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree.
+    assert_eq(value_of("atan2(0, 0)"), ok("0.0"))
+    assert_eq(value_of("atan(0, 0)"), ok("0.0"))
     assert_eq(value_of("float_integer_part(-2.5)"), ok("-2.0"))
     assert_eq(value_of("float_fractional_part(2.75)"), ok("0.75"))
     assert_eq(value_of("1.0e10"), ok("10000000000.0"))
@@ -203,7 +218,13 @@ THE_COMPARISONS_EVALUATE_BOTH_SIDES()
     assert_eq(holds("1 =:= 1.0"), ok("yes"))
     assert_eq(holds("1 < 1.5"), ok("yes"))
     assert_eq(holds("2 ^ 64 > 1.0e20"), ok("no"))
-    assert_eq(holds("9007199254740993 > 9007199254740992.0"), ok("yes"))
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree: an integer meets a float as a float.
+    assert_eq(holds("9007199254740993 > 9007199254740992.0"), ok("no"))
+    assert_eq(holds("9007199254740993 =:= 9007199254740992.0"), ok("yes"))
+    assert_eq(holds("9007199254740992.0 < 9007199254740993"), ok("no"))
+    // SWI-Prolog 10.0.2: an integer too large for a float is compared exactly.
+    assert_eq(holds("2 ^ 1100 > 1.0e300"), ok("yes"))
+    assert_eq(holds("-(2 ^ 1100) < -1.0e300"), ok("yes"))
     assert_eq(holds("0.5 =:= 1 / 2"), ok("yes"))
 
 @test
@@ -212,7 +233,9 @@ SUCC_COUNTS_UP_AND_DOWN_OVER_THE_NATURAL_NUMBERS()
     assert_eq(holds("succ(_, 0)"), ok("no"))
     assert_eq(holds("succ(_, _)"), ok("instantiation_error"))
     assert_eq(holds("succ(a, _)"), ok("type_error(integer,a)"))
-    assert_eq(holds("succ(-1, _)"), ok("type_error(not_less_than_zero,-1)"))
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree.
+    assert_eq(holds("succ(-1, _)"), ok("domain_error(not_less_than_zero,-1)"))
+    assert_eq(holds("succ(_, -1)"), ok("domain_error(not_less_than_zero,-1)"))
     assert_eq(ran_prolog(":- succ(9223372036854775807, Y), write(Y), nl.\n"), ok("9223372036854775808"))
     assert_eq(ran_prolog(":- plus(9223372036854775807, 1, Z), write(Z), nl.\n"), ok("9223372036854775808"))
     assert_eq(holds("succ(1.0, _)"), ok("type_error(integer,1.0)"))
@@ -252,8 +275,9 @@ RANDOM_GIVES_AN_INTEGER_FROM_ZERO_TO_BELOW_ITS_BOUND()
 
 @test
 RANDOM_WANTS_A_POSITIVE_INTEGER()
-    assert_eq(value_of("random(0)"), ok("domain_error(positive_integer,0)"))
-    assert_eq(value_of("random(-3)"), ok("domain_error(positive_integer,-3)"))
+    // SWI-Prolog 10.0.2's errors.
+    assert_eq(value_of("random(0)"), ok("domain_error(not_less_than_one,0)"))
+    assert_eq(value_of("random(-3)"), ok("domain_error(not_less_than_one,-3)"))
     assert_eq(value_of("random(2.5)"), ok("type_error(integer,2.5)"))
     assert_eq(value_of("random(_)"), ok("instantiation_error"))
 
@@ -270,16 +294,23 @@ THE_HYPERBOLIC_COTANGENT_AND_TWO_ARGUMENT_LOGARITHM_FUNCTIONS_EVALUATE()
     assert_eq(value_of("cot(1)"), ok("0.6420926159343308"))
     assert_eq(value_of("acot(1)"), ok("0.7853981633974483"))
     assert_eq(value_of("acot(0)"), ok("1.5707963267948966"))
-    assert_eq(value_of("copysign(3, -0.0)"), ok("-3.0"))
+    // SWI-Prolog 10.0.2: an integer keeps its kind.
+    assert_eq(value_of("copysign(3, -0.0)"), ok("-3"))
+    assert_eq(value_of("copysign(-3, 1.0)"), ok("3"))
+    assert_eq(value_of("copysign(0, -1)"), ok("0"))
+    assert_eq(value_of("copysign(2.0, -1)"), ok("-2.0"))
 
 @test
 THE_NEW_FUNCTIONS_REFUSE_ARGUMENTS_OUTSIDE_THEIR_DOMAIN()
     assert_eq(value_of("log(1, 5)"), ok("evaluation_error(undefined)"))
     assert_eq(value_of("log(0, 5)"), ok("evaluation_error(undefined)"))
     assert_eq(value_of("log(2, -5)"), ok("evaluation_error(undefined)"))
-    assert_eq(value_of("log2(0)"), ok("evaluation_error(undefined)"))
+    assert_eq(value_of("log2(0)"), ok("evaluation_error(float_overflow)"))
+    assert_eq(value_of("log2(-1)"), ok("evaluation_error(undefined)"))
     assert_eq(value_of("acosh(0.5)"), ok("evaluation_error(undefined)"))
-    assert_eq(value_of("atanh(1)"), ok("evaluation_error(undefined)"))
+    // GNU Prolog 1.5.0 and SWI-Prolog 10.0.2 agree.
+    assert_eq(value_of("atanh(1)"), ok("evaluation_error(float_overflow)"))
+    assert_eq(value_of("atanh(-1)"), ok("evaluation_error(float_overflow)"))
     assert_eq(value_of("atanh(-2)"), ok("evaluation_error(undefined)"))
     assert_eq(value_of("cot(0)"), ok("evaluation_error(undefined)"))
     assert_eq(value_of("cosh(1000)"), ok("evaluation_error(float_overflow)"))

@@ -169,7 +169,8 @@ private count_uses(t: &Term, counts: *Buf[usize])
         _ -> ()
 
 // `term_to_atom(T, A)`: `A` read as a term and unified with `T` when `A` is bound, and otherwise
-// `T` written as `writeq/1` writes it.
+// `T` written as `writeq/1` writes it -- an unbound `T` among them, as in SWI-Prolog. A number given
+// as `A` is read from its digits, and an `A` with no term in it is `syntax_error(end_of_string)`.
 private pl_term_to_atom(t: Value, a: Value) -> Result[Answer, Fault]
     val who = "term_to_atom/2"
 
@@ -177,17 +178,17 @@ private pl_term_to_atom(t: Value, a: Value) -> Result[Answer, Fault]
         Atom(id) -> atom_name(id)
         Nil -> "[]"
         Str(s) -> s.s
-        Var(_) ->
-            if is_unbound(t) then return Err(instantiation_error(s"instantiation error: $who wants a term or an atom"))
+        Var(_) -> return unified(a, atom(term_text(t, write_opts(true, false, true))))
+        x ->
+            if !is_num(x) then return Err(type_error("text", x, s"type error: $who wants text to read, and was given ${described(x)}"))
 
-            return unified(a, atom(term_text(t, write_opts(true, false, true))))
-        x -> return Err(type_error("atom", x, s"type error: $who wants an atom to read, and was given ${described(x)}"))
+            written_number(x)
 
     val one = read_one("atom", text, true)?
 
     val c = one.got match
         Some(c) -> c
-        None -> return Err(syntax_error("end_of_file", s"$who: the atom '$text' holds no term"))
+        None -> return Err(syntax_error("end_of_string", s"$who: the atom '$text' holds no term"))
 
     var vars: Buf[Value] = buf()
 
