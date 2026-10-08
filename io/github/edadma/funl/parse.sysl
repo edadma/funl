@@ -230,7 +230,8 @@ parse(src: Source, report: *Report) -> Program
     var p = Parser(lex(src, report), report, src, 0, 0, 0)
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
-    var imports: Buf[Spanned[string]] = buf()
+    var imports: Buf[ImportDecl] = buf()
+    var exports: Buf[Spanned[string]] = buf()
 
     loop
         while p.accept(Newline)
@@ -252,14 +253,10 @@ parse(src: Source, report: *Report) -> Program
 
         if p.accept(Def)
             definition(&p, &clauses)
+        elif at_export(&p)
+            exported(&p, &clauses, &stmts, &exports)
         elif at_import(&p)
-            p.take()
-
-            val file = p.take().unwrap()
-
-            file.value match
-                StrLit(s) -> imports.push(Spanned(s, file.span))
-                _ -> ()
+            import_line(&p, &imports)
         else
             stmts.push(statement(&p))
 
@@ -270,25 +267,241 @@ parse(src: Source, report: *Report) -> Program
         p.skip_line()
     end loop
 
-    Program(clauses, stmts, imports)
+    Program(clauses, stmts, imports, exports)
 end parse
 
-// `import "file.pl"` at the top level: the word is a keyword only there, and only before a string,
-// so `import` stays a name a program may use for anything else.
-private at_import(p: *Parser) -> bool
-    val word = p.toks.peek() match
-        Some(t) -> t.value match
-            Name(n) -> n == "import"
-            _ -> false
-        None -> false
+// Whether the token `k` places past the cursor is the name `word`.
+private word_at(p: *Parser, k: usize, word: string) -> bool = p.toks.peek_at(k) match
+    Some(t) -> t.value match
+        Name(n) -> n == word
+        _ -> false
+    None -> false
 
-    if !word then return false
+// An `import` line at the top level: the word is a keyword only there, and only before a string, a
+// `{` or a `*`, so `import` stays a name a program may use for anything else.
+private at_import(p: *Parser) -> bool
+    if !word_at(p, 0, "import") then return false
 
     p.toks.peek_at(1) match
         Some(t) -> t.value match
             StrLit(_) -> true
+            LBrace -> true
+            Star -> true
             _ -> false
         None -> false
+
+// `export` before a `def`, a `val`, a `var` or a `data` at the top level: like `import`, a keyword
+// only there.
+private at_export(p: *Parser) -> bool
+    if !word_at(p, 0, "export") then return false
+
+    p.toks.peek_at(1) match
+        Some(t) -> t.value match
+            Def -> true
+            Val -> true
+            VarW -> true
+            DataW -> true
+            _ -> false
+        None -> false
+
+// `export def ...`, `export val ...`, `export var ...`, `export data ...`: the definition or the
+// statement, read as it would be without the word, and the names it declares added to `exports`. A
+// `def` block under `export def` exports every definition in it.
+private exported(p: *Parser, clauses: *Buf[Clause], stmts: *Buf[Stmt], exports: *Buf[Spanned[string]])
+    p.take()
+
+    if p.accept(Def)
+        val before = clauses.len()
+
+        definition(p, clauses)
+
+        for i in before..<clauses.len()
+            val c = clauses.at(i)
+
+            exports.push(Spanned(c.name, c.head))
+
+        return
+
+    val s = statement(p)
+
+    s match
+        ValS(pat, _, _) -> pattern_names(pat, exports)
+        VarS(n, at, _) -> exports.push(Spanned(n, at))
+        DataS(ctors, typ) ->
+            if typ != "" && ctors.len() > 0 then exports.push(Spanned(typ, ctors.at(0).at))
+
+            for c in ctors.view()
+                exports.push(Spanned(c.name, c.at))
+        _ -> ()
+
+    stmts.push(s)
+end exported
+
+// The names a `val` pattern declares.
+private pattern_names(pat: &Expr, out: *Buf[Spanned[string]])
+    pat.kind match
+        Ref(n) -> out.push(Spanned(n, pat.span))
+        AsE(n, x) ->
+            out.push(Spanned(n, pat.span))
+            pattern_names(x, out)
+        TupleE(items) ->
+            for x in items.view()
+                pattern_names(x, out)
+        ListE(items) ->
+            for x in items.view()
+                pattern_names(x, out)
+        CallE(_, _, args) ->
+            for x in args.view()
+                pattern_names(x, out)
+        ConsE(h, t) ->
+            pattern_names(h, out)
+            pattern_names(t, out)
+        _ -> ()
+
+// `import "file"`, `import { a, b as c } from spec` or `import * as m from spec`, the cursor on
+// `import`.
+private import_line(p: *Parser, imports: *Buf[ImportDecl])
+    p.take()
+
+    val first = p.toks.peek().unwrap()
+
+    first.value match
+        StrLit(s) ->
+            p.take()
+            imports.push(ImportDecl(PathSpec(s), first.span, WholeForm))
+            return
+        _ -> ()
+
+    var form = WholeForm
+
+    if p.accept(Star)
+        if !word_at(p, 0, "as")
+            p.fail_here("`as` and the name the module is known by")
+            return
+
+        p.take()
+
+        val alias = p.toks.peek() match
+            Some(t) -> t
+            None ->
+                p.fail_here("the name the module is known by")
+                return
+
+        alias.value match
+            Name(n) ->
+                p.take()
+                form = StarForm(Spanned(n, alias.span))
+            _ ->
+                p.fail_here("the name the module is known by")
+                return
+    else
+        p.take()
+
+        var names: Buf[ImportName] = buf()
+
+        loop
+            if p.at_tok(RBrace) then break
+
+            val t = p.toks.peek() match
+                Some(t) -> t
+                None ->
+                    p.fail_here("a name to import")
+                    return
+
+            val n = t.value match
+                Name(n) -> n
+                _ ->
+                    p.fail_here("a name to import")
+                    return
+
+            p.take()
+
+            var local = n
+            var at = t.span
+
+            if word_at(p, 0, "as")
+                p.take()
+
+                val l = p.toks.peek() match
+                    Some(l) -> l
+                    None ->
+                        p.fail_here("the name it is known by here")
+                        return
+
+                l.value match
+                    Name(m) ->
+                        p.take()
+                        local = m
+                        at = t.span.to(l.span)
+                    _ ->
+                        p.fail_here("the name it is known by here")
+                        return
+
+            names.push(ImportName(n, local, at))
+
+            if !p.accept(Comma) then break
+
+        if !p.expect(RBrace, "`}`") then return
+
+        form = NamedForm(names)
+
+    if !word_at(p, 0, "from")
+        p.fail_here("`from` and the module to import from")
+        return
+
+    p.take()
+
+    val s = p.toks.peek() match
+        Some(s) -> s
+        None ->
+            p.fail_here("the module to import from")
+            return
+
+    s.value match
+        StrLit(path) ->
+            p.take()
+            imports.push(ImportDecl(PathSpec(path), s.span, form))
+        Name(n) ->
+            p.take()
+
+            if n == "funl" && p.at_tok(Colon)
+                p.take()
+
+                val m = p.toks.peek() match
+                    Some(m) -> m
+                    None ->
+                        p.fail_here("the name of one of FunL's modules")
+                        return
+
+                m.value match
+                    Name(name) ->
+                        p.take()
+                        imports.push(ImportDecl(BuiltinSpec(name), s.span.to(m.span), form))
+                    _ -> p.fail_here("the name of one of FunL's modules")
+
+                return
+
+            // A dotted bare word is still a package name, and is refused as one: a file is quoted.
+            var name = n
+            var at = s.span
+
+            while p.at_tok(Dot)
+                p.take()
+
+                val part = p.toks.peek() match
+                    Some(t) -> t
+                    None -> break
+
+                part.value match
+                    Name(w) ->
+                        p.take()
+                        name = s"$name.$w"
+                        at = at.to(part.span)
+                    _ -> break
+
+            imports.push(ImportDecl(PackageSpec(name), at, form))
+        _ -> p.fail_here("the module to import from: a quoted path, a package name, or `funl:name`")
+end import_line
 
 // One statement: `free names`, `def`, `val pattern = e`, `var name [= e]`, an assignment --
 // `name = e`, `name op= e`, `name <- e`, `\name = e`, `/name = e`, `a, b = e1, e2` -- `pattern = e`,

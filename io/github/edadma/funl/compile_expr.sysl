@@ -74,30 +74,50 @@ context(res: *Resolved, sid: usize, loops: *Buf[Looping]) -> Ctx = Ctx(res, sid,
 leave_scans(e: *Emit, n: usize)
     if n > 0 then e.op(ScanLeave(n))
 
+// Push the value of the name `n`, which means `m`.
+private push_meaning(e: *Emit, c: Ctx, m: Meaning, n: string) -> Result[unit, string]
+    m match
+        Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
+        Function(r, up) -> e.op(MakeClosure(c.res.rels.at(r).chunk, up))
+        Gone -> e.op(PushConst(e.constant(Undefined)))
+        Constructor(id) ->
+            // One with no fields is its atom; any other is a value that makes records.
+            val d = current().ctors.at(id)
+
+            e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))
+        Builtin(id) ->
+            // A builtin that names a value is made once, into the chunk's constants.
+            val made = current().natives.at(id).how match
+                Constant(go) ->
+                    go(0, 0) match
+                        Ok(x) -> x
+                        Err(f) -> return Err(fault_text(f))
+                _ -> return Err(s"'$n' is a builtin, and is not a value")
+
+            e.op(PushConst(e.constant(made)))
+        _ -> return Err(s"'$n' was resolved and is not a value")
+
+    Ok(())
+
+// When `x.name` is a name a module exports, `x` naming the module (`module.sysl`): what it means.
+qualified_in(c: Ctx, x: &Expr, name: string) -> Option[Meaning] = x.kind match
+    Ref(g) -> qualified_name(c.res, g, c.meaning(g, x.span.start), name)
+    _ -> None
+
+// When `f(args)` calls a name a module exports, `f` being `m.name`: what the name means.
+qualified_callee(c: Ctx, f: &Expr) -> Option[Meaning] = f.kind match
+    FieldE(x, name) -> qualified_in(c, x, name)
+    _ -> None
+
+// The name a qualified callee `m.name` calls.
+callee_name(f: &Expr) -> string = f.kind match
+    FieldE(_, name) -> name
+    _ -> ""
+
 // Push `x`'s value.
 compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
-        Ref(n) ->
-            c.meaning(n, x.span.start) match
-                Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
-                Function(r, up) -> e.op(MakeClosure(c.res.rels.at(r).chunk, up))
-                Gone -> e.op(PushConst(e.constant(Undefined)))
-                Constructor(id) ->
-                    // One with no fields is its atom; any other is a value that makes records.
-                    val d = current().ctors.at(id)
-
-                    e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))
-                Builtin(id) ->
-                    // A builtin that names a value is made once, into the chunk's constants.
-                    val made = current().natives.at(id).how match
-                        Constant(go) ->
-                            go(0, 0) match
-                                Ok(x) -> x
-                                Err(f) -> return Err(fault_text(f))
-                        _ -> return Err(s"'$n' is a builtin, and is not a value")
-
-                    e.op(PushConst(e.constant(made)))
-                _ -> return Err(s"'$n' was resolved and is not a value")
+        Ref(n) -> push_meaning(e, c, c.meaning(n, x.span.start), n)?
         Anon -> e.op(PushVar)
         AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
         IntE(n) -> e.op(PushInt(n))
@@ -111,12 +131,15 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(if items.len() == 0 then PushUnit else MakeTuple(items.len()))
         CallE(n, at, args) -> call_named(e, c, n, at.start, args, false)?
         ApplyE(f, args) ->
-            compile_value(e, c, f)?
+            qualified_callee(c, f) match
+                Some(m) -> call_meaning(e, c, m, callee_name(f), args, false)?
+                None ->
+                    compile_value(e, c, f)?
 
-            for a in args.view()
-                compile_value(e, c, a)?
+                    for a in args.view()
+                        compile_value(e, c, a)?
 
-            e.op(CallValue(args.len()))
+                    e.op(CallValue(args.len()))
         Conj(a, b) ->
             compile_value(e, c, a)?
             e.op(Pop)
@@ -276,8 +299,11 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             compile_value(e, c, a)?
             e.op(TestDefined(defined))
         FieldE(a, name) ->
-            compile_value(e, c, a)?
-            e.op(Field(intern(name)))
+            qualified_in(c, a, name) match
+                Some(m) -> push_meaning(e, c, m, name)?
+                None ->
+                    compile_value(e, c, a)?
+                    e.op(Field(intern(name)))
         RevAssignE(n, a) ->
             compile_value(e, c, a)?
             e.op(Dup)
@@ -380,9 +406,11 @@ private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
 
 // `name(args)`, the name written at offset `pos`: a call of whatever the name means. In tail
 // position (`tail`) a call that can reuse the frame is a tail call, and every path ends in `Return`.
-call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string]
-    val m = c.meaning(n, pos)
+call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string] =
+    call_meaning(e, c, c.meaning(n, pos), n, args, tail)
 
+// The same, of a name `n` that means `m`: a name of the file's own, or one a module exports.
+call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bool) -> Result[unit, string]
     if is_swap(m, n)
         compile_swap(e, c, args)?
 
@@ -455,7 +483,7 @@ call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool
     if tail then e.op(Return)
 
     Ok(())
-end call_named
+end call_meaning
 
 // A function of `n` parameters called with `n + 1` arguments, in a goal: the relation `f/(n+1)`,
 // whose last argument is unified with the function's value. Its value is `()`, as a relation's is;

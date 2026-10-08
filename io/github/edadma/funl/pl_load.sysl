@@ -289,13 +289,10 @@ enum LoadStep
 // A FunL file it imported is not counted as loaded when the file itself is refused, since its top
 // level never runs: importing it again loads it again.
 load_prolog(src: Source, report: *Report) -> Result[usize, Refusal]
-    val v = current()
-    val before = v.funl_files.len()
+    val before = current().modules.len()
     val loaded = load_file(src, report)
 
-    if loaded.is_err()
-        while v.funl_files.len() > before
-            v.funl_files.pop()
+    if loaded.is_err() then forget_modules(before)
 
     loaded
 

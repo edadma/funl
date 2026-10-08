@@ -28,47 +28,71 @@ import sysl.path.{join, parent}
 
 // The program in `src`, compiled into the running VM: the chunk to run, or `None` with the reasons
 // in `report`. Warnings alone do not stop it.
-compile_program(src: Source, report: *Report) -> Option[usize] = compile_funl(src, TopUp, report) match
-    Ok(chunk) -> Some(chunk)
-    Err(_) -> None
+//
+// The modules it imports are registered as they are compiled; when the program is refused they are
+// forgotten again, since their top levels will never run.
+compile_program(src: Source, report: *Report) -> Option[usize]
+    val v = current()
+    val before = v.modules.len()
 
-// The FunL file in `src`, imported by a Prolog file as number `m` (`pl_import.sysl`), compiled into
-// the running VM: the chunk that runs its top level and returns `()`, or why it was refused with the
+    v.loading.push(src.name)
+
+    val made = compile_funl(src, TopUp, report)
+
+    v.loading.pop()
+
+    made match
+        Ok(out) -> Some(out.chunk)
+        Err(_) ->
+            forget_modules(before)
+            None
+
+// The FunL module in `src`, loaded as number `m` (`module.sysl`), compiled into the running VM: its
+// exports and the chunk that runs its top level and returns `()`, or why it was refused with the
 // reasons in `report`.
-compile_imported(src: Source, m: usize, report: *Report) -> Result[usize, Refusal] = compile_funl(src, file_up(m), report)
+compile_module(src: Source, top_up: usize, report: *Report) -> Result[ModuleOut, Refusal] = compile_funl(src, top_up, report)
 
 // The FunL code in `src`, whose top level's frame `top_up` names: a program for `TopUp`, whose
-// chunk halts, and otherwise a file Prolog imported, whose chunk keeps its frame and returns.
-private compile_funl(src: Source, top_up: usize, report: *Report) -> Result[usize, Refusal]
+// chunk halts, and otherwise a module, whose chunk keeps its frame, takes its exports' snapshot and
+// returns.
+private compile_funl(src: Source, top_up: usize, report: *Report) -> Result[ModuleOut, Refusal]
     val prog = parse(src, report)
 
     if report.has_errors() then return Err(Unreadable)
 
-    // The Prolog files are loaded first, so the resolver knows their predicates by name.
-    var loads: Buf[usize] = buf()
-    var seen: Buf[string] = buf()
-
-    for i in prog.imports.view()
-        imported(src, i, &seen, report) match
-            Some(chunk) -> loads.push(chunk)
-            None -> ()
+    // What the imports bring is loaded first, so the resolver knows the Prolog files' predicates and
+    // the modules' exports by name.
+    val im = imports_of(src, prog, report)
 
     if report.has_errors() then return Err(Unreadable)
 
-    var res = resolve(src, prog, top_up, report)
+    var res = resolve(src, prog, top_up, im, report)
 
     if report.has_errors() then return Err(Unreadable)
 
-    val why = match_up(src, &res, report) match
-        Ok(w) -> w
-        Err(e) ->
-            report.add(error(point(0), s"the compiler failed: $e"))
-            return Err(Unreadable)
+    val program = top_up == TopUp
+
+    // A program's definitions are all Prolog's to call; a module's exports become predicates only
+    // when a Prolog file imports it.
+    var why: Refusal = Unreadable
+
+    if program
+        why = match_up(src, &res, report) match
+            Ok(w) -> w
+            Err(e) ->
+                report.add(error(point(0), s"the compiler failed: $e"))
+                return Err(Unreadable)
 
     if report.has_errors() then return Err(why)
 
-    compiled(&res, loads) match
-        Ok(chunk) -> Ok(chunk)
+    var out = module_exports(&res, prog.exports, !program, report)
+
+    if report.has_errors() then return Err(Unreadable)
+
+    compiled(&res, im.loads, out) match
+        Ok(chunk) ->
+            out.chunk = chunk
+            Ok(out)
         Err(e) ->
             report.add(error(point(0), s"the compiler failed: $e"))
             Err(Unreadable)
@@ -77,7 +101,7 @@ end compile_funl
 // `import "file.pl"`: the Prolog file, read relative to the directory of the program importing it,
 // loaded into the VM; the chunk that runs its directives, or `None` with the reason reported at the
 // import. A file the program has already imported (`seen`) is loaded once, as any import is.
-private imported(src: Source, i: Spanned[string], seen: *Buf[string], report: *Report) -> Option[usize]
+imported(src: Source, i: Spanned[string], seen: *Buf[string], report: *Report) -> Option[usize]
     val file = parent(src.name) match
         Some(dir) -> join(dir, i.value)
         None -> i.value
@@ -146,34 +170,40 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal
                 continue
             None -> ()
 
-        var e = emit(r.name)
-
-        if r.function
-            for k in 0..<r.arity
-                e.op(LoadArg(k))
-
-            e.op(CallFn(r.chunk, r.arity, res.top_up))
-            e.op(LoadArg(r.arity))
-            e.op(Unify)
-            e.op(Pop)
-            e.op(PushUnit)
-            e.op(Return)
-        else
-            for k in 0..<r.arity
-                e.op(LoadArg(k))
-
-            e.op(TailCall(r.chunk, r.arity))
-            e.op(Return)
-
-        define_predicate(key, e, origin)?
+        funl_predicate(key, r.name, r.chunk, r.arity, r.function, res.top_up, origin)?
 
     Ok(why)
 end match_up
 
-// The relations and functions, and the top level: a program's halts; an imported file's keeps its
-// frame for its functions to reach, then returns `()` to the Prolog file that imported it.
-private compiled(res: *Resolved, loads: Buf[usize]) -> Result[usize, string]
+// Define predicate `key` as the FunL definition `name` compiled into `chunk`: a relation of `arity`
+// arguments called with them, or a function of `arity` parameters whose value is unified with the
+// last argument, its frames' static link the frame `up` names.
+funl_predicate(key: string, name: string, chunk: usize, arity: usize, function: bool, up: usize, origin: Origin) -> Result[unit, string]
+    var e = emit(name)
+
+    for k in 0..<arity
+        e.op(LoadArg(k))
+
+    if function
+        e.op(CallFn(chunk, arity, up))
+        e.op(LoadArg(arity))
+        e.op(Unify)
+        e.op(Pop)
+        e.op(PushUnit)
+        e.op(Return)
+    else
+        e.op(TailCall(chunk, arity))
+        e.op(Return)
+
+    define_predicate(key, e, origin)
+
+// The relations and functions, and the top level: a program's halts; a module's keeps its frame
+// for its functions to reach, takes the snapshot of its exports `out` describes, then returns `()`
+// to the file that imported it. A definition with no clauses is another module's, already compiled.
+private compiled(res: *Resolved, loads: Buf[usize], out: ModuleOut) -> Result[usize, string]
     for r in res.rels.view()
+        if r.clauses.len() == 0 then continue
+
         if r.function then compile_function(res, r)? else compile_relation(res, r)?
 
     val program = res.top_up == TopUp
@@ -196,11 +226,48 @@ private compiled(res: *Resolved, loads: Buf[usize]) -> Result[usize, string]
     if program
         e.op(Halt)
     else
+        snapshot(&e, res, out)?
         e.op(PushUnit)
         e.op(Return)
 
     finish(e)
 end compiled
+
+// The end of a module's top level: each exported variable copied into its snapshot's slot, and the
+// map of every export that is a value -- functions, variables, constructors -- made into the map's.
+private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, string]
+    for i in 0..<out.copy_from.len()
+        e.op(LoadSlot(0, out.copy_from.at(i)))
+        e.op(StoreSlot(out.copy_to.at(i)))
+
+    var n: usize = 0
+
+    for x in out.exports.view()
+        val value = x.kind match
+            ExFunction(_, _) -> true
+            ExValue(_) -> true
+            ExCtor(_) -> true
+            _ -> false
+
+        if !value then continue
+
+        e.op(PushConst(e.constant(new_str(x.name)?)))
+
+        x.kind match
+            ExFunction(chunk, _) -> e.op(MakeClosure(chunk, res.top_up))
+            ExValue(slot) -> e.op(LoadSlot(0, slot))
+            ExCtor(id) ->
+                val d = current().ctors.at(id)
+
+                e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))
+            _ -> ()
+
+        n += 1
+
+    e.op(MakeMap(n))
+    e.op(StoreSlot(out.map_slot))
+    Ok(())
+end snapshot
 
 private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
     var e = emit(r.name)

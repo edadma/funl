@@ -16,7 +16,7 @@ private ran_with_funl(name: string, funl: string, program: string) -> string
     ran_prolog(s":- import(\"$file\").\n" + program)
 end ran_with_funl
 
-private const Half: string = "def half() = 1/2\n"
+private const Half: string = "export def half() = 1/2\n"
 
 @test
 A_RATIONAL_FROM_FUNL_STAYS_EXACT_THROUGH_IS()

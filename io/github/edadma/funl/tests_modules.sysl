@@ -1,0 +1,295 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.{make_dir, read_text}
+import sysl.text.Search
+
+// Modules (`modules.md`): a file is a module, and another file sees what it exports -- by name with
+// `import { ... } from`, or whole with `import * as`. Imports are resolved before anything runs, a
+// module runs its top level once however many files import it, and its exports are a snapshot.
+
+// Whether `text` holds `part`.
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// A module exporting a data type, a function, a relation, a `val`, a `var` and a function changing
+// it, and keeping `helper` to itself. Its top level says when it runs.
+private const GeometryModule: string = "export data shape = circle(r) | square(s)\n" +
+    "export def area( circle(r) ) = 3 * r * r\n" +
+    "export def area( square(s) ) = s * s\n" +
+    "export def sides( #square, 4 )\n" +
+    "export def sides( #triangle, 3 )\n" +
+    "export val unit = 1\n" +
+    "export var count = 0\n" +
+    "export def bump() = (count += 1)\n" +
+    "def helper( x ) = x\n" +
+    "write( #geometry )\n"
+
+// `GeometryModule` written into scratch directory `dir`, answering its path.
+private put_geometry(dir: string) -> string = put(dir, "geometry.funl", GeometryModule)
+
+@test
+NAMES_IMPORTED_FROM_A_MODULE_ARE_ITS_FUNCTIONS_RELATIONS_VALUES_AND_CONSTRUCTORS()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put_geometry(d)
+    val text = s"import { area, circle, square, sides as edges, unit, shape } from \"$g\"\n" +
+        "free s, n\n" +
+        "write( area(circle(2)), area(square(3)), unit )\n" +
+        "every edges(s, n) do write( s, n )\n" +
+        "write( circle(1) is shape )\n"
+
+    assert_eq(ran_funl(text), "geometry\n12, 9, 1\nsquare, 4\ntriangle, 3\ncircle(1)\nsucceeded")
+
+@test
+IMPORT_STAR_NAMES_THE_MODULE_AND_A_QUALIFIED_NAME_IS_AN_EXPORT()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put_geometry(d)
+    val text = s"import * as geometry from \"$g\"\n" +
+        "free s, n\n" +
+        "write( geometry.area(geometry.square(3)), geometry.unit )\n" +
+        "every geometry.sides(s, n) do write( s, n )\n" +
+        "val f = geometry.area\n" +
+        "write( f(geometry.circle(1)) )\n" +
+        "write( geometry(\"unit\") )\n"
+
+    // A module is a map of its exports that are values; a relation is not one, and is called.
+    assert_eq(ran_funl(text), "geometry\n9, 1\nsquare, 4\ntriangle, 3\n3\n1\nsucceeded")
+
+@test
+A_QUALIFIED_RELATION_IS_CALLED_IN_A_RELATION_BODY_AND_A_GOAL()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put_geometry(d)
+    val text = s"import * as geometry from \"$g\"\n" +
+        "def many( s ) :- geometry.sides( s, n ) & n > 3\n" +
+        "free s\n" +
+        "every many( s ) do write( s )\n" +
+        "write( findall(s, geometry.sides(s, 3)) )\n"
+
+    assert_eq(ran_funl(text), "geometry\nsquare\n[triangle]\nsucceeded")
+
+@test
+A_MODULES_EXPORTS_ARE_A_SNAPSHOT_TAKEN_WHEN_ITS_TOP_LEVEL_ENDS()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put_geometry(d)
+    val text = s"import { count, bump } from \"$g\"\n" +
+        s"import * as geometry from \"$g\"\n" +
+        "bump()\n" +
+        "write( bump(), count, geometry.count )\n"
+
+    assert_eq(ran_funl(text), "geometry\n2, 0, 0\nsucceeded")
+
+@test
+A_MODULE_IMPORTED_BY_SEVERAL_FILES_RUNS_ITS_TOP_LEVEL_ONCE_BEFORE_ITS_FIRST_IMPORTER()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "base.funl", "export val origin = 0\nwrite( #base )\n")
+    put(d, "left.funl", "import { origin } from \"base.funl\"\nexport val l = origin - 1\nwrite( #left )\n")
+    put(d, "right.funl", "import { origin } from \"base.funl\"\nexport val r = origin + 1\nwrite( #right )\n")
+
+    val text = s"import { l } from \"$d/left.funl\"\n" +
+        s"import { r } from \"$d/right.funl\"\n" +
+        s"import { origin } from \"$d/./base.funl\"\n" +
+        "write( l, origin, r )\n"
+
+    assert_eq(ran_funl(text), "base\nleft\nright\n-1, 0, 1\nsucceeded")
+
+@test
+A_MODULES_PATH_IS_READ_RELATIVE_TO_THE_FILE_IMPORTING_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    make_dir(s"$d/lib").unwrap()
+    put(d, "lib/inner.funl", "export def twice( x ) = 2 * x\n")
+    put(d, "lib/outer.funl", "import { twice } from \"inner.funl\"\nexport def four( x ) = twice( twice(x) )\n")
+
+    assert_eq(ran_funl(s"import { four } from \"$d/lib/outer.funl\"\nwrite( four(3) )\n"), "12\nsucceeded")
+
+@test
+AN_IMPORTED_NAME_SHADOWS_A_BUILTIN()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "mine.funl", "export def reverse( l ) = #mine\n")
+
+    assert_eq(ran_funl(s"import { reverse } from \"$m\"\nwrite( reverse([1, 2]) )\n"), "mine\nsucceeded")
+
+@test
+EXPORT_DEF_BEFORE_A_BLOCK_EXPORTS_EVERY_DEFINITION_IN_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "facts.funl", "export def\n  likes( #ann, #tea )\n  likes( #bob, #coffee )\n  drink( x ) = x\n")
+    val text = s"import { likes, drink } from \"$m\"\nfree w\nevery likes(w, _) do write( drink(w) )\n"
+
+    assert_eq(ran_funl(text), "ann\nbob\nsucceeded")
+
+@test
+A_LITERATE_MODULE_IS_IMPORTED_AS_A_PLAIN_ONE_IS()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "scaling.lfunl", "# Scaling\n\nThe one function.\n\n    export def scaled( n ) = n * 10\n")
+
+    assert_eq(ran_funl(s"import { scaled } from \"$m\"\nwrite( scaled(2) )\n"), "20\nsucceeded")
+
+@test
+IMPORT_AND_EXPORT_ARE_STILL_NAMES_ELSEWHERE()
+    assert_eq(ran_funl("val import = 1\nval export = 2\nwrite( import + export )\n"), "3\nsucceeded")
+
+@test
+A_NAME_A_MODULE_DOES_NOT_EXPORT_IS_REFUSED_NAMING_WHAT_IT_DOES()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put_geometry(d)
+    val e = put(d, "empty.funl", "def quiet() = 1\n")
+    val named = rendered(s"import { helper } from \"$g\"\n")
+    val qualified = rendered(s"import * as geometry from \"$g\"\nwrite( geometry.helper(1) )\n")
+    val nothing = rendered(s"import { quiet } from \"$e\"\n")
+
+    assert(has(named, s"`$g` does not export `helper`"), named)
+    assert(has(named, "it exports `shape`, `circle`, `square`, `area`, `sides`, `unit`, `count`, `bump`"), named)
+    assert(has(qualified, s"`$g` does not export `helper`"), qualified)
+    assert(has(nothing, "it exports nothing"), nothing)
+
+@test
+A_QUALIFIED_CALL_IS_CHECKED_AS_ANY_CALL_IS()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put_geometry(d)
+
+    assert_eq(complaints(s"import * as geometry from \"$g\"\nwrite( geometry.area(1, 2) )\nwrite( geometry.sides )\n"),
+        "error 2:8 `geometry.area` takes 1 argument, and this call gives 2\n" +
+        "error 3:8 `geometry.sides` is a relation or a builtin, which is called rather than used as a value\n")
+
+@test
+A_CIRCLE_OF_IMPORTS_IS_REFUSED_NAMING_EVERY_FILE_IN_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "a.funl", "import { b } from \"b.funl\"\nexport def a() = 1\n")
+    put(d, "b.funl", "import { a } from \"a.funl\"\nexport def b() = 2\n")
+
+    val said = rendered(s"import { a } from \"$d/a.funl\"\n")
+
+    assert(has(said, s"this import closes a circle: `$d/a.funl` imports `$d/b.funl` imports `$d/a.funl`"), said)
+
+@test
+AN_IMPORTED_NAME_THE_FILE_ALSO_DEFINES_OR_DECLARES_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val g = put_geometry(d)
+
+    assert_eq(complaints(s"import { area, unit } from \"$g\"\nimport * as geometry from \"$g\"\ndef area( x ) = x\nvar unit = 2\nfree geometry\n"),
+        s"error 3:5 `area` is imported from `$g`, and this file cannot also define it\n" +
+        "error 4:5 `unit` is imported, and cannot also be a variable\n" +
+        "error 5:6 `geometry` is imported, and cannot also be a variable\n")
+
+    assert_eq(complaints(s"import { unit } from \"$g\"\nimport { area as unit } from \"$g\"\n"), "error 2:10 `unit` is imported twice\n")
+
+    // `as` renames what would clash.
+    assert_eq(ran_funl(s"import { area as size, square } from \"$g\"\ndef area( x ) = x\nwrite( size(square(2)) )\n"), "geometry\n4\nsucceeded")
+    assert_eq(complaints(s"import { area as size } from \"$g\"\ndef area( x ) = x\n"), "")
+
+@test
+A_MODULE_NO_FILE_OR_KNOWN_NAME_PROVIDES_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(complaints("import { parse } from funl:json\nimport { t } from tabular\nimport { u } from geometry.funl\nimport \"notes.txt\"\n"),
+        "error 1:23 unknown module `funl:json`\n" +
+        "error 2:19 unknown module `tabular`\n" +
+        "error 3:19 unknown module `geometry.funl`\n" +
+        "error 4:8 `notes.txt` is neither a FunL module nor a Prolog file\n")
+
+    assert_eq(has(rendered("import { u } from geometry.funl\n"), "a file is imported by a quoted path: `\"geometry.funl\"`"), true)
+    assert_eq(complaints(s"import { x } from \"$d/nowhere.funl\"\n"),
+        s"error 1:19 `$d/nowhere.funl` cannot be read: ${read_text(s"$d/nowhere.funl").unwrap_err()}\n")
+
+@test
+A_PROLOG_FILE_IS_IMPORTED_WHOLE_AND_NEVER_BY_NAME()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "family.pl", "parent(ann, bob).\n")
+    val said = rendered(s"import { parent } from \"$pl\"\n")
+
+    assert(has(said, "a Prolog file has no exports to choose from"), said)
+    assert(has(said, s"`import \"$pl\"`"), said)
+    assert_eq(has(rendered(s"import * as family from \"$pl\"\n"), "a Prolog file has no exports to choose from"), true)
+
+@test
+AN_ERROR_IN_A_MODULE_IS_DRAWN_AGAINST_THE_MODULES_OWN_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "broken.funl", "export def f( x ) = x\nwrite( nowhere )\n")
+    val said = rendered(s"import { f } from \"$m\"\n")
+
+    assert(has(said, s"`$m` could not be loaded"), said)
+    assert(has(said, s"--> $m:2:8"), said)
+    assert(has(said, "`nowhere` is not defined"), said)
+
+@test
+EXPORT_VAL_EXPORTS_EVERY_NAME_ITS_PATTERN_DECLARES_AND_EXPORT_DATA_ITS_TYPE_AND_CONSTRUCTORS()
+    assert_eq(complaints("export val x = 1\nexport def\n  f( y ) = y\nwrite( x )\n"), "")
+
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "ghost.funl", "export val (a, b) = (1, 2)\nexport data colour = red | green\n")
+
+    assert_eq(ran_funl(s"import { a, b, colour, red } from \"$m\"\nwrite( a + b, red, red is colour )\n"), "3, red, red\nsucceeded")
+
+@test
+A_RELATION_HEAD_AND_BODY_SEE_IMPORTED_CONSTRUCTORS_AND_RELATIONS()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "hues.funl", "export data hue = red | green\nexport def warm( #red )\n")
+    val text = s"import { red, green, warm } from \"$m\"\n" +
+        "def name( red, \"red\" )\n" +
+        "def name( green, \"green\" )\n" +
+        "def warm_name( n ) :- warm( h ) & name( h, n )\n" +
+        "free n\n" +
+        "every warm_name( n ) do write( n )\n"
+
+    assert_eq(ran_funl(text), "red\nsucceeded")
+
+@test
+PROLOG_SEES_ONLY_WHAT_A_MODULE_EXPORTS()
+    val d = scratch()
+    defer scrap(d)
+
+    val shapes = put_shapes(d)
+    val text = consulting_of(shapes) +
+        ":- catch(hidden(1, X), error(E, _), (write(E), nl)).\n" +
+        ":- scaled(1, Y), write(Y), nl.\n"
+
+    assert_eq(ran_prolog(text), "geometry\nexistence_error(procedure,hidden/2)\n10\nsucceeded")
+
+@test
+A_MODULE_FUNL_AND_PROLOG_BOTH_IMPORT_IS_ONE_MODULE_RUN_ONCE()
+    val d = scratch()
+    defer scrap(d)
+
+    val shapes = put_shapes(d)
+    val text = s"import { scaled } from \"$d/geometry.funl\"\n" +
+        s"import \"$shapes\"\n" +
+        "free a\n" +
+        "if area( 3, a ) then write( a, scaled(1) )\n"
+
+    assert_eq(ran_funl(text), "geometry\n30, 10\nsucceeded")
+
+// The directive consulting `file`.
+private consulting_of(file: string) -> string = s":- consult(\"$file\").\n"

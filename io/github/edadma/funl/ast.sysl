@@ -286,5 +286,43 @@ struct Program
     clauses: Buf[Clause]
     stmts: Buf[Stmt]
 
-    // `import "file.pl"`: the Prolog files the program loads, each with where its name is written.
-    imports: Buf[Spanned[string]]
+    // Every `import` line, in order.
+    imports: Buf[ImportDecl]
+
+    // Every name an `export` line declares, with where it is written, in order.
+    exports: Buf[Spanned[string]]
+
+// Where an `import` line takes its module from.
+enum Specifier
+    // `"geometry.funl"`, `"family.pl"`: a file, relative to the file the import is written in.
+    PathSpec(path: string)
+
+    // `tabular`: a package.
+    PackageSpec(name: string)
+
+    // `funl:json`: one of FunL's own modules.
+    BuiltinSpec(name: string)
+
+// What an `import` line takes from its module.
+enum ImportForm
+    // `import "file"`: the whole file -- a Prolog file's predicates, or a FunL module's top level
+    // run and nothing named.
+    WholeForm
+
+    // `import { a, b as c } from ...`: the names listed.
+    NamedForm(names: Buf[ImportName])
+
+    // `import * as m from ...`: the module as one value under `alias`.
+    StarForm(alias: Spanned[string])
+
+// One name of `import { ... }`: the name exported, and the name it is known by here.
+struct ImportName
+    name: string
+    local: string
+    at: Span
+
+// One `import` line: its specifier, written at `at`, and what it takes.
+struct ImportDecl
+    spec: Specifier
+    at: Span
+    form: ImportForm

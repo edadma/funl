@@ -98,13 +98,16 @@ body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             if c.scans > 0
                 value_tail(e, c, x)?
             else
-                compile_value(e, c, f)?
+                qualified_callee(c, f) match
+                    Some(m) -> call_meaning(e, c, m, callee_name(f), args, true)?
+                    None ->
+                        compile_value(e, c, f)?
 
-                for a in args.view()
-                    compile_value(e, c, a)?
+                        for a in args.view()
+                            compile_value(e, c, a)?
 
-                e.op(TailCallValue(args.len()))
-                e.op(Return)
+                        e.op(TailCallValue(args.len()))
+                        e.op(Return)
         ScanE(s, body) ->
             compile_value(e, c, s)?
             e.op(ScanBegin)

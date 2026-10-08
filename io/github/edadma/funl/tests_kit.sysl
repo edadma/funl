@@ -249,14 +249,16 @@ const ClashBPl: string = "shared(b).\n"
 // Clauses for `counter/1`, which `ClashAPl` declares dynamic, at line 1.
 const ClashCPl: string = "counter(5).\n"
 
-// A FunL file Prolog imports: a relation, a generating function and plain functions, one of them
-// reading a variable of the file's top level. `scaled` is at line 5, column 5.
+// A FunL file Prolog imports: an exported relation, generating function and plain functions, one
+// of them reading a variable of the file's top level, and `hidden`, which it does not export.
+// `scaled` is at line 5, column 12.
 const GeometryFunl: string = "val scale = 10\n" +
-    "def side(#square, 4)\n" +
-    "def side(#triangle, 3)\n" +
-    "def upto(n) = 1 to n\n" +
-    "def scaled(n) = n * scale\n" +
-    "def halve(n) = 10 / n\n" +
+    "export def side(#square, 4)\n" +
+    "export def side(#triangle, 3)\n" +
+    "export def upto(n) = 1 to n\n" +
+    "export def scaled(n) = n * scale\n" +
+    "export def halve(n) = 10 / n\n" +
+    "def hidden(n) = n\n" +
     "write(#geometry)\n"
 
 // A Prolog file importing `GeometryFunl` by a path relative to itself, and calling what it defines:

@@ -494,18 +494,18 @@ The FunL definitions in [`prolog/shapes.funl`](prolog/shapes.funl) are:
 ```
 data point(x, y)
 
-def sides(#square, 4)
-def sides(#triangle, 3)
+export def sides(#square, 4)
+export def sides(#triangle, 3)
 
-def corner() = point(1, 2)
-def pair(a) = (a, a * 2)
-def upto(n) = 1 to n
-def inverse(n) = 1 / n
-def ages() = {alice: 30}
-def nothing() = ()
-def unset() = undefined
-def yes() = true
-def no() = false
+export def corner() = point(1, 2)
+export def pair(a) = (a, a * 2)
+export def upto(n) = 1 to n
+export def inverse(n) = 1 / n
+export def ages() = {alice: 30}
+export def nothing() = ()
+export def unset() = undefined
+export def yes() = true
+export def no() = false
 ```
 
 ```prolog
@@ -580,12 +580,15 @@ true, false
 ## Calling FunL from Prolog
 
 `:- import("file.funl").` loads a FunL file into a Prolog program, reading the path relative to the
-Prolog file. The FunL file's top level runs as it loads. Its definitions are predicates:
+Prolog file. The FunL file is a [module](modules.md): its top level runs once, as it loads, and
+**what it exports is what Prolog sees**. Its exported definitions are predicates:
 
 - **a relation** of `n` arguments, such as `sides` above, is the predicate `sides/2`;
 - **a function `f` of `n` parameters is the predicate `f/(n+1)`**: its last argument is unified with
   the result, and a function that generates values gives one solution for each, as `upto/2` does
   above.
+
+A definition the file does not export is no predicate at all.
 
 A FunL function's arguments are looked at as FunL values, so an unbound one where FunL needs a value
 is an `instantiation_error`. **An error raised in FunL code is the same ISO error term** a Prolog

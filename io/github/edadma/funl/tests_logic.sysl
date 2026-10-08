@@ -313,7 +313,7 @@ A_RELATION_IN_AN_IMPORTED_FUNL_FILE_SEES_THAT_FILES_VAL()
     val d = scratch()
     defer scrap(d)
 
-    put(d, "limits.funl", "val scale = 10\ndef big(n) :- n > scale\n")
+    put(d, "limits.funl", "val scale = 10\nexport def big(n) :- n > scale\n")
 
     val text = s":- import(\"$d/limits.funl\").\n" +
         ":- (big(20) -> write(yes) ; write(no)), nl.\n" +

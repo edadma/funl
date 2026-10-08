@@ -1,0 +1,5 @@
+;; The other half of the circle left.funl starts.
+
+import { left } from "left.funl"
+
+export def right() = 2
