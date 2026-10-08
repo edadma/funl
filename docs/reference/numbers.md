@@ -246,7 +246,8 @@ write( 1.0 / 0 )
 
 ## `^` is power
 
-`^` raises a number to an integer power. A negative power of an exact number is exact.
+`^` raises a number to a power. An integer or rational raised to an integer power is exact, a
+negative power included.
 
 ```funl
 write( 2 ^ 10 )
@@ -266,14 +267,60 @@ write( 0 ^ 0 )
 1
 ```
 
-The power has to be an integer:
+A real power, or a fractional one, gives a real: `4 ^ (1/2)` is `2.0`, not `2`.
 
 ```funl
 write( 2 ^ 0.5 )
+write( 4 ^ (1/2) )
+write( 2 ^ 2.0 )
+write( (1/4) ^ 0.5 )
+write( 2 ^ -1.0 )
+```
+
+```output
+1.4142135623730951
+2.0
+4.0
+0.5
+0.5
+```
+
+A negative number has no real fractional power, so asking for one is a fault:
+
+```funl
+write( (-8) ^ (1/3) )
 ```
 
 ```error
-2 ^ 0.5 wants integers and was given the real 0.5
+-8 ^ 1/3 has no value
+```
+
+Zero to a negative power divides by zero, whether the power is an integer or not:
+
+```funl
+write( 0 ^ -1 )
+```
+
+```error
+0 ^ -1 divides by zero
+```
+
+```funl
+write( 0 ^ -0.5 )
+```
+
+```error
+0 ^ -0.5 divides by zero
+```
+
+A real power too large for a real is a fault too:
+
+```funl
+write( 10 ^ 400.0 )
+```
+
+```error
+10 ^ 400.0 is too large for a float
 ```
 
 ## `div` asks "divides"
