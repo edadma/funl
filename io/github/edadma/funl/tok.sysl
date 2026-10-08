@@ -62,6 +62,7 @@ enum Tok
     Continue
     DataW
     UndefinedW
+    CatchW
 
     LParen
     RParen
@@ -187,6 +188,7 @@ private spelling(t: Tok) -> string
         Continue -> "continue"
         DataW -> "data"
         UndefinedW -> "undefined"
+        CatchW -> "catch"
         Semi -> ";"
         Colon -> ":"
         LeftArrow -> "<-"
@@ -274,6 +276,7 @@ keyword(s: string) -> Option[Tok]
     if s == "continue" then return Some(Continue)
     if s == "data" then return Some(DataW)
     if s == "undefined" then return Some(UndefinedW)
+    if s == "catch" then return Some(CatchW)
 
     None
 end keyword
@@ -283,6 +286,7 @@ end keyword
 power(t: Tok) -> Power
     t match
         Arrow -> right_assoc(ArrowPower)
+        CatchW -> left_assoc(CatchPower)
         Question -> left_assoc(ScanPower)
         Or -> left_assoc(10)
         And -> left_assoc(12)
@@ -328,7 +332,7 @@ power(t: Tok) -> Power
 // `1..`.
 continues_line(t: Tok) -> bool
     t match
-        Or | And | Bar | Amp | Tilde -> true
+        Or | And | Bar | Amp | Tilde | CatchW -> true
         EqEq | BangEq | Less | LessEq | Greater | GreaterEq | In | NotIn | Is -> true
         Colon | To | Until | By | DotDotLess | DotDotPlus -> true
         Plus | Minus | Star | Slash | SlashSlash | Backslash | Percent | Mod | Div | Caret -> true
@@ -338,6 +342,10 @@ continues_line(t: Tok) -> bool
 
 // The arrow of a lambda: below everything, so a lambda's body reaches as far right as it can.
 const ArrowPower: u16 = 5
+
+// `e catch p -> r`: looser than every operator but the lambda arrow, so `a + b catch ...` guards the
+// sum and `x -> risky() catch ...` gives the lambda a body that guards.
+const CatchPower: u16 = 6
 
 // String scanning `s ? e`: looser than `or`, so the whole of `s ? a | b` is scanned, and tighter than
 // the lambda arrow, so a lambda's body can be a scan.

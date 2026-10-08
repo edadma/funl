@@ -129,7 +129,7 @@ PROLOGS_IS_STAYS_ARITHMETIC_BESIDE_A_FUNL_FILE_THAT_TESTS_TYPES()
     val d = scratch()
     defer scrap(d)
 
-    put(d, "kinds.funl", "def kind( x ) | x is integer = #int\ndef kind( _ ) = #other\n")
+    put(d, "kinds.funl", "export def kind( x ) | x is integer = #int\nexport def kind( _ ) = #other\n")
 
     val text = s":- import(\"$d/kinds.funl\").\n:- X is 1 + 2, kind(X, K), write(X-K), nl.\n:- Y is 1 / 2, kind(Y, K), write(K), nl.\n"
 

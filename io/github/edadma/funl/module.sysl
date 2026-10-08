@@ -1,0 +1,515 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.path.{join, normalize, parent}
+import sysl.text.{Search, str_builder}
+
+// Modules (`modules.md`): a file is a module, and what another file can see is what it writes
+// `export` in front of.
+//
+// **Imports are resolved before anything runs.** An importer's `import` lines are worked through
+// before its resolver starts: each FunL file is parsed, resolved and compiled first, its top level a
+// call the importer's top level makes before its own statements, so the importer's resolver sees the
+// module's export list. **A module is instantiated once per machine**: the first file to import it
+// compiles it and runs its top level, and every later import shares what that made.
+//
+// **A module is an immutable map from export name to value**, taken when its top level finishes: a
+// snapshot, so an `export var` the module changes afterwards is not seen changing from outside. The
+// snapshot is kept in slots of the module's own top-level frame -- one per exported variable, and one
+// for the map `import * as` names -- so it is rooted as that frame is.
+//
+// **A relation is not a value**, so it is not in the map. A qualified call `m.r(...)` is resolved by
+// the compiler against the export list instead, and is the static call, first-argument index and
+// all, that calling `r` in its own file is.
+
+// No slot: a module with no frame of its own to keep a map in.
+const NoMap: usize = 4294967295
+
+// What one exported name is.
+enum ExportKind
+    ExFunction(chunk: usize, arity: usize)
+    ExRelation(chunk: usize, arity: usize)
+
+    // A `val` or a `var`: the slot of the module's frame its snapshot is kept in.
+    ExValue(slot: usize)
+
+    // A `data` constructor, indexing `Vm.ctors`.
+    ExCtor(id: usize)
+
+    // A `data` type's name, which `is` and patterns already know wherever they are written.
+    ExType
+
+    // A builtin, as a module of FunL's own gives it.
+    ExNative(id: usize)
+
+// One exported name.
+struct ModExport
+    name: string
+    kind: ExportKind
+
+    // A relation's or a function's definition named for a person, for a clash Prolog reports.
+    what: string
+
+// A module the machine has loaded, or is loading.
+struct FunlModule
+    // Its path, as the import resolved it; `funl:name` for one of FunL's own.
+    file: string
+
+    // What a call or a closure names its top level's frame by: `file_up(m)`.
+    up: usize
+
+    // False while it is being compiled: an import of it then closes a circle.
+    loaded: bool
+
+    exports: Buf[ModExport]
+
+    // The slot of its frame holding the map `import * as` names, or `NoMap`.
+    map_slot: usize
+
+    // The chunk running its top level.
+    chunk: usize
+
+    // Whether its relations and functions are Prolog predicates yet: a Prolog file's `:- import`
+    // makes them so, the first time.
+    in_prolog: bool
+
+// What compiling a module made: its exports, the copies its top level ends by taking -- each
+// exported variable's slot into its snapshot's -- and the slot of the map.
+struct ModuleOut
+    exports: Buf[ModExport]
+    copy_from: Buf[usize]
+    copy_to: Buf[usize]
+    map_slot: usize
+    chunk: usize
+
+// One module of FunL's own, `funl:name`: what it exports.
+struct ModuleProvider
+    name: string
+    exports: &Fn() -> Buf[ModExport]
+
+// The modules of FunL's own, by name. Each is a provider in this table; there are none yet.
+builtin_modules() -> Buf[ModuleProvider] = buf()
+
+// The provider of `funl:name`, if FunL has one.
+private builtin_module(name: string) -> Option[ModuleProvider]
+    for p in builtin_modules().view()
+        if p.name == name then return Some(p)
+
+    None
+
+// One name an import declares: what the importer calls it, where, and what module export it is.
+struct Binding
+    local: string
+    at: Span
+
+    // The module, as an index into `Vm.modules`.
+    source: usize
+    export: ModExport
+
+// `import * as alias`.
+struct AliasBinding
+    alias: string
+    at: Span
+    source: usize
+
+// What a file's `import` lines come to: the chunks its top level calls first -- each Prolog file's
+// directives and each FunL module's top level loaded for it -- and the names they declare.
+struct Imports
+    loads: Buf[usize]
+    names: Buf[Binding]
+    aliases: Buf[AliasBinding]
+
+// How a module was found: its index in `Vm.modules`, and whether this import loaded it, so its top
+// level is this importer's to run.
+struct ModLoad
+    index: usize
+    fresh: bool
+
+// The path an import names, read relative to the directory of the file `from`.
+module_path(from: string, given: string) -> string = parent(from) match
+    Some(dir) -> join(dir, given)
+    None -> given
+
+// Whether two paths name one file: `a/./b.funl` and `a/b.funl` are the same module.
+private same_file(a: string, b: string) -> bool = normalize(a) == normalize(b)
+
+// Whether `file` names a FunL module.
+private is_funl_file(file: string) -> bool = file.ends_with(".funl") || file.ends_with(".lfunl")
+
+// Every `import` line of `prog`, the program in `src`: each Prolog file loaded and each FunL module
+// loaded, and every name they bring, or the refusals in `report`.
+imports_of(src: Source, prog: Program, report: *Report) -> Imports
+    var out = Imports(buf(), buf(), buf())
+    var seen: Buf[string] = buf()
+
+    for i in prog.imports.view()
+        i.spec match
+            PathSpec(given) ->
+                if given.ends_with(".pl")
+                    i.form match
+                        WholeForm ->
+                            imported(src, Spanned(given, i.at), &seen, report) match
+                                Some(chunk) -> out.loads.push(chunk)
+                                None -> ()
+                        _ ->
+                            report.add(error(i.at, s"a Prolog file has no exports to choose from")
+                                .with_note(s"a Prolog file is imported whole, every predicate it defines with it: `import \"$given\"`"))
+                elif is_funl_file(given)
+                    val file = module_path(src.name, given)
+
+                    load_module(file, i.at, report) match
+                        Ok(l) ->
+                            if l.fresh then out.loads.push(current().modules.at(l.index).chunk)
+
+                            bind(&out, l.index, given, i.form, report)
+                        Err(_) -> ()
+                else
+                    report.add(error(i.at, s"`$given` is neither a FunL module nor a Prolog file")
+                        .with_note("a FunL module is a `.funl` or `.lfunl` file, and a Prolog file a `.pl` file"))
+            PackageSpec(name) ->
+                var d = error(i.at, s"unknown module `$name`")
+
+                if is_funl_file(name) || name.ends_with(".pl")
+                    d = d.with_note(s"a file is imported by a quoted path: `\"$name\"`")
+
+                report.add(d)
+            BuiltinSpec(name) ->
+                builtin_module(name) match
+                    Some(p) -> bind(&out, provided(p), s"funl:$name", i.form, report)
+                    None -> report.add(error(i.at, s"unknown module `funl:$name`"))
+
+    out
+end imports_of
+
+// Module `funl:name`, from its provider: registered once, and found again after.
+private provided(p: ModuleProvider) -> usize
+    val v = current()
+    val file = s"funl:${p.name}"
+
+    for i in 0..<v.modules.len()
+        if v.modules.at(i).file == file then return i
+
+    v.modules.push(FunlModule(file, TopUp, true, p.exports(), NoMap, 0, false))
+    v.modules.len() - 1
+
+// The names `form` takes from module `index`, which the import wrote as `given`.
+private bind(out: *Imports, index: usize, given: string, form: ImportForm, report: *Report)
+    val md = current().modules.at(index)
+
+    form match
+        WholeForm -> ()
+        StarForm(alias) -> out.aliases.push(AliasBinding(alias.value, alias.span, index))
+        NamedForm(names) ->
+            for n in names.view()
+                exported_as(md, n.name) match
+                    Some(x) -> out.names.push(Binding(n.local, n.at, index, x))
+                    None -> report.add(error(n.at, s"`$given` does not export `${n.name}`").with_note(exports_text(md)))
+
+// The export of `md` named `name`.
+private exported_as(md: FunlModule, name: string) -> Option[ModExport]
+    for x in md.exports.view()
+        if x.name == name then return Some(x)
+
+    None
+
+// What `md` does export, for the reader who asked for something else.
+private exports_text(md: FunlModule) -> string
+    if md.exports.len() == 0 then return "it exports nothing: a name is exported by writing `export` before its `def`, `val`, `var` or `data`"
+
+    var out = str_builder()
+
+    out.push("it exports ")
+
+    for i in 0..<md.exports.len()
+        if i > 0 then out.push(", ")
+
+        out.push(s"`${md.exports.at(i).name}`")
+
+    out.finish()
+
+// Load the FunL module in `file`, the import naming it written at `at`: found again if it is loaded,
+// and otherwise read, compiled and registered, its top level not yet run. A refusal is reported at
+// `at`, with what the module's own file says about it drawn against that file.
+load_module(file: string, at: Span, report: *Report) -> Result[ModLoad, Refusal]
+    val v = current()
+
+    for i in 0..<v.modules.len()
+        val md = v.modules.at(i)
+
+        if md.loaded && same_file(md.file, file) then return Ok(ModLoad(i, false))
+
+    for f in v.loading.view()
+        if same_file(f, file)
+            report.add(error(at, s"${circle(file)} -- a file cannot import something that is waiting for it, so one of the two has to give up what it needs from the other"))
+            return Err(Unreadable)
+
+    val text = read_text(file) match
+        Ok(t) -> t
+        Err(e) ->
+            report.add(error(at, s"`$file` cannot be read: $e"))
+            return Err(Missing(file))
+
+    val doc = source_of(file, text)
+
+    // A `.lfunl` file is tangled first; a document refused is a file that cannot be compiled.
+    val fl = funl_source(doc) match
+        Ok(s) -> s
+        Err(d) ->
+            report.add(error(at, s"`$file` could not be loaded").with_note(d.render(doc)))
+            return Err(Unreadable)
+
+    val m = v.funl_tops.len()
+    val index = v.modules.len()
+
+    v.funl_tops.push(null)
+    v.modules.push(FunlModule(file, file_up(m), false, buf(), NoMap, 0, false))
+    v.loading.push(file)
+
+    var inner = full_report()
+    val made = compile_module(fl, file_up(m), &inner)
+
+    v.loading.pop()
+
+    made match
+        Ok(out) ->
+            var md = v.modules.at(index)
+
+            md.loaded = true
+            md.exports = out.exports
+            md.map_slot = out.map_slot
+            md.chunk = out.chunk
+            v.modules.set(index, md)
+            Ok(ModLoad(index, true))
+        Err(r) ->
+            forget_modules(index)
+            report.add(error(at, s"`$file` could not be loaded").with_note(render_report(inner, doc, fl)))
+            Err(r)
+end load_module
+
+// Forget every module registered from number `from` on: their top levels will never run, so an
+// import of one loads it again.
+forget_modules(from: usize)
+    val v = current()
+
+    while v.modules.len() > from
+        v.modules.pop()
+
+// The circle an import of `file` closes, written out so the reader knows which files are in it.
+private circle(file: string) -> string
+    val chain = current().loading
+    var from: usize = 0
+
+    for i in 0..<chain.len()
+        if same_file(chain.at(i), file) then from = i
+
+    var out = str_builder()
+
+    out.push("this import closes a circle: ")
+
+    for i in from..<chain.len()
+        out.push(s"`${chain.at(i)}` imports ")
+
+    out.push(s"`$file`")
+    out.finish()
+
+// The names `im` binds, made top-level names of the file `res` resolves: each refused where the file
+// defines it too, or where two imports take it.
+bind_imports(res: *Resolved, im: Imports, report: *Report)
+    for b in im.names.view()
+        if !free_to_import(res, b.local, b.at, current().modules.at(b.source).file, report) then continue
+
+        export_meaning(res, current().modules.at(b.source), b.export) match
+            Some(m) -> res.imported.put(b.local, m)
+            None -> ()
+
+    for a in im.aliases.view()
+        val md = current().modules.at(a.source)
+
+        if !free_to_import(res, a.alias, a.at, md.file, report) then continue
+
+        if md.map_slot != NoMap then res.imported.put(a.alias, Local(md.up, md.map_slot, true))
+
+        res.aliases.put(a.alias, a.source)
+
+        for x in md.exports.view()
+            export_meaning(res, md, x) match
+                Some(m) -> res.qualified.put(s"${a.alias}.${x.name}", m)
+                None -> ()
+end bind_imports
+
+// Whether the name `n` an import from `file` declares at `at` is free: not one the file defines, nor
+// one another import has taken. The refusal is reported.
+private free_to_import(res: *Resolved, n: string, at: Span, file: string, report: *Report) -> bool
+    res.by_name.get(n) match
+        Some(i) ->
+            report.add(error(res.rels.at(i).clauses.at(0).head, s"`$n` is imported from `$file`, and this file cannot also define it")
+                .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
+            return false
+        None -> ()
+
+    if res.imported.get(n).is_some() || res.aliases.get(n).is_some()
+        report.add(error(at, s"`$n` is imported twice"))
+        return false
+
+    true
+
+// What export `x` of module `md` means to the file `res` resolves: a function or a relation is a
+// definition of that file's whose chunk is already compiled, so calls to it are compiled as calls to
+// one of the file's own. A type's name means nothing more than it already does.
+private export_meaning(res: *Resolved, md: FunlModule, x: ModExport) -> Option[Meaning]
+    x.kind match
+        ExFunction(chunk, arity) -> Some(Function(foreign_rel(res, x.name, arity, chunk, true), md.up))
+        ExRelation(chunk, arity) -> Some(Relation(foreign_rel(res, x.name, arity, chunk, false)))
+        ExValue(slot) -> Some(Local(md.up, slot, true))
+        ExCtor(id) -> Some(Constructor(id))
+        ExNative(id) -> Some(Builtin(id))
+        ExType -> None
+
+// A definition another file compiled: no clauses, so nothing resolves or compiles it again.
+private foreign_rel(res: *Resolved, name: string, arity: usize, chunk: usize, function: bool) -> usize
+    res.rels.push(Rel(name, arity, buf(), chunk, function, NoScope, 0, buf()))
+    res.rels.len() - 1
+
+// When `g.name` is a qualified name -- `g` a module `import * as` brought in, `gm` what `g` means
+// where it is written -- what `name` means in that module: `Unknown` when the module does not
+// export it. `None` when `g` is anything else, so `g.name` is a field.
+qualified_name(res: *Resolved, g: string, gm: Meaning, name: string) -> Option[Meaning]
+    val index = res.aliases.get(g) match
+        Some(i) -> i
+        None -> return None
+
+    val md = current().modules.at(index)
+
+    val same = gm match
+        Local(d, s, _) -> md.map_slot != NoMap && d == md.up && s == md.map_slot
+        Unknown -> md.map_slot == NoMap
+        _ -> false
+
+    if !same then return None
+
+    res.qualified.get(s"$g.$name") match
+        Some(m) -> Some(m)
+        None -> Some(Unknown)
+
+// The refusal of `g.name`, which module alias `g` does not export.
+not_exported(res: *Resolved, g: string, name: string, at: Span) -> Diagnostic
+    val md = current().modules.at(res.aliases.get(g).unwrap())
+
+    error(at, s"`${md.file}` does not export `$name`").with_note(exports_text(md))
+
+// The exports of a module whose names `names` its `export` lines declare, resolved in `res`; the
+// snapshot slots and the map slot are made in its top level's frame when it is a `module` -- a
+// program's exports are checked and nothing more.
+module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, report: *Report) -> ModuleOut
+    var out = ModuleOut(buf(), buf(), buf(), NoMap, 0)
+    var seen: Buf[string] = buf()
+    var top = res.scopes.at(res.top)
+
+    for named in names.view()
+        val n = named.value
+        var again = false
+
+        for s in seen.view()
+            if s == n then again = true
+
+        if again then continue
+
+        seen.push(n)
+
+        res.by_name.get(n) match
+            Some(i) ->
+                val r = res.rels.at(i)
+                val at = located(res.src, r.clauses.at(0).head.start)
+
+                if r.function
+                    out.exports.push(ModExport(n, ExFunction(r.chunk, r.arity), s"the FunL function `$n` at $at, which is `${pred_key(n, r.arity + 1)}` to Prolog"))
+                else
+                    out.exports.push(ModExport(n, ExRelation(r.chunk, r.arity), s"the FunL relation `$n` at $at"))
+
+                continue
+            None -> ()
+
+        top.find(0, n, Anywhere) match
+            Some(d) ->
+                top.ctors.get(d.slot) match
+                    Some(id) -> out.exports.push(ModExport(n, ExCtor(id), ""))
+                    None ->
+                        if snapshot
+                            val snap = top.declare(0, s"export $n", named.span, Anywhere, true)
+
+                            out.copy_from.push(d.slot)
+                            out.copy_to.push(snap)
+                            out.exports.push(ModExport(n, ExValue(snap), ""))
+
+                continue
+            None -> ()
+
+        if current().data_ids.get(n).is_some()
+            out.exports.push(ModExport(n, ExType, ""))
+            continue
+
+        report.add(error(named.span, s"`$n` is exported, and nothing at the top level of this file defines it"))
+
+    if snapshot then out.map_slot = top.declare(0, "export *", point(0), Anywhere, true)
+
+    res.scopes.set(res.top, top)
+    out
+end module_exports
+
+// The FunL module `index`'s relations and functions made Prolog predicates, for a Prolog file whose
+// `:- import` of it is written at `at` (`prolog.md` § "Calling FunL from Prolog"): each export only,
+// as a FunL importer sees them, and once. Answers why the import is refused, given `why` so far.
+prolog_exports(index: usize, at: Span, report: *Report, why: Refusal) -> Refusal
+    val v = current()
+    var md = v.modules.at(index)
+
+    if md.in_prolog then return why
+
+    var now = why
+    var refused = false
+
+    for x in md.exports.view()
+        var function = false
+        var chunk: usize = 0
+        var arity: usize = 0
+
+        x.kind match
+            ExFunction(c, a) ->
+                function = true
+                chunk = c
+                arity = a
+            ExRelation(c, a) ->
+                chunk = c
+                arity = a
+            _ -> continue
+
+        val n = if function then arity + 1 else arity
+        val key = pred_key(x.name, n)
+
+        if is_builtin(key) then continue
+
+        val origin = Origin(md.file, x.what)
+
+        clash(key, origin) match
+            Some(m) ->
+                now = refusal(now, report, Taken(x.name, n))
+                refused = true
+                report.add(error(at, m))
+                continue
+            None -> ()
+
+        funl_predicate(key, x.name, chunk, arity, function, md.up, origin) match
+            Ok(_) -> ()
+            Err(e) ->
+                now = refusal(now, report, Unreadable)
+                refused = true
+                report.add(error(at, s"the compiler failed: $e"))
+
+    if !refused
+        md.in_prolog = true
+        v.modules.set(index, md)
+
+    now
+end prolog_exports

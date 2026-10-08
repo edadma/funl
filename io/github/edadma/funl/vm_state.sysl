@@ -111,11 +111,15 @@ struct Vm
     // when the first is set; `Undefined` until then.
     pl_globals: Value
 
-    // The FunL files a Prolog file has imported (`pl_import.sysl`), so each is loaded once; and by
-    // the number each was compiled with, its top level's frame -- the static link of its top-level
-    // functions' frames, as `globals` is the program's -- `null` until that top level has run.
-    funl_files: Buf[string]
+    // The FunL modules loaded (`module.sysl`) -- by a FunL `import` or a Prolog `:- import` -- so
+    // each is loaded once; and by the number each was compiled with, its top level's frame -- the
+    // static link of its top-level functions' frames, as `globals` is the program's -- `null` until
+    // that top level has run.
+    modules: Buf[FunlModule]
     funl_tops: Buf[*FrameObj]
+
+    // The files being compiled, each importing the next: what an import closing a circle names.
+    loading: Buf[string]
 
     // The Prolog flags a program can change (`pl_flags.sysl`).
     flags: PlFlags
@@ -168,6 +172,11 @@ struct Vm
     // Whether every binding goes on the trail, however young its variable, so that a unification
     // tried only to see what it would bind can be taken back whole.
     trailing_all: bool
+
+    // -- handles (`handle.sysl`) ------------------------------------------------------------------------
+
+    // Every kind of handle registered, by the id a `HandleObj` carries.
+    handle_kinds: Buf[HandleKind]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -195,9 +204,9 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
 
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
-        buf(), map(), buf(), buf(), buf(), map(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), pl_flags(),
+        buf(), map(), buf(), buf(), buf(), map(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
-        rng(0, 0), false, (prompt) -> stdin_line(), "", false)
+        rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

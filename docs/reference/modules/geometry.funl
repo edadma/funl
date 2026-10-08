@@ -1,0 +1,15 @@
+;; The module most of the modules reference page imports.
+
+export data shape = circle(r) | square(s)
+
+export def area( circle(r) ) = 3 * r * r
+export def area( square(s) ) = s * s
+
+export def sides( #square, 4 )
+export def sides( #triangle, 3 )
+
+export val unit = 1
+
+def helper( x ) = x
+
+write( 'geometry is loaded' )

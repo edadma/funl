@@ -1,0 +1,101 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.from_utf8
+
+// Byte strings: `bytes` makes one, `decode` reads one as text.
+//
+// **A byte string is immutable** and indexed from 0 like every FunL collection: `b(i)` is a byte as
+// an integer from 0 to 255, `b(r)` a slice, `!b` each byte in turn, `b.length` how many. Two are
+// equal when their bytes are, and order byte by byte, a shorter one before a longer one it begins.
+// `+` joins two. It prints as `bytes([1, 2, 255])`, the call that makes it. **Text and bytes never
+// convert silently**: `bytes(s)` encodes a string as UTF-8 and `decode(b)` decodes it back, failing
+// on bytes that are not UTF-8.
+
+install_bytes(v: *Vm)
+    register(v, "bytes", 1, do_bytes)
+    register_generator(v, "decode", 1, do_decode)
+
+// `bytes(s)`: the UTF-8 encoding of string `s`. `bytes(c)`: the integers collection `c` holds, each
+// from 0 to 255, as bytes. `bytes(b)`: byte string `b` itself.
+private do_bytes(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+    var out: Buf[u8] = buf()
+
+    x match
+        Bytes(_) -> return Ok(x)
+        Str(p) ->
+            out.extend(p.s.bytes)
+            return Ok(new_bytes(out)?)
+        Var(_) -> return Err(instantiation_error("instantiation error: 'bytes' was given an unbound variable"))
+        _ -> ()
+
+    var items: Buf[Value] = buf()
+
+    elements(x, "'bytes'", &items)?
+
+    for e in items.view()
+        val b = deref(e)
+
+        b match
+            Int(n) ->
+                if n < 0 || n > 255 then return Err(not_a_byte(b))
+
+                out.push(u8(n))
+            _ -> return Err(not_a_byte(b))
+
+    Ok(new_bytes(out)?)
+
+// `type_error(byte, X)`, as Prolog's byte I/O raises it.
+private not_a_byte(x: Value) -> Fault =
+    kind_error(x, "byte", s"a byte is an integer from 0 to 255, and 'bytes' was given ${described(x)}")
+
+// `decode(b)`: the text byte string `b` holds, read as UTF-8. **Bytes that are not UTF-8 fail**: text
+// that is not well-formed is a condition the program tests, as malformed JSON is (modules.md, open
+// question 3). Anything but a byte string is a fault.
+private do_decode(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+
+    val p = x match
+        Bytes(p) -> p
+        _ -> return Err(kind_error(x, "bytes", s"'decode' wants a byte string and was given ${described(x)}"))
+
+    from_utf8(p.b.view()) match
+        Ok(s) -> Ok(Gives(new_str(s)?))
+        Err(_) -> Ok(Refuses)
+
+// Whether two byte strings hold the same bytes.
+same_bytes(p: *BytesObj, q: *BytesObj) -> bool = bytes_order(p, q) == 0
+
+// Where byte string `p` stands against `q`: byte by byte, then a shorter before a longer.
+bytes_order(p: *BytesObj, q: *BytesObj) -> int
+    val m = p.b.len()
+    val n = q.b.len()
+    var i: usize = 0
+
+    while i < m && i < n
+        val a = p.b.at(i)
+        val c = q.b.at(i)
+
+        if a != c then return if a < c then -1 else 1
+
+        i += 1
+
+    if m < n then -1 elif m > n then 1 else 0
+
+// `a + b` for two byte strings: their bytes, one after the other.
+bytes_concat(p: *BytesObj, q: *BytesObj) -> Result[Value, string]
+    var out: Buf[u8] = buf()
+
+    out.extend(p.b.view())
+    out.extend(q.b.view())
+    new_bytes(out)
+
+// The bytes of `p` from index `first`, `count` of them, `step` apart.
+bytes_slice(p: *BytesObj, first: long, count: long, step: long) -> Result[Value, string]
+    var out: Buf[u8] = buf()
+
+    for k in 0..<count
+        out.push(p.b.at(usize(first + k * step)))
+
+    new_bytes(out)

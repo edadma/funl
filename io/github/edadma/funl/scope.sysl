@@ -256,6 +256,15 @@ struct Resolved
     // The code being resolved, which positions are read in.
     src: Source
 
+    // What each name an `import { ... }` declares means, and each `import * as` alias its map
+    // (`module.sysl`).
+    imported: Map[string, Meaning]
+
+    // Each `import * as` alias, as an index into `Vm.modules`, and what each `alias.name` it
+    // qualifies means.
+    aliases: Map[string, usize]
+    qualified: Map[string, Meaning]
+
     // What `name` means written at offset `pos` in block `blk` of scope `sid`, which is complete.
     meaning(self, sid: usize, blk: usize, pos: usize, name: string) -> Meaning
         val m = self.meaning_above(sid, blk, pos, 0, name)
@@ -328,13 +337,24 @@ struct Resolved
         val s = self.scopes.at(self.top)
 
         s.find(0, name, Anywhere) match
-            Some(d) -> s.ctors.get(d.slot)
+            Some(d) -> return s.ctors.get(d.slot)
+            None -> ()
+
+        self.imported.get(name) match
+            Some(m) -> m match
+                Constructor(id) -> Some(id)
+                _ -> None
             None -> None
 
-    // What `name` means among the top-level definitions and the builtins.
+    // What `name` means among the top-level definitions, the imported names and the builtins: an
+    // imported name shadows a builtin, as a definition does.
     global(self, name: string) -> Meaning
         self.by_name.get(name) match
             Some(i) -> return if self.rels.at(i).function then Function(i, self.top_up) else Relation(i)
+            None -> ()
+
+        self.imported.get(name) match
+            Some(m) -> return m
             None -> ()
 
         native_id(name) match
@@ -344,19 +364,24 @@ struct Resolved
         if pred_name_known(name) then Predicate(name) else Unknown
 end Resolved
 
-// Resolve `prog`, whose top level's frame `top_up` names, adding every refusal and warning to
-// `report`.
-resolve(src: Source, prog: Program, top_up: usize, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src)
+// Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
+// every refusal and warning to `report`.
+resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map())
 
     res.top = new_scope_id(&res)
 
     for c in prog.clauses.view()
         add_top_clause(&res, c, report)
 
+    // The file's own definitions are all known, so an import taking one of their names is refused.
+    val own = res.rels.len()
+
+    bind_imports(&res, im, report)
+
     var pending: Buf[usize] = buf()
 
-    for i in 0..<res.rels.len()
+    for i in 0..<own
         if res.rels.at(i).function then pending.push(i)
 
     var top = scope()
@@ -371,7 +396,9 @@ resolve(src: Source, prog: Program, top_up: usize, report: *Report) -> Resolved
 
     // A relation's clauses are read once the top level is complete, so they see its constructors.
     for i in 0..<res.rels.len()
-        if !res.rels.at(i).function then resolve_relation(&res, i, &pending, report)
+        val r = res.rels.at(i)
+
+        if !r.function && r.clauses.len() > 0 then resolve_relation(&res, i, &pending, report)
 
     var i: usize = 0
 

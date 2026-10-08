@@ -166,14 +166,15 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[bool, Fault]
 
     Ok(true)
 
-// Whether a value is reached by call syntax, `c(i)`: a list, a range, a tuple, a string, an array, a
-// buffer, a map or a record.
+// Whether a value is reached by call syntax, `c(i)`: a list, a range, a tuple, a string, a byte
+// string, an array, a buffer, a map or a record.
 private indexable(x: Value) -> bool = x match
     Nil -> true
     Cons(_) -> true
     Range(_) -> true
     Tuple(_) -> true
     Str(_) -> true
+    Bytes(_) -> true
     Array(_) -> true
     Buffer(_) -> true
     Map(_) -> true

@@ -61,7 +61,7 @@ A_PROLOG_FILES_OWN_CLAUSES_ON_A_KEY_ITS_FUNL_IMPORT_DEFINES_ARE_REFUSED_NAMING_B
     val geometry = s"$d/geometry.funl"
 
     assert_eq(prolog_complaints(s":- import(\"$geometry\").\nscaled(_, 0).\n"),
-        s"error 2:1 `scaled/2` cannot be defined twice: the FunL function `scaled` at $geometry:5:5, " +
+        s"error 2:1 `scaled/2` cannot be defined twice: the FunL function `scaled` at $geometry:5:12, " +
         "which is `scaled/2` to Prolog, and the Prolog predicate `scaled/2` at test.pl:2:1. Prolog and FunL share one predicate for each name and arity\n")
 
     // Through consult, the same refusal is a permission error. The refused file's import never ran
@@ -98,7 +98,7 @@ AN_IMPORT_OF_A_MISSING_OR_UNREADABLE_FUNL_FILE_IS_AN_ERROR_PROLOG_CATCHES()
     assert_eq(ran_prolog(text), s"existence_error(source_sink,$d/nowhere.funl)\nsyntax_error($broken)\nsucceeded")
 
 // A FunL file answering a tuple, and taking one apart with a tuple pattern.
-private const PairsFunl: string = "def pair(a) = (a, a * 2)\ndef swap((a, b)) = (b, a)\n"
+private const PairsFunl: string = "export def pair(a) = (a, a * 2)\nexport def swap((a, b)) = (b, a)\n"
 
 @test
 A_FUNL_TUPLE_IS_THE_COMPOUND_TUPLE_TO_PROLOG_IN_A_GOAL_A_HEAD_AND_A_FUNL_PATTERN()
