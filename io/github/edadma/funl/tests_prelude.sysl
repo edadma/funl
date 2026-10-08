@@ -168,15 +168,19 @@ PRELUDE_A_CALLBACK_FAULT_IS_CATCHABLE()
     prelude_fault("write( zipWith((a, b) -> a, [1], 0..) )\n", "the endless range 0..")
     prelude_fault("def\n  two( a, b ) = a\nwrite( zipWith3(two, [1], [2], [3]) )\n", "'two' takes 2 arguments and was given 3")
 
-// A merge sort is O(n log n) whatever the order: sorted and reversed input of 100,000 elements, which
-// a quicksort on its first element would take quadratic time over. Run on the roomy heap only.
+// A merge sort is O(n log n) whatever the order: sorted and reversed input of 10,000 elements takes
+// fewer than n log2 n = 140,000 comparisons (71,712 and 64,608), where a quicksort on its first
+// element would make some 50,000,000. Run on the roomy heap only.
 @test
 PRELUDE_SORT_BY_TAKES_A_BIG_SORTED_INPUT()
-    val text = "val up = sortBy( (a, b) -> a < b, 1..100000 )\n" +
-        "val down = sortBy( (a, b) -> a > b, 1..100000 )\n" +
-        "write( up.length, up(0), up(99999), down(0), down(99999) )\n"
+    val text = "var calls = 0\ndef\n" +
+        "  lt( a, b )\n    calls++\n    a < b\n" +
+        "  gt( a, b )\n    calls++\n    a > b\n" +
+        "val up = sortBy( lt, 1..10000 )\nwrite( calls )\ncalls = 0\n" +
+        "val down = sortBy( gt, 1..10000 )\n" +
+        "write( calls, up.length, up(0), up(9999), down(0), down(9999) )\n"
 
-    assert_eq(roomy(() -> compiled_text(text)).text, "100000, 1, 100000, 100000, 1\nsucceeded")
+    assert_eq(roomy(() -> compiled_text(text)).text, "71712\n64608, 10000, 1, 10000, 10000, 1\nsucceeded")
 
 @test
 PRELUDE_ASKING()
