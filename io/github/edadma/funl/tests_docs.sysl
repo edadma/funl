@@ -472,7 +472,7 @@ EVERY_PAGE_CARRIES_THE_BLOCKS_IT_IS_EXPECTED_TO()
 // What every page holds, as `path runnable refused fragment warned`.
 private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/assignment.md 11 6 0 0\n" +
-    "docs/reference/data.md 29 13 0 0\n" +
+    "docs/reference/data.md 30 13 0 0\n" +
     "docs/reference/functions.md 16 5 0 0\n" +
     "docs/reference/generators.md 22 5 0 0\n" +
     "docs/reference/modules.md 17 20 0 0\n" +

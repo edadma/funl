@@ -684,7 +684,14 @@ language. All eleven were decided by the user on 2026-10-08, each as the recomme
 > (UTF-8) and `decode(b)`, which fails on bytes that are not UTF-8 (not well-formed, question 3). It
 > prints as `bytes([1, 2, 255])`; `b(i)`, `b(range)`, `!b`, `in`, `.length`, `+`, equality and
 > byte-by-byte order, `is bytes`. Prolog sees an atomic value that unifies with one holding the
-> same bytes (open: whether Prolog should see a code list instead).
+> same bytes.
+
+> **Decided (user, 2026-10-08) — Bytes in Prolog.** A `Bytes` value is an atomic, opaque value to
+> Prolog, as a `Handle` is, not a code list.
+> **Decision:** `atomic/1` is true of it; `atom/1`, `number/1`, `compound/1` and `callable/1` are
+> false; it unifies only with a `Bytes` holding the same bytes; `compare/3` and `msort/2` place it
+> after numbers, atoms and strings and order two byte by byte; `write` prints it as FunL does,
+> `bytes([1, 2])`.
 
 > **Decided (user, 2026-10-08) — `await` and backtracking.** slate's `await` happens once; in FunL, failure
 > after an expression normally goes back into it for another value.
