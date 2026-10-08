@@ -949,6 +949,32 @@ every answer in turn.
 'HÉLLO'/"abc"
 ```
 
+Text given to a string predicate, or to `upcase_atom/2` and `downcase_atom/2`, may also be a list
+of character codes or of one-character atoms, and `[]` is then the empty list. A list that is not
+yet whole is an instantiation error, and an element that is not a character is a type error. The
+standard predicates over atoms (`atom_length/2`, `atom_concat/3`, `sub_atom/5`, and the atom of
+`atom_codes/2` and `atom_chars/2`) take no list.
+
+```prolog
+:- string_concat([0'a], "b", S), writeq(S), nl.
+:- atom_string(A, [h, i]), writeq(A), nl.
+:- split_string([0'a, 0'/, 0'b], "/", "", L), writeq(L), nl.
+:- string_length([], N), writeq(N), nl.
+:- catch(string_length([0'a | _], _), error(E, _), (writeq(E), nl)).
+:- catch(string_length([0'a, b], _), error(E, _), (writeq(E), nl)).
+:- catch(atom_length([a, b], _), error(E, _), (writeq(E), nl)).
+```
+
+```output
+"ab"
+hi
+["a","b"]
+0
+instantiation_error
+type_error(character_code,b)
+type_error(atom,[a,b])
+```
+
 The flags `set_prolog_flag/2` changes are `unknown` (`error`, `fail`, `warning`), `double_quotes`
 (`string`, `codes`, `chars`, `atom`), `prefer_rationals` (`false`, `true`) and `debug` (`off`, `on`).
 The others describe the machine and cannot be changed: `bounded` is `false`, `max_integer` and
