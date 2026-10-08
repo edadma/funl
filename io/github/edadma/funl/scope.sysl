@@ -289,6 +289,10 @@ struct Resolved
     // than one (`ctor_test`), as an index into `Vm.data_types`.
     kin_types: Map[string, usize]
 
+    // What each name the prelude exports means here (`prelude.sysl`): seen after the file's own
+    // definitions, its imports and the builtins, so any of them shadows it.
+    prelude: Map[string, Meaning]
+
     // The `data` type `name` means in this file, if any: its own first, then an imported one.
     data_type(self, name: string) -> Option[usize]
         self.own_types.get(name) match
@@ -442,8 +446,9 @@ struct Resolved
                 _ -> None
             None -> None
 
-    // What `name` means among the top-level definitions, the imported names and the builtins: an
-    // imported name shadows a builtin, as a definition does.
+    // What `name` means among the top-level definitions, the imported names, the builtins and the
+    // prelude: an imported name shadows a builtin, as a definition does, and each of them shadows the
+    // prelude.
     global(self, name: string) -> Meaning
         self.by_name.get(name) match
             Some(i) -> return if self.rels.at(i).function then Function(i, self.top_up) else Relation(i)
@@ -457,7 +462,57 @@ struct Resolved
             Some(id) -> return Builtin(id)
             None -> ()
 
+        self.prelude.get(name) match
+            Some(m) -> return m
+            None -> ()
+
         if pred_name_known(name) then Predicate(name) else Unknown
+
+    // What a call of `name` with `argc` arguments reaches, `name` meaning `m` where the call is
+    // written. **The name/arity namespace keeps a builtin and the prelude apart**: a builtin that
+    // does not take `argc` arguments leaves the call to the prelude's function of that name and
+    // arity, so `any(c)` scans and `any(p, xs)` asks.
+    //
+    // **A Prolog predicate the program loaded shadows the prelude too**, at the arity it is defined
+    // with: `all(ls)` calls an imported `all/1`. The Prolog library's predicates do not.
+    called(self, name: string, m: Meaning, argc: usize) -> Meaning
+        if self.prelude_meant(name, m)
+            val key = pred_key(name, argc)
+
+            if pred_defined(key) && !is_library(key) then return Predicate(name)
+
+            return m
+
+        val id = m match
+            Builtin(id) -> id
+            _ -> return m
+
+        if takes_count(current().natives.at(id), argc) then return m
+
+        self.prelude.get(name) match
+            Some(p) -> p match
+                Function(r, _) -> if self.rels.at(r).arity == argc then p else m
+                _ -> m
+            None -> m
+
+    // Whether `name` means a definition of the prelude's here: one a declaration may take over, as
+    // it takes over a builtin's.
+    is_prelude(self, name: string) -> bool
+        if self.by_name.get(name).is_some() || self.imported.get(name).is_some() then return false
+
+        self.prelude.get(name).is_some()
+
+    // Whether `m`, what `name` means where it is written, is the prelude's function of that name.
+    prelude_meant(self, name: string, m: Meaning) -> bool
+        val r = m match
+            Function(r, _) -> r
+            _ -> return false
+
+        self.prelude.get(name) match
+            Some(p) -> p match
+                Function(q, _) -> q == r
+                _ -> false
+            None -> false
 end Resolved
 
 // The constructors `ids` holds, and `id` after them.
@@ -472,7 +527,7 @@ private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map())
 
     res.top = new_scope_id(&res)
 
@@ -483,6 +538,7 @@ resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report)
     val own = res.rels.len()
 
     bind_imports(&res, im, report)
+    bind_prelude(&res)
 
     var pending: Buf[usize] = buf()
 

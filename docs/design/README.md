@@ -93,6 +93,8 @@ Each is argued where it arises; this is the list.
 | Blocking or promise-shaped I/O? | both: blocking in each module, promise forms in `funl:async` (user, 2026-10-08) | [modules](modules.md#questions-decided) |
 | Which loop, and may two tasks share a logic variable? | kairos (`uv` behind an `async` feature); binding another task's variable is a fault (user, 2026-10-08) | [modules](modules.md#questions-decided) |
 | What is the prelude? | the first module written in FunL: a Haskell-style list library, auto-imported like Haskell's Prelude, shadowable by a program's own names (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| Prelude `map` against the builtin `map`? | one `map/2`: a function as first argument maps, anything else is the constructor (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| Which prelude names are core natives? | `reverse`, `sort`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, `zip`, `zip3`; `sortBy`, `zipWith`, `zipWith3` in FunL until a native can call back into FunL (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Builtins as values? | a builtin named without a call is a function value (a variadic one passes on however many arguments it is given), and `import * as` a module of FunL's own names the map of them (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 
 ## Open questions
@@ -101,6 +103,4 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| Prelude `map` against the builtin `map`? | one `map/2`; a function as first argument maps, anything else is the constructor | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
-| Which prelude names are core natives? | `reverse`, `sort`, `sortBy`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, the `zip` family; the rest FunL source | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | A generator of tuples cannot be destructured by `<-` | a tuple pattern matches a generated tuple whole; until then `zip` answers lists | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |

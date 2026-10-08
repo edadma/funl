@@ -156,6 +156,6 @@ A_COMBINATOR_GIVEN_WHAT_IS_NOT_A_PATTERN_IS_REFUSED()
 
 @test
 A_REGEX_OUTSIDE_A_SCAN_OR_A_CCLS_OF_A_NUMBER_IS_A_FAULT()
-    assert_eq(ran_funl("write(`a`)\n"), "fault: main@4: a regex matches the subject of a scan `s ? e`, and no scan is running")
-    assert_eq(ran_funl("'a' ? ccls(1)\n"), "fault: main@7: `ccls` matches a character of a cset or a string, and was given the integer 1")
-    assert_eq(ran_funl("'a' ? string(2)\n"), "fault: main@7: `string` matches a string, and was given the integer 2")
+    assert_eq(ran_funl("write(`a`)\n"), "fault: main@6: a regex matches the subject of a scan `s ? e`, and no scan is running")
+    assert_eq(ran_funl("'a' ? ccls(1)\n"), "fault: main@9: `ccls` matches a character of a cset or a string, and was given the integer 1")
+    assert_eq(ran_funl("'a' ? string(2)\n"), "fault: main@9: `string` matches a string, and was given the integer 2")

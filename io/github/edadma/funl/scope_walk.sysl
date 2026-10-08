@@ -175,10 +175,13 @@ writes_element(pat: &Expr, m: Meaning) -> bool
 
 // At the top level and in a relation, a name the program's own top-level definitions or imported
 // Prolog predicates already have cannot also be a variable; the refusal is reported, and the answer
-// says whether there was one. A function's own names may shadow them. A builtin's name is never
-// refused: a declaration shadows the builtin from where it is in scope, as it shadows any outer name.
+// says whether there was one. A function's own names may shadow them. A builtin's name and a prelude
+// name are never refused: a declaration shadows them from where it is in scope, as it shadows any
+// outer name.
 refused_as_variable(w: *Walk, n: string, at: Span) -> bool
     if w.sid != w.res.top && !w.relation then return false
+
+    if w.res.is_prelude(n) then return false
 
     if w.res.imported.get(n).is_some() || w.res.aliases.get(n).is_some()
         w.report.add(error(at, s"`$n` is imported, and cannot also be a variable")
@@ -571,7 +574,7 @@ private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
         _ -> ()
 
 // A call names something callable, with as many arguments as it takes.
-private callable(w: *Walk, n: string, at: Span, argc: usize) = check_call(w, w.meaning(n, at.start), n, at, argc)
+private callable(w: *Walk, n: string, at: Span, argc: usize) = check_call(w, w.res.called(n, w.meaning(n, at.start), argc), n, at, argc)
 
 // A call of `n`, which means `m`, with as many arguments as it takes.
 private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)

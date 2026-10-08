@@ -8,7 +8,7 @@ import sysl.buf.{Buf, buf}
 install_data(v: *Vm)
     register(v, "array", 1, do_array)
     register(v, "buffer", Variadic, do_buffer)
-    register(v, "map", Variadic, do_map)
+    register_forwarding(v, "map", Variadic, map_or_mapping)
     register(v, "set", Variadic, do_set)
     register(v, "seq", Variadic, do_seq)
 
@@ -33,6 +33,18 @@ private do_buffer(base: usize, argc: usize) -> Result[Value, Fault]
     if argc == 0 then return Ok(Buffer(new_array(0)?))
 
     Ok(Buffer(filled(arg(base, 0), "'buffer'")?))
+
+// **One `map`, and its first argument decides** (`modules.md` § "The prelude"): `map(f, xs)` with a
+// function `f` is the prelude's `map`, applying `f` to each element, and anything else is the
+// constructor below. A function is not a collection to build a map from, so no call that made a map
+// before means anything else now.
+private map_or_mapping(base: usize, argc: usize) -> Result[Forward, Fault]
+    if argc == 2
+        deref(arg(base, 0)) match
+            Func(_) | Ctor(_) -> return Ok(Into(prelude_function("map")?))
+            _ -> ()
+
+    Ok(Done(do_map(base, argc)?))
 
 // `map()`: an empty mutable map. `map(m)`: a mutable map of the entries of map `m`, or of the pairs
 // `(key, value)` a collection holds. `map(c, x)`: the same, with default `x`, which a lookup of a key

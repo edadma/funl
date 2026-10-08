@@ -158,7 +158,13 @@ assigned(w: *Walk, n: string, at: Span, from: usize)
         // A builtin's name, assigned, is a new variable that shadows the builtin.
         Builtin(_) -> if !refused_as_variable(w, n, at) then w.sc.declare(w.blk, n, at, from, false)
         Constructor(_) -> constructor_refused(w, n, at)
-        _ ->
+        m ->
+            // A prelude name, likewise.
+            if w.res.prelude_meant(n, m)
+                if !refused_as_variable(w, n, at) then w.sc.declare(w.blk, n, at, from, false)
+
+                return
+
             w.report.add(error(at, s"`$n` is a function or a relation, and cannot be assigned")
                 .with_note("`name = e` assigns a variable"))
 end assigned

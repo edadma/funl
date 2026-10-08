@@ -130,7 +130,8 @@ the module path and the tap all wait on.
 
 **Rests on:** [modules and native modules as slate does](modules.md) (user, 2026-10-08); **answers
 needed first:** none; the [eleven questions](modules.md#questions-decided) are decided, and the
-[prelude's four](modules.md#the-prelude--the-first-module-written-in-funl) are open.
+[prelude's](modules.md#the-prelude--the-first-module-written-in-funl) are decided but P3, the
+generator of tuples.
 
 - Module files: `export`, the three import forms, `import * as`, the module as an immutable map,
   exports as a snapshot, once per machine; the refusals (a circle, a name not exported, a name
@@ -145,8 +146,7 @@ needed first:** none; the [eleven questions](modules.md#questions-decided) are d
 - [The prelude](modules.md#the-prelude--the-first-module-written-in-funl), the first module written
   in FunL: the Haskell-style list library as a source module carried in the binary and auto-imported
   (shadowable by a program's own names), the natives for speed (`reverse`, `sort`, …), and the
-  `take`/`map`/`filter` rule of a collection in and a list out, a thunk in and a generator out; its
-  four open questions are answered first.
+  `take`/`map`/`filter` rule of a collection in and a list out, a thunk in and a generator out.
 
 **Done when:** every refusal and every module has unit tests whose programs are string literals (a
 test writes its module files to a scratch directory first); `sysl test .` and `sysl test .

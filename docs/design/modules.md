@@ -604,14 +604,30 @@ native check it against this source on the same inputs.
 - **`length` is the field `.length`**, not a function, so the prelude defines no `length`;
   `reverse`, `sort`, `last` and the rest have no builtin of their name today.
 
-> **Open question P1 — `map` already names a builtin.** `map(m)` and `map(m, default)` make a
+> **Decided (user, 2026-10-08) — P1, `map` already names a builtin.** `map(m)` and `map(m, default)` make a
 > mutable map, and a prelude `def map(f, xs)` would shadow the two-argument builtin in every program.
-> **Recommendation:** **one `map/2`, and its first argument decides**: a function maps (the
+> **Decision:** **one `map/2`, and its first argument decides**: a function maps (the
 > `mapList` above), anything else is the constructor with a default. No program that is valid today
 > changes meaning, since a function is not a collection to build a map from. Implemented as a core
-> native that forwards to `mapList`.
+> native that forwards to the prelude's own `map` (the `mapList` above, exported under its name):
+> the builtin hands its call on to that function value, so `map` passed as a value forwards too.
 
-> **Open question P2 — which are core natives.** **Recommendation:** natives for speed — `reverse`,
+> **Decided (user, 2026-10-08) — the renames.** Haskell's `repeat` is `forever` and its `break` is
+> `spanNot`, since `repeat` and `break` are FunL keywords.
+
+> **Decided (user, 2026-10-08) — P2, which are core natives.** **Decision:** as recommended below,
+> with one consequence of the machine as it stands: **a native cannot call a FunL function** (no
+> callback machinery exists; `findall` is compiled into the code that uses it, not called back), so
+> `sortBy`, `zipWith` and `zipWith3`, which take a function, are written in FunL until one does.
+> The natives are `reverse`, `sort` (a stable merge sort by `<`), `concat`, `replicate`, `elem`,
+> `last`, `init`, `drop`, `zip` and `zip3`; the tests check each against the source above on the
+> same inputs. **Where a builtin and the prelude share a name at different arities, the call's count
+> decides** (`any(c)` the scanning builtin, `any(p, xs)` the prelude's), and a Prolog predicate the
+> program loads shadows the prelude at its arity. **Prolog reaches the prelude as a built-in module**,
+> `:- import("funl:prelude")` and `prelude:f/(n+1)`, and a FunL file may import `funl:prelude` by
+> name to reach what its own definition shadows.
+>
+> **Recommendation (as made):** natives for speed — `reverse`,
 > `sort` and `sortBy` (a stable merge sort in sysl, the comparator called back as `findall` does),
 > `concat`, `replicate`, `elem`, `last`, `init`, `drop` and the `zip` family (one pass over
 > arrays), plus the existing `sum`, `min` and `max`. Source carried in the binary — the rest: `fst`,

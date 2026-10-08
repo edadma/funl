@@ -1,0 +1,228 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// The prelude: the list library every FunL program sees, part FunL source carried in the binary and
+// part native. Each group of names is checked on ordinary inputs, on the empty and edge cases, and
+// on what it refuses.
+
+// What a program said, which must have faulted with a message containing `want`.
+private prelude_fault(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+PRELUDE_PAIRS_AND_THE_ENDS_OF_A_LIST()
+    val text = "write( fst((1, 2)), snd((1, 2)), head([7, 8]), tail([7, 8]), last([1, 2, 3]), init([1, 2, 3]) )\n" +
+        "write( head(1..3), tail([7]), last([5]), init([5]), last(1..4), init(1..4) )\n"
+
+    assert_eq(ran_funl(text), "1, 2, 7, [8], 3, [1, 2]\n1, [], 5, [], 4, [1, 2, 3]\nsucceeded")
+
+@test
+PRELUDE_THE_ENDS_OF_AN_EMPTY_LIST_ARE_NO_MATCH()
+    prelude_fault("write( head([]) )\n", "argument match not found: no clause of 'head' matches ([])")
+    prelude_fault("write( tail([]) )\n", "argument match not found: no clause of 'tail' matches ([])")
+    prelude_fault("write( last([]) )\n", "argument match not found: no clause of 'last' matches ([])")
+    prelude_fault("write( init([]) )\n", "argument match not found: no clause of 'init' matches ([])")
+    prelude_fault("write( last(5) )\n", "'last' wants a list and reached the integer 5")
+
+@test
+PRELUDE_FOLDS()
+    val text = "write( foldl((a, b) -> a - b, 10, [1, 2]), foldr((a, b) -> a - b, 10, [1, 2]), foldl1((a, b) -> a - b, [10, 1, 2]), foldr1((a, b) -> a - b, [10, 1, 2]) )\n" +
+        "write( foldl((a, b) -> a + b, 0, []), foldr((a, b) -> a + b, 0, []), foldl1((a, b) -> a + b, [4]), foldr1((a, b) -> a + b, [4]) )\n" +
+        "write( product([1, 2, 3, 4]), product([]), maximum([3, 9, 2]), minimum([3, 9, 2]), maximum([\"b\", \"c\", \"a\"]) )\n" +
+        "write( maxBy(s -> s.length, [\"ab\", \"abc\", \"x\"]), minBy(s -> s.length, [\"ab\", \"abc\", \"x\"]), foldl(max, 0, [3, 7, 2]) )\n"
+
+    assert_eq(ran_funl(text), "7, 9, 7, 11\n0, 0, 4, 4\n24, 1, 9, 2, c\nabc, x, 7\nsucceeded")
+
+@test
+PRELUDE_A_FOLD_OF_NOTHING_THAT_NEEDS_SOMETHING_IS_NO_MATCH()
+    prelude_fault("write( foldl1((a, b) -> a + b, []) )\n", "no clause of 'foldl1' matches")
+    prelude_fault("write( maximum([]) )\n", "no clause of 'foldl1' matches")
+    prelude_fault("write( foldr1((a, b) -> a + b, []) )\n", "no clause of 'foldr1' matches")
+
+// One `map`: a function as the first of two arguments maps, anything else makes a mutable map.
+@test
+PRELUDE_MAP_WITH_A_FUNCTION_MAPS_AND_OTHERWISE_MAKES_A_MAP()
+    val text = "data Box( x )\n" +
+        "write( map(x -> x * 2, [1, 2, 3]), map(abs, [-1, 2]), map(Box, [1]), map(x -> x, []), map(x -> x + 1, 1..3) )\n" +
+        "write( [y | y <- map(x -> x * 10, () -> 1..3)] )\n" +
+        "val m = map([(\"a\", 1)], 0)\n" +
+        "write( m(\"a\"), m(\"z\"), map([(1, 2)]), map() )\n" +
+        "val f = map\n" +
+        "write( f(x -> x + 1, [1]), f([(3, 4)]) )\n"
+
+    assert_eq(ran_funl(text), "[2, 4, 6], [1, 2], [Box(1)], [], [2, 3, 4]\n[10, 20, 30]\n1, 0, MutableMap(1: 2), MutableMap()\n[2], MutableMap(3: 4)\nsucceeded")
+
+@test
+PRELUDE_MAP_OF_ONE_FUNCTION_IS_STILL_THE_CONSTRUCTOR_AND_REFUSES_IT()
+    prelude_fault("write( map(abs) )\n", "'map' wants a list and reached a function")
+
+@test
+PRELUDE_FILTER_TAKE_AND_TAKE_WHILE_OVER_A_COLLECTION_AND_A_THUNK()
+    val text = "write( filter(odd, 1..10), filter(odd, []), take(2, [5, 6, 7]), take(9, [5, 6]), take(0, [5]), take(-1, [5]) )\n" +
+        "write( takeWhile(x -> x < 3, [1, 2, 3, 1]), takeWhile(x -> x < 3, []), takeWhile(x -> x < 9, [1, 2]) )\n" +
+        "write( [x | x <- take(3, () -> iterate(x -> x * 2, 1))], [x | x <- filter(even, () -> take(4, () -> forever(2)))] )\n" +
+        "write( [x | x <- takeWhile(x -> x < 20, () -> iterate(x -> x * 3, 1))] )\n"
+
+    assert_eq(ran_funl(text), "[1, 3, 5, 7, 9], [], [5, 6], [5, 6], [], []\n[1, 2], [], [1, 2]\n[1, 2, 4], [2, 2, 2, 2]\n[1, 3, 9]\nsucceeded")
+
+@test
+PRELUDE_SLICING()
+    val text = "write( drop(2, [1, 2, 3]), drop(0, [1]), drop(-2, [1]), drop(5, [1, 2]), drop(1, []), drop(1, 1..4), drop(2, (7, 8, 9)) )\n" +
+        "write( dropWhile(x -> x < 3, [1, 2, 3, 1]), dropWhile(x -> x < 3, []), dropWhile(x -> x < 9, [1]) )\n" +
+        "write( splitAt(1, [1, 2, 3]), splitAt(0, []), span(x -> x < 2, [1, 2, 3]), spanNot(x -> x > 1, [1, 2, 3]) )\n" +
+        "write( partition(odd, [1, 2, 3, 4]), partition(odd, []) )\n"
+
+    assert_eq(ran_funl(text), "[3], [1], [1], [], [], 2..4, [9]\n[3, 1], [], []\n([1], [2, 3]), ([], []), ([1], [2, 3]), ([1], [2, 3])\n([1, 3], [2, 4]), ([], [])\nsucceeded")
+
+@test
+PRELUDE_DROP_AND_REPLICATE_COUNT_WITH_AN_INTEGER()
+    prelude_fault("write( drop(\"x\", [1]) )\n", "'drop' wants an integer count and was given the string 'x'")
+    prelude_fault("write( replicate(\"x\", 1) )\n", "'replicate' wants an integer count and was given the string 'x'")
+    prelude_fault("write( drop(1, \"abc\") )\n", "'drop' wants a list")
+
+@test
+PRELUDE_COMBINING()
+    val text = "write( concat([[1], [2, 3]]), concat([]), concat([[], []]), concat([\"ab\", \"cd\"]), concat([[1], 2..3, (4, 5)]) )\n" +
+        "write( concatMap(x -> [x, x], [1, 2]), concatMap(x -> [x], []) )\n" +
+        "write( zip([1, 2, 3], [\"a\", \"b\"]), zip([], [1]), zip(1..2, [5, 6]), zip3([1, 2], [3, 4], [5]) )\n" +
+        "write( zipWith((a, b) -> a * b, [1, 2], 3..5), zipWith((a, b) -> a, [], [1]), zipWith3((a, b, c) -> a + b + c, [1], [2], [3, 4]) )\n" +
+        "write( unzip([(1, \"a\"), (2, \"b\")]), unzip([]) )\n"
+
+    assert_eq(ran_funl(text), "[1, 2, 3], [], [], [\"ab\", \"cd\"], [1, 2, 3, (4, 5)]\n[1, 1, 2, 2], []\n[(1, \"a\"), (2, \"b\")], [], [(1, 5), (2, 6)], [(1, 3, 5)]\n[3, 8], [], [6]\n([1, 2], [\"a\", \"b\"]), ([], [])\nsucceeded")
+
+@test
+PRELUDE_CONCAT_AND_ZIP_REFUSE_AN_ENDLESS_RANGE()
+    prelude_fault("write( zip(0.., [1]) )\n", "the endless range 0..")
+    prelude_fault("write( concat([1..]) )\n", "the endless range 1..")
+
+@test
+PRELUDE_PRODUCING()
+    val text = "write( replicate(3, \"x\"), replicate(0, 1), replicate(-1, 1) )\n" +
+        "write( [x | x <- take(4, () -> iterate(x -> x + 1, 0))], [x | x <- take(2, () -> forever(#a))] )\n" +
+        "write( take(3, () -> iterate(x -> x + 1, 0)) )\n"
+
+    assert_eq(ran_funl(text), "[\"x\", \"x\", \"x\"], [], []\n[0, 1, 2, 3], [a, a]\n0\nsucceeded")
+
+@test
+PRELUDE_ORDERING()
+    val text = "write( reverse([1, 2, 3]), reverse([]), reverse(1..3), sort([3, 1, 2]), sort([]), sort([2, 1.5, 1]), sort([\"b\", \"a\"]) )\n" +
+        "write( sortBy((a, b) -> a > b, [3, 1, 2]), sortBy((a, b) -> a(0) < b(0), [(1, #x), (0, #y), (1, #z), (0, #w)]), sortBy((a, b) -> a < b, []) )\n" +
+        "write( nub([1, 2, 1, 3, 2]), nub([]), group([1, 1, 2, 3, 3]), group([]) )\n"
+
+    assert_eq(ran_funl(text), "[3, 2, 1], [], [3, 2, 1], [1, 2, 3], [], [1, 1.5, 2], [\"a\", \"b\"]\n[3, 2, 1], [(0, y), (0, w), (1, x), (1, z)], []\n[1, 2, 3], [], [[1, 1], [2], [3, 3]], []\nsucceeded")
+
+// `sort` is stable: elements equal by `<` keep the order they came in.
+@test
+PRELUDE_SORT_IS_STABLE_AND_REFUSES_WHAT_IT_CANNOT_COMPARE()
+    assert_eq(ran_funl("write( sort([2, 1.0, 1, 2.0, 1]) )\n"), "[1.0, 1, 1, 2, 2.0]\nsucceeded")
+    prelude_fault("write( sort([1, \"a\"]) )\n", "'<' cannot compare the string 'a' with the integer 1")
+    prelude_fault("write( reverse(5) )\n", "'reverse' wants a list and reached the integer 5")
+
+@test
+PRELUDE_ASKING()
+    val text = "write( if any(even, [1, 2]) then #yes else #no, if any(even, [1, 3]) then #yes else #no, if any(even, []) then #yes else #no )\n" +
+        "write( if all(odd, [1, 3]) then #yes else #no, if all(odd, [1, 2]) then #yes else #no, if all(odd, []) then #yes else #no )\n" +
+        "write( elem(2, [1, 2]), elem(9, [1, 2]) | #no, elem(2, 1..3), elem(1, []) | #no )\n" +
+        "write( lookup(2, [(1, \"a\"), (2, \"b\")]), lookup(9, [(1, \"a\")]) | \"none\", lookup(1, []) | \"none\" )\n" +
+        "\"abc\" ? write( tab(any(cset(\"ab\"))) )\n"
+
+    assert_eq(ran_funl(text), "yes, no, no\nyes, no, yes\n2, no, 2, no\nb, none, none\na\nsucceeded")
+
+// A builtin and the prelude share a name at different arities: `any(c)` scans, `any(p, xs)` asks,
+// and a count neither takes is refused naming the builtin's.
+@test
+PRELUDE_THE_ARITY_DECIDES_BETWEEN_A_BUILTIN_AND_THE_PRELUDE()
+    assert_eq(complaints("write( any(1, 2, 3) )\n"), "error 1:8 `any` takes 1 argument, and this call gives 3\n")
+    assert_eq(complaints("write( last(1, 2) )\n"), "error 1:8 `last` takes 1 argument, and this call gives 2\n")
+    prelude_fault("write( elem(1, 5) )\n", "'in' looks in a list")
+
+// Each native gives what the design's FunL definition of it gives, on the same inputs.
+@test
+PRELUDE_THE_NATIVES_AGREE_WITH_THEIR_SOURCE()
+    val text = "def\n" +
+        "  sLast( [x] ) = x\n  sLast( _:xs ) = sLast( xs )\n" +
+        "  sInit( [_] ) = []\n  sInit( x:xs ) = x:sInit( xs )\n" +
+        "  sReverse( xs ) = foldl( (acc, x) -> x:acc, [], xs )\n" +
+        "  sDrop( n, xs ) = if n <= 0 then xs else sDropOne( n, xs )\n  sDropOne( n, [] ) = []\n  sDropOne( n, _:xs ) = sDrop( n - 1, xs )\n" +
+        "  sConcat( xss ) = [x | xs <- xss, x <- xs]\n" +
+        "  sReplicate( n, x ) = [x | _ <- 1..n]\n" +
+        "  sSort( [] ) = []\n  sSort( p:xs ) = sSort( [x | x <- xs if x < p] ) + [p] + sSort( [x | x <- xs if not (x < p)] )\n" +
+        "  sZip( xs, ys ) = zipWith( (a, b) -> (a, b), xs, ys )\n" +
+        "  sZip3( xs, ys, zs ) = zipWith3( (a, b, c) -> (a, b, c), xs, ys, zs )\n" +
+        "  same( a, b ) = if a == b then #same else (a, b)\n" +
+        "val lists = [[1], [3, 1, 2], [2, 1.0, 1, 2.0], 1..5, [\"b\", \"a\", \"c\"]]\n" +
+        "write( [same(last(xs), sLast(xs)) | xs <- lists] )\n" +
+        "write( [same(init(xs), sInit(xs)) | xs <- lists] )\n" +
+        "write( [same(reverse(xs), sReverse(xs)) | xs <- lists + [[]]] )\n" +
+        "write( [same(sort(xs), sSort(xs)) | xs <- lists + [[]]] )\n" +
+        "write( [same(drop(n, xs), sDrop(n, xs)) | xs <- lists + [[]], n <- -1..6] )\n" +
+        "write( [same(replicate(n, #a), sReplicate(n, #a)) | n <- -1..3] )\n" +
+        "write( same(concat(lists), sConcat(lists)), same(concat([\"ab\", (1, 2), []]), sConcat([\"ab\", (1, 2), []])) )\n" +
+        "write( same(zip([1, 2, 3], \"ab\"), sZip([1, 2, 3], \"ab\")), same(zip3(1..3, [4], [5, 6]), sZip3(1..3, [4], [5, 6])) )\n" +
+        "write( [same(if elem(x, [1, 2]) then #y else #n, if x in [1, 2] then #y else #n) | x <- 0..3] )\n"
+
+    assert_eq(ran_funl(text), "[same, same, same, same, same]\n[same, same, same, same, same]\n[same, same, same, same, same, same]\n[same, same, same, same, same, same]\n" +
+        "[same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same, same]\n" +
+        "[same, same, same, same, same]\nsame, same\nsame, same\n[same, same, same, same]\nsucceeded")
+
+// A program's own names shadow the prelude's: a `val`, a parameter, a local `def`, an assignment, and
+// a top-level `def`, which is the program's definition everywhere in its place.
+@test
+PRELUDE_A_PROGRAMS_OWN_NAMES_SHADOW_IT()
+    val text = "val head = 5\n" +
+        "def f( last ) = last + 1\n" +
+        "def g( xs )\n  def take( n ) = n * 2\n  take( 3 )\n" +
+        "def reverse( xs ) = #mine\n" +
+        "tail = \"assigned\"\n" +
+        "write( head, f(1), g([]), reverse([1, 2]), tail, init([1, 2]) )\n"
+
+    assert_eq(ran_funl(text), "5, 2, 6, mine, assigned, [1]\nsucceeded")
+
+// `import * as prelude from funl:prelude` reaches what a program's own definition shadows; an
+// import of one name brings it under any name.
+@test
+PRELUDE_THE_MODULE_IS_REACHED_BY_ITS_NAME()
+    val text = "import * as prelude from funl:prelude\n" +
+        "import { take as first } from funl:prelude\n" +
+        "def last( xs ) = #mine\n" +
+        "write( last([1, 2]), prelude.last([1, 2]), prelude.reverse([1, 2]), prelude.map(x -> -x, [1]), first(1, [4, 5]) )\n"
+
+    assert_eq(ran_funl(text), "mine, 2, [2, 1], [-1], [4]\nsucceeded")
+    assert(complaints("import { nothing } from funl:prelude\n").contains("`funl:prelude` does not export `nothing`"))
+
+// A Prolog predicate a program loads shadows the prelude at its arity; the Prolog library's do not.
+@test
+PRELUDE_A_LOADED_PROLOG_PREDICATE_SHADOWS_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "all.pl", "all(X) :- X = everything.\n")
+    val text = s"import \"$pl\"\nfree x\nif all(x) then write( x )\nwrite( last([1, 2]), if all(odd, [1]) then #yes else #no )\n"
+
+    assert_eq(ran_funl(text), "everything\n2, yes\nsucceeded")
+
+// Prolog reaches the prelude as a built-in module: `:- import("funl:prelude")`, each export
+// `prelude:f/(n+1)`, natives and source alike, a generator one solution per value.
+@test
+PRELUDE_PROLOG_CALLS_IT_QUALIFIED()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "use.pl", ":- import(\"funl:prelude\").\n" +
+        "rev(X) :- prelude:reverse([1, 2, 3], X).\n" +
+        "hd(X) :- prelude:head([7, 8], X).\n" +
+        "firsts(L) :- findall(X, prelude:take(2, [5, 6, 7], X), L).\n" +
+        "empty(E) :- catch(prelude:last([], _), error(E, _), true).\n")
+
+    val text = s"import \"$pl\"\nfree a, b, c, e\n" +
+        "if rev(a) then write( a )\n" +
+        "if hd(b) then write( b )\n" +
+        "if firsts(c) then write( c )\n" +
+        "if empty(e) then write( e )\n"
+
+    assert_eq(ran_funl(text), "[3, 2, 1]\n7\n[[5, 6]]\nexistence_error(matching_clause, /(last, 1))\nsucceeded")

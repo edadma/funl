@@ -463,7 +463,7 @@ private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
 // `name(args)`, the name written at offset `pos`: a call of whatever the name means. In tail
 // position (`tail`) a call that can reuse the frame is a tail call, and every path ends in `Return`.
 call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string] =
-    call_meaning(e, c, c.meaning(n, pos), n, args, tail)
+    call_meaning(e, c, c.res.called(n, c.meaning(n, pos), args.len()), n, args, tail)
 
 // The same, of a name `n` that means `m`: a name of the file's own, or one a module exports.
 call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bool) -> Result[unit, string]

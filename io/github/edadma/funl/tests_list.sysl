@@ -10,7 +10,7 @@ PLUS_JOINS_TWO_LISTS_AND_ADDS_ANYTHING_ELSE_TO_THE_END()
         "[1, 2, 3], [1, 2], [], [1, 2, 3, 4], [1, 2, 3]\nsucceeded")
     assert_eq(ran_funl("var l = []\nl += 1\nl += (2, 3)\nwrite( l )\n"), "[1, (2, 3)]\nsucceeded")
     assert_eq(ran_funl("write( (1..) + [1] )\n"),
-        "fault: main@8: '+' was given the endless range 1.., which has no last element")
+        "fault: main@10: '+' was given the endless range 1.., which has no last element")
 
 @test
 CONS_MAKES_A_LIST_AND_READS_A_RANGE_AS_ONE()
@@ -24,15 +24,15 @@ A_LIST_A_RANGE_A_TUPLE_AND_A_STRING_ARE_INDEXED_BY_CALL_SYNTAX()
     assert_eq(ran_funl("write( [1, 2, 3](3) | \"none\", [1, 2](-1) | \"none\", [](0) | \"none\", \"ab\"(2) | \"none\", (1..3)(3) | \"none\", (1, 2)(2) | \"none\" )\n"),
         "none, none, none, none, none, none\nsucceeded")
     assert_eq(ran_funl("write( [1, 2, 3](3) )\nwrite( \"after\" )\n"), "after\nsucceeded")
-    assert_eq(ran_funl("write( [1](#a) )\n"), "fault: main@6: an index is an integer, and this one is the atom a")
+    assert_eq(ran_funl("write( [1](#a) )\n"), "fault: main@8: an index is an integer, and this one is the atom a")
 
 @test
 LENGTH_COUNTS_ELEMENTS_AND_CHARACTERS()
     assert_eq(ran_funl("write( [7, 8].length, [].length, (1..3).length, (1..<3).length, (1..10 by 3).length, (10..1 by -3).length, (1..0).length, \"héllo\".length, (1, 2).length )\n"),
         "2, 0, 3, 2, 4, 4, 0, 5, 2\nsucceeded")
-    assert_eq(ran_funl("write( (1..).length )\n"), "fault: main@5: the range 1.. has no end, and no length")
-    assert_eq(ran_funl("write( [1].size )\n"), "fault: main@5: the list [1] has no field 'size'")
-    assert_eq(ran_funl("write( 5.length )\n"), "fault: main@3: the integer 5 has no length")
+    assert_eq(ran_funl("write( (1..).length )\n"), "fault: main@7: the range 1.. has no end, and no length")
+    assert_eq(ran_funl("write( [1].size )\n"), "fault: main@7: the list [1] has no field 'size'")
+    assert_eq(ran_funl("write( 5.length )\n"), "fault: main@5: the integer 5 has no length")
 
 @test
 A_RANGE_IS_A_VALUE_PRINTED_AS_IT_IS_WRITTEN()
@@ -40,8 +40,8 @@ A_RANGE_IS_A_VALUE_PRINTED_AS_IT_IS_WRITTEN()
         "1..5, 1..<5, 1.., 1..10 by 2, 10..1 by -1\n1\n2\n3\nsucceeded")
     assert_eq(ran_funl("write( 1..3 == [1, 2, 3], [] == (1..0), 1..3 == 1..3, 1..3 != [1, 2] )\n"),
         "[1, 2, 3], 1..0, 1..3, [1, 2]\nsucceeded")
-    assert_eq(ran_funl("write( 1..3 by 0 )\n"), "fault: main@5: a range from 1 by 0 would never move: a step cannot be zero")
-    assert_eq(ran_funl("write( 1..#a )\n"), "fault: main@5: a range counts with integers, and its end is the atom a")
+    assert_eq(ran_funl("write( 1..3 by 0 )\n"), "fault: main@7: a range from 1 by 0 would never move: a step cannot be zero")
+    assert_eq(ran_funl("write( 1..#a )\n"), "fault: main@7: a range counts with integers, and its end is the atom a")
 
 // An endless range is iterated lazily: nothing is made but the next element.
 @test
@@ -86,7 +86,7 @@ IN_SUCCEEDS_WITH_THE_LEFT_OPERAND_OR_FAILS()
         "3, 4, 5, 7, (2, 3), 2, 1\nsucceeded")
     assert_eq(ran_funl("if 4 in [1, 2, 3] then write( #yes ) else write( #no )\nif 4 in 1..10 by 2 then write( #yes ) else write( #no )\nif 0 in 1.. then write( #yes ) else write( #no )\nif 2 not in [1, 2, 3] then write( #yes ) else write( #no )\n"),
         "no\nno\nno\nno\nsucceeded")
-    assert_eq(ran_funl("write( 5 in 7 )\n"), "fault: main@4: 'in' looks in a list, a range, a tuple, a set, an array, a buffer, a byte string or a map's keys, and was given the integer 7")
+    assert_eq(ran_funl("write( 5 in 7 )\n"), "fault: main@6: 'in' looks in a list, a range, a tuple, a set, an array, a buffer, a byte string or a map's keys, and was given the integer 7")
 
 @test
 A_COMPREHENSION_COLLECTS_EVERY_VALUE_IN_ORDER()

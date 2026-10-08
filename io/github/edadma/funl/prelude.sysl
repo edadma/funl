@@ -1,0 +1,448 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.math.{checked_add, checked_mul}
+
+// The prelude (`modules.md` § "The prelude"): a list library written in FunL, carried in the binary
+// as the source below and compiled as the module `funl:prelude` the first time a VM compiles FunL.
+// **Every FunL file sees its exports** after its own definitions, its imports and the builtins, so any
+// of those shadows a prelude name (`Resolved.global`); a declaration of a prelude name shadows it too,
+// as it shadows a builtin. A file that loads the prelude runs its top level before its own.
+//
+// **Some of it is native**: the names in `PreludeNatives` are builtins written here, each the
+// definition the design gives in FunL made one pass over its input in sysl, and exported from the
+// module beside the source's names. The rest call back into FunL -- a function argument, a generator
+// -- and are written in FunL.
+//
+// **Prolog sees the prelude as a built-in module**: `:- import("funl:prelude")` makes each export
+// `prelude:f/(n+1)`, and takes no name out of Prolog's one namespace. A FunL file may name the module
+// the same way, `import * as prelude from funl:prelude`, to reach a name its own definition shadows.
+
+val PreludeFile: string = "funl:prelude"
+
+private val PreludeNatives: [10]string = ["reverse", "sort", "concat", "replicate", "elem", "last", "init", "drop", "zip", "zip3"]
+
+install_prelude(v: *Vm)
+    register(v, "reverse", 1, do_reverse)
+    register(v, "sort", 1, do_sort)
+    register(v, "concat", 1, do_concat)
+    register(v, "replicate", 2, do_replicate)
+    register_generator(v, "elem", 2, do_elem)
+    register(v, "last", 1, do_last)
+    register(v, "init", 1, do_init)
+    register(v, "drop", 2, do_drop)
+    register(v, "zip", 2, do_zip)
+    register(v, "zip3", 3, do_zip3)
+
+// The prelude's index in `Vm.modules`, once it is loaded.
+prelude_index() -> Option[usize]
+    val v = current()
+
+    for i in 0..<v.modules.len()
+        val md = v.modules.at(i)
+
+        if md.loaded && md.file == PreludeFile then return Some(i)
+
+    None
+
+// Load the prelude into the running VM if it is not loaded yet: the chunk running its top level when
+// this call loaded it, for the caller to run before anything that uses it. Nothing while the prelude
+// is itself being compiled.
+load_prelude() -> Option[usize]
+    val v = current()
+
+    for f in v.loading.view()
+        if f == PreludeFile then return None
+
+    if prelude_index().is_some() then return None
+
+    var report = full_report()
+
+    val l = module_from_text(PreludeFile, prelude_text(), point(0), &report) match
+        Ok(l) -> l
+        Err(_) -> panic(s"the prelude does not compile:\n${report.render(source_of(PreludeFile, prelude_text()))}")
+
+    var md = v.modules.at(l.index)
+
+    for n in PreludeNatives
+        native_id(n) match
+            Some(id) -> md.exports.push(ModExport(n, ExNative(id), s"`$n` of `funl:prelude`"))
+            None -> panic(s"the prelude claims `$n`, and no native `$n` is registered")
+
+    v.modules.set(l.index, md)
+    Some(md.chunk)
+
+// What `name` means in a file `res` resolves, for each export of the prelude: every name the file
+// would otherwise find nothing for. A native export is already a builtin, which `global` finds first.
+bind_prelude(res: *Resolved)
+    val index = prelude_index() match
+        Some(i) -> i
+        None -> return
+
+    val md = current().modules.at(index)
+
+    if md.up == res.top_up then return
+
+    for x in md.exports.view()
+        x.kind match
+            ExFunction(chunk, arity) ->
+                res.rels.push(Rel(x.name, arity, buf(), chunk, true, NoScope, 0, buf()))
+                res.prelude.put(x.name, Function(res.rels.len() - 1, md.up))
+            _ -> ()
+
+// The prelude's function `name` as a value, for a builtin that hands its call on to it.
+prelude_function(name: string) -> Result[Value, Fault]
+    val v = current()
+
+    val index = prelude_index() match
+        Some(i) -> i
+        None -> return Err(Broken(s"the prelude's `$name` was wanted before the prelude was loaded"))
+
+    val md = v.modules.at(index)
+
+    for x in md.exports.view()
+        if x.name == name
+            x.kind match
+                ExFunction(chunk, _) -> return Ok(new_closure(chunk, link(v, md.up)?)?)
+                _ -> ()
+
+    Err(Broken(s"the prelude has no function `$name`"))
+
+// `:- import("funl:prelude")` in a Prolog file, a step of `goals`: the prelude loaded if it is not
+// yet, its top level run where the directive stands, and each export made `prelude:f/(n+1)`.
+// Answers why the import is refused, given `why` so far.
+prolog_prelude(at: Span, report: *Report, goals: *Buf[LoadStep], why: Refusal) -> Refusal
+    load_prelude() match
+        Some(chunk) -> goals.push(RunChunk(chunk))
+        None -> ()
+
+    val md = current().modules.at(prelude_index().unwrap())
+
+    for x in md.exports.view()
+        val made = x.kind match
+            ExFunction(chunk, arity) ->
+                val key = pred_key(s"prelude:${x.name}", arity + 1)
+
+                if pred_defined(key) then continue
+
+                funl_predicate(key, x.name, chunk, arity, true, md.up, Origin(PreludeFile, x.what))
+            ExNative(id) -> native_predicates("prelude", x, id)
+            _ -> continue
+
+        made match
+            Ok(_) -> ()
+            Err(m) ->
+                val now = refusal(why, report, Unreadable)
+
+                report.add(error(at, s"the compiler failed: $m"))
+                return now
+
+    why
+
+// -- the natives -----------------------------------------------------------------------------------
+
+// What `x <- c` draws from `c`, pushed onto `out`: the elements of a list, a range, a set, an array,
+// a buffer or a byte string, and any other value -- a string, a tuple, a map, a number -- whole.
+private drawn(c: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
+    val x = deref(c)
+
+    x match
+        Nil | Cons(_) | Range(_) | Unit | Set(_) | MutSet(_) | Array(_) | Buffer(_) | Bytes(_) -> elements(x, what, out)
+        Var(_) -> Err(instantiation_error(s"instantiation error: $what was given an unbound variable"))
+        _ ->
+            out.push(x)
+            Ok(())
+
+// The fault a source definition with no clause for its argument answers: `last([])`.
+private no_clause(name: string, x: Value) -> Fault
+    indicator(name, 1) match
+        Ok(p) -> existence_error("matching_clause", p, s"argument match not found: no clause of '$name' matches (${render(x)})")
+        Err(m) -> Broken(m)
+
+// An integer count, for `name`.
+private count_arg(x: Value, name: string) -> Result[long, Fault]
+    deref(x) match
+        Int(n) -> Ok(n)
+        Var(_) -> Err(instantiation_error(s"instantiation error: '$name' was given an unbound variable"))
+        y -> Err(kind_error(y, "integer", s"'$name' wants an integer count and was given ${described(y)}"))
+
+// `reverse(xs)`: the elements of `xs` in the other order.
+private do_reverse(base: usize, argc: usize) -> Result[Value, Fault]
+    var items: Buf[Value] = buf()
+
+    elements(arg(base, 0), "'reverse'", &items)?
+
+    var out: Value = Nil
+
+    for x in items.view()
+        out = new_cons(x, out)?
+
+    Ok(out)
+
+// `sort(xs)`: the elements of `xs` in ascending order by `<`, equal elements in the order they came
+// in. A merge sort: each run of the bottom-up passes is merged into the other buffer.
+private do_sort(base: usize, argc: usize) -> Result[Value, Fault]
+    var a: Buf[Value] = buf()
+
+    elements(arg(base, 0), "'sort'", &a)?
+
+    val n = a.len()
+    var b: Buf[Value] = buf()
+
+    for x in a.view()
+        b.push(x)
+
+    var width: usize = 1
+
+    while width < n
+        var lo: usize = 0
+
+        while lo < n
+            val mid = if lo + width < n then lo + width else n
+            val hi = if mid + width < n then mid + width else n
+            var i = lo
+            var j = mid
+            var k = lo
+
+            while k < hi
+                // The right run's element goes first only when it is strictly less: stable.
+                if j < hi && (i >= mid || arith(Lt, a.at(j), a.at(i))?.is_some())
+                    b.set(k, a.at(j))
+                    j += 1
+                else
+                    b.set(k, a.at(i))
+                    i += 1
+
+                k += 1
+
+            lo = hi
+
+        val t = a
+
+        a = b
+        b = t
+        width = width * 2
+
+    Ok(list_of(&a, Nil)?)
+
+// `concat(xss)`: what each element of `xss` draws, one after another.
+private do_concat(base: usize, argc: usize) -> Result[Value, Fault]
+    var outer: Buf[Value] = buf()
+
+    drawn(arg(base, 0), "'concat'", &outer)?
+
+    var items: Buf[Value] = buf()
+
+    for xs in outer.view()
+        drawn(xs, "'concat'", &items)?
+
+    Ok(list_of(&items, Nil)?)
+
+// `replicate(n, x)`: a list of `n` copies of `x` -- the one value, not copies of it.
+private do_replicate(base: usize, argc: usize) -> Result[Value, Fault]
+    val n = count_arg(arg(base, 0), "replicate")?
+    val x = arg(base, 1)
+    var out: Value = Nil
+    var k: long = 0
+
+    while k < n
+        out = new_cons(x, out)?
+        k += 1
+
+    Ok(out)
+
+// `elem(x, xs)`: `x`, when `xs` holds it as `x in xs` finds it, and otherwise failure.
+private do_elem(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = arg(base, 0)
+
+    Ok(if member(x, arg(base, 1))? then Gives(x) else Refuses)
+
+// `last(xs)`: the last element; `last([])` has none, and is the fault a function with no clause for
+// its argument answers.
+private do_last(base: usize, argc: usize) -> Result[Value, Fault]
+    var items: Buf[Value] = buf()
+
+    elements(arg(base, 0), "'last'", &items)?
+
+    if items.len() == 0 then return Err(no_clause("last", arg(base, 0)))
+
+    Ok(items.at(items.len() - 1))
+
+// `init(xs)`: every element but the last; `init([])` is refused as `last([])` is.
+private do_init(base: usize, argc: usize) -> Result[Value, Fault]
+    var items: Buf[Value] = buf()
+
+    elements(arg(base, 0), "'init'", &items)?
+
+    if items.len() == 0 then return Err(no_clause("init", arg(base, 0)))
+
+    items.pop()
+    Ok(list_of(&items, Nil)?)
+
+// `drop(n, xs)`: what is left of `xs` after its first `n` elements. A list's rest is the list's own
+// cells, a range's rest a range, and `n <= 0` answers `xs` itself.
+private do_drop(base: usize, argc: usize) -> Result[Value, Fault]
+    val n = count_arg(arg(base, 0), "drop")?
+    val xs = arg(base, 1)
+
+    if n <= 0 then return Ok(xs)
+
+    deref(xs) match
+        Nil | Cons(_) ->
+            var at = deref(xs)
+            var k: long = 0
+
+            while k < n
+                at match
+                    Cons(p) -> at = deref(p.tail)
+                    Nil -> return Ok(Nil)
+                    Var(_) -> return Err(instantiation_error("instantiation error: 'drop' reached an unbound tail of a list"))
+                    y -> return Err(type_error("list", y, s"'drop' wants a list and reached ${described(y)}"))
+
+                k += 1
+
+            Ok(at)
+        Range(r) ->
+            if !r.endless && n >= range_count(r) then return Ok(Nil)
+
+            val skip = checked_mul(n, r.step) match
+                Some(d) -> d
+                None -> return Ok(Nil)
+
+            checked_add(r.from, skip) match
+                Some(f) -> Ok(new_range(f, r.last, r.step, r.inclusive, r.endless)?)
+                None -> Ok(Nil)
+        _ ->
+            var items: Buf[Value] = buf()
+
+            elements(xs, "'drop'", &items)?
+
+            var rest: Buf[Value] = buf()
+
+            for i in 0..<items.len()
+                if long(i) >= n then rest.push(items.at(i))
+
+            Ok(list_of(&rest, Nil)?)
+
+// `zip(xs, ys)`: the pairs of elements in the same place, as many as the shorter has.
+private do_zip(base: usize, argc: usize) -> Result[Value, Fault] = zipped(base, 2)
+
+// `zip3(xs, ys, zs)`: the triples, as many as the shortest has.
+private do_zip3(base: usize, argc: usize) -> Result[Value, Fault] = zipped(base, 3)
+
+private zipped(base: usize, n: usize) -> Result[Value, Fault]
+    var cols: Buf[Buf[Value]] = buf()
+    var len: usize = 0
+
+    for i in 0..<n
+        var c: Buf[Value] = buf()
+
+        drawn(arg(base, i), if n == 2 then "'zip'" else "'zip3'", &c)?
+
+        if i == 0 || c.len() < len then len = c.len()
+
+        cols.push(c)
+
+    var rows: Buf[Value] = buf()
+
+    for k in 0..<len
+        val t = new_tuple(n)?
+
+        for i in 0..<n
+            t.items.set(i, cols.at(i).at(k))
+
+        rows.push(Tuple(t))
+
+    Ok(list_of(&rows, Nil)?)
+
+// -- the source ------------------------------------------------------------------------------------
+
+// The prelude's own FunL. `map` is also what the builtin `map(f, xs)` hands its call to.
+private prelude_text() -> string = raw"""
+    export def
+      fst( (a, _) ) = a
+      snd( (_, b) ) = b
+
+      head( x:_ ) = x
+      tail( _:xs ) = xs
+
+      foldl( f, z, [] ) = z
+      foldl( f, z, x:xs ) = foldl( f, f(z, x), xs )
+      foldl1( f, x:xs ) = foldl( f, x, xs )
+      foldr( f, z, [] ) = z
+      foldr( f, z, x:xs ) = f( x, foldr(f, z, xs) )
+      foldr1( f, [x] ) = x
+      foldr1( f, x:xs ) = f( x, foldr1(f, xs) )
+
+      product( xs ) = foldl( (a, b) -> a*b, 1, xs )
+      maximum( xs ) = foldl1( (a, b) -> max(a, b), xs )
+      minimum( xs ) = foldl1( (a, b) -> min(a, b), xs )
+      maxBy( f, xs ) = foldl1( (a, b) -> if f(b) > f(a) then b else a, xs )
+      minBy( f, xs ) = foldl1( (a, b) -> if f(b) < f(a) then b else a, xs )
+
+      map( f, xs ) = if xs is function then mapDraw( f, xs ) else [f(x) | x <- xs]
+      filter( p, xs ) = if xs is function then filterDraw( p, xs ) else [x | x <- xs if p(x)]
+      take( n, xs ) = if xs is function then takeDraw( n, xs ) else [x | x <- takeDraw( n, () -> xs )]
+      takeWhile( p, xs ) = if xs is function then takeWhileDraw( p, xs ) else [x | x <- takeWhileDraw( p, () -> xs )]
+
+      dropWhile( p, [] ) = []
+      dropWhile( p, x:xs ) = if p(x) then dropWhile( p, xs ) else x:xs
+      splitAt( n, xs ) = (take(n, xs), drop(n, xs))
+      span( p, xs ) = (takeWhile(p, xs), dropWhile(p, xs))
+      spanNot( p, xs ) = span( x -> not p(x), xs )
+      partition( p, xs ) = (filter(p, xs), filter(x -> not p(x), xs))
+
+      concatMap( f, xs ) = [y | x <- xs, y <- f(x)]
+
+      zipWith( f, xs, ys ) = zipWithArrays( f, array([x | x <- xs]), array([y | y <- ys]) )
+      zipWith3( f, xs, ys, zs ) = zipWith3Arrays( f, array([x | x <- xs]), array([y | y <- ys]), array([z | z <- zs]) )
+      unzip( ps ) = ([a | (a, _) <- ps], [b | (_, b) <- ps])
+
+      iterate( f, x )
+        yield x
+        iterate( f, f(x) )
+      forever( x )
+        yield x
+        forever( x )
+
+      sortBy( lt, [] ) = []
+      sortBy( lt, p:xs ) = sortBy( lt, [x | x <- xs if lt(x, p)] ) + [p] + sortBy( lt, [x | x <- xs if not lt(x, p)] )
+
+      any( p, xs )
+        for x <- xs if p(x)
+          return true
+        fail
+      all( p, xs ) = [] == [x | x <- xs if not p(x)]
+      lookup( k, ps )
+        for (key, v) <- ps if key == k
+          return v
+        fail
+      nub( xs ) = foldl( (acc, x) -> if x in acc then acc else acc + [x], [], xs )
+      group( [] ) = []
+      group( x:xs ) = (x:takeWhile( y -> y == x, xs )) : group( dropWhile( y -> y == x, xs ) )
+
+    def
+      mapDraw( f, xs )
+        for x <- xs()
+          yield f(x)
+        fail
+      filterDraw( p, xs )
+        for x <- xs() if p(x)
+          yield x
+        fail
+      takeDraw( n, xs )
+        var k = 0
+        for x <- xs()
+          if k >= n then break
+          k++
+          yield x
+        fail
+      takeWhileDraw( p, xs )
+        for x <- xs()
+          if not p(x) then break
+          yield x
+        fail
+      zipWithArrays( f, a, b ) = [f(a(i), b(i)) | i <- 0..<min( a.length, b.length )]
+      zipWith3Arrays( f, a, b, c ) = [f(a(i), b(i), c(i)) | i <- 0..<min( a.length, min(b.length, c.length) )]
+    """

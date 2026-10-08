@@ -57,6 +57,17 @@ enum Impl
     // compiled.
     Constant(go: NativeGo)
 
+    // Called with its arguments; answers a value, or a function to call with those same arguments in
+    // its place (`map(f, xs)`, which the prelude's `map` answers).
+    Forwarding(go: ForwardGo)
+
+// What a forwarding builtin answers: its value, or the function value whose call answers for it.
+enum Forward
+    Done(x: Value)
+    Into(f: Value)
+
+type ForwardGo = &Fn(usize, usize) -> Result[Forward, Fault]
+
 // The arity of a builtin that takes any number of arguments.
 const Variadic: usize = 4294967295
 
@@ -98,6 +109,11 @@ optional_past(v: *Vm, id: usize, least: usize)
 
     n.least = least
     v.natives.set(id, n)
+
+// Add a builtin that may hand its call on to a function value.
+register_forwarding(v: *Vm, name: string, arity: usize, go: ForwardGo) -> usize
+    v.natives.push(Native(name, arity, arity, Forwarding(go)))
+    v.natives.len() - 1
 
 // Add a name for the value `go` makes.
 register_constant(v: *Vm, name: string, go: NativeGo) -> usize

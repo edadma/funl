@@ -29,6 +29,8 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
             report.add(error(named.span, "import names its file with a string"))
             return why
 
+    if given == "funl:prelude" then return prolog_prelude(named.span, report, goals, why)
+
     if given.starts_with("funl:") then return prolog_builtin_module(given.slice(5, given.len), named.span, report, why)
 
     val file = module_path(src.name, given)

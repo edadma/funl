@@ -176,6 +176,11 @@ private is_funl_file(file: string) -> bool = file.ends_with(".funl") || file.end
 imports_of(src: Source, prog: Program, report: *Report) -> Imports
     var out = Imports(buf(), buf(), buf())
 
+    // The prelude first: every file sees it, and the file that loads it runs its top level.
+    load_prelude() match
+        Some(chunk) -> out.loads.push(chunk)
+        None -> ()
+
     for i in prog.imports.view()
         i.spec match
             PathSpec(given) ->
@@ -208,6 +213,13 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
 
                 report.add(d)
             BuiltinSpec(name) ->
+                if name == "prelude"
+                    prelude_index() match
+                        Some(index) -> bind(&out, index, "funl:prelude", i.form, report)
+                        None -> report.add(error(i.at, "`funl:prelude` is not loaded while it is being compiled"))
+
+                    continue
+
                 builtin_module(name) match
                     Some(p) -> bind(&out, provided(p), s"funl:$name", i.form, report)
                     None -> report.add(error(i.at, unknown_builtin(name)))
@@ -283,6 +295,13 @@ load_module(file: string, at: Span, report: *Report) -> Result[ModLoad, Refusal]
             report.add(error(at, s"`$file` cannot be read: $e"))
             return Err(Missing(file))
 
+    module_from_text(file, text, at, report)
+end load_module
+
+// The FunL module `file`, whose source is `text`, compiled and registered, its top level not yet run;
+// a refusal reported at `at`, with what the module's own text says about it.
+module_from_text(file: string, text: string, at: Span, report: *Report) -> Result[ModLoad, Refusal]
+    val v = current()
     val doc = source_of(file, text)
 
     // A `.lfunl` file is tangled first; a document refused is a file that cannot be compiled.
@@ -319,7 +338,7 @@ load_module(file: string, at: Span, report: *Report) -> Result[ModLoad, Refusal]
             forget_since(mark)
             report.add(error(at, s"`$file` could not be loaded").with_note(render_report(inner, doc, fl)))
             Err(r)
-end load_module
+end module_from_text
 
 // How many FunL modules and imported Prolog files are loaded, so what a refused file brought can be
 // forgotten again.
@@ -593,41 +612,47 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
             ExNative(id) -> id
             _ -> continue
 
-        val nat = current().natives.at(id)
+        native_predicates(name, x, id) match
+            Ok(_) -> ()
+            Err(m) ->
+                val now = refusal(why, report, Unreadable)
 
-        // A builtin whose trailing arguments are optional is one predicate per count it takes.
-        for arity in nat.least..nat.arity
-            val key = pred_key(s"$name:${x.name}", arity + 1)
-
-            if pred_defined(key) then continue
-
-            var e = emit(key)
-
-            for k in 0..<arity
-                e.op(LoadArg(k))
-
-            if is_generator(id)
-                e.op(PushInt(0))
-                e.op(NativeGen(id, arity))
-            else
-                e.op(Native(id, arity))
-
-            e.op(LoadArg(arity))
-            e.op(Unify)
-            e.op(Pop)
-            e.op(PushUnit)
-            e.op(Return)
-
-            define_predicate(key, e, Origin(s"funl:$name", x.what)) match
-                Ok(_) -> ()
-                Err(m) ->
-                    val now = refusal(why, report, Unreadable)
-
-                    report.add(error(at, s"the compiler failed: $m"))
-                    return now
+                report.add(error(at, s"the compiler failed: $m"))
+                return now
 
     why
 end prolog_builtin_module
+
+// Export `x` of built-in module `owner`, builtin `id`, made the predicates `owner:f/(n+1)`. A builtin
+// whose trailing arguments are optional is one predicate per count it takes.
+native_predicates(owner: string, x: ModExport, id: usize) -> Result[unit, string]
+    val nat = current().natives.at(id)
+
+    for arity in nat.least..nat.arity
+        val key = pred_key(s"$owner:${x.name}", arity + 1)
+
+        if pred_defined(key) then continue
+
+        var e = emit(key)
+
+        for k in 0..<arity
+            e.op(LoadArg(k))
+
+        if is_generator(id)
+            e.op(PushInt(0))
+            e.op(NativeGen(id, arity))
+        else
+            e.op(Native(id, arity))
+
+        e.op(LoadArg(arity))
+        e.op(Unify)
+        e.op(Pop)
+        e.op(PushUnit)
+        e.op(Return)
+
+        define_predicate(key, e, Origin(s"funl:$owner", x.what))?
+
+    Ok(())
 
 // The FunL module `index`'s relations and functions made Prolog predicates, for a Prolog file whose
 // `:- import` of it is written at `at` (`prolog.md` § "Calling FunL from Prolog"): each export only,
