@@ -522,6 +522,24 @@ import { parent } from "prolog/family.pl"
 a Prolog file is imported whole, every predicate it defines with it: `import "prolog/family.pl"`
 ```
 
+A Prolog file is loaded once in a program, however many of its files import it, and its directives
+run once. As with a module, a file is known by its real path. Here
+[`modules/greeter.funl`](modules/greeter.funl) imports [`modules/greeting.pl`](modules/greeting.pl)
+too, whose directive writes a line as it loads:
+
+```funl
+import "modules/greeting.pl"
+import { greet } from "modules/greeter.funl"
+import "modules/../modules/greeting.pl"
+
+write( greet("world") )
+```
+
+```output
+greeting.pl is loaded
+hello, world
+```
+
 A Prolog program that imports a FunL module with `:- import("file.funl").` sees only the module's
 exports. `helper` is not exported, so to Prolog it is no predicate:
 

@@ -35,6 +35,11 @@ struct Walk
     // or `setof` -- where a function of `n` parameters may be called as the relation `f/(n+1)`.
     goal: bool
 
+    // Whether the pattern being read is a `catch`'s, which takes apart a thrown term -- an error term,
+    // or whatever Prolog's `throw/1` was given -- so a term in it may name any functor, as a relation's
+    // head may.
+    ball: bool
+
     // What `name` means written at offset `pos`: the blocks being read first, then the complete
     // scopes above.
     meaning(self, name: string, pos: usize) -> Meaning
@@ -60,7 +65,7 @@ struct LoopSeen
 
 // A walk over scope `sid`, from its root block, inside no loop.
 walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool) -> Walk =
-    Walk(res, report, pending, sc, sid, relation, function, 0, buf(), relation)
+    Walk(res, report, pending, sc, sid, relation, function, 0, buf(), relation, false)
 
 // Whether a call of `n`, which means `m`, is one of the all-solutions forms: the name, where nothing
 // the program declares takes it.
@@ -207,7 +212,14 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
         TupleE(items) ->
             for x in items.view()
                 declare_pattern(w, x, from, fixed)
-        CallE(_, _, args) ->
+        CallE(n, at, args) ->
+            // `name(p, ...)`: a term of the constructor `name` in scope -- in a `catch`'s pattern, a
+            // term of any functor.
+            if !w.ball
+                pattern_refusal(n, w.meaning(n, at.start), Some(args.len()), at) match
+                    Some(d) -> w.report.add(d)
+                    None -> ()
+
             for x in args.view()
                 declare_pattern(w, x, from, fixed)
         ApplyE(f, args) ->
@@ -577,7 +589,7 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
         Constructor(id) ->
             val fields = current().ctors.at(id).fields.len()
 
-            if argc != fields
+            if argc != fields && !has_ctor_of(id, argc)
                 w.report.add(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this call gives $argc"))
 
             return

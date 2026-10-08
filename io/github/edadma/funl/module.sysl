@@ -149,7 +149,6 @@ private is_funl_file(file: string) -> bool = file.ends_with(".funl") || file.end
 // loaded, and every name they bring, or the refusals in `report`.
 imports_of(src: Source, prog: Program, report: *Report) -> Imports
     var out = Imports(buf(), buf(), buf())
-    var seen: Buf[string] = buf()
 
     for i in prog.imports.view()
         i.spec match
@@ -157,7 +156,7 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
                 if given.ends_with(".pl")
                     i.form match
                         WholeForm ->
-                            imported(src, Spanned(given, i.at), &seen, report) match
+                            imported(src, Spanned(given, i.at), report) match
                                 Some(chunk) -> out.loads.push(chunk)
                                 None -> ()
                         _ ->
@@ -268,6 +267,7 @@ load_module(file: string, at: Span, report: *Report) -> Result[ModLoad, Refusal]
             return Err(Unreadable)
 
     val m = v.funl_tops.len()
+    val mark = load_mark()
     val index = v.modules.len()
 
     v.funl_tops.push(null)
@@ -290,18 +290,29 @@ load_module(file: string, at: Span, report: *Report) -> Result[ModLoad, Refusal]
             v.modules.set(index, md)
             Ok(ModLoad(index, true))
         Err(r) ->
-            forget_modules(index)
+            forget_since(mark)
             report.add(error(at, s"`$file` could not be loaded").with_note(render_report(inner, doc, fl)))
             Err(r)
 end load_module
 
-// Forget every module registered from number `from` on: their top levels will never run, so an
-// import of one loads it again.
-forget_modules(from: usize)
+// How many FunL modules and imported Prolog files are loaded, so what a refused file brought can be
+// forgotten again.
+struct LoadMark
+    modules: usize
+    pl_imports: usize
+
+load_mark() -> LoadMark = LoadMark(current().modules.len(), current().pl_imports.len())
+
+// Forget every module and imported Prolog file loaded since `mark`: their top levels and directives
+// will never run, so an import of one loads it again.
+forget_since(mark: LoadMark)
     val v = current()
 
-    while v.modules.len() > from
+    while v.modules.len() > mark.modules
         v.modules.pop()
+
+    while v.pl_imports.len() > mark.pl_imports
+        v.pl_imports.pop()
 
 // The circle an import of `file` closes, written out so the reader knows which files are in it.
 private circle(file: string) -> string
@@ -430,16 +441,24 @@ qualified_in_head(res: *Resolved, g: string, name: string) -> Option[Meaning]
 // `g.name` meaning `m`: a pattern names a constructor the module exports, with as many fields as it
 // has. `None` when it can.
 qualified_pattern_refusal(res: *Resolved, g: string, name: string, m: Meaning, argc: Option[usize], at: Span) -> Option[Diagnostic]
-    val n = s"$g.$name"
-
     m match
         Unknown -> Some(not_exported(res, g, name, at))
+        _ -> pattern_refusal(s"$g.$name", m, argc, at)
+
+// Why the pattern `n(...)` -- `argc` fields, or `None` for the bare `n` -- cannot match, `n` meaning
+// `m`: outside a relation head, a pattern names a constructor in scope, with as many fields as it
+// has. `None` when it can. `n` is the name as the pattern writes it, qualified or not.
+pattern_refusal(n: string, m: Meaning, argc: Option[usize], at: Span) -> Option[Diagnostic]
+    m match
+        Unknown ->
+            Some(error(at, s"`$n` is not defined")
+                .with_note("a term in a pattern is a constructor a `data` declares, in this file or imported"))
         Constructor(id) ->
             val fields = current().ctors.at(id).fields.len()
 
             argc match
                 Some(k) ->
-                    if k == fields then return None
+                    if k == fields || has_ctor_of(id, k) then return None
 
                     Some(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this pattern gives $k"))
                 None ->
@@ -449,7 +468,7 @@ qualified_pattern_refusal(res: *Resolved, g: string, name: string, m: Meaning, a
                         .with_note(s"a pattern for it gives each field: `$n(...)`"))
         _ ->
             Some(error(at, s"`$n` is not a constructor, so a pattern cannot match it")
-                .with_note("a qualified name in a pattern is a constructor the module exports, as a `data` declares it"))
+                .with_note("a term in a pattern is a constructor, as a `data` declares it"))
 
 // The functor of the constructor `m` names, a pattern the resolver let through.
 pattern_functor(m: Option[Meaning]) -> Result[u32, string] = m match

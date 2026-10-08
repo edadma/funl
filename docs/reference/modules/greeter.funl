@@ -1,0 +1,5 @@
+import "greeting.pl"
+
+export def greet( name ) =
+  free g
+  if greeting( g ) then "$g, $name"

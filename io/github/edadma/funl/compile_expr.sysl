@@ -500,7 +500,7 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
                 e.op(NativeGen(id, argc))
             else
                 e.op(Native(id, argc))
-        Constructor(id) -> e.op(MakeRecord(id, argc))
+        Constructor(id) -> e.op(MakeRecord(made_ctor(id, argc), argc))
         _ -> return Err(s"'$n' was resolved and names nothing")
 
     if tail then e.op(Return)

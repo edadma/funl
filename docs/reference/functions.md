@@ -202,6 +202,46 @@ something else
 ((1, 2), 3)
 ```
 
+A record pattern names a constructor a `data` declares, in the file or imported, and gives each of
+its fields. A pattern that could never match is refused, wherever it is written: a parameter, a
+`val`, a `for` or a comprehension.
+
+```funl
+data pair = p(a, b)
+
+def first( p(a) ) = a
+```
+
+```error
+the constructor `p` takes 2 fields, and this pattern gives 1
+```
+
+```funl
+val zork(x) = 1
+```
+
+```error
+`zork` is not defined
+```
+
+A relation's head is the exception: it may write a term no `data` declares, which is a Prolog term
+([Relations](relations.md#facts-and-rules)). So may a `catch`'s pattern, which takes apart whatever
+was thrown ([Success and failure](success-and-failure.md#what-a-fault-is)).
+
+```funl
+def held( box(1, 2) )
+
+free t
+held( t )
+write( t )
+write( 1 + #a catch error(type_error(kind, _), _) -> kind )
+```
+
+```output
+box(1, 2)
+number
+```
+
 Matching is **one-way**: a parameter pattern inspects its argument and binds the pattern's own
 variables, and never changes the argument.
 

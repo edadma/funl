@@ -654,17 +654,36 @@ data point(a, b)
 the constructor `point` of 2 fields is already declared at
 ```
 
-The same name with a different number of fields is a different constructor and is allowed:
+The same name with a different number of fields is a different constructor and is allowed. A call
+or a pattern reaches the one with as many fields as it gives:
 
 ```funl
 data point(x)
 data point(x, y)
 
-write( point(1, 2).y )
+def size( point(_) ) = 1
+def size( point(_, _) ) = 2
+
+write( point(1, 2).y, point(7).x )
+write( size(point(7)), size(point(1, 2)) )
 ```
 
 ```output
-2
+2, 7
+1, 2
+```
+
+A call or a pattern giving a number of fields no constructor of that name has is refused:
+
+```funl
+data point(x)
+data point(x, y)
+
+def size( point(_, _, _) ) = 3
+```
+
+```error
+the constructor `point` takes 2 fields, and this pattern gives 3
 ```
 
 A name is looked up first among the program's own `data` types, then among its constructors, and
