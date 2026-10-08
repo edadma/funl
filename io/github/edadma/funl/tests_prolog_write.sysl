@@ -234,3 +234,17 @@ A_NAME_PREFIX_OPERATOR_IS_SET_APART_FROM_A_CURLY_TERM()
     // SWI-Prolog 10.0.2: `dynamic {a}`. A symbol prefix operator stays close, as GNU Prolog 1.5.0 has `-{a}`.
     assert_eq(ran_prolog(":- X = (dynamic {a}), writeq(X), nl.\n:- X = (- {a}), writeq(X), nl.\n:- X = (dynamic a), writeq(X), nl.\n"),
         ok("dynamic {a}\n-{a}\ndynamic a"))
+
+@test
+AN_INFINITY_AND_A_NAN_ARE_WRITTEN_AS_SWI_PROLOG_WRITES_THEM()
+    // SWI-Prolog 10.0.2 writes the same, but for `- 1.0Inf`, which it writes without the brackets.
+    assert_eq(written("writeq", "f(1.0Inf, -1.0Inf, 1.5NaN)"), ok("f(1.0Inf,-1.0Inf,1.5NaN)"))
+    assert_eq(written("write", "[1.0Inf, -1.0Inf, 1.5NaN]"), ok("[1.0Inf,-1.0Inf,1.5NaN]"))
+    assert_eq(written("print", "1.5NaN"), ok("1.5NaN"))
+    assert_eq(written("write_canonical", "-1.0Inf"), ok("-1.0Inf"))
+    assert_eq(written("writeq", "1 - -1.0Inf"), ok("1- -1.0Inf"))
+    assert_eq(written("writeq", "-(1.0Inf)"), ok("- (1.0Inf)"))
+    assert_eq(written("writeq", "-(1.5NaN)"), ok("- (1.5NaN)"))
+    assert_eq(written("writeq", "-(-1.0Inf)"), ok("- -1.0Inf"))
+    assert_eq(ran_prolog(":- X is inf, format(\"~w ~q ~a~n\", [X, X, x]).\n"), ok("1.0Inf 1.0Inf x"))
+    assert_eq(ran_prolog(":- msort([1.5NaN, 1.0Inf, -1.0Inf, 0.0, 1], L), writeq(L), nl.\n"), ok("[1.5NaN,-1.0Inf,0.0,1,1.0Inf]"))
