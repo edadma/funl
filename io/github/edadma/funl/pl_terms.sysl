@@ -5,7 +5,7 @@ import sysl.container.{Map, map}
 
 // Prolog's builtins that inspect and build terms: the type tests, `functor/3`, `arg/3`, `=../2`,
 // `copy_term/2`, `term_variables/2`, `compare/3`, `unify_with_occurs_check/2`, `acyclic_term/1`,
-// `cyclic_term/1`, `subsumes_term/2`, `unifiable/3`, `?=/2` and `numbervars/3`.
+// `cyclic_term/1`, `subsumes_term/2`, `unifiable/3`, `?=/2`, `numbervars/3` and `numbervars/4`.
 //
 // **A list cell is the compound `'[|]'(H, T)`** to all of them, as in SWI-Prolog 7, where `'.'` is no
 // longer the list functor; and a FunL tuple is the compound `tuple(...)` the term mapping makes it.
@@ -37,6 +37,7 @@ install_prolog_terms(v: *Vm)
     register_generator(v, "unifiable/3", 3, pl_unifiable)
     register_generator(v, "?=/2", 2, (b, n, c) -> answer(decided(arg(b, 0), arg(b, 1))))
     register_generator(v, "numbervars/3", 3, pl_numbervars)
+    register_generator(v, "numbervars/4", 4, pl_numbervars)
 
 // -- What every Prolog builtin answers with --------------------------------------------------------
 
@@ -322,6 +323,39 @@ variables_of(x: Value, first: bool) -> Buf[Value]
     found
 end variables_of
 
+// How many times each unbound variable of `x` occurs, by its id, a node of a cyclic term counted once.
+private variable_uses(x: Value) -> Map[u64, long]
+    var uses: Map[u64, long] = map()
+    var w = term_walk()
+    var work: Buf[Value] = buf()
+
+    work.push(x)
+
+    while work.len() > 0
+        val d = next_depth(&w)
+        val y = deref(work.pop().unwrap())
+
+        if passed(&w, y, Undefined, d) then continue
+
+        val before = work.len()
+
+        y match
+            Var(p) -> uses.put(p.id, uses.get(p.id).unwrap_or(0) + 1)
+            _ ->
+                compound_parts(y) match
+                    Some((_, args)) ->
+                        var i = args.len()
+
+                        while i > 0
+                            i -= 1
+                            work.push(args.at(i))
+                    None -> ()
+
+        pushed(&w, work.len() - before, d, work.len())
+
+    uses
+end variable_uses
+
 // -- subsumes_term/2, unifiable/3, ?=/2, numbervars/3 ----------------------------------------------
 
 // `subsumes_term(General, Specific)`: `Specific` is an instance of `General` -- they unify, binding no
@@ -410,24 +444,87 @@ private decided(a: Value, b: Value) -> bool
 // `'$VAR'(N)`, `N` counting up from `Start`; `End` is the next number after the last one used. The
 // writers that take `numbervars(true)` -- `print/1`, `writeq/1`, `write/1` -- show `'$VAR'(N)` as a
 // variable name: `A`, ..., `Z`, `A1`, ...
+//
+// `numbervars(Term, Start, End, Options)` takes SWI-Prolog's options: `functor_name(F)` binds to
+// `F(N)` instead of `'$VAR'(N)`; `singletons(true)` binds a variable that occurs once to `F('_')`,
+// which uses up no number; and `attvar(bind|skip|error)` is checked and changes nothing, since a FunL
+// variable has no attributes. Another option is passed over, and a later one wins over an earlier.
 private pl_numbervars(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = if argc == 4 then "numbervars/4" else "numbervars/3"
     val start = deref(arg(base, 1))
 
     var n = start match
         Int(k) -> k
-        Var(_) -> return Err(instantiation_error("instantiation error: numbervars/3 was given an unbound variable as its start"))
-        _ -> return Err(type_error("integer", start, s"numbervars/3 wants an integer start, and was given ${described(start)}"))
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable as its start"))
+        _ -> return Err(type_error("integer", start, s"$who wants an integer start, and was given ${described(start)}"))
+
+    var functor = "$VAR"
+    var singletons = false
+
+    if argc == 4
+        val opts = arg(base, 3)
+        var at = deref(opts)
+
+        loop
+            at match
+                Nil -> break
+                Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given options that are not yet a whole list"))
+                Cons(p) ->
+                    val o = deref(p.head)
+
+                    o match
+                        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound option"))
+                        Compound(c) ->
+                            if c.args.len() == 1
+                                val name = atom_name(c.functor)
+                                val x = deref(c.args.at(0))
+
+                                if name == "functor_name" || name == "singletons" || name == "attvar"
+                                    x match
+                                        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given $name/1 with an unbound value"))
+                                        _ -> ()
+
+                                if name == "functor_name"
+                                    x match
+                                        Atom(id) -> functor = atom_name(id)
+                                        _ -> return Err(type_error("atom", x, s"$who's functor_name/1 wants an atom, and was given ${described(x)}"))
+                                elif name == "singletons"
+                                    singletons = x match
+                                        Atom(id) ->
+                                            val b = atom_name(id)
+
+                                            if b == "true" then true
+                                            elif b == "false" then false
+                                            else return Err(type_error("bool", x, s"$who's singletons/1 wants true or false, and was given $b"))
+                                        _ -> return Err(type_error("bool", x, s"$who's singletons/1 wants true or false, and was given ${described(x)}"))
+                                elif name == "attvar"
+                                    val ok = x match
+                                        Atom(id) -> atom_name(id) == "bind" || atom_name(id) == "skip" || atom_name(id) == "error"
+                                        _ -> false
+
+                                    if !ok then return Err(domain_error("numbervar_option", deref(opts), s"$who's attvar/1 is bind, skip or error, and was given ${render(x)}"))
+                        _ -> ()
+
+                    at = deref(p.tail)
+                _ -> return Err(type_error("list", at, s"$who wants a list of options, and was given ${described(at)}"))
 
     val vars = variables_of(arg(base, 0), false)
+    val uses = if singletons then variable_uses(arg(base, 0)) else map()
 
     for x in vars.view()
         var parts: Buf[Value] = buf()
+        var once = false
 
-        parts.push(Int(n))
+        if singletons
+            x match
+                Var(p) -> once = uses.get(p.id).unwrap_or(0) == 1
+                _ -> ()
 
-        if !unify(x, build_compound(intern("$VAR"), parts)?) then return answer(false)
+        parts.push(if once then atom("_") else Int(n))
 
-        n += 1
+        if !unify(x, build_compound(intern(functor), parts)?) then return answer(false)
+
+        if !once then n += 1
 
     unified(arg(base, 2), Int(n))
 end pl_numbervars

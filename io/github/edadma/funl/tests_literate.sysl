@@ -125,7 +125,7 @@ A_PROLOG_FILE_IMPORTS_A_LITERATE_FUNL_FILE()
     defer scrap(d)
 
     val file = put(d, "geometry.lfunl", "The scale every function reads.\n\n    val scale = 10\n\n" +
-        "And the one Prolog calls.\n\n    def scaled(n) = n * scale\n")
+        "And the one Prolog calls.\n\n    export def scaled(n) = n * scale\n")
 
     val said = ran_prolog(s":- import(\"$file\").\n:- scaled(2, X), write(X), nl.\n")
 
@@ -133,7 +133,7 @@ A_PROLOG_FILE_IMPORTS_A_LITERATE_FUNL_FILE()
     val clash = prolog_complaints(s":- import(\"$file\").\nscaled(_, 0).\n")
 
     assert_eq(said, "20\nsucceeded")
-    assert(clash.contains(s"the FunL function `scaled` at $file:7:9,"), clash)
+    assert(clash.contains(s"the FunL function `scaled` at $file:7:16,"), clash)
 
 @test
 A_PROLOG_IMPORT_OF_A_LITERATE_FILE_THAT_CANNOT_BE_READ_OR_TANGLED_IS_REFUSED()

@@ -113,7 +113,11 @@ ATOM_NUMBER_READS_AN_ATOM_AS_A_NUMBER_OR_FAILS()
     assert_eq(gives("atom_number(X, 2.5)"), ok("'2.5'"))
     assert_eq(holds("atom_number('1/2', _)"), ok("no"))
     assert_eq(holds("atom_number('2.', _)"), ok("no"))
-    assert_eq(holds("atom_number('0xFFFFFFFFFFFFFFFFFF', _)"), ok("evaluation_error(int_overflow)"))
+
+    // An integer in a radix of any size, as swipl 10.0.2 reads it.
+    assert_eq(gives("atom_number('0xFFFFFFFFFFFFFFFFFF', X)"), ok("4722366482869645213695"))
+    assert_eq(gives("number_codes(X, \"-0b10000000000000000000000000000000000000000000000000000000000000000\")"), ok("-18446744073709551616"))
+    assert_eq(holds("atom_number('0xFFFFFFFFFFFFFFFFFG', _)"), ok("no"))
 
 @test
 NUMBER_CODES_READS_AND_WRITES_A_FLOAT_AND_A_BIG_INTEGER()

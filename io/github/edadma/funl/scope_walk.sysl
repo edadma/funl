@@ -168,6 +168,11 @@ writes_element(pat: &Expr, m: Meaning) -> bool
 refused_as_variable(w: *Walk, n: string, at: Span) -> bool
     if w.sid != w.res.top && !w.relation then return false
 
+    if w.res.imported.get(n).is_some() || w.res.aliases.get(n).is_some()
+        w.report.add(error(at, s"`$n` is imported, and cannot also be a variable")
+            .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
+        return true
+
     w.res.global(n) match
         Relation(_) -> ()
         Predicate(_) -> ()
@@ -274,7 +279,24 @@ walk(w: *Walk, e: &Expr)
             for x in parts.view()
                 walk(w, x)
         ApplyE(f, args) ->
-            walk(w, f)
+            // `m.f(args)`, `m` a module: a call of what the module exports as `f`, checked as a call
+            // of `f` in its own file is.
+            var called = false
+
+            f.kind match
+                FieldE(x, name) ->
+                    qualified_at(w, x, name) match
+                        Some(m) ->
+                            called = true
+                            walk(w, x)
+
+                            m match
+                                Unknown -> not_exported_at(w, x, name, f.span)
+                                _ -> check_call(w, m, s"${ref_name(x)}.$name", f.span, args.len())
+                        None -> ()
+                _ -> ()
+
+            if !called then walk(w, f)
 
             for a in args.view()
                 walk(w, a)
@@ -355,7 +377,15 @@ walk(w: *Walk, e: &Expr)
             if type_test(w.meaning(t, at.start), t).is_none()
                 w.report.add(error(at, s"`$t` is not a type")
                     .with_note("`is` takes a type's name: `integer`, `string`, `list` and the rest, a `data` type, or a constructor"))
-        FieldE(x, _) -> walk(w, x)
+        FieldE(x, name) ->
+            walk(w, x)
+
+            qualified_at(w, x, name) match
+                Some(m) -> m match
+                    Unknown -> not_exported_at(w, x, name, e.span)
+                    Relation(_) -> called_not_used(w, s"${ref_name(x)}.$name", e.span)
+                    _ -> ()
+                None -> ()
         RevAssignE(n, x) ->
             walk(w, x)
             assigned(w, n, e.span, e.span.end)
@@ -448,9 +478,29 @@ private writes_into(w: *Walk, a: &Expr) -> bool
                 _ -> false
         _ -> true
 
+// When `x.name` is a name a module exports, `x` naming the module: what it means there, `Unknown`
+// when the module does not export it.
+private qualified_at(w: *Walk, x: &Expr, name: string) -> Option[Meaning] = x.kind match
+    Ref(g) -> qualified_name(w.res, g, w.meaning(g, x.span.start), name)
+    _ -> None
+
+// The name `x` is, or "".
+private ref_name(x: &Expr) -> string = x.kind match
+    Ref(g) -> g
+    _ -> ""
+
+// The refusal of `x.name`, which the module `x` names does not export.
+private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
+    x.kind match
+        Ref(g) -> w.report.add(not_exported(w.res, g, name, at))
+        _ -> ()
+
 // A call names something callable, with as many arguments as it takes.
-private callable(w: *Walk, n: string, at: Span, argc: usize)
-    val arity = w.meaning(n, at.start) match
+private callable(w: *Walk, n: string, at: Span, argc: usize) = check_call(w, w.meaning(n, at.start), n, at, argc)
+
+// A call of `n`, which means `m`, with as many arguments as it takes.
+private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
+    val arity = m match
         Local(depth, _, _) ->
             if depth == 0 then w.sc.used(n)
 
@@ -495,7 +545,7 @@ private callable(w: *Walk, n: string, at: Span, argc: usize)
 
     if arity != Variadic && argc != arity
         w.report.add(error(at, s"`$n` takes ${counted(arity, "argument")}, and this call gives $argc"))
-end callable
+end check_call
 
 private global_names(r: *Resolved) -> Buf[string]
     var names: Buf[string] = buf()

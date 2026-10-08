@@ -1,0 +1,5 @@
+;; A module whose exported variable changes after it has loaded.
+
+export var count = 0
+
+export def bump() = (count += 1)

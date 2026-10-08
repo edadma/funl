@@ -1,0 +1,7 @@
+# Scaling
+
+A literate module: the indented lines are the program.
+
+    val scale = 10
+
+    export def scaled( n ) = n * scale

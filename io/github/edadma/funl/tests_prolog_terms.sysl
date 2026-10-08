@@ -3,7 +3,7 @@ module io.github.edadma.funl
 
 // The Prolog builtins that inspect and build terms: the type tests, `functor/3`, `arg/3`, `=../2`,
 // `copy_term/2`, `term_variables/2`, `compare/3`, `acyclic_term/1`, `cyclic_term/1`,
-// `subsumes_term/2`, `unifiable/3`, `?=/2` and `numbervars/3`, each with its errors; and the refusal
+// `subsumes_term/2`, `unifiable/3`, `?=/2`, `numbervars/3` and `numbervars/4`, each with its errors; and the refusal
 // to store a cyclic term as a clause.
 
 private ok(text: string) -> string = text + "\nsucceeded"
@@ -193,6 +193,35 @@ NUMBERVARS_RAISES_THE_ERRORS_SWI_PROLOG_DOES()
     assert_eq(holds("numbervars(f(_), _, _)"), ok("instantiation_error"))
     assert_eq(holds("numbervars(f(_), a, _)"), ok("type_error(integer,a)"))
     assert_eq(holds("numbervars(f(_), 1.0, _)"), ok("type_error(integer,1.0)"))
+
+// The expected answers of the two below are what swipl 10.0.2 gives for the same goals.
+@test
+NUMBERVARS_4_TAKES_SWI_PROLOGS_OPTIONS()
+    val shows = ":- T = f(X, Y, X), numbervars(T, 0, E, [singletons(true)]), print(T-E), nl, write_canonical(T), nl.\n"
+
+    assert_eq(ran_prolog(shows), ok("f(A,_,A)-1\nf('$VAR'(0),'$VAR'('_'),'$VAR'(0))"))
+    assert_eq(gives("T = g(A, B, A, C), numbervars(T, 0, E, [singletons(true)]), X = T-E"), ok("g(A,_,A,_)-1"))
+    assert_eq(gives("T = f(_, _), numbervars(T, 0, E, [functor_name(v)]), X = T-E"), ok("f(v(0),v(1))-2"))
+    assert_eq(gives("T = f(_, _), numbervars(T, 5, E, [functor_name(v), singletons(true)]), X = T-E"), ok("f(v('_'),v('_'))-5"))
+    assert_eq(gives("T = f(_, _), numbervars(T, 0, E, [functor_name(v), functor_name(w)]), X = T-E"), ok("f(w(0),w(1))-2"))
+    assert_eq(gives("T = f(_, _), numbervars(T, 0, E, [attvar(skip), foo(bar)]), X = T-E"), ok("f(A,B)-2"))
+    assert_eq(gives("T = f(_), numbervars(T, 0, E, []), X = T-E"), ok("f(A)-1"))
+    assert_eq(gives("T = f(_), numbervars(T, -1, E, []), X = T-E"), ok("f(S_1)-0"))
+    assert_eq(holds("numbervars(f(_, _), 0, 1, [])"), ok("no"))
+
+@test
+NUMBERVARS_4_REFUSES_A_BAD_OPTION()
+    assert_eq(holds("numbervars(f(_), 0, _, foo)"), ok("type_error(list,foo)"))
+    assert_eq(holds("numbervars(f(_), 0, _, [a, b|c])"), ok("type_error(list,c)"))
+    assert_eq(holds("numbervars(f(_), 0, _, _)"), ok("instantiation_error"))
+    assert_eq(holds("numbervars(f(_), 0, _, [a|_])"), ok("instantiation_error"))
+    assert_eq(holds("numbervars(f(_), 0, _, [_])"), ok("instantiation_error"))
+    assert_eq(holds("numbervars(f(_), 0, _, [functor_name(_)])"), ok("instantiation_error"))
+    assert_eq(holds("numbervars(f(_), 0, _, [attvar(foo)])"), ok("domain_error(numbervar_option,[attvar(foo)])"))
+    assert_eq(holds("numbervars(f(_), 0, _, [foo(1), attvar(foo), bar])"), ok("domain_error(numbervar_option,[foo(1),attvar(foo),bar])"))
+    assert_eq(holds("numbervars(f(_), 0, _, [functor_name(1)])"), ok("type_error(atom,1)"))
+    assert_eq(holds("numbervars(f(_), 0, _, [singletons(maybe)])"), ok("type_error(bool,maybe)"))
+    assert_eq(holds("numbervars(f(_), a, _, [])"), ok("type_error(integer,a)"))
 
 @test
 A_CYCLIC_TERM_IS_NOT_STORED_AS_A_CLAUSE()

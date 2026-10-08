@@ -289,13 +289,10 @@ enum LoadStep
 // A FunL file it imported is not counted as loaded when the file itself is refused, since its top
 // level never runs: importing it again loads it again.
 load_prolog(src: Source, report: *Report) -> Result[usize, Refusal]
-    val v = current()
-    val before = v.funl_files.len()
+    val before = current().modules.len()
     val loaded = load_file(src, report)
 
-    if loaded.is_err()
-        while v.funl_files.len() > before
-            v.funl_files.pop()
+    if loaded.is_err() then forget_modules(before)
 
     loaded
 
@@ -317,6 +314,7 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
     // The reader's flag as the file found it: a `double_quotes` directive changes it while the file
     // is read, and again, in its place, when the directives run.
     val quotes = current().flags.double_quotes
+    val back_quotes = current().flags.back_quotes
 
     loop
         val c = next_clause(&r) match
@@ -326,7 +324,13 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
 
         directive_goal(c.t) match
             Some(g) ->
+                val was = current().flags.back_quotes
+
                 why = directive(src, report, ReadClause(g, c.names), &goals, &inits, why)
+
+                // `back_quotes` can change where a token ends, so the rest is cut into tokens again.
+                if current().flags.back_quotes != was then relex_rest(&r, src)
+
                 continue
             None -> ()
 
@@ -377,6 +381,7 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
     val v = current()
 
     v.flags.double_quotes = quotes
+    v.flags.back_quotes = back_quotes
 
     if report.has_errors() then return Err(why)
 
@@ -508,11 +513,13 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
             if n == "import" && args.len() == 1 && current().funl_front_end
                 return import_directive(src, report, args.at(0), goals, why)
 
-            // `set_prolog_flag(double_quotes, _)` is carried out now as well, so it governs the clauses
-            // read after it. **Every flag is also set again as a goal in its place among the
-            // directives**, so a directive before it sees the flag as it was, and one after it sees the
-            // new value -- `load_file` puts the reader's flag back once the file is read.
-            if n == "set_prolog_flag" && args.len() == 2 && is_atom_named(args.at(0), "double_quotes")
+            // `set_prolog_flag(double_quotes, _)` and `set_prolog_flag(back_quotes, _)` are carried
+            // out now as well, so they govern the clauses read after them. **Every flag is also set
+            // again as a goal in its place among the directives**, so a directive before it sees the
+            // flag as it was, and one after it sees the new value -- `load_file` puts the reader's
+            // flags back once the file is read.
+            if n == "set_prolog_flag" && args.len() == 2 &&
+                    (is_atom_named(args.at(0), "double_quotes") || is_atom_named(args.at(0), "back_quotes"))
                 var vars: Buf[Value] = buf()
 
                 val flag = term_value(args.at(0), &vars)

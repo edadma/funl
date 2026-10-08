@@ -3,10 +3,11 @@
 ;; The facts and the rule below are relations, which Prolog sees as ordinary predicates of the
 ;; same name and arity. A FunL function of n parameters is the Prolog predicate of n + 1 arguments,
 ;; the last unified with its result, and a function that generates gives one solution per value.
+;; Prolog sees what the file exports: `export def` before the block exports every definition in it.
 ;;
 ;; Run on its own, this file prints the catalogue from the FunL side.
 
-def
+export def
   price( #apple, 75 )                 ;; prices in cents
   price( #bread, 250 )
   price( #cheese, 700 )
@@ -19,9 +20,9 @@ def
   unit( x, u ) :- if fruit( x ) then u ~ #kilo else u ~ #item
 
 ;; Plain functions. `euros` answers an exact rational, which Prolog arithmetic takes as a number.
-def euros( cents ) = cents / 100
+export def euros( cents ) = cents / 100
 
-def sizes() = #small | #large
+export def sizes() = #small | #large
 
 free item, cost, u
 every price( item, cost ) & unit( item, u ) do write( item, euros(cost), u )

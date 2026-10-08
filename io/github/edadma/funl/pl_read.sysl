@@ -60,6 +60,23 @@ enum Read
 
 pl_reader(src: Source, report: *Report) -> PlReader = PlReader(pl_lex(src, report), report, buf(), 1200, false, 0)
 
+// Cut the rest of `src`, from the next token on, into tokens again as the lexer now reads it: what a
+// directive changing the `back_quotes` flag needs, since under `symbol_char` a back quote no longer
+// begins a text. What the first cut reported about the rest is dropped, and the second cut reports
+// afresh.
+relex_rest(r: *PlReader, src: Source)
+    val from = r.toks.peek() match
+        Some(t) -> t.span.start
+        None -> return
+
+    var kept: Buf[Diagnostic] = buf()
+
+    for d in r.report.items.view()
+        if d.span.start < from then kept.push(d)
+
+    r.report.items = kept
+    r.toks = pl_lex_from(src, r.report, from)
+
 // Read the next clause, up to and including its `.`.
 next_clause(r: *PlReader) -> Read
     if r.toks.at_end() then return Done
@@ -167,6 +184,15 @@ private quoted_text(s: string, at: Span) -> &Term
 
     text_list(s, how, at)
 
+// `` `text` `` as SWI-Prolog's `back_quotes` flag reads it: a list of codes, the default, a list of
+// one-character atoms, or a string. (Under `symbol_char` the lexer makes no back-quoted text.)
+private back_quoted_text(s: string, at: Span) -> &Term
+    val how = current().flags.back_quotes
+
+    if how == "string" then return term(TStr(s), at)
+
+    text_list(s, if how == "chars" then "chars" else "codes", at)
+
 // `s` as a list: of character codes when `how` is `codes`, and of one-character atoms otherwise.
 private text_list(s: string, how: string, at: Span) -> &Term
     var items: Buf[&Term] = buf()
@@ -197,7 +223,7 @@ private nud(t: Spanned[PlTok], r: *PlReader) -> Rd
         PlNumT(text) -> Rd(term(TNum(text), t.span), 0)
         PlVarT(name) -> Rd(term(TVar(variable(r, name)), t.span), 0)
         PlStrT(s) -> Rd(quoted_text(s, t.span), 0)
-        PlBackT(s) -> Rd(text_list(s, "codes", t.span), 0)
+        PlBackT(s) -> Rd(back_quoted_text(s, t.span), 0)
         PlOpen -> bracketed(r, t.span)
         PlOpenCT -> bracketed(r, t.span)
         PlLBracket -> list(r, t.span)

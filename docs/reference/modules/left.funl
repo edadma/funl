@@ -1,0 +1,5 @@
+;; Half of a circle of imports: this file imports right.funl, which imports this one.
+
+import { right } from "right.funl"
+
+export def left() = 1

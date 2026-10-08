@@ -151,7 +151,7 @@ A_CONSULTED_FILES_PREDICATES_ARE_CALLABLE_FROM_PROLOG_LOADED_LATER()
 // FunL's `true` and `false` are Prolog's atoms `true` and `false` (`prolog.md` § "The term mapping"):
 // one value, so unification, the type tests, the atom builtins, `=..`, the standard order and
 // printing all agree, and the control constructs `true/0` and `false/0` are what a boolean calls.
-private const BooleansFunl: string = "def yes() = true\ndef no() = false\n"
+private const BooleansFunl: string = "export def yes() = true\nexport def no() = false\n"
 
 @test
 A_FUNL_BOOLEAN_IS_THE_PROLOG_ATOM_TO_UNIFICATION_AND_THE_ATOM_BUILTINS()

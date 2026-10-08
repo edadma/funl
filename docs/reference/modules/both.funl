@@ -1,0 +1,5 @@
+;; A module that imports geometry.funl too, so a program importing both still loads it once.
+
+import { area, square } from "geometry.funl"
+
+export def floor_area( side ) = area( square(side) )

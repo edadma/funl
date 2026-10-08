@@ -111,8 +111,8 @@ error: this fence is never closed, so everything below it is an illustration and
  --> open.lfunl:5:1
 ```
 
-A Prolog program reads a literate FunL file too, with `:- import`, and calls its functions as
-relations whose last argument is the result. That takes two files, so the two below are shown rather
+A Prolog program reads a literate FunL file too, with `:- import`, and calls its exported functions
+as relations whose last argument is the result. That takes two files, so the two below are shown rather
 than run here. With `scaling.lfunl`
 
 ````lfunl scaling.lfunl
@@ -124,7 +124,7 @@ The scale every function reads.
 
 And the one Prolog calls.
 
-    def scaled( n ) = n * scale
+    export def scaled( n ) = n * scale
 ````
 
 this Prolog program, run with `funl main.pl`, prints `20`:
