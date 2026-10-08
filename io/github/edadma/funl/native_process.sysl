@@ -1,0 +1,248 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.env.get
+import sysl.fs.{IoError, NotFound, PermissionDenied}
+import sysl.process.{Exited, Output, Signalled, TimedOut, Var, capture}
+
+// `funl:process`: this program's arguments and environment, ending it with a status, and running
+// another program, over sysl's `sysl.process` and `sysl.env`.
+//
+// **Every native here is registered as `process.name`**, as `funl:fs`'s are, so `run`, `env` and
+// `exit` stay free for programs; `process_exports` gives them their short names.
+//
+// **A thing that is not there is failure, and anything else that goes wrong is a fault**
+// (`modules.md`, failure or fault): an unset variable fails, so `env("X") | "default"` is the test a
+// program writes, and a program that is not installed fails `run`. A program that is there and may
+// not be run faults with `permission_error(execute, source_sink, Program)`; any other error starting
+// one faults with `system_error`.
+//
+// **A child that ran is an answer, whatever its status**: `run` gives a map of what it wrote and how
+// it ended, and a non-zero `status` is a value to test rather than a failure of the call. Nothing goes
+// through a shell -- the arguments are a list and reach the program as they are.
+
+// What `funl:process` exports, each name the short form of a native `install_process` registered as
+// `process.name`.
+private val ProcessNames: [5]string = ["args", "env", "exit", "run", "run_lines"]
+
+// The handle kind holding `run_lines`'s place in what a child wrote.
+private const OutputKind: string = "process output"
+
+install_process(v: *Vm)
+    register_handle_kind(v, OutputKind, (h) -> ())
+    register_constant(v, "process.args", do_args)
+    register_generator(v, "process.env", 1, do_env)
+    register(v, "process.exit", 1, do_exit)
+    bound_counts(v, register_generator(v, "process.run", Variadic, do_run), 1, 3)
+    bound_counts(v, register_stepping(v, "process.run_lines", Variadic, start_run_lines, step_run_lines), 1, 3)
+end install_process
+
+// The exports of `funl:process`.
+process_exports() -> Buf[ModExport] = native_exports("process", ProcessNames)
+
+// -- this program ----------------------------------------------------------------------------------
+
+// `args`: the list of what the program was given after its own name, each a string.
+private do_args(base: usize, argc: usize) -> Result[Value, Fault]
+    var pieces: Buf[string] = buf()
+
+    for a in current().program_args.view()
+        pieces.push(a)
+
+    string_list(&pieces)
+
+// `env(name)`: what the variable `name` is set to, failing where it is unset (or its value is not
+// UTF-8 text).
+private do_env(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val name = word_arg(base, 0, "env", "a variable's name")?
+
+    get(name) match
+        Some(s) -> Ok(Gives(new_str(s)?))
+        None -> Ok(Refuses)
+
+// `exit(status)`: end the program with `status`, 0 to 255, after everything it wrote. It ends the run
+// from wherever it is called, as Prolog's `halt/1` does, and `catch` does not catch it.
+private do_exit(base: usize, argc: usize) -> Result[Value, Fault]
+    val s = deref(arg(base, 0))
+
+    s match
+        Int(n) ->
+            if n < 0 || n > 255
+                return Err(domain_error("exit_status", s, s"'exit' wants a status from 0 to 255, and was given $n"))
+
+            Err(Exits(int(n)))
+        _ -> Err(kind_error(s, "integer", s"'exit' wants an integer status, and was given ${described(s)}"))
+
+// -- running a program ---------------------------------------------------------------------------
+
+// What a call of `run` or `run_lines` asks for: the program, its arguments, and the options.
+struct Asked
+    program: string
+    args: Buf[string]
+    dir: string
+    env: Buf[Var]
+    timeout: int
+
+// `run(program)`, `run(program, args)`, `run(program, args, options)`: start `program` -- found on
+// `PATH` when it names no directory -- with the list of strings `args`, wait for it, and give a map:
+// `out` and `err`, what it wrote to its standard output and standard error, and how it ended --
+// `status`, its exit status, where it exited; `signal`, the signal's number, where one killed it;
+// `timed_out`, `true`, where it ran past its `timeout`. Of those three keys only the one that happened
+// is there, so `r.signal` fails for a child that exited.
+//
+// The options are a map: `cwd`, the directory it runs in; `env`, a map of variables added to this
+// program's environment for it; `timeout`, how many milliseconds it may run before it is stopped.
+private do_run(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val a = asked(base, argc, "run")?
+
+    val got = ran(a, "run")? match
+        Some(o) -> o
+        None -> return Ok(Refuses)
+
+    val out = new_map()?
+
+    map_put(out, new_str("out")?, new_str(got.text)?)?
+    map_put(out, new_str("err")?, new_str(got.err.unwrap_or(""))?)?
+
+    got.status match
+        Exited(c) -> map_put(out, new_str("status")?, Int(long(c)))?
+        Signalled(n) -> map_put(out, new_str("signal")?, Int(long(n)))?
+        TimedOut -> map_put(out, new_str("timed_out")?, atom("true"))?
+
+    Ok(Gives(Map(out)))
+
+// `run_lines(program, args?, options?)`: run the program as `run` does and generate each line it
+// wrote to its standard output, without its `\n` or a `\r` before it. Its standard error and how it
+// ended are not looked at; a program that is not there fails, as it does for `run`.
+private start_run_lines(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val a = asked(base, argc, "run_lines")?
+
+    val got = ran(a, "run_lines")? match
+        Some(o) -> o
+        None -> return Ok(None)
+
+    if got.text.len == 0 then return Ok(None)
+
+    var vals: Buf[Value] = buf()
+
+    vals.push(new_str(got.text)?)
+
+    val h = new_handle(output_kind())?
+
+    h.vals = vals
+    Ok(Some(Handle(h)))
+
+private step_run_lines(h: *HandleObj) -> Result[Option[Value], Fault]
+    val text = h.vals.at(0) match
+        Str(p) -> p.s
+        _ -> return Ok(None)
+
+    val from = usize(h.n)
+
+    if from >= text.len then return Ok(None)
+
+    val (line, next) = line_at(text, from)
+
+    h.n = long(next)
+    Ok(Some(new_str(line)?))
+
+// The handle kind `install_process` registered on the running VM.
+private output_kind() -> u32
+    val kinds = current().handle_kinds
+
+    for i in 0..<kinds.len()
+        if kinds.at(i).name == OutputKind then return u32(i)
+
+    panic("funl:process is not installed on this VM")
+
+// Run what `a` asks for and wait for it, both of its streams captured: `None` where there is no such
+// program.
+private ran(a: Asked, name: string) -> Result[Option[Output], Fault]
+    capture(a.program, a.args.view(), a.dir, a.env.view(), true, a.timeout) match
+        Ok(o) -> Ok(Some(o))
+        Err(e) -> if e == NotFound then Ok(None) else Err(start_fault(e, name, a.program))
+
+// The fault for error `e`, met starting `program`.
+private start_fault(e: IoError, name: string, program: string) -> Fault
+    val msg = s"'$name' cannot start `$program`: ${e.message()}"
+
+    if e == PermissionDenied
+        new_str(program) match
+            Ok(p) -> return permission_error("execute", "source_sink", p, msg)
+            Err(m) -> return Broken(m)
+
+    system_error(msg)
+
+// The program, arguments and options of a call of `name` with `argc` arguments.
+private asked(base: usize, argc: usize, name: string) -> Result[Asked, Fault]
+    if argc < 1 || argc > 3
+        return Err(wrong_count(name, argc, s"'$name' takes 1 to 3 arguments, and was given $argc"))
+
+    val program = word_arg(base, 0, name, "a program")?
+    var a = Asked(program, buf(), "", buf(), 0)
+
+    if argc >= 2 then a.args = string_args(arg(base, 1), name)?
+
+    if argc == 3 then options(arg(base, 2), name, &a)?
+
+    Ok(a)
+
+// The list `x` as strings: each element a string, or an atom for its name.
+private string_args(x: Value, name: string) -> Result[Buf[string], Fault]
+    var items: Buf[Value] = buf()
+
+    elements(x, s"'$name'", &items)?
+
+    var out: Buf[string] = buf()
+
+    for e in items.view()
+        out.push(word_of(e, name, "an argument")?)
+
+    Ok(out)
+
+// The options map `x` read into `a`: `cwd`, `env` and `timeout`, each optional; any other key is a
+// fault, so a misspelt option is not silently ignored.
+private options(x: Value, name: string, a: *Asked) -> Result[unit, Fault]
+    val m = deref(x) match
+        Map(p) -> p
+        MutMap(p) -> p
+        y -> return Err(kind_error(y, "map", s"'$name' wants its options as a map, and was given ${described(y)}"))
+
+    for i in 0..<m.keys.len()
+        val k = word_of(m.keys.at(i), name, "an option's name")?
+        val opt = deref(m.vals.at(i))
+
+        if k == "cwd"
+            a.dir = word_of(opt, name, "the `cwd` option")?
+        elif k == "timeout"
+            opt match
+                Int(n) ->
+                    if n < 0 || n > 2147483647
+                        return Err(domain_error("timeout", opt, s"'$name' wants a `timeout` of 0 or more milliseconds, and was given $n"))
+
+                    a.timeout = int(n)
+                _ -> return Err(kind_error(opt, "integer", s"'$name' wants its `timeout` in whole milliseconds, and was given ${described(opt)}"))
+        elif k == "env"
+            val e = opt match
+                Map(p) -> p
+                MutMap(p) -> p
+                y -> return Err(kind_error(y, "map", s"'$name' wants its `env` option as a map of names to strings, and was given ${described(y)}"))
+
+            for j in 0..<e.keys.len()
+                a.env.push(Var(word_of(e.keys.at(j), name, "a variable's name")?, word_of(e.vals.at(j), name, "a variable's value")?))
+        else
+            return Err(domain_error("process_option", m.keys.at(i), s"'$name' has no option `$k`: its options are `cwd`, `env` and `timeout`"))
+
+    Ok(())
+
+// Argument `i` as a string: a string, or an atom for its name.
+private word_arg(base: usize, i: usize, name: string, what: string) -> Result[string, Fault] =
+    word_of(arg(base, i), name, what)
+
+private word_of(x: Value, name: string, what: string) -> Result[string, Fault]
+    val y = deref(x)
+
+    y match
+        Str(p) -> Ok(p.s)
+        Atom(id) -> Ok(atom_name(id))
+        _ -> Err(kind_error(y, "string", s"'$name' wants $what as a string, and was given ${described(y)}"))

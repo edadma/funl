@@ -97,6 +97,7 @@ builtin_modules() -> Buf[ModuleProvider]
     var out: Buf[ModuleProvider] = buf()
 
     out.push(ModuleProvider("fs", fs_exports))
+    out.push(ModuleProvider("process", process_exports))
     out
 
 // The provider of `funl:name`, if FunL has one.
@@ -574,11 +575,27 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
             ExNative(id) -> id
             _ -> continue
 
-        val arity = current().natives.at(id).arity
-        val key = pred_key(s"$name:${x.name}", arity + 1)
+        val nat = current().natives.at(id)
 
-        if pred_defined(key) then continue
+        // A builtin taking a range of counts is one predicate per count; one taking any number has no
+        // predicate, as there is no arity to give it.
+        if nat.most == Variadic then continue
 
+        for arity in nat.fewest..nat.most
+            builtin_predicate(name, x, id, arity, at, report, why) match
+                Some(now) -> return now
+                None -> ()
+
+    why
+end prolog_builtin_module
+
+// `name:f/(arity+1)`, the predicate calling builtin `id` -- export `x` of `funl:name` -- with `arity`
+// arguments and unifying its last with each value it gives. Answers why the import is refused, where
+// defining it failed.
+private builtin_predicate(name: string, x: ModExport, id: usize, arity: usize, at: Span, report: *Report, why: Refusal) -> Option[Refusal]
+    val key = pred_key(s"$name:${x.name}", arity + 1)
+
+    if !pred_defined(key)
         var e = emit(key)
 
         for k in 0..<arity
@@ -602,10 +619,10 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
                 val now = refusal(why, report, Unreadable)
 
                 report.add(error(at, s"the compiler failed: $m"))
-                return now
+                return Some(now)
 
-    why
-end prolog_builtin_module
+    None
+end builtin_predicate
 
 // The FunL module `index`'s relations and functions made Prolog predicates, for a Prolog file whose
 // `:- import` of it is written at `at` (`prolog.md` § "Calling FunL from Prolog"): each export only,

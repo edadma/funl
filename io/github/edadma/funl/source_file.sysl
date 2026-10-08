@@ -45,10 +45,11 @@ compile_text(file: string, text: string) -> Compiled
 end compile_text
 
 // The `funl` driver: compile `file` and run it on a machine of its own, the status to exit with.
-// `run_source` says what happens next.
-run_file(file: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, complain: &Fn(string) -> unit) -> int
+// `run_source` says what happens next; `args` are what `funl:process`'s `args` gives the program.
+run_file(file: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, complain: &Fn(string) -> unit,
+         args: []const string = []) -> int
     read_text(file) match
-        Ok(text) -> run_source(file, text, line, say, complain)
+        Ok(text) -> run_source(file, text, line, say, complain, args)
         Err(e) ->
             complain(s"funl: cannot read $file: $e\n")
             2
@@ -62,10 +63,14 @@ run_file(file: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> 
 //
 // **The status says which of four things happened**: 0 for a program that ran, 1 for one that was
 // refused or faulted, 2 for a file that could not be read, and `N` for a program that ran `halt(N)`.
-run_source(file: string, text: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, complain: &Fn(string) -> unit) -> int
+run_source(file: string, text: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit, complain: &Fn(string) -> unit,
+           args: []const string = []) -> int
     var v = new_vm(HeapBytes, CollectFloor, Growth)
     val was = enter(&v)
     var status = 0
+
+    for a in args
+        v.program_args.push(a)
 
     compile_text(file, text) match
         CannotRead(why) ->

@@ -265,6 +265,20 @@ if r.status != 0 then exit( 1 )
 `env` and `args` are in `funl:process`, as they are in `slate:process`. An unset variable is failure,
 so `|` gives the default.
 
+> **Built — what the sketch left open.** `args` is a value, as the sketch writes it: a constant
+> builtin (`register_constant`), the list of the driver's arguments after the program's name, which
+> `run_source` puts on the machine before compiling. `run(program, args?, options?)` captures both
+> streams and gives a map of `out`, `err` and exactly one of `status`, `signal` or `timed_out`, so the
+> two ways a child can end without a status are failures to read rather than sentinels; a program
+> not installed fails, one that may not be run faults with `permission_error(execute, source_sink,
+> P)`. The options are `cwd`, `env` and `timeout`, and **`env` adds to this program's environment
+> rather than replacing it**, which is `sysl.process`'s rule (slate's replaces). `run_lines` is
+> `run`'s standard output as a generator of lines. `exit(status)` is `halt/1`'s `Exits`, 0 to 255,
+> uncaught by `catch`. A `Variadic` builtin may be bounded (`bound_counts`): the compiler then refuses
+> any other count, and Prolog's `:- import` defines one predicate per count (`process:run/2..4`).
+> **Not built: reading the whole environment** — `sysl.env` reads one name and cannot enumerate, so
+> an `env()` of every variable waits on sysl.
+
 ### `funl:time` — core, over `sysl.time`
 
 ```
