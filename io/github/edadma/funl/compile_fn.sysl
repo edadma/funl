@@ -216,6 +216,18 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
 
             for x in args.view()
                 pattern(e, c, x, seen, param)?
+        ApplyE(f, args) ->
+            // `m.name(p, ...)`: a term of the constructor module `m` exports as `name`.
+            val functor = pattern_functor(qualified_callee(c, f))?
+
+            inspect(e, param)
+            e.op(MatchCompound(functor, args.len()))
+
+            for x in args.view()
+                pattern(e, c, x, seen, param)?
+        FieldE(x, name) ->
+            inspect(e, param)
+            equal_to(e, Atom(pattern_functor(qualified_in(c, x, name))?))
         ListE(items) ->
             for x in items.view()
                 inspect(e, param)

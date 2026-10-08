@@ -204,6 +204,15 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
         CallE(_, _, args) ->
             for x in args.view()
                 declare_pattern(w, x, from, fixed)
+        ApplyE(f, args) ->
+            // `m.name(p, ...)`, `m` a module: a term of the constructor the module exports as `name`.
+            if !qualified_pattern(w, f, Some(args.len()))
+                unmatchable(w, p)
+                return
+
+            for x in args.view()
+                declare_pattern(w, x, from, fixed)
+        FieldE(_, _) -> if !qualified_pattern(w, p, None) then unmatchable(w, p)
         Disj(a, b) ->
             declare_pattern(w, a, from, fixed)
             declare_pattern(w, b, from, fixed)
@@ -217,10 +226,30 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
             w.sc.declare(w.blk, n, p.span, from, fixed)
             declare_pattern(w, x, from, fixed)
         BadE -> ()
-        _ ->
-            w.report.add(error(p.span, "this cannot be matched against anything")
-                .with_note("a pattern is a name, `_`, a constant, a tuple, a list `[a, b]` or `h:t`, a term, an alternation `p | q`, or `name@pattern`"))
+        _ -> unmatchable(w, p)
 end declare_pattern
+
+private unmatchable(w: *Walk, p: &Expr)
+    w.report.add(error(p.span, "this cannot be matched against anything")
+        .with_note("a pattern is a name, `_`, a constant, a tuple, a list `[a, b]` or `h:t`, a term, an alternation `p | q`, or `name@pattern`"))
+
+// Whether `f`, a pattern's `m.name` given `argc` fields (`None` for the bare name), is a qualified
+// name: `m` a module. A name the module does not export, or that is not a constructor of as many
+// fields, is refused here; `false` leaves the refusal of anything else to the caller.
+private qualified_pattern(w: *Walk, f: &Expr, argc: Option[usize]) -> bool
+    f.kind match
+        FieldE(x, name) ->
+            qualified_at(w, x, name) match
+                Some(m) ->
+                    walk(w, x)
+
+                    qualified_pattern_refusal(w.res, ref_name(x), name, m, argc, f.span) match
+                        Some(d) -> w.report.add(d)
+                        None -> ()
+
+                    true
+                None -> false
+        _ -> false
 
 // An expression's names.
 walk(w: *Walk, e: &Expr)

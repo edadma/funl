@@ -107,7 +107,7 @@ imported(src: Source, i: Spanned[string], seen: *Buf[string], report: *Report) -
         None -> i.value
 
     for f in seen.view()
-        if f == file then return None
+        if same_file(f, file) then return None
 
     seen.push(file)
 

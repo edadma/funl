@@ -26,7 +26,7 @@ front of.** A `.funl` file and a `.lfunl` file are both modules; the literate on
 exactly as when it is run.
 
 ```
-// geometry.funl
+;; geometry.funl
 
 export data shape = circle(r) | square(s)
 
@@ -36,7 +36,7 @@ export def area( square(s) ) = s * s
 export def sides( #square, 4 )
 export def sides( #triangle, 3 )
 
-def helper( x ) = x                    // no other file can reach this
+def helper( x ) = x                    ;; no other file can reach this
 ```
 
 `export` goes in front of a `def`, a `val`, a `var` or a `data`. A `data` crosses as both halves at
@@ -64,8 +64,8 @@ names nothing defines yet).
 own.** They are different syntax rather than three readings of one string.
 
 ```
-import { area } from "geometry.funl"     // a quoted path  -- a file
-import { parse_csv } from tabular        // a bare word    -- a package
+import { area } from "geometry.funl"     ;; a quoted path  -- a file
+import { parse_csv } from tabular        ;; a bare word    -- a package
 import { parse, stringify } from funl:json
 ```
 
