@@ -160,6 +160,58 @@ write( geometry.sides )
 `geometry.sides` is a relation or a builtin, which is called rather than used as a value
 ```
 
+A qualified constructor is a pattern wherever a pattern is written: a function's parameter, a
+relation's head, the left of a `val`, and a generator. `geometry.circle(r)` matches the same terms
+`circle(r)` does where `circle` is imported by name.
+
+```funl
+import * as geometry from "modules/geometry.funl"
+
+def describe( geometry.circle(r) ) = 'a circle of radius ' + r
+def describe( geometry.square(s) ) = 'a square of side ' + s
+
+def round( geometry.circle(_) )
+
+write( describe(geometry.square(2)) )
+val geometry.circle(r) = geometry.circle(5)
+write( describe(geometry.circle(r)) )
+if round( geometry.circle(r) ) then write( 'round' )
+write( [s | geometry.square(s) <- [geometry.square(1), geometry.circle(2), geometry.square(3)]] )
+```
+
+```output
+geometry is loaded
+a square of side 2
+a circle of radius 5
+round
+[1, 3]
+```
+
+A qualified pattern is checked when the program is compiled. It names a constructor the module
+exports, with as many fields as the constructor has:
+
+```funl
+import * as geometry from "modules/geometry.funl"
+
+def side( geometry.square(s, t) ) = s
+```
+
+```error
+the constructor `geometry.square` takes 1 field, and this pattern gives 2
+```
+
+A function or a relation is not a constructor, so no pattern matches it:
+
+```funl
+import * as geometry from "modules/geometry.funl"
+
+def f( geometry.area(x) ) = x
+```
+
+```error
+`geometry.area` is not a constructor, so a pattern cannot match it
+```
+
 ## Types and constructors
 
 A `data` type's name and its constructors belong to the file that declares them. Another file uses
@@ -279,6 +331,21 @@ write( floor_area(4), area(circle(1)) )
 ```output
 geometry is loaded
 16, 3
+```
+
+A module is known by its file, not by how a path spells it: two paths reaching one file, through
+`..` or through a symbolic link, import one module, and its top level still runs once:
+
+```funl
+import { area } from "modules/geometry.funl"
+import * as g from "../reference/modules/geometry.funl"
+
+write( area(g.circle(1)) )
+```
+
+```output
+geometry is loaded
+3
 ```
 
 ## Exports are a snapshot

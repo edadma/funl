@@ -117,11 +117,12 @@ private query(v: *Vm, text: string, line: &Fn(string) -> Option[string], say: &F
         say(report.render(src).trim())
         return None
 
-    // The variables an answer shows: every one the query named, `_`-prefixed ones aside.
+    // The variables an answer reads: every one the query named. A `_`-prefixed one is not shown as a
+    // binding of its own, but an unbound one keeps its name where it appears (`answer_of`).
     var shown: Buf[usize] = buf()
 
     for i in 0..<c.names.len()
-        if !c.names.at(i).starts_with("_") then shown.push(i)
+        if c.names.at(i) != "_" then shown.push(i)
 
     solve(v, c, shown, line, say, false)
 end query
@@ -166,17 +167,14 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
 
                 if quiet then break
 
-                var parts: Buf[string] = buf()
-                var factored = Factored(buf(), buf())
+                var names: Buf[string] = buf()
+                var vals: Buf[Value] = buf()
 
                 for j in 0..<shown.len()
-                    val x = deref(v.stack.at(base + 1 + j))
+                    names.push(c.names.at(shown.at(j)))
+                    vals.push(deref(v.stack.at(base + 1 + j)))
 
-                    x match
-                        Var(_) -> ()
-                        _ -> parts.push(binding_text(c.names.at(shown.at(j)), x, &factored))
-
-                val answer = if parts.len() == 0 then "true" else join(parts.view(), ",\n")
+                val answer = answer_of(names, vals)
 
                 if !resumable(v)
                     say(answer + ".")
@@ -202,6 +200,139 @@ private term_value_of(c: ReadClause) -> Value
     var vars: Buf[Value] = buf()
 
     term_value(c.t, &vars).unwrap_or(Undefined)
+
+// The answer the query's variables `names` make, bound to `vals`, as SWI-Prolog's top level writes it.
+//
+// **Variables with the same value are written as one chain**: `X = Y, Y = a`, or `X = Y, Y = Z`
+// where they are all unbound, the chains in the order of their first variable. An unbound variable is
+// written as the last name of its chain wherever it appears -- `X = f(Z), Y = Z` -- and a lone one
+// says nothing. A `_`-prefixed variable is never the left side of a binding, but keeps its name where
+// it appears. **Every other unbound variable is `_` where it appears once in the whole answer**, and
+// `_A`, `_B`, ... where it appears more than once, skipping the query's own names:
+//
+//     ?- copy_term(f(A, A, B), T).
+//     T = f(_A, _A, _).
+private answer_of(names: Buf[string], vals: Buf[Value]) -> string
+    var group: Buf[usize] = buf()
+
+    for j in 0..<vals.len()
+        var g = j
+
+        for k in 0..<j
+            if group.at(k) == k && same_value(vals.at(k), vals.at(j))
+                g = k
+                break
+
+        group.push(g)
+
+    var vn = var_names()
+
+    for g in 0..<vals.len()
+        if group.at(g) == g
+            vals.at(g) match
+                Var(p) ->
+                    var last = g
+
+                    for j in g..<vals.len()
+                        if group.at(j) == g then last = j
+
+                    vn.ids.push(p.id)
+                    vn.names.push(names.at(last))
+                _ -> ()
+
+    // Written once to see how often each unnamed variable appears, then named and written again.
+    answer_text_of(names, vals, group, &vn)
+
+    var made: long = 0
+
+    for i in 0..<vn.unnamed.len()
+        val id = vn.unnamed.at(i)
+
+        if var_named(&vn, id).is_none()
+            var times = 0
+
+            for k in 0..<vn.unnamed.len()
+                if vn.unnamed.at(k) == id then times += 1
+
+            if times == 1
+                vn.ids.push(id)
+                vn.names.push("_")
+            else
+                loop
+                    val name = "_" + var_name(made)
+
+                    made += 1
+
+                    if !names_one(names, name)
+                        vn.ids.push(id)
+                        vn.names.push(name)
+                        break
+
+    vn.unnamed.truncate(0)
+    answer_text_of(names, vals, group, &vn)
+end answer_of
+
+// Whether the query names a variable `name`.
+private names_one(names: Buf[string], name: string) -> bool
+    for n in names.view()
+        if n == name then return true
+
+    false
+
+// Whether two values of the query's variables are one chain: the same unbound variable, or bound
+// terms that are identical.
+private same_value(a: Value, b: Value) -> bool
+    a match
+        Var(p) ->
+            b match
+                Var(q) -> p.id == q.id
+                _ -> false
+        _ ->
+            b match
+                Var(_) -> false
+                _ -> compare_terms(a, b) == 0
+
+// The answer's text, with the variable names `vn` gives (`answer_of`).
+private answer_text_of(names: Buf[string], vals: Buf[Value], group: Buf[usize], vn: *VarNames) -> string
+    var parts: Buf[string] = buf()
+    var factored = Factored(buf(), buf())
+
+    for g in 0..<vals.len()
+        if group.at(g) != g then continue
+
+        var chain: Buf[usize] = buf()
+        var last = g
+
+        for j in g..<vals.len()
+            if group.at(j) == g
+                last = j
+
+                if !names.at(j).starts_with("_") then chain.push(j)
+
+        if chain.len() == 0 then continue
+
+        var text = ""
+
+        vals.at(g) match
+            Var(_) ->
+                if names.at(last).starts_with("_") then chain.push(last)
+
+                if chain.len() < 2 then continue
+
+                for i in 0..<chain.len() - 1
+                    if i > 0 then text += ", "
+
+                    text += s"${names.at(chain.at(i))} = ${names.at(chain.at(i + 1))}"
+            _ ->
+                for i in 0..<chain.len() - 1
+                    text += s"${names.at(chain.at(i))} = ${names.at(chain.at(i + 1))}, "
+
+                text += binding_text(names.at(chain.at(chain.len() - 1)), vals.at(g), &factored, vn)
+
+        parts.push(text)
+
+    if parts.len() == 0 then "true" else join(parts.view(), ",\n")
+end answer_text_of
 
 // A term as an answer writes it: quoted, so it reads back as the same term.
 private answer_text(x: Value) -> string = term_text(x, write_opts(true, false, true))
@@ -232,11 +363,11 @@ private factored_name(f: *Factored, a: usize) -> Option[string]
 //
 // The value is written as SWI-Prolog's top level writes it: quoted, a space after each comma, and
 // as the right side of `=`, so an operator term above priority 699 is bracketed -- `X = (a, b)`.
-private binding_text(name: string, x: Value, factored: *Factored) -> string
+private binding_text(name: string, x: Value, factored: *Factored, vn: *VarNames) -> string
     val o = answer_opts()
     val c = cycles_of(x)
 
-    if c.heads.len() == 0 then return s"$name = ${term_text_named(x, o, c, buf(), false, 699)}"
+    if c.heads.len() == 0 then return s"$name = ${term_text_vars(x, o, c, buf(), false, 699, vn)}"
 
     val root = node_of(x)
     var names: Buf[string] = buf()
@@ -263,14 +394,14 @@ private binding_text(name: string, x: Value, factored: *Factored) -> string
                     names.push(cycle_name(factored.nodes.len()))
                     spelled.push(i)
 
-    var text = s"$name = ${term_text_named(x, o, c, names, own, 699)}"
+    var text = s"$name = ${term_text_vars(x, o, c, names, own, 699, vn)}"
 
     if spelled.len() > 0 then text += ", % where"
 
     for j in 0..<spelled.len()
         val i = spelled.at(j)
 
-        text += s"\n    ${names.at(i)} = ${term_text_named(c.heads.at(i), o, c, names, true, 699)}"
+        text += s"\n    ${names.at(i)} = ${term_text_vars(c.heads.at(i), o, c, names, true, 699, vn)}"
 
         if j + 1 < spelled.len() then text += ","
 

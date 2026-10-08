@@ -26,7 +26,7 @@ front of.** A `.funl` file and a `.lfunl` file are both modules; the literate on
 exactly as when it is run.
 
 ```
-// geometry.funl
+;; geometry.funl
 
 export data shape = circle(r) | square(s)
 
@@ -36,7 +36,7 @@ export def area( square(s) ) = s * s
 export def sides( #square, 4 )
 export def sides( #triangle, 3 )
 
-def helper( x ) = x                    // no other file can reach this
+def helper( x ) = x                    ;; no other file can reach this
 ```
 
 `export` goes in front of a `def`, a `val`, a `var` or a `data`. A `data` crosses as both halves at
@@ -76,8 +76,8 @@ names nothing defines yet).
 own.** They are different syntax rather than three readings of one string.
 
 ```
-import { area } from "geometry.funl"     // a quoted path  -- a file
-import { parse_csv } from tabular        // a bare word    -- a package
+import { area } from "geometry.funl"     ;; a quoted path  -- a file
+import { parse_csv } from tabular        ;; a bare word    -- a package
 import { parse, stringify } from funl:json
 ```
 
@@ -624,8 +624,10 @@ language. All eleven were decided by the user on 2026-10-08, each as the recomme
 
 > **Built — what the decision left open.** A third way to run a builtin,
 > `register_stepping(name, arity, start, step)`: the handle `start` makes takes the cursor's cell,
-> and running out closes it at once. A **method** that generates (`stmt.rows()`) is not built yet:
-> a generator over a handle is called as a function, `rows(stmt)`.
+> and running out closes it at once. A **method** generates the same way,
+> `register_stepping_method(kind, name, arity, start, step)`, so `stmt.rows()` is a generator: its
+> first run moves the handle into `MethodOf`'s `()` cell and the cursor takes the handle's, and a
+> handle closed while its method generates ends the generation.
 
 > **Decided (user, 2026-10-08) — failure or fault for a native's error.** slate's rule is that text from outside
 > the program is an answer and a mistake the program made itself is a fault. FunL has failure,

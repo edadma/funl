@@ -483,7 +483,7 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
         var params: Buf[&Expr] = buf()
 
         for p in written.params.view()
-            params.push(head_atoms(res, p))
+            params.push(head_atoms(res, p, report))
 
         val c = Clause(written.name, written.head, params, written.kind)
 
@@ -521,24 +521,56 @@ end resolve_relation
 // A head argument with each name that means a constructor with no fields written as that
 // constructor's atom (`logic.md` § "Atoms"): `red`, after `data hue = red | green`, is `#red` in a
 // head as in a body, and every other name is a clause variable.
-private head_atoms(res: *Resolved, p: &Expr) -> &Expr
+private head_atoms(res: *Resolved, p: &Expr, report: *Report) -> &Expr
     p.kind match
         Ref(n) ->
             res.top_constructor(n) match
                 Some(id) -> if current().ctors.at(id).fields.len() == 0 then expr(AtomE(n), p.span) else p
                 None -> p
-        CallE(n, at, args) -> expr(CallE(n, at, heads_atoms(res, args)), p.span)
-        ListE(items) -> expr(ListE(heads_atoms(res, items)), p.span)
-        ConsE(h, t) -> expr(ConsE(head_atoms(res, h), head_atoms(res, t)), p.span)
+        CallE(n, at, args) -> expr(CallE(n, at, heads_atoms(res, args, report)), p.span)
+        ListE(items) -> expr(ListE(heads_atoms(res, items, report)), p.span)
+        ConsE(h, t) -> expr(ConsE(head_atoms(res, h, report), head_atoms(res, t, report)), p.span)
+
+        // `m.name(p, ...)` and `m.name`, `m` a module: the term, or the atom, of the constructor the
+        // module exports as `name`, written as one of the file's own would be.
+        ApplyE(f, args) ->
+            head_constructor(res, f, Some(args.len()), report) match
+                Some(n) -> expr(CallE(n, f.span, heads_atoms(res, args, report)), p.span)
+                None -> p
+        FieldE(_, _) ->
+            head_constructor(res, p, None, report) match
+                Some(n) -> expr(AtomE(n), p.span)
+                None -> p
         _ -> p
 
-private heads_atoms(res: *Resolved, ps: Buf[&Expr]) -> Buf[&Expr]
+private heads_atoms(res: *Resolved, ps: Buf[&Expr], report: *Report) -> Buf[&Expr]
     var out: Buf[&Expr] = buf()
 
     for p in ps.view()
-        out.push(head_atoms(res, p))
+        out.push(head_atoms(res, p, report))
 
     out
+
+// When `f`, written in a head with `argc` fields (`None` for the bare name), is `m.name` for a module
+// `m`: the constructor's name, or `None` with the refusal reported. `None`, and nothing reported,
+// for anything else, which the head's own check refuses.
+private head_constructor(res: *Resolved, f: &Expr, argc: Option[usize], report: *Report) -> Option[string]
+    f.kind match
+        FieldE(x, name) ->
+            x.kind match
+                Ref(g) ->
+                    qualified_in_head(res, g, name) match
+                        Some(m) ->
+                            qualified_pattern_refusal(res, g, name, m, argc, f.span) match
+                                Some(d) -> report.add(d)
+                                None -> ()
+
+                            return Some(name)
+                        None -> ()
+                _ -> ()
+        _ -> ()
+
+    None
 
 // A head argument: a variable, `_`, a constant, or a term or list of those.
 private walk_head(sc: *Scope, p: &Expr, report: *Report)

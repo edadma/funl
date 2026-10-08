@@ -28,7 +28,27 @@ THE_FLAGS_DESCRIBE_THE_MACHINE()
     assert_eq(gives("current_prolog_flag(unknown, X)"), ok("error"))
     assert_eq(gives("current_prolog_flag(double_quotes, X)"), ok("string"))
     assert_eq(gives("current_prolog_flag(debug, X)"), ok("off"))
-    assert_eq(gives("findall(F, current_prolog_flag(F, _), L), length(L, X)"), ok("9"))
+    assert_eq(gives("current_prolog_flag(back_quotes, X)"), ok("codes"))
+    assert_eq(gives("findall(F, current_prolog_flag(F, _), L), length(L, X)"), ok("10"))
+
+// The expected answers of the two below are what swipl 10.0.2 gives for the same programs.
+@test
+BACK_QUOTES_DECIDES_WHAT_BACK_QUOTED_TEXT_READS_AS()
+    assert_eq(ran_prolog(":- X = `ab`, writeq(X), nl.\n:- X = `a``b`, writeq(X), nl.\n"), ok("[97,98]\n[97,96,98]"))
+    assert_eq(ran_prolog(":- set_prolog_flag(back_quotes, chars).\n:- X = `ab`, writeq(X), nl.\n"), ok("[a,b]"))
+    assert_eq(ran_prolog(":- set_prolog_flag(back_quotes, string).\n:- X = `ab`, string(X), writeq(X), nl, writeq(\"c\"), nl.\n"),
+        ok("`ab`\n`c`"))
+    assert_eq(ran_prolog(":- set_prolog_flag(back_quotes, symbol_char).\n:- X = `+`, writeq(X), nl.\n:- X = `, atom_length(X, L), writeq(L), nl.\n"),
+        ok("'`+`'\n1"))
+    assert_eq(ran_prolog(":- set_prolog_flag(back_quotes, string).\n:- set_prolog_flag(back_quotes, codes).\n:- X = `ab`, writeq(X), nl.\n"),
+        ok("[97,98]"))
+
+@test
+BACK_QUOTES_REFUSES_A_VALUE_IT_DOES_NOT_TAKE()
+    assert_eq(holds("set_prolog_flag(back_quotes, foo)"), ok("domain_error(back_quotes,foo)"))
+    assert_eq(holds("set_prolog_flag(back_quotes, atom)"), ok("domain_error(back_quotes,atom)"))
+    assert_eq(holds("set_prolog_flag(back_quotes, 1)"), ok("type_error(atom,1)"))
+    assert_eq(holds("set_prolog_flag(back_quotes, _)"), ok("instantiation_error"))
 
 @test
 SET_PROLOG_FLAG_CHANGES_WHAT_CURRENT_PROLOG_FLAG_SAYS()

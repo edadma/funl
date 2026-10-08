@@ -4,11 +4,13 @@ import sysl.buf.{Buf, buf}
 
 // Prolog's flags: `set_prolog_flag/2`, and what `current_prolog_flag/2` (in the library) enumerates.
 //
-// **Four flags can be changed**, and each changes something: `unknown` decides what a call of a
+// **Five flags can be changed**, and each changes something: `unknown` decides what a call of a
 // predicate nothing defines does (`error`, `fail`, or `warning`, which fails after saying so on
 // standard error); `double_quotes` decides what the reader makes of `"text"` from then on (`string`,
-// the default, or ISO's `codes`, `chars` and `atom`); `prefer_rationals`, SWI-Prolog's, makes `/` on
-// two integers exact -- `7 / 2` is `7r2` rather than ISO's `3.5` -- when `true`, and is `false` by
+// the default, or ISO's `codes`, `chars` and `atom`); `back_quotes`, SWI-Prolog's, does the same for
+// `` `text` `` (`codes`, the default, `chars` or `string`), or with `symbol_char` makes a back quote
+// a symbol character, and a string is written in back quotes while it is `string`;
+// `prefer_rationals`, SWI-Prolog's, makes `/` on two integers exact -- `7 / 2` is `7r2` rather than ISO's `3.5` -- when `true`, and is `false` by
 // default; `debug` is `off`, and `on` is accepted and recorded, there being no debugger for it to
 // start. **The rest describe the machine and cannot be changed**: integers are unbounded (so
 // `bounded` is `false`, and `max_integer` and `min_integer` name the 64-bit range an integer is held
@@ -19,8 +21,9 @@ struct PlFlags
     double_quotes: string
     debug: string
     prefer_rationals: bool
+    back_quotes: string
 
-pl_flags() -> PlFlags = PlFlags("error", "string", "off", false)
+pl_flags() -> PlFlags = PlFlags("error", "string", "off", false, "codes")
 
 private const MaxInteger: long = 9223372036854775807
 
@@ -42,6 +45,7 @@ private flag_list() -> Result[Value, Fault]
     items.push(pair("unknown", atom(f.unknown))?)
     items.push(pair("double_quotes", atom(f.double_quotes))?)
     items.push(pair("prefer_rationals", atom(if f.prefer_rationals then "true" else "false"))?)
+    items.push(pair("back_quotes", atom(f.back_quotes))?)
 
     Ok(list_of(&items, Nil)?)
 
@@ -67,6 +71,8 @@ private settable(name: string, value: string) -> bool
 
     if name == "prefer_rationals" then return value == "true" || value == "false"
 
+    if name == "back_quotes" then return value == "codes" || value == "chars" || value == "string" || value == "symbol_char"
+
     false
 
 // `set_prolog_flag(Flag, Value)`, as a goal or as a directive while a file loads.
@@ -82,7 +88,7 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
         _ -> return Err(type_error("atom", f, s"type error: $who wants a flag's name, an atom, and was given ${described(f)}"))
 
     val known = read_only(name) || name == "unknown" || name == "double_quotes" || name == "debug" ||
-        name == "prefer_rationals"
+        name == "prefer_rationals" || name == "back_quotes"
 
     if !known then return Err(domain_error("prolog_flag", f, s"$who: there is no flag $name"))
 
@@ -97,6 +103,11 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
     // wrong value is ISO's `domain_error(flag_value, Flag+Value)`.
     if name == "prefer_rationals" && !settable(name, text)
         return Err(type_error("bool", x, s"$who: flag $name is true or false, and was given ${render(x)}"))
+
+    if name == "back_quotes" && !settable(name, text)
+        return x match
+            Atom(_) -> Err(domain_error("back_quotes", x, s"$who: flag back_quotes is codes, chars, string or symbol_char, and was given ${render(x)}"))
+            _ -> Err(type_error("atom", x, s"$who: flag back_quotes is an atom, and was given ${described(x)}"))
 
     if !settable(name, text)
         var args: Buf[Value] = buf()
@@ -114,6 +125,8 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
         v.flags.double_quotes = text
     elif name == "prefer_rationals"
         v.flags.prefer_rationals = text == "true"
+    elif name == "back_quotes"
+        v.flags.back_quotes = text
     else
         v.flags.debug = text
 
