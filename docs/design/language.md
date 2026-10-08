@@ -108,9 +108,14 @@ lazy list.
 > is drawn as it is.** So `[x | x <- g()]` collects everything the generating function `g` produces,
 > `x <- [1, 2]` and `x <- 1..2` still give the elements, and `x <- [[1, 2], [3]]` still gives the two
 > lists. The rule is one step, per value, so a generator of collections is flattened:
-> `x <- ([1, 2] | [3])` gives 1, 2, 3, and a generator of strings gives their characters. Keeping
-> each value whole is `x <- [e]`, whose values are lists of one. An unbound variable is still
-> refused. **Rejected:** choosing by whether `e` generates (it cannot be told from one value: a
+> `x <- ([1, 2] | [3])` gives 1, 2, 3. Keeping each value whole is `x <- [e]`, whose values are
+> lists of one. An unbound variable is still refused.
+>
+> **Decided (2026-10-08): a string and a tuple are not collections to `<-`; each is drawn whole.**
+> So `x <- "abc"` gives `"abc"` once, a generator of strings gives the strings (`for line <-
+> lines(p)` gives lines, not characters), and `x <- (1, 2)` gives the tuple. Drawing a string's
+> characters or a tuple's elements is explicit: `x <- !s`, since `!` still generates them. **Rejected:**
+> refusing them, since `<-` draws every other non-collection value as it is. **Rejected:** choosing by whether `e` generates (it cannot be told from one value: a
 > generator's last value leaves no choice point, and an ordinary call may leave one), and refusing a
 > non-collection value (which was the old behaviour and made a generating function unusable in a
 > comprehension). This makes an iterator value unnecessary for drawing from a generator in a
@@ -151,7 +156,8 @@ value.** A statement is bounded, and so are these positions:
 
 Loops take an optional label (`outer: for …`) and `break label` / `continue label` reach out by
 name; `break` may carry a value, `break (e)`. **A loop fails when it runs out** -- its condition
-fails, its generators are spent -- **and a `break` makes it succeed**, with the value or `()`, so
+fails, its generators are spent -- **and a `break` makes it succeed**, with the value or `()`
+(except a bare `break` out of the loop that ends a `yield`ing function, decided below), so
 `val cr = for d <- 1.. do if d*d >= n then break (d)` is the first such `d`. `break` and `continue`
 reach only the loops of the function they are written in.
 
@@ -258,6 +264,17 @@ A `yield` resumed carries on with `()` as its own value — except where it is t
 body does, when the function has no more to produce and fails, as Icon's procedure does on falling
 off its end. So `def g()` with the two lines `yield 1` and `yield 2` produces exactly `1` and `2`,
 and no third value `()`.
+
+> **Decided — does a loop ending a generator produce a trailing `()`?**
+> A loop fails when it runs out and a `break` makes it succeed with `()`, so a `yield`ing function
+> whose last statement is `for i <- 1.. do if i > 3 then break else yield i` would produce `1 2 3`
+> and then `()`. **Decision: a loop that is the last thing a `yield`ing function clause does ends
+> on a bare `break` exactly as it does on running out — it fails, and the function produces no
+> `()` after its yielded values** (the same rule as a final `yield`). It holds for every loop
+> (`for`, `while`, `repeat`, `every`) and for a labelled `break` reaching that loop. `break (v)`
+> there still produces `v`; a loop whose value is used anywhere else, and a loop ending a function
+> that does not `yield` (whose result is the loop's value), keep "`break` succeeds with `()`".
+> **Rejected:** keep the trailing `()`, which every such generator's caller would have to skip.
 
 Inside parentheses, in a call's arguments and at the head of `every`, `name = e` is an assignment
 expression: it stores each value of `e` in `name` and produces it, so `every write( (k = 1 to 3) to

@@ -95,6 +95,51 @@ write( (< 5)(8) )
 5
 ```
 
+## Builtins as values
+
+A builtin that takes a fixed number of arguments, named without calling it, is a function value: it
+can be passed, stored and called later. A generating builtin such as `odd` still generates, and
+still fails, when called through the value.
+
+```funl
+def each( f, [] ) = []
+def each( f, x : xs ) = f( x ) : each( f, xs )
+
+write( each(abs, [-1, 2, -3]) )
+total = sum
+write( total(1..4) )
+parity = odd
+write( [parity(n) | n <- 1..6] )
+```
+
+```output
+[1, 2, 3]
+10
+[1, 3, 5]
+```
+
+Called through the value with the wrong number of arguments, a builtin faults as any function value
+does:
+
+```funl
+f = abs
+write( f(1, 2) )
+```
+
+```error
+'abs' takes 1 argument and was given 2
+```
+
+A builtin that takes any number of arguments, such as `max` or `write`, is only called:
+
+```funl
+write( max )
+```
+
+```error
+`max` is a relation or a builtin, which is called rather than used as a value
+```
+
 ## Clauses, tried in order
 
 A function may be defined by several clauses. They are tried in order, and **the first whose
@@ -372,6 +417,40 @@ b
 2
 4
 6
+```
+
+A loop that is the last thing a `yield`ing function does ends it with no value of its own when a
+plain `break` leaves it, just as when the loop runs out: the function's values are the ones it
+yielded. A `break (v)` there produces `v` as one more value, and in a function that does not
+`yield`, a loop's `break` gives the function's result as anywhere else.
+
+```funl
+def below( limit )
+  for i <- 1..
+    if i * i > limit then break
+    yield i * i
+
+def then_root( limit )
+  for i <- 1..
+    if i * i > limit then break (i - 1)
+    yield i * i
+
+def has_negative( xs ) = for x <- xs do if x < 0 then break
+
+every write( below(10) )
+every write( then_root(10) )
+write( has_negative([1, -2]) )
+```
+
+```output
+1
+4
+9
+1
+4
+9
+3
+()
 ```
 
 `yield` of an expression that generates yields each of its values. This prints every permutation

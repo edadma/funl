@@ -86,18 +86,48 @@ private push_meaning(e: *Emit, c: Ctx, m: Meaning, n: string) -> Result[unit, st
             val d = current().ctors.at(id)
 
             e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))
-        Builtin(id) ->
-            // A builtin that names a value is made once, into the chunk's constants.
-            val made = current().natives.at(id).how match
-                Constant(go) ->
-                    go(0, 0) match
-                        Ok(x) -> x
-                        Err(f) -> return Err(fault_text(f))
-                _ -> return Err(s"'$n' is a builtin, and is not a value")
-
-            e.op(PushConst(e.constant(made)))
+        Builtin(id) -> push_builtin(e, id, n)?
+        Unknown ->
+            // `import * as fs from funl:fs`: the module, a map from each export to its value.
+            c.res.aliases.get(n) match
+                Some(index) -> push_module_map(e, index)?
+                None -> return Err(s"'$n' was resolved and is not a value")
         _ -> return Err(s"'$n' was resolved and is not a value")
 
+    Ok(())
+
+// Push builtin `id`'s value: a builtin that names a value is made once, into the chunk's constants,
+// and one of a fixed arity is a function value over its `value_chunk`.
+private push_builtin(e: *Emit, id: usize, n: string) -> Result[unit, string]
+    current().natives.at(id).how match
+        Constant(go) ->
+            val made = go(0, 0) match
+                Ok(x) -> x
+                Err(f) -> return Err(fault_text(f))
+
+            e.op(PushConst(e.constant(made)))
+        _ ->
+            if !is_function_value(id) then return Err(s"'$n' is a builtin, and is not a value")
+
+            e.op(MakeClosure(value_chunk(id)?, TopUp))
+
+    Ok(())
+
+// Push the map a module of FunL's own is as a value: each export that is a value under its name.
+private push_module_map(e: *Emit, index: usize) -> Result[unit, string]
+    val md = current().modules.at(index)
+    var count: usize = 0
+
+    for x in md.exports.view()
+        x.kind match
+            ExNative(id) ->
+                if is_constant(id) || is_function_value(id)
+                    e.op(PushConst(e.constant(new_str(x.name)?)))
+                    push_builtin(e, id, x.name)?
+                    count += 1
+            _ -> ()
+
+    e.op(MakeMap(count))
     Ok(())
 
 // When `x.name` is a name a module exports, `x` naming the module (`module.sysl`): what it means.
@@ -177,10 +207,10 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 None -> e.op(Fail)
 
             e.place(end)
-        EveryE(id, label, g, body) -> compile_every(e, c, id, label, g, body)?
-        WhileE(id, label, cond, body) -> compile_while(e, c, id, label, cond, body)?
-        RepeatE(id, label, body) -> compile_repeat(e, c, id, label, body)?
-        ForE(id, label, gens, body) -> compile_for(e, c, id, label, gens, body)?
+        EveryE(id, label, g, body) -> compile_every(e, c, id, label, g, body, false)?
+        WhileE(id, label, cond, body) -> compile_while(e, c, id, label, cond, body, false)?
+        RepeatE(id, label, body) -> compile_repeat(e, c, id, label, body, false)?
+        ForE(id, label, gens, body) -> compile_for(e, c, id, label, gens, body, false)?
         BreakE(label, v) -> compile_break(e, c, label, v)?
         ContinueE(label) -> compile_continue(e, c, label)?
         BlockE(id, stmts) -> block(e, c.in_block(id)?, stmts)?
@@ -472,14 +502,29 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
                 return Ok(())
         _ -> ()
 
+    // A module of FunL's own named by `import * as` is a map, and a call indexes it.
+    val module_map = m match
+        Unknown -> c.res.aliases.get(n)
+        _ -> None
+
     m match
         Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
-        _ -> ()
+        _ ->
+            module_map match
+                Some(index) -> push_module_map(e, index)?
+                None -> ()
 
     for a in args.view()
         compile_value(e, c, a)?
 
     val argc = args.len()
+
+    if module_map.is_some()
+        e.op(if tail then TailCallValue(argc) else CallValue(argc))
+
+        if tail then e.op(Return)
+
+        return Ok(())
 
     m match
         Local(_, _, _) -> e.op(if tail then TailCallValue(argc) else CallValue(argc))

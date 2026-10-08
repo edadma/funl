@@ -51,16 +51,24 @@ write( read_file("docs/library/fs/poem.txt") )
 `read_file` is not defined
 ```
 
-`fs` itself is not a value; only what it exports is reached through it.
+`fs` itself is a value: a map from each name the module exports to that function. A function taken
+from it is called later like any other, and a generator such as `lines` still generates.
 
 ```funl
 import * as fs from funl:fs
 
-write( fs )
+base = fs.basename
+write( base("docs/library/fs/poem.txt") )
+write( fs("extension")("docs/library/fs/poem.txt") )
+lines = fs.lines
+every write( lines("docs/library/fs/poem.txt") )
 ```
 
-```error
-`fs` names a module of FunL's own, which is not a value
+```output
+poem.txt
+txt
+Roses are red,
+violets are blue.
 ```
 
 ## What fails and what faults
@@ -169,8 +177,9 @@ none.
 import { lines } from funl:fs
 
 every write( lines("docs/library/fs/poem.txt") )
-write( [l | l <- [lines("docs/library/fs/poem.txt")]] )
+write( [l | l <- lines("docs/library/fs/poem.txt")] )
 write( lines("docs/library/fs/poem.txt") )
+for l <- lines("docs/library/fs/poem.txt") do write( l )
 ```
 
 ```output
@@ -178,11 +187,12 @@ Roses are red,
 violets are blue.
 ["Roses are red,", "violets are blue."]
 Roses are red,
+Roses are red,
+violets are blue.
 ```
 
-A line is a string, and `x <- e` iterates a string it draws, so a `for` or a comprehension that
-wants each line whole draws from the generator in a list, `l <- [lines(path)]`, as
-[Generators](../reference/generators.md) explains.
+A line is a string, and `x <- e` draws a string whole, so a `for` or a comprehension over
+`lines(path)` gets each line, as [Generators](../reference/generators.md) explains.
 
 ## Directories
 
@@ -196,9 +206,9 @@ import { read_dir, read_file, join } from funl:fs
 val dir = "docs/library/fs/letters"
 
 every write( read_dir(dir) )
-write( [name | name <- [read_dir(dir)]] )
+write( [name | name <- read_dir(dir)] )
 write( read_dir(dir) )
-for name <- [read_dir(dir)] if read_file(join(dir, name)) == "dear\n" do write( name )
+for name <- read_dir(dir) if read_file(join(dir, name)) == "dear\n" do write( name )
 ```
 
 ```output
