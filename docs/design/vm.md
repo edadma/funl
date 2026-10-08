@@ -479,6 +479,10 @@ pattern, and a lookbehind compiles its body in the opposite one.
 > first is the one taken, a repeated group keeps its leftmost turn, and a backreference sees a group
 > written to its right.
 
+> **Decided — a backreference to an unset group matches the empty string**, as in JavaScript: one
+> reached before its group, or to a group skipped, not taken, or backtracked out of (the capture
+> trail unsets it again), matches empty rather than failing.
+
 **Semantics are leftmost-first backtracking, Perl's and JavaScript's, not POSIX's leftmost-longest.**
 A machine whose alternatives are tried in order cannot be leftmost-longest without exploring every
 match, and goal-directed evaluation wants the order anyway. [The implementation

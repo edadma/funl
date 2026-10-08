@@ -139,7 +139,7 @@ well, as SWI-Prolog's rationals are. `true` and `false` are atoms on both sides.
 > answering a pair can be destructured by a Prolog head; **arrays, buffers, maps, sets, closures and
 > cursors are opaque** — they unify only with themselves and print as `<map>`, `<function>` and so
 > on — because their contents can change and a term that changes under a binding is not a term;
-> **`()`, `null` and `undefined`** are three distinct constants that unify only with themselves.
+> **`()` and `undefined`** are two distinct constants that unify only with themselves.
 > **Rejected:** tuples as `','(a, b)` (the conjunction functor, which some systems use and every
 > reader trips on); or converting maps to association lists at the boundary, which copies on every
 > call and silently breaks identity.
@@ -153,7 +153,7 @@ the result, each generated value one solution:
 :- import("geometry.funl").
 
 area_of(Shape, A) :- area(Shape, A).          % area/1 in FunL is area/2 here
-evens(L) :- findall(X, (between(1, 10, X), even(X, true)), L).
+squares(L) :- findall(Y, (between(1, 5, X), square(X, Y)), L).   % square/1 in FunL is square/2 here
 ```
 
 **Prolog and FunL share one namespace keyed by name and arity**, and a function of `n` parameters

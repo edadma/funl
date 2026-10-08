@@ -59,7 +59,7 @@ a value is success.
 > (a comparison still fails rather than answering `false`) while making `if done then …` mean what
 > every reader expects. **Rejected:** a condition that only fails on failure,
 > which is Icon's, and costs a `== true` wherever a boolean is tested; or make every operation that
-> could produce `false` fail instead, which removes booleans as values and breaks `write(x is integer)`.
+> could produce `false` fail instead, which removes booleans as values: `val flag = false` could not store `false`, and `write(flag)` could not print it.
 
 ## Generators: an expression may produce more than one value
 
@@ -277,12 +277,16 @@ choice, and never to nothing.
 | numbers | `123`, `1.5`, `2n` is `2 * n` (juxtaposition multiplies) |
 | strings | `'abc'` or `"abc"`; `$name` and `${expr}` interpolate, `$$` is a dollar |
 | regex | `` `a(b|c)*` `` |
-| booleans, nothing | `true`, `false`, `null`, `undefined`, `()` |
+| booleans, nothing | `true`, `false`, `undefined`, `()` |
 | tuple | `(1, 2)` |
 | list | `[1, 2, 3]`, `x:xs`, comprehensions `[x^2 \| x <- 1..10 if odd(x)]` |
 | set, map | `{1, 2}`, `{a: 1, "b": 2}`, set comprehension `{x \ 2 \| x <- 1..5}` |
 | mutable | `array(n)`, `buffer()`, `map(m)`, `map(m, default)`, `set(s)` |
 | records | `data point(x, y)`; `data shape = circle(r) \| square(s)` |
+
+> **Decided — a compound term needs a `data` declaration (user, 2026-10-08).** Outside a relation
+> head, `point(1, 2)` builds a record only when `data point(x, y)` is declared; an undeclared
+> functor is "not defined", as any other unknown name is.
 
 Elements are reached by call syntax and by field syntax: `r.a`, `r("b")`, `r(1)`, `m.a`, `m("a")`,
 `[3, 4, 5](1)`. A field write on a mutable map adds the key.
@@ -292,7 +296,7 @@ missing keys read as `x` instead of failing. So counting needs no membership tes
 
 ```
 val counts = map( {}, 0 )
-every counts( words(text) ) += 1     ;; a new word reads 0, and the assignment adds it
+every counts( !words ) += 1          ;; words is a list of strings; a new word reads 0, and the assignment adds it
 write( counts("zzz") )               ;; 0, and "zzz" is still not a key
 ```
 
@@ -350,6 +354,12 @@ every write( (1 | 'a' | 2.5 | #b) is number )     ;; 1, then 2.5
   that unification or Prolog made is one too.
 - **A bound logic variable is tested by its value**; only an unbound one is a `variable`.
 
+> **Decided — what `is` produces (user, 2026-10-08).** `x is t` is a test that produces `x` or fails,
+> like a comparison; it never produces `true` or `false`.
+
+> **Decided — `var` is a keyword (user, 2026-10-08).** The type test for an unbound logic variable is
+> `x is variable`, and `not (x is variable)` is its negation; there is no `var(x)` or `nonvar(x)`.
+
 | name | the values of that type |
 |---|---|
 | `number` | every number: `integer`, `rational` and `real` |
@@ -382,6 +392,9 @@ rational 1/3``, `a function`), and the ones of the builtins that make the mutabl
 dividing two integers that do not divide evenly gives a rational, and a real or a decimal appears
 only when a literal or an operation introduces one.
 
+> **Decided — a real literal needs a digit before the point (user, 2026-10-08).** `0.5` is a real;
+> `.5` is a syntax error, because `.` is field access.
+
 ```
 write( 7 / 2 )       ;; 7/2
 write( 7 \ 2 )       ;; 3     -- integer division
@@ -401,6 +414,11 @@ goes with it, with the sign of the divisor (`-7 mod 2` is `1`, so `a == b * (a \
 denominator is 1 is an integer — **and an inexact result is never demoted**: `2.5 * 2` is the real
 `5.0`, not the integer `5`. Whole-valued doubles are never demoted
 to integers.
+
+> **Decided — what is `^` with a power that is not an integer?** **A real.** An exact base to an
+> integer power stays exact (`2 ^ -2` is `1/4`); a real or fractional power is C's `pow` on reals
+> (`2 ^ 0.5` is `1.4142135623730951`, `4 ^ (1/2)` is `2.0`), a negative base to one has no value and
+> faults as every non-finite real does, and zero to any negative power divides by zero.
 
 ## Assignment, and assignment that undoes itself
 

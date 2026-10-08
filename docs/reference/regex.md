@@ -202,20 +202,28 @@ a{2
 
 A **backreference** matches the text its group captured: `\1`, `\2` and so on, `\g1`, `\g{1}`, `\g{-1}` for the group opened last before it, and `\k<name>`,
 `\k{name}`, `\k'name'` or `\g{name}` by name. Under `i` it ignores case. **A backreference to a group
-that has captured nothing fails.**
+that has captured nothing matches the empty string**, as in JavaScript: the group was skipped, is in
+an alternative not taken, comes after the backreference, or captured and was then backtracked out of.
+A group that has captured still wants exactly its text.
 
 ```funl
 write('abab' ? `(ab)\1`)
 write('xyxy' ? `(?<pair>xy)\k<pair>`)
 write('aAa' ? `(?i)(a)\1\g{-1}`)
-write('b' ? `(a)?b\1` | 'the group captured nothing')
+write('bb' ? `(a)?b\1`)
+write('a' ? `\1(a)`)
+write('ay' ? `(?:(a)c|a)\1y`)
+write('ab' ? `(a)\1` | 'the group captured a, not b')
 ```
 
 ```output
 abab
 xyxy
 aAa
-the group captured nothing
+b
+a
+ay
+the group captured a, not b
 ```
 
 An **atomic group** commits to the first way its contents match; nothing after it can make it try
@@ -362,7 +370,8 @@ does:
 - **a repetition counts its turns outward from the position**, so a repeated group keeps the turn
   furthest to the left;
 - **a group to the right is matched before a backreference to its left**, so in `(?<=\1(\w))` the
-  backreference sees what the group captured;
+  backreference sees what the group captured, and in `(?<=(\w)\1)` it is reached first and matches
+  the empty string;
 - **an atomic group is entered from its right end**.
 
 Here the group inside the first lookbehind captured `a`, not `aa`, so `\1` after it matches one
