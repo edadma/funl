@@ -111,6 +111,7 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
             Tuple(t) ->
                 out.extend(t.items.view())
                 return Ok(())
+            Unit -> return Ok(())
             Set(s) ->
                 out.extend(s.items.view())
                 return Ok(())
@@ -224,6 +225,7 @@ member(x: Value, c: Value) -> Result[bool, Fault]
 
                 return Ok((n - r.from) % r.step == 0)
             Tuple(t) -> return within(x, t.items)
+            Unit -> return Ok(false)
             Set(s) -> return within(x, s.items)
             MutSet(s) -> return within(x, s.items)
             Array(a) -> return within(x, a.items)
@@ -308,6 +310,7 @@ sliceable(x: Value) -> bool = deref(x) match
     Cons(_) -> true
     Range(_) -> true
     Tuple(_) -> true
+    Unit -> true
     Array(_) -> true
     Buffer(_) -> true
     _ -> false
@@ -381,6 +384,7 @@ private sliced(x: Value, first: long, count: long, step: long) -> Result[Value, 
                 o.items.set(usize(k), t.items.at(usize(first + k * step)))
 
             Ok(Tuple(o))
+        Unit -> Ok(Unit)
         Array(a) -> Ok(Array(picked(&a.items, first, count, step)?))
         Buffer(a) -> Ok(Buffer(picked(&a.items, first, count, step)?))
         _ ->
@@ -472,6 +476,7 @@ length_of(x: Value) -> Result[long, Fault]
 
             Ok(range_count(r))
         Tuple(t) -> Ok(long(t.items.len()))
+        Unit -> Ok(0)
         Set(s) -> Ok(long(s.items.len()))
         MutSet(s) -> Ok(long(s.items.len()))
         Array(a) -> Ok(long(a.items.len()))

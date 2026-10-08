@@ -22,8 +22,9 @@ import sysl.text.{from_utf8_unchecked, is_char_boundary}
 // byte string's and a map's position is an index, a string's a byte offset and a range's its next element, the collection
 // itself staying put. A map produces its entries as pairs `(key, value)`.
 
-// `GenStart`: the collection on top becomes its first cursor. Under `draw` (a binding `p <- e`) any
-// other value is drawn as it is, the cursor of a one-element list of it.
+// `GenStart`: the collection on top becomes its first cursor. Under `draw` (a binding `p <- e`) a
+// string or a tuple is not a collection, and it and any other value is drawn as it is, the cursor of
+// a one-element list of it; `!` generates a string's characters and a tuple's elements.
 gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
     val top = v.stack.len()
 
@@ -32,11 +33,21 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
     var c = deref(v.stack.at(top - 1))
 
     var first: long = 0
+    val whole = c match
+        Str(_) -> true
+        Tuple(_) -> true
+        _ -> false
+
+    if draw && whole
+        v.stack.set(top - 1, new_cons(c, Nil)?)
+        v.stack.push(Int(0))
+        return Ok(())
 
     c match
         Nil -> ()
         Cons(_) -> ()
         Tuple(_) -> ()
+        Unit -> ()
         Str(_) -> ()
         Bytes(_) -> ()
         Set(_) -> ()
@@ -82,7 +93,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
     var spent = false
 
     deref(v.stack.at(top - 2)) match
-        Nil ->
+        Nil | Unit ->
             v.stack.truncate(top - 2)
             return Ok(false)
         Cons(p) ->

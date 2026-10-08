@@ -108,9 +108,14 @@ lazy list.
 > is drawn as it is.** So `[x | x <- g()]` collects everything the generating function `g` produces,
 > `x <- [1, 2]` and `x <- 1..2` still give the elements, and `x <- [[1, 2], [3]]` still gives the two
 > lists. The rule is one step, per value, so a generator of collections is flattened:
-> `x <- ([1, 2] | [3])` gives 1, 2, 3, and a generator of strings gives their characters. Keeping
-> each value whole is `x <- [e]`, whose values are lists of one. An unbound variable is still
-> refused. **Rejected:** choosing by whether `e` generates (it cannot be told from one value: a
+> `x <- ([1, 2] | [3])` gives 1, 2, 3. Keeping each value whole is `x <- [e]`, whose values are
+> lists of one. An unbound variable is still refused.
+>
+> **Decided (2026-10-08): a string and a tuple are not collections to `<-`; each is drawn whole.**
+> So `x <- "abc"` gives `"abc"` once, a generator of strings gives the strings (`for line <-
+> lines(p)` gives lines, not characters), and `x <- (1, 2)` gives the tuple. Drawing a string's
+> characters or a tuple's elements is explicit: `x <- !s`, since `!` still generates them. **Rejected:**
+> refusing them, since `<-` draws every other non-collection value as it is. **Rejected:** choosing by whether `e` generates (it cannot be told from one value: a
 > generator's last value leaves no choice point, and an ordinary call may leave one), and refusing a
 > non-collection value (which was the old behaviour and made a generating function unusable in a
 > comprehension). This makes an iterator value unnecessary for drawing from a generator in a
@@ -151,7 +156,8 @@ value.** A statement is bounded, and so are these positions:
 
 Loops take an optional label (`outer: for …`) and `break label` / `continue label` reach out by
 name; `break` may carry a value, `break (e)`. **A loop fails when it runs out** -- its condition
-fails, its generators are spent -- **and a `break` makes it succeed**, with the value or `()`, so
+fails, its generators are spent -- **and a `break` makes it succeed**, with the value or `()`
+(except a bare `break` out of the loop that ends a `yield`ing function, decided below), so
 `val cr = for d <- 1.. do if d*d >= n then break (d)` is the first such `d`. `break` and `continue`
 reach only the loops of the function they are written in.
 
@@ -259,6 +265,17 @@ body does, when the function has no more to produce and fails, as Icon's procedu
 off its end. So `def g()` with the two lines `yield 1` and `yield 2` produces exactly `1` and `2`,
 and no third value `()`.
 
+> **Decided — does a loop ending a generator produce a trailing `()`?**
+> A loop fails when it runs out and a `break` makes it succeed with `()`, so a `yield`ing function
+> whose last statement is `for i <- 1.. do if i > 3 then break else yield i` would produce `1 2 3`
+> and then `()`. **Decision: a loop that is the last thing a `yield`ing function clause does ends
+> on a bare `break` exactly as it does on running out — it fails, and the function produces no
+> `()` after its yielded values** (the same rule as a final `yield`). It holds for every loop
+> (`for`, `while`, `repeat`, `every`) and for a labelled `break` reaching that loop. `break (v)`
+> there still produces `v`; a loop whose value is used anywhere else, and a loop ending a function
+> that does not `yield` (whose result is the loop's value), keep "`break` succeeds with `()`".
+> **Rejected:** keep the trailing `()`, which every such generator's caller would have to skip.
+
 Inside parentheses, in a call's arguments and at the head of `every`, `name = e` is an assignment
 expression: it stores each value of `e` in `name` and produces it, so `every write( (k = 1 to 3) to
 k + 2 )` binds `k` once per value of the outer range.
@@ -293,7 +310,7 @@ choice, and never to nothing.
 | strings | `'abc'` or `"abc"`; `$name` and `${expr}` interpolate, `$$` is a dollar |
 | regex | `` `a(b|c)*` `` |
 | booleans, nothing | `true`, `false`, `undefined`, `()` |
-| tuple | `(1, 2)` |
+| tuple | `(1, 2)`; `()` is the tuple of nothing |
 | list | `[1, 2, 3]`, `x:xs`, comprehensions `[x^2 \| x <- 1..10 if odd(x)]` |
 | set, map | `{1, 2}`, `{a: 1, "b": 2}`, set comprehension `{x \ 2 \| x <- 1..5}` |
 | mutable | `array(n)`, `buffer()`, `map(m)`, `map(m, default)`, `set(s)` |
@@ -302,6 +319,17 @@ choice, and never to nothing.
 > **Decided — a compound term needs a `data` declaration (user, 2026-10-08).** Outside a relation
 > head, `point(1, 2)` builds a record only when `data point(x, y)` is declared; an undeclared
 > functor is "not defined", as any other unknown name is.
+
+> **Decided — `()` is the empty tuple (user, 2026-10-08).** The unit value `()` and the tuple of
+> nothing are one value. Tuple operations take it as a tuple of length 0: `().length` is `0`,
+> `() is tuple` and `() is unit` both succeed, `!()` and `x <- ()` produce nothing, `x in ()` fails,
+> a slice of it is `()`, and the pattern `()` matches it while `(a, b)` does not. It prints `()`.
+
+> **Decided — the map reading of `{key: lambda}` wins (user, 2026-10-08).** `:` is cons, so
+> `f: (x) -> e` alone is a lambda whose parameter is the cons `f:(x)`. In braces that lambda is
+> taken apart at its parameter's top `:` into a map entry: the key `f` and the lambda `(x) -> e`
+> (and `{i: x -> e}` likewise). A set that holds a lambda whose parameter is a cons writes it in
+> parentheses, `{(x:xs -> x)}`, or parenthesizes the parameter, `{(x:xs) -> x}`.
 
 Elements are reached by call syntax and by field syntax: `r.a`, `r("b")`, `r(1)`, `m.a`, `m("a")`,
 `[3, 4, 5](1)`. A field write on a mutable map adds the key.
@@ -408,7 +436,7 @@ every write( (1 | 'a' | 2.5 | #b) is number )     ;; 1, then 2.5
 | `boolean` | `true`, `false` |
 | `list` | `[]`, a list cell `x:xs`, and a range, which reads as a list wherever one is |
 | `range` | `1..10`, `1..<n`, `1..` |
-| `tuple` | `(1, 2)` |
+| `tuple` | `(1, 2)`, and `()`, the tuple of nothing |
 | `unit` | `()` |
 | `map` | `{a: 1}`, and a mutable map, `map()` |
 | `set` | `{1, 2}`, and a mutable set, `set(s)` |

@@ -152,12 +152,25 @@ A_FOR_DRAWS_EVERY_VALUE_OF_A_GENERATOR()
 
     assert_eq(ran_funl(text), "1\n3\nsucceeded")
 
-// Each value that is a collection is iterated; any other value is drawn as it is.
+// Each value that is a collection is iterated; any other value -- a string or a tuple among them --
+// is drawn as it is.
 @test
 EACH_VALUE_THAT_IS_A_COLLECTION_IS_ITERATED()
     val text = "write( [x | x <- (1 | [2, 3] | 4)] )\nwrite( [x | x <- [[1, 2], [3]]] )\nwrite( [x | x <- 5] )\nwrite( [w | w <- ['ab' | 'cd']] )\n"
 
     assert_eq(ran_funl(text), "[1, 2, 3, 4]\n[[1, 2], [3]]\n[5]\n[\"ab\", \"cd\"]\nsucceeded")
+
+// A string or a tuple is a value to `<-`, not a collection; `!` is how its parts are drawn.
+@test
+A_BINDING_DRAWS_A_STRING_OR_A_TUPLE_WHOLE()
+    val text = "for c <- \"ab\" do write( c )\nfor t <- (1, 2) do write( t )\nwrite( [w | w <- ('to' | 'be')] )\nwrite( [a + b | (a, b) <- (1, 2)] )\nwrite( [(a, b) | (a, b) <- [(1, 2), (3, 4)]] )\n"
+
+    assert_eq(ran_funl(text), "ab\n(1, 2)\n[\"to\", \"be\"]\n[3]\n[(1, 2), (3, 4)]\nsucceeded")
+
+@test
+A_BINDING_DRAWS_THE_PARTS_OF_A_STRING_OR_A_TUPLE_THROUGH_BANG()
+    assert_eq(ran_funl("for c <- !\"ab\" do write( c )\nwrite( [x | x <- !(1, 2)] )\n"), "a\nb\n[1, 2]\nsucceeded")
+    generator_fault("write( [x | x <- !5] )\n", "`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map, a string or a byte string, and was given the integer 5")
 
 @test
 A_GENERATOR_THAT_FAILS_DRAWS_ONLY_WHAT_IT_PRODUCED()

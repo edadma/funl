@@ -95,6 +95,48 @@ is_generator(id: usize) -> bool = current().natives.at(id).how match
     Stepping(_, _) -> true
     _ -> false
 
+// Whether builtin `id`, named without a call, is a function value: it takes a fixed number of
+// arguments. A builtin that takes any number is called and is not a value, nor is one only Prolog's
+// `consult` runs.
+is_function_value(id: usize) -> bool
+    val n = current().natives.at(id)
+
+    n.how match
+        Constant(_) -> return false
+        _ -> ()
+
+    n.arity != Variadic && n.name != "consult"
+
+// The chunk a builtin's function value calls: its arguments passed to the builtin exactly as a call
+// written with them would pass them, and the builtin's answer returned -- each of a generator's
+// answers, as a generating function's are. Its arity is the builtin's, so a call through the value
+// with any other count is refused as a call of a function value is. Made once per builtin.
+value_chunk(id: usize) -> Result[usize, string]
+    val v = current()
+
+    v.native_chunks.get(id) match
+        Some(c) -> return Ok(c)
+        None -> ()
+
+    val n = v.natives.at(id)
+    var e = emit_function(n.name, n.arity)
+
+    for i in 0..<n.arity
+        e.op(LoadArg(i))
+
+    if is_generator(id)
+        e.op(PushInt(0))
+        e.op(NativeGen(id, n.arity))
+    else
+        e.op(Native(id, n.arity))
+
+    e.op(Return)
+
+    val c = finish(e)?
+
+    v.native_chunks.put(id, c)
+    Ok(c)
+
 // The id of the builtin called `name`, if there is one.
 native_id(name: string) -> Option[usize]
     val v = current()

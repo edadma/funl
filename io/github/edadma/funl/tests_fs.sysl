@@ -33,10 +33,30 @@ IMPORT_STAR_REACHES_THE_MODULE_BY_QUALIFIED_NAMES()
     assert_eq(ran_funl(s"import * as fs from funl:fs\nwrite( fs.read_file(\"$f\"), fs.exists(\"$f\"), fs.basename(\"$f\") )\n"),
         "alpha, true, a.txt\nsucceeded")
 
+// The module is a map from each export to its function value; a generator taken from it generates.
 @test
-A_MODULE_OF_BUILTINS_IS_NOT_A_VALUE_AND_ITS_NAMES_ARE_IMPORTED_OR_NOT_THERE()
-    assert_eq(complaints("import * as fs from funl:fs\nwrite( fs )\n"),
-        "error 2:8 `fs` names a module of FunL's own, which is not a value\n")
+A_MODULE_OF_BUILTINS_IS_A_MAP_OF_FUNCTION_VALUES()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "a.txt", "one\ntwo\n")
+
+    val text = s"import * as fs from funl:fs\nm = fs\nb = m.basename\nwrite( b(\"$f\"), fs(\"extension\")(\"$f\") )\n" +
+        s"l = fs.lines\nevery write( l(\"$f\") )\nwrite( m(\"slurp\") | #none )\n"
+
+    assert_eq(ran_funl(text), "a.txt, txt\none\ntwo\nnone\nsucceeded")
+
+// A function taken from the module, called with the wrong number of arguments, faults as a function
+// value does; called directly, the count is refused when the program is compiled.
+@test
+A_MODULE_FUNCTION_VALUE_CALLED_WITH_THE_WRONG_COUNT_FAULTS()
+    val said = ran_funl("import * as fs from funl:fs\nb = fs.basename\nwrite( b(\"a\", \"b\") )\n")
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains("'fs.basename' takes 1 argument and was given 2"), said)
+
+@test
+A_MODULE_OF_BUILTINS_NAMES_ONLY_WHAT_IT_EXPORTS()
     assert_eq(complaints("write( read_file(\"x\") )\n"), "error 1:8 `read_file` is not defined\n")
     assert(has(complaints("import { slurp } from funl:fs\n"), "`funl:fs` does not export `slurp`"))
     assert(has(complaints("import * as fs from funl:fs\nwrite( fs.slurp(\"x\") )\n"), "`funl:fs` does not export `slurp`"))

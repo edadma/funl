@@ -104,6 +104,10 @@ struct Scope
     // The slots a `data` declaration's constructors are declared in, and each one's constructor id.
     ctors: Map[usize, usize]
 
+    // Whether a `yield` is written in this scope's own code (not in a function nested in it): a
+    // function clause that generates by `yield`.
+    yields: bool
+
     count(self) -> usize = self.names.len()
 
     // What declaration `d` of this scope means, the scope `depth` static links up: a constructor, or a
@@ -192,7 +196,7 @@ child_scope(parent: usize, parent_block: usize) -> Scope
     var decls: Map[string, Decl] = map()
 
     blocks.push(Block(decls, NoScope))
-    Scope(blocks, buf(), map(), 0, parent, parent_block, map(), map())
+    Scope(blocks, buf(), map(), 0, parent, parent_block, map(), map(), false)
 
 // What a name means where it is written.
 enum Meaning
