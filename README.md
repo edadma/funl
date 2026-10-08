@@ -12,8 +12,12 @@ because they are all code on the same machine.
 
 Two executables are built from this repository:
 
-- `funl` runs FunL programs (and Prolog files that import FunL code).
+- `funl` runs FunL programs: `funl file.funl`, or a literate program, `funl file.lfunl`. Given a
+  Prolog file, `funl file.pl` loads it (it may import FunL code) and starts the Prolog top level.
 - `prolog` is a standalone standard-Prolog REPL.
+
+FunL source files end in `.funl`; literate FunL, Markdown whose indented blocks are the program,
+ends in `.lfunl`.
 
 ## Install
 
@@ -91,5 +95,9 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
 - [`examples/`](examples/) has short programs for people to read: generators, string scanning,
   regex, data and patterns, the numeric tower, relations, puzzles, and FunL and Prolog sharing a
   program.
-- [`docs/design/`](docs/design/) is the design: the language, the machine, logic programming, and
-  Prolog on the same machine. Reference documentation is coming in `docs/reference/`.
+- [`docs/reference/`](docs/reference/README.md) is the manual. Every program in it is run by the
+  test suite. Its pages cover success and failure, generators, assignment and scope, data,
+  functions, numbers, relations, string scanning, string functions, source files, regular
+  expressions, and Prolog.
+- [`docs/design/`](docs/design/README.md) is the design: the language, the machine, logic
+  programming, and Prolog on the same machine.
