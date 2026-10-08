@@ -89,11 +89,16 @@ struct ModuleProvider
     name: string
     exports: &Fn() -> Buf[ModExport]
 
-// The modules of FunL's own, by name. Each is a provider in this table; there are none yet.
-builtin_modules() -> Buf[ModuleProvider] = buf()
+// The modules of FunL's own, by name: each a list of natives registered under prefixed names
+// (`fs.read_file`) and exported under the short ones.
+builtin_modules() -> Buf[ModuleProvider]
+    var out: Buf[ModuleProvider] = buf()
+
+    out.push(ModuleProvider("fs", fs_exports))
+    out
 
 // The provider of `funl:name`, if FunL has one.
-private builtin_module(name: string) -> Option[ModuleProvider]
+builtin_module(name: string) -> Option[ModuleProvider]
     for p in builtin_modules().view()
         if p.name == name then return Some(p)
 
@@ -457,6 +462,57 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
     res.scopes.set(res.top, top)
     out
 end module_exports
+
+// `:- import("funl:name")`: module `name`'s exports made Prolog predicates qualified by the module,
+// `name:f/(n+1)` for a function of `n` parameters, whose last argument is unified with each value it
+// gives (`modules.md`, what Prolog sees). A module-qualified goal `fs:read_file(P, T)` calls one, so
+// a built-in module takes no name out of Prolog's one namespace. Answers why the import is refused.
+prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> Refusal
+    val p = builtin_module(name) match
+        Some(p) -> p
+        None ->
+            val now = refusal(why, report, Unreadable)
+
+            report.add(error(at, s"unknown module `funl:$name`"))
+            return now
+
+    for x in p.exports().view()
+        val id = x.kind match
+            ExNative(id) -> id
+            _ -> continue
+
+        val arity = current().natives.at(id).arity
+        val key = pred_key(s"$name:${x.name}", arity + 1)
+
+        if pred_defined(key) then continue
+
+        var e = emit(key)
+
+        for k in 0..<arity
+            e.op(LoadArg(k))
+
+        if is_generator(id)
+            e.op(PushInt(0))
+            e.op(NativeGen(id, arity))
+        else
+            e.op(Native(id, arity))
+
+        e.op(LoadArg(arity))
+        e.op(Unify)
+        e.op(Pop)
+        e.op(PushUnit)
+        e.op(Return)
+
+        define_predicate(key, e, Origin(s"funl:$name", x.what)) match
+            Ok(_) -> ()
+            Err(m) ->
+                val now = refusal(why, report, Unreadable)
+
+                report.add(error(at, s"the compiler failed: $m"))
+                return now
+
+    why
+end prolog_builtin_module
 
 // The FunL module `index`'s relations and functions made Prolog predicates, for a Prolog file whose
 // `:- import` of it is written at `at` (`prolog.md` § "Calling FunL from Prolog"): each export only,

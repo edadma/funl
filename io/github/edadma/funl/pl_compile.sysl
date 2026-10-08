@@ -341,6 +341,11 @@ goal(e: *Emit, cx: *ClauseCtx, t: &Term, tail: bool, cut: CutTarget) -> Result[u
     val name = atom_name(f)
     val n = args.len()
 
+    if name == ":" && n == 2
+        qualified_goal(args.at(0), args.at(1)) match
+            Some(q) -> return goal(e, cx, q, tail, cut)
+            None -> ()
+
     if is_inline(name, n) then return control(e, cx, t, name, args, tail, cut)
 
     val k = pred_key(name, n)
@@ -373,6 +378,32 @@ goal(e: *Emit, cx: *ClauseCtx, t: &Term, tail: bool, cut: CutTarget) -> Result[u
 
     Ok(())
 end goal
+
+// `M:G`, a goal qualified by the atom `M`: the goal `G` under the name `M:g`, which is how
+// `:- import("funl:fs")` names the predicates it defines (`fs:read_file/2`). Anything else is `:/2`.
+qualified_goal(m: &Term, g: &Term) -> Option[&Term]
+    // A goal handed to `call/N` arrives with its arguments as values (`TConst`).
+    val within = m.kind match
+        TAtom(id) -> atom_name(id)
+        TConst(x) -> deref(x) match
+            Atom(id) -> atom_name(id)
+            _ -> return None
+        _ -> return None
+
+    g.kind match
+        TAtom(id) -> Some(term(TAtom(intern(s"$within:${atom_name(id)}")), g.span))
+        TComp(id, xs) -> Some(term(TComp(intern(s"$within:${atom_name(id)}"), xs), g.span))
+        TConst(x) -> deref(x) match
+            Atom(id) -> Some(term(TAtom(intern(s"$within:${atom_name(id)}")), g.span))
+            Compound(c) ->
+                var xs: Buf[&Term] = buf()
+
+                for a in c.args.view()
+                    xs.push(term(TConst(a), g.span))
+
+                Some(term(TComp(intern(s"$within:${atom_name(c.functor)}"), xs), g.span))
+            _ -> None
+        _ -> None
 
 // `call(G)`: the goal on top of the stack, and `extra` arguments above it, run in a frame of its own.
 private meta_call(e: *Emit, extra: usize, tail: bool) -> Result[unit, PlError]

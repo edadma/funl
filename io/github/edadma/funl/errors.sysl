@@ -160,6 +160,9 @@ resource_error(what: string, msg: string) -> Fault = raised(term1("resource_erro
 permission_error(action: string, kind: string, culprit: Value, msg: string) -> Fault =
     raised(term3("permission_error", atom(action), atom(kind), culprit), msg)
 
+// Something outside the program went wrong -- an I/O error, a full disk: `system_error`.
+system_error(msg: string) -> Fault = raised(Ok(atom("system_error")), msg)
+
 // Text that does not read: `syntax_error(What)`.
 syntax_error(what: string, msg: string) -> Fault = raised(term1("syntax_error", atom(what)), msg)
 

@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.Buf
+import sysl.text.Search
 
 // `:- import("file.funl")`: a Prolog file loading a FunL module (`prolog.md` § "Calling FunL from
 // Prolog"). A `.lfunl` file is literate FunL, tangled first.
@@ -27,6 +28,8 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
         _ ->
             report.add(error(named.span, "import names its file with a string"))
             return why
+
+    if given.starts_with("funl:") then return prolog_builtin_module(given.slice(5, given.len), named.span, report, why)
 
     val file = module_path(src.name, given)
     val had = report.has_errors()
