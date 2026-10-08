@@ -95,9 +95,8 @@ is_generator(id: usize) -> bool = current().natives.at(id).how match
     Stepping(_, _) -> true
     _ -> false
 
-// Whether builtin `id`, named without a call, is a function value: it takes a fixed number of
-// arguments. A builtin that takes any number is called and is not a value, nor is one only Prolog's
-// `consult` runs.
+// Whether builtin `id`, named without a call, is a function value: every builtin but Prolog's
+// `consult` and the constants.
 is_function_value(id: usize) -> bool
     val n = current().natives.at(id)
 
@@ -105,12 +104,13 @@ is_function_value(id: usize) -> bool
         Constant(_) -> return false
         _ -> ()
 
-    n.arity != Variadic && n.name != "consult"
+    n.name != "consult"
 
 // The chunk a builtin's function value calls: its arguments passed to the builtin exactly as a call
 // written with them would pass them, and the builtin's answer returned -- each of a generator's
-// answers, as a generating function's are. Its arity is the builtin's, so a call through the value
-// with any other count is refused as a call of a function value is. Made once per builtin.
+// answers, as a generating function's are. A fixed-arity builtin's value has its arity, so a call
+// through it with any other count is refused as a call of a function value is; a variadic builtin's
+// value passes on whatever it is given, and the builtin's own count check answers. Made once per builtin.
 value_chunk(id: usize) -> Result[usize, string]
     val v = current()
 
@@ -119,10 +119,13 @@ value_chunk(id: usize) -> Result[usize, string]
         None -> ()
 
     val n = v.natives.at(id)
-    var e = emit_function(n.name, n.arity)
+    var e = emit_function(n.name, if n.arity == Variadic then AnyArity else n.arity)
 
-    for i in 0..<n.arity
-        e.op(LoadArg(i))
+    if n.arity == Variadic
+        e.op(LoadArgs)
+    else
+        for i in 0..<n.arity
+            e.op(LoadArg(i))
 
     if is_generator(id)
         e.op(PushInt(0))

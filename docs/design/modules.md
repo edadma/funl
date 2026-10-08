@@ -547,10 +547,8 @@ native check it against this source on the same inputs.
   question below.
 - **`any` is a builtin of one argument** (the scanning charset `any(c)`); the prelude's `any(p, xs)`
   has two, and the name/arity namespace keeps them apart. **`all`, `elem` and `lookup`** are free.
-- **A builtin of a fixed arity is a value** (P4, decided below): `filter(odd, xs)` works. One that
-  takes any number of arguments is not, so `foldl(max, 0, xs)` is still refused, because `max` "is
-  a relation or a builtin, which is called rather than used as a value"; the prelude's own source
-  wraps it, as in `(a, b) -> max(a, b)`.
+- **A builtin is a value** (P4, decided below): `filter(odd, xs)` and `foldl(max, 0, xs)` work,
+  a variadic builtin's value passing on however many arguments it is given.
 - **`repeat` and `break` are keywords**, so Haskell's `repeat` is `forever` and Haskell's `break`
   is `spanNot`.
 - **`length` is the field `.length`**, not a function, so the prelude defines no `length`;
@@ -592,9 +590,10 @@ native check it against this source on the same inputs.
 > (`'abs' takes 1 argument and was given 2`), where a direct call is refused when compiled. **It
 > follows that `import * as fs from funl:fs` names a value**: the map from each export to its
 > value, as a FunL module's is (§ "A module is a value"). A builtin that takes any number of
-> arguments (`max`, `min`, `map`, `write`) is refused with today's message: the registry records no
-> range for it, only that it checks its own count, and whether such a builtin becomes a value is
-> left open.
+> arguments (`max`, `min`, `map`, `write`, `find`) is a value too: the value passes on however many
+> arguments it is given, and the builtin's own run-time count check answers (the same fault as a
+> direct call's), so `foldl(max, 0, xs)` works. A name that is not a value (a relation, Prolog's
+> `consult`) keeps the "called rather than used as a value" refusal.
 
 ## Questions decided
 

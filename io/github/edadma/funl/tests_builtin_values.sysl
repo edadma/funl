@@ -3,9 +3,8 @@ module io.github.edadma.funl
 
 import sysl.text.Search
 
-// Builtins as values: a builtin of a fixed number of arguments, named without a call, is a function
-// value that can be passed, stored and called later -- a generating one still generating -- and one
-// that takes any number of arguments is still only called.
+// Builtins as values: a builtin named without a call is a function value that can be passed, stored
+// and called later -- a generating one still generating.
 
 // What a program said, which must have faulted with a message containing `want`.
 private faulted_with(text: string, want: string)
@@ -50,10 +49,34 @@ A_BUILTIN_VALUE_CALLED_WITH_THE_WRONG_COUNT_FAULTS()
     faulted_with("f = abs\nwrite( f(1, 2) )\n", "'abs' takes 1 argument and was given 2")
     faulted_with("f = odd\nwrite( f() )\n", "'odd' takes 1 argument and was given 0")
 
+// A builtin of any number of arguments is a value too, and passes on however many it is given.
 @test
-A_BUILTIN_OF_ANY_NUMBER_OF_ARGUMENTS_IS_NOT_A_VALUE()
-    assert_eq(complaints("write( max )\n"), "error 1:8 `max` is a relation or a builtin, which is called rather than used as a value\n")
-    assert_eq(complaints("f = write\n"), "error 1:5 `write` is a relation or a builtin, which is called rather than used as a value\n")
+A_VARIADIC_BUILTIN_PASSED_AS_AN_ARGUMENT_IS_CALLED_BY_THE_FUNCTION_IT_IS_PASSED_TO()
+    val fold = "def foldl( f, z, [] ) = z\ndef foldl( f, z, x : xs ) = foldl( f, f(z, x), xs )\n"
+
+    assert_eq(ran_funl(fold + "write( foldl(max, 0, [3, 9, 2]) )\nwrite( foldl(min, 100, [3, 9, 2]) )\n"), "9\n2\nsucceeded")
+
+@test
+A_VARIADIC_BUILTIN_VALUE_TAKES_ANY_COUNT_THE_BUILTIN_ACCEPTS()
+    assert_eq(ran_funl("m = max\nwrite( m(4, 8, 6), m(5) )\nw = write\nw(1, 2, 3)\n"), "8, 5\n1, 2, 3\nsucceeded")
+    assert_eq(ran_funl("s = split\nwrite( s('a,b', ',') )\n"), "[\"a\", \"b\"]\nsucceeded")
+
+// A generating variadic builtin still gives each answer, and fails, through the value.
+@test
+A_GENERATING_VARIADIC_BUILTIN_STILL_GENERATES_THROUGH_A_VALUE()
+    assert_eq(ran_funl("f = find\nevery write( f('an', 'banana') )\nwrite( f('x', 'banana') | 'not there' )\n"),
+        "2\n4\nnot there\nsucceeded")
+
+// The count is the builtin's to check: a call through the value faults as the direct call does.
+@test
+A_VARIADIC_BUILTIN_VALUE_CALLED_WITH_THE_WRONG_COUNT_FAULTS_AS_THE_BUILTIN_DOES()
+    faulted_with("m = max\nm()\n", "'max' wants at least one argument")
+    faulted_with("max()\n", "'max' wants at least one argument")
+
+// `consult` is run by Prolog only and is not a value.
+@test
+A_BUILTIN_ONLY_PROLOG_RUNS_IS_NOT_A_VALUE()
+    assert_eq(complaints("f = consult\n"), "error 1:5 `consult` is a relation or a builtin, which is called rather than used as a value\n")
 
 // A builtin a program defines a name over is not the builtin's value there.
 @test

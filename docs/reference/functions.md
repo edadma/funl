@@ -84,9 +84,8 @@ write( (< 5)(8) )
 
 ## Builtins as values
 
-A builtin that takes a fixed number of arguments, named without calling it, is a function value: it
-can be passed, stored and called later. A generating builtin such as `odd` still generates, and
-still fails, when called through the value.
+A builtin, named without calling it, is a function value: it can be passed, stored and called later.
+A generating builtin such as `odd` still generates, and still fails, when called through the value.
 
 ```funl
 def each( f, [] ) = []
@@ -117,14 +116,44 @@ write( f(1, 2) )
 'abs' takes 1 argument and was given 2
 ```
 
-A builtin that takes any number of arguments, such as `max` or `write`, is only called:
+A builtin that takes any number of arguments, such as `max`, `write` or `find`, is a value too. The
+value passes on however many arguments it is given, and the builtin checks the count itself:
 
 ```funl
-write( max )
+def foldl( f, z, [] ) = z
+def foldl( f, z, x : xs ) = foldl( f, f(z, x), xs )
+
+write( foldl(max, 0, [3, 9, 2]) )
+positions = find
+every write( positions('an', 'banana') )
+```
+
+```output
+9
+2
+4
+```
+
+Given a count the builtin does not accept, it faults as the direct call does:
+
+```funl
+biggest = max
+biggest()
 ```
 
 ```error
-`max` is a relation or a builtin, which is called rather than used as a value
+'max' wants at least one argument
+```
+
+A relation, unlike a builtin, is only called:
+
+```funl
+def p( #a )
+write( p )
+```
+
+```error
+`p` is a relation or a builtin, which is called rather than used as a value
 ```
 
 ## Clauses, tried in order

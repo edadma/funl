@@ -90,7 +90,7 @@ Each is argued where it arises; this is the list.
 | Blocking or promise-shaped I/O? | both: blocking in each module, promise forms in `funl:async` (user, 2026-10-08) | [modules](modules.md#questions-decided) |
 | Which loop, and may two tasks share a logic variable? | kairos (`uv` behind an `async` feature); binding another task's variable is a fault (user, 2026-10-08) | [modules](modules.md#questions-decided) |
 | What is the prelude? | the first module written in FunL: a Haskell-style list library, auto-imported like Haskell's Prelude, shadowable by a program's own names (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
-| Builtins as values? | a builtin of a fixed arity named without a call is a function value, and `import * as` a module of FunL's own names the map of them; one of any arity is still only called (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| Builtins as values? | a builtin named without a call is a function value (a variadic one passes on however many arguments it is given), and `import * as` a module of FunL's own names the map of them (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 
 ## Open questions
 
