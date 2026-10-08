@@ -93,5 +93,20 @@ private pl_throw(base: usize, argc: usize) -> Result[Value, Fault]
         Var(_) -> Err(instantiation_error("throw/1 was given an unbound variable as its ball"))
         _ -> Err(Thrown(ball))
 
+// `halt`: end the process with status 0, from wherever the goal is.
+private pl_halt0(base: usize, argc: usize) -> Result[Value, Fault] = Err(Exits(0))
+
+// `halt(Status)`: end the process with `Status`, which must be an integer.
+private pl_halt1(base: usize, argc: usize) -> Result[Value, Fault]
+    val s = deref(arg(base, 0))
+
+    s match
+        Int(n) -> Err(Exits(int(n)))
+        Var(_) -> Err(instantiation_error("halt/1 was given an unbound variable as its status"))
+        Big(_) -> Err(representation_error("max_integer", s"halt/1's status ${render(s)} is too large"))
+        _ -> Err(type_error("integer", s, s"halt/1 wants an integer status, and was given ${described(s)}"))
+
 install_catch(v: *Vm)
     register(v, "throw/1", 1, pl_throw)
+    register(v, "halt/0", 0, pl_halt0)
+    register(v, "halt/1", 1, pl_halt1)

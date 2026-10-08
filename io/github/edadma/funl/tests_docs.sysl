@@ -22,6 +22,13 @@ import sysl.text.{Search, replace_all, split, str_builder}
 //     required to contain that text;
 //   - a `funl` block with neither under it is a fragment, quoted for its shape, and is not run.
 //
+// A `warning` block says compiling the program draws a warning containing that text. With an
+// `output` block as well, the program must also print exactly that; alone, only the warning is
+// claimed. **A program shown with an `output` block and no `warning` block must compile without a
+// warning**, so a page never prints a program whose warning the reader would see and the page hides.
+// A `warning` block does not go with an `error` block: a refused program's warnings are part of what
+// it says, and the `error` block quotes them.
+//
 // A `prolog` block follows the same three rules and is loaded as a whole Prolog program, and an
 // `lfunl` block is a whole literate document, compiled exactly as the `funl` driver compiles a
 // `.lfunl` file. Its name is the word after `lfunl` (`document.lfunl` without one), so a diagnostic
@@ -36,11 +43,18 @@ import sysl.text.{Search, replace_all, split, str_builder}
 
 // What a program block on a page claims about itself.
 private enum Claim
-    // A whole program, and what running it prints.
-    Prints(text: string)
+    // A whole program, what running it prints, and the warning compiling it draws -- `""` for a
+    // program the page shows compiling cleanly.
+    Prints(text: string, warning: string)
+
+    // A whole program that compiles with a warning. What it does when run is not claimed.
+    Warns(warning: string)
 
     // A program FunL refuses, and what its diagnostic or fault says.
     Refused(message: string)
+
+    // Claims that cannot go together, and why.
+    Muddled(why: string)
 
     // A fragment, quoted to make a point about shape. Nothing is asserted about it.
     Quoted
@@ -173,70 +187,97 @@ private blocks_of_text(page: string, text: string) -> Buf[Block]
 
 private blocks_of(page: string) -> Buf[Block] = blocks_of_text(page, read_text(page).unwrap())
 
-// What the fences after a program block say about it: the first `output` or `error` block to appear
-// before the next program block.
+// What the fences after a program block say about it: the first `output` or `error` block, and the
+// first `warning` block, to appear before the next program block.
 //
 // **Not simply the very next fence**, so a page may read *program, how to run it, what it prints*
 // with another block in the middle. The search stops at the next program, so a claim can never be
 // attached to the wrong one.
 private claim_after(fences: Buf[Fence], from: usize) -> Claim
+    var kind = ""
+    var said = ""
+    var warned = false
+    var warning = ""
+
     for i in from..<fences.len()
         val f = fences.at(i)
 
         if is_program(f.lang) then break
-        if f.lang == "output" then return Prints(f.body)
-        if f.lang == "error" then return Refused(f.body)
 
-    Quoted
+        if kind == "" && (f.lang == "output" || f.lang == "error")
+            kind = f.lang
+            said = f.body
+        elif f.lang == "warning" && !warned
+            warned = true
+            warning = f.body
+
+    if kind == "error" && warned
+        Muddled("a `warning` block cannot go with an `error` block: the error block quotes a refused program's warnings")
+    elif kind == "error"
+        Refused(said)
+    elif kind == "output"
+        Prints(said, warning)
+    elif warned
+        Warns(warning)
+    else
+        Quoted
+end claim_after
 
 // -- running one block -------------------------------------------------------------------------------
 
 // Compile a FunL block into the running VM, the page named as its file so a diagnostic points there.
-private compiled_block(page: string, text: string) -> Result[usize, string]
+private compiled_block(page: string, text: string) -> Compiled
     val src = source_of(page, text)
     var r = full_report()
 
-    compile_program(src, &r) match
-        Some(chunk) -> Ok(chunk)
-        None -> Err(r.render(src))
+    val chunk = compile_program(src, &r)
+
+    compiled_with(chunk, if r.is_empty() then "" else r.render(src))
 
 // Load a Prolog block into the running VM as a whole program.
-private loaded_block(page: string, text: string) -> Result[usize, string]
+private loaded_block(page: string, text: string) -> Compiled
     val src = source_of(page, text)
     var r = full_report()
 
-    prolog_program(src, &r) match
-        Some(chunk) -> Ok(chunk)
-        None -> Err(r.render(src))
+    val chunk = prolog_program(src, &r)
 
-// Compile a literate block as the `funl` driver compiles a `.lfunl` file named `file`.
-private literate_block(file: string, text: string) -> Result[usize, string] = compile_text(file, text) match
-    Ready(at, _) -> Ok(at)
-    Refused(said) -> Err(said)
-    CannotRead(why) -> Err(why)
+    compiled_with(chunk, if r.is_empty() then "" else r.render(src))
 
-private built(lang: string, file: string, text: string) -> Result[usize, string] =
+// A block's chunk, if it has one, with what compiling it said.
+private compiled_with(chunk: Option[usize], said: string) -> Compiled = chunk match
+    Some(at) -> Ready(at, said)
+    None -> Compiled.Refused(said)
+
+// A FunL, Prolog or literate block compiled into the running VM. A literate block is compiled as the
+// `funl` driver compiles a `.lfunl` file named `file`.
+private built(lang: string, file: string, text: string) -> Compiled =
     if lang == "funl"
         compiled_block(file, text)
     elif lang == "lfunl"
-        literate_block(file, text)
+        compile_text(file, text)
     else
         loaded_block(file, text)
 
 // What running a block came to: what it printed, and how it ended -- `succeeded`, `failed`,
-// `fault: <message>`, or `assembly: <diagnostics>` for a program refused before it ran.
+// `fault: <message>`, `halted: <status>` for a program that ran `halt`, or `assembly: <diagnostics>`
+// for a program refused before it ran. A program that halts ran, whatever its status.
 private struct Ran
     printed: string
     outcome: string
 
-    ok(self) -> bool = self.outcome == "succeeded"
+    // The warnings compiling it rendered, or `""`.
+    warned: string
+
+    ok(self) -> bool = self.outcome == "succeeded" || self.outcome.starts_with("halted: ")
+
+    refused(self) -> bool = self.outcome.starts_with("assembly: ")
 
 // A transcript from the kit, cut into what was printed and the outcome on its last line.
 //
 // **A refused program's transcript is all outcome**: it never ran, and the rendered diagnostics run
 // over several lines.
-private cut_transcript(text: string) -> Ran
-    if text.starts_with("assembly: ") then return Ran("", text)
+private cut_transcript(text: string, warned: string) -> Ran
+    if text.starts_with("assembly: ") then return Ran("", text, warned)
 
     val lines = split(text, "\n")
     var b = str_builder()
@@ -245,7 +286,7 @@ private cut_transcript(text: string) -> Ran
         b.push(lines[i])
         b.push("\n")
 
-    Ran(b.finish(), unplaced(lines[lines.len - 1]))
+    Ran(b.finish(), unplaced(lines[lines.len - 1]), warned)
 
 // Run block `b` on a roomy heap and on one collected at every step, answering the run or the
 // complaint that the two disagreed.
@@ -253,34 +294,67 @@ private run_block(b: Block) -> Result[Ran, string]
     val lang = b.lang
     val file = b.file
     val source = b.source
-    val calm = roomy(() -> built(lang, file, source))
-    val tight = stressed(() -> built(lang, file, source))
+    val calm = roomy_compiled(() -> built(lang, file, source))
+    val tight = stressed_compiled(() -> built(lang, file, source))
 
     if calm.text != tight.text
         return Err(s"${b.display()}: it said something different on a heap collected at every step:\n" +
             s"roomy:\n${doc_indent(calm.text)}\ncollected:\n${doc_indent(tight.text)}")
 
-    Ok(cut_transcript(calm.text))
+    Ok(cut_transcript(calm.text, calm.warned))
 
 // Check one block, answering the complaint if it has one, or `""`.
 //
 // **Every block answers rather than asserting, so one run reports every page that has drifted**
 // instead of the first: one language change invalidates every page that leans on it.
 private check_block(b: Block) -> string = b.claim match
-    Prints(expected) -> check_prints(b, expected)
+    Prints(expected, warning) -> check_prints(b, expected, warning)
+    Warns(warning) -> check_warns(b, warning)
     Refused(expected) -> check_refused(b, expected)
+    Muddled(why) -> s"${b.display()}: $why"
     Quoted -> ""
 
-private check_prints(b: Block, expected: string) -> string
+private check_prints(b: Block, expected: string, warning: string) -> string
     val r = run_block(b) match
         Ok(ran) -> ran
         Err(e) -> return e
 
-    if !r.ok()
+    val warned = warning_complaint(b, warning, r)
+
+    if warned != ""
+        warned
+    elif !r.ok()
         s"${b.display()}: the page says this runs, and it did not:\n${doc_indent(r.outcome)}"
     elif tidied(r.printed) != tidied(expected)
         s"${b.display()}: what it printed is not what the page says.\n" +
             s"page:\n${doc_indent(expected)}\nprogram:\n${doc_indent(r.printed)}"
+    else
+        ""
+
+private check_warns(b: Block, warning: string) -> string
+    val r = run_block(b) match
+        Ok(ran) -> ran
+        Err(e) -> return e
+
+    if r.refused()
+        s"${b.display()}: the page says this compiles with a warning, and it was refused:\n${doc_indent(r.outcome)}"
+    else
+        warning_complaint(b, warning, r)
+
+// What is wrong with the warnings compiling a block drew, against the `warning` block the page shows
+// (`""` for none), or `""`. A refused program's warnings are its error block's business.
+private warning_complaint(b: Block, warning: string, r: Ran) -> string
+    val expected = warning.trim()
+
+    if r.refused()
+        ""
+    elif expected == "" && r.warned != ""
+        s"${b.display()}: compiling it warned, and the page shows no `warning` block:\n${doc_indent(r.warned)}"
+    elif expected != "" && r.warned == ""
+        s"${b.display()}: the page says compiling this warns, and it did not"
+    elif !r.warned.contains(expected)
+        s"${b.display()}: it warned, but not in the words the page quotes.\n" +
+            s"page:\n${doc_indent(warning)}\nFunL:\n${doc_indent(r.warned)}"
     else
         ""
 
@@ -311,19 +385,26 @@ private check_page(page: string) -> string
 
     b.finish()
 
-// A page's census line: `path runnable refused fragment`.
+// A page's census line: `path runnable refused fragment warned`. `runnable` counts the programs whose
+// output is claimed and `warned` those whose warning is, so a program with both is in both, and one
+// shown with only a `warning` block is in `warned` alone.
 private census_line(page: string, blocks: Buf[Block]) -> string
     var runnable: usize = 0
     var refused: usize = 0
     var fragments: usize = 0
+    var warned: usize = 0
 
     for i in 0..<blocks.len()
         blocks.at(i).claim match
-            Prints(_) -> runnable += 1
+            Prints(_, warning) ->
+                runnable += 1
+                if warning.trim() != "" then warned += 1
+            Warns(_) -> warned += 1
             Refused(_) -> refused += 1
+            Muddled(_) -> fragments += 1
             Quoted -> fragments += 1
 
-    s"$page $runnable $refused $fragments"
+    s"$page $runnable $refused $fragments $warned"
 
 // Trailing whitespace is not a claim a page makes. A fence keeps a final newline the writer did not
 // type and cannot see, so comparing raw text would fail every block for a reason no reader could
@@ -388,19 +469,19 @@ EVERY_PAGE_CARRIES_THE_BLOCKS_IT_IS_EXPECTED_TO()
 
     assert_eq(b.finish(), DocBlockCensus)
 
-// What every page holds, as `path runnable refused fragment`.
-private val DocBlockCensus: string = "docs/reference/README.md 0 0 0\n" +
-    "docs/reference/assignment.md 10 5 0\n" +
-    "docs/reference/data.md 15 5 0\n" +
-    "docs/reference/functions.md 15 3 0\n" +
-    "docs/reference/generators.md 18 5 0\n" +
-    "docs/reference/numbers.md 13 6 0\n" +
-    "docs/reference/prolog.md 24 5 0\n" +
-    "docs/reference/regex.md 19 8 0\n" +
-    "docs/reference/relations.md 17 6 0\n" +
-    "docs/reference/scanning.md 15 3 0\n" +
-    "docs/reference/source-files.md 1 3 2\n" +
-    "docs/reference/success-and-failure.md 8 2 0\n"
+// What every page holds, as `path runnable refused fragment warned`.
+private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
+    "docs/reference/assignment.md 10 5 0 0\n" +
+    "docs/reference/data.md 17 5 0 0\n" +
+    "docs/reference/functions.md 15 3 0 0\n" +
+    "docs/reference/generators.md 19 5 0 0\n" +
+    "docs/reference/numbers.md 13 6 0 0\n" +
+    "docs/reference/prolog.md 30 5 0 0\n" +
+    "docs/reference/regex.md 19 8 0 0\n" +
+    "docs/reference/relations.md 18 6 0 1\n" +
+    "docs/reference/scanning.md 15 3 0 0\n" +
+    "docs/reference/source-files.md 1 3 2 0\n" +
+    "docs/reference/success-and-failure.md 8 2 0 0\n"
 
 // -- the runner itself -------------------------------------------------------------------------------
 
@@ -470,7 +551,7 @@ A_LITERATE_BLOCK_RUNS_AS_A_DOCUMENT_AND_ITS_INNER_FENCE_IS_ITS_OWN()
     val text = ShownDocument + "```output\nshown\n```\n"
     val blocks = blocks_of_text("page.md", text)
 
-    assert_eq(census_line("page.md", blocks), "page.md 1 0 0")
+    assert_eq(census_line("page.md", blocks), "page.md 1 0 0 0")
     assert_eq(blocks.at(0).file, "document.lfunl")
     assert_eq(complaints_about(text), "")
 
@@ -503,7 +584,7 @@ A_LITERATE_BLOCK_REFUSED_BY_THE_TANGLE_MATCHES_AN_ERROR_BLOCK()
 A_LINE_STARTING_WITH_A_WIDE_CHARACTER_IS_READ_AS_PROSE()
     val text = "— a dash first\n\n```funl\nwrite( 'é' )\n```\n\n“quoted”\n\n```output\né\n```\n"
 
-    assert_eq(census_line("page.md", blocks_of_text("page.md", text)), "page.md 1 0 0")
+    assert_eq(census_line("page.md", blocks_of_text("page.md", text)), "page.md 1 0 0 0")
     assert_eq(complaints_about(text), "")
 
 @test
@@ -514,5 +595,71 @@ A_CLAIM_BELONGS_TO_THE_PROGRAM_BEFORE_IT_AND_NEVER_TO_AN_EARLIER_ONE()
         "  ```funl\n  write( 3 )\n  ```\n\n```output\n2\n```\n"
     val blocks = blocks_of_text("page.md", text)
 
-    assert_eq(census_line("page.md", blocks), "page.md 1 0 1")
+    assert_eq(census_line("page.md", blocks), "page.md 1 0 1 0")
     assert_eq(blocks.at(1).line, 5)
+
+// A program that compiles with a singleton warning, then prints `ran`.
+private val Warning: string = "```funl\ndef p(#a)\ndef q(x) :- p(y) & p(x)\nwrite( 'ran' )\n```\n\n"
+
+@test
+A_WARNING_BLOCK_MATCHES_THE_WARNING_COMPILING_THE_PROGRAM_DRAWS()
+    val text = Warning + "```warning\n`y` appears only once in this clause of `q`\n```\n"
+
+    assert_eq(census_line("page.md", blocks_of_text("page.md", text)), "page.md 0 0 0 1")
+    assert_eq(complaints_about(text), "")
+
+@test
+A_WARNING_IN_OTHER_WORDS_THAN_THE_PAGE_QUOTES_IS_A_COMPLAINT()
+    val text = Warning + "```warning\n`x` appears only once\n```\n"
+
+    assert(complaints_about(text).starts_with("page.md:1, funl block: it warned, but not in the words the page quotes."))
+
+@test
+A_WARNING_BLOCK_UNDER_A_PROGRAM_THAT_DRAWS_NONE_IS_A_COMPLAINT()
+    val text = "```funl\nwrite( 1 )\n```\n\n```warning\nappears only once\n```\n\n```output\n1\n```\n"
+
+    assert_eq(complaints_about(text), "page.md:1, funl block: the page says compiling this warns, and it did not\n")
+
+@test
+A_WARNING_AND_AN_OUTPUT_BLOCK_ARE_BOTH_CHECKED()
+    val right = Warning + "```warning\n`y` appears only once\n```\n\n```output\nran\n```\n"
+
+    assert_eq(census_line("page.md", blocks_of_text("page.md", right)), "page.md 1 0 0 1")
+    assert_eq(complaints_about(right), "")
+
+    val misprinted = replace_all(right, "```output\nran", "```output\nwalked")
+
+    assert(complaints_about(misprinted).starts_with("page.md:1, funl block: what it printed is not what the page says."))
+
+    val miswarned = replace_all(right, "`y` appears only once\n```", "`z` appears only once\n```")
+
+    assert(complaints_about(miswarned).starts_with("page.md:1, funl block: it warned, but not in the words the page quotes."))
+
+@test
+A_PROGRAM_SHOWN_WITH_ITS_OUTPUT_THAT_WARNS_IS_A_COMPLAINT()
+    // A page may not hide a warning its reader would see.
+    val text = Warning + "```output\nran\n```\n"
+
+    assert(complaints_about(text).starts_with("page.md:1, funl block: compiling it warned, and the page shows no `warning` block:"))
+
+@test
+A_WARNING_BLOCK_WITH_AN_ERROR_BLOCK_IS_A_COMPLAINT()
+    val text = "```funl\nbreak\n```\n\n```warning\nanything\n```\n\n```error\n`break` is written inside a loop\n```\n"
+
+    assert(complaints_about(text).starts_with("page.md:1, funl block: a `warning` block cannot go with an `error` block"))
+
+@test
+A_PROGRAM_SHOWN_WARNING_THAT_IS_REFUSED_IS_A_COMPLAINT()
+    val text = "```funl\nbreak\n```\n\n```warning\nappears only once\n```\n"
+
+    assert(complaints_about(text).starts_with("page.md:1, funl block: the page says this compiles with a warning, and it was refused:"))
+
+@test
+A_WARNING_BLOCK_BELONGS_TO_THE_PROGRAM_BEFORE_IT()
+    // The warning after the second program is the second's, so the first, which warns, is a fragment.
+    val text = Warning + "```funl\ndef p(#a)\ndef q(x) :- p(y) & p(x)\n```\n\n" +
+        "```warning\n`y` appears only once\n```\n"
+    val blocks = blocks_of_text("page.md", text)
+
+    assert_eq(census_line("page.md", blocks), "page.md 0 0 1 1")
+    assert_eq(complaints_about(text), "")

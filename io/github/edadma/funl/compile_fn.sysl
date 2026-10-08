@@ -205,7 +205,7 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
             equal_to(e, new_str(s)?)
         BoolE(b) ->
             inspect(e, param)
-            equal_to(e, Bool(b))
+            equal_to(e, boolean(b))
         TupleE(items) ->
             inspect(e, param)
 

@@ -20,6 +20,10 @@ enum Outcome
     // which instruction and why.
     Faulted(msg: string)
 
+    // `halt/0` or `halt/1` ran, asking for the process to end with `status`; what the run wrote
+    // before it is in the output as for any other ending.
+    Halted(status: int)
+
 private enum Flow
     Next
     Fails
@@ -72,6 +76,7 @@ private drive(v: *Vm) -> Outcome
             Ok(Fails) -> if !fail(v) then return Failed
             Ok(Halts) -> return Succeeded
             Err(Broken(e)) -> return Faulted(s"${v.chunks.at(v.code).name}@$at: $e")
+            Err(Exits(n)) -> return Halted(n)
             Err(Thrown(ball)) ->
                 // Read before unwinding, which undoes the bindings the ball was made with.
                 val said = s"${v.chunks.at(v.code).name}@$at: ${uncaught_text(ball)}"
@@ -235,7 +240,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             if top == 0 then return Err(Broken("the operand stack is empty"))
 
             deref(v.stack.at(top - 1)) match
-                Bool(b) -> Ok(fails_if(b))
+                Atom(id) -> Ok(fails_if(id != FalseAtom))
                 _ -> Ok(Next)
         Dup ->
             val top = v.stack.len()

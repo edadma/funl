@@ -12,3 +12,5 @@ def inverse(n) = 1 / n
 def ages() = {alice: 30}
 def nothing() = ()
 def unset() = undefined
+def yes() = true
+def no() = false

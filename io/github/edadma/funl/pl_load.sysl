@@ -500,6 +500,7 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
 
             if n == "initialization" && (args.len() == 1 || args.len() == 2)
                 inits.push(ReadClause(args.at(0), c.names))
+                current().has_initialization = true
                 return why
 
             // Only where the FunL front end is linked in: on the standalone Prolog's machine an
@@ -660,7 +661,8 @@ private caught(g: ReadClause, what: string, text: string) -> ReadClause
 end caught
 
 // A whole Prolog program, `funl file.pl`: load it, which runs its directives and its
-// `initialization/1` goals, and halt.
+// `initialization/1` goals, and stop. What follows -- the top level, or nothing for a file with an
+// `initialization/1` goal -- is the driver's (`run_source`).
 prolog_program(src: Source, report: *Report) -> Option[usize]
     val load = load_prolog(src, report) match
         Ok(at) -> at

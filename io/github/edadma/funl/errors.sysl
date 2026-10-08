@@ -21,6 +21,10 @@ enum Fault
     // A term thrown, by `throw/1` or by an operation that cannot be done.
     Thrown(ball: Value)
 
+    // `halt/0` or `halt/1`: the program asks to end with this status. No `catch/3` sees it -- it is
+    // not a term -- and the run ends where it was asked for.
+    Exits(status: int)
+
 // A plain message is the machine's own fault, so every helper that answers one composes with `?`
 // into code that raises terms.
 impl From[string] for Fault
@@ -30,6 +34,7 @@ impl From[string] for Fault
 fault_text(f: Fault) -> string = f match
     Broken(m) -> m
     Thrown(ball) -> uncaught_text(ball)
+    Exits(n) -> s"halted with status $n"
 
 // What the run prints for a ball nothing caught: an error's message where the term carries one, and
 // otherwise the term.

@@ -120,7 +120,7 @@ of_type(v: *Vm, x: Value, t: TypeTest) -> bool
             Atom(_) -> true
             _ -> false
         BooleanT -> y match
-            Bool(_) -> true
+            Atom(id) -> is_boolean_atom(id)
             _ -> false
         ListT -> y match
             Nil | Cons(_) | Range(_) -> true

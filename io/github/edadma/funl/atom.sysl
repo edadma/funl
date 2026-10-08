@@ -20,4 +20,15 @@ intern(name: string) -> u32
 
 atom(name: string) -> Value = Atom(intern(name))
 
+// The ids of `false` and `true`, interned first in every VM (`new_vm`), so they are constants: FunL's
+// booleans are these two atoms.
+const FalseAtom: u32 = 0
+const TrueAtom: u32 = 1
+
+// The boolean `b`: the atom `true` or `false`.
+boolean(b: bool) -> Value = Atom(if b then TrueAtom else FalseAtom)
+
+// Whether atom `id` is one of the two booleans.
+is_boolean_atom(id: u32) -> bool = id == FalseAtom || id == TrueAtom
+
 atom_name(id: u32) -> string = current().atom_names.at(usize(id))

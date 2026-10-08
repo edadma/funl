@@ -5,6 +5,8 @@ import sh.sysl.dal.Number
 import sysl.math.bigint.BigInt
 import sysl.math.bigint as big
 import sysl.math.{Float, checked_add, checked_mul, checked_sub}
+import sysl.posix.rand.seed_from_os
+import sysl.rand.rng
 
 // Prolog arithmetic: `is/2`, the comparisons, `succ/2`, `plus/3` and `between/3`.
 //
@@ -111,6 +113,8 @@ private unary(name: string, a: Value) -> Result[Value, Fault]
     if name == "integer" || name == "round" || name == "truncate" || name == "ceiling" || name == "floor"
         return rounded(name, a)
 
+    if name == "random" then return random_below(a)
+
     val r = dal.to_real(n_of(a))
 
     if name == "float" then return real_of(r, name, a)
@@ -133,6 +137,24 @@ private unary(name: string, a: Value) -> Result[Value, Fault]
 
     Err(not_evaluable(name, 1))
 end unary
+
+// `random(N)`: an integer drawn uniformly from 0 to `N - 1`, `N` a positive integer. The machine's
+// generator is seeded from the operating system the first time, so every run draws differently.
+private random_below(a: Value) -> Result[Value, Fault]
+    val n = a match
+        Int(k) -> k
+        Big(_) -> return Err(representation_error("max_integer", s"random/1's bound ${render(a)} is too large"))
+        _ -> return Err(type_error("integer", a, s"random/1 wants an integer, and was given ${described(a)}"))
+
+    if n <= 0 then return Err(domain_error("positive_integer", a, s"random/1 wants a positive bound, and was given $n"))
+
+    val v = current()
+
+    if !v.rng_seeded
+        v.rng = rng(seed_from_os().unwrap_or(0), 0)
+        v.rng_seeded = true
+
+    Ok(Int(long(v.rng.below(u64(n)))))
 
 private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
     // The fast path: two 64-bit integers whose sum, difference or product is one too.
