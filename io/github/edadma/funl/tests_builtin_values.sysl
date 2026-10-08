@@ -1,0 +1,61 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Builtins as values: a builtin of a fixed number of arguments, named without a call, is a function
+// value that can be passed, stored and called later -- a generating one still generating -- and one
+// that takes any number of arguments is still only called.
+
+// What a program said, which must have faulted with a message containing `want`.
+private faulted_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+A_BUILTIN_PASSED_AS_AN_ARGUMENT_IS_CALLED_BY_THE_FUNCTION_IT_IS_PASSED_TO()
+    val text = "def each( f, [] ) = []\ndef each( f, x : xs ) = f( x ) : each( f, xs )\n" +
+        "write( each(abs, [-1, 2, -3]) )\n"
+
+    assert_eq(ran_funl(text), "[1, 2, 3]\nsucceeded")
+
+@test
+A_BUILTIN_STORED_IN_A_VARIABLE_IS_CALLED_THROUGH_IT()
+    assert_eq(ran_funl("f = sum\nval g = abs\nwrite( f([1, 2, 3]), g(-7) )\n"), "6, 7\nsucceeded")
+
+@test
+A_BUILTIN_VALUE_PRINTS_AS_A_FUNCTION()
+    assert_eq(ran_funl("write( abs )\n"), "<function abs>\nsucceeded")
+
+// `odd` fails for an even number and gives its argument for an odd one, through the value as when
+// called directly.
+@test
+A_GENERATING_BUILTIN_CALLED_THROUGH_A_VALUE_STILL_FAILS_AND_GIVES()
+    val text = "o = odd\nwrite( [o(n) | n <- 1..6] )\nwrite( o(4) | #even )\n"
+
+    assert_eq(ran_funl(text), "[1, 3, 5]\neven\nsucceeded")
+
+// A value of a builtin that faults, faults as the direct call does.
+@test
+A_BUILTIN_VALUE_FAULTS_AS_THE_BUILTIN_DOES()
+    faulted_with("f = abs\nwrite( f(#a) )\n", "'abs' wants a number and was given")
+
+// The wrong number of arguments: refused when the program is compiled for a direct call, a fault
+// for a call through the value -- the same fault a function value of the wrong arity gives.
+@test
+A_BUILTIN_VALUE_CALLED_WITH_THE_WRONG_COUNT_FAULTS()
+    assert_eq(complaints("write( abs(1, 2) )\n"), "error 1:8 `abs` takes 1 argument, and this call gives 2\n")
+    faulted_with("f = abs\nwrite( f(1, 2) )\n", "'abs' takes 1 argument and was given 2")
+    faulted_with("f = odd\nwrite( f() )\n", "'odd' takes 1 argument and was given 0")
+
+@test
+A_BUILTIN_OF_ANY_NUMBER_OF_ARGUMENTS_IS_NOT_A_VALUE()
+    assert_eq(complaints("write( max )\n"), "error 1:8 `max` is a relation or a builtin, which is called rather than used as a value\n")
+    assert_eq(complaints("f = write\n"), "error 1:5 `write` is a relation or a builtin, which is called rather than used as a value\n")
+
+// A builtin a program defines a name over is not the builtin's value there.
+@test
+A_DEFINITION_OF_A_BUILTINS_NAME_IS_THE_VALUE_INSTEAD()
+    assert_eq(ran_funl("def abs( x ) = #mine\nf = abs\nwrite( f(-1) )\n"), "mine\nsucceeded")

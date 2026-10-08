@@ -554,10 +554,10 @@ native check it against this source on the same inputs.
   question below.
 - **`any` is a builtin of one argument** (the scanning charset `any(c)`); the prelude's `any(p, xs)`
   has two, and the name/arity namespace keeps them apart. **`all`, `elem` and `lookup`** are free.
-- **Builtins are not values**: `foldl(max, 0, xs)` is refused, because `max` "is a relation or a
-  builtin, which is called rather than used as a value". The prelude's own source wraps them, as in
-  `(a, b) -> max(a, b)`, and a program does the same until the last prelude question below is
-  decided.
+- **A builtin of a fixed arity is a value** (P4, decided below): `filter(odd, xs)` works. One that
+  takes any number of arguments is not, so `foldl(max, 0, xs)` is still refused, because `max` "is
+  a relation or a builtin, which is called rather than used as a value"; the prelude's own source
+  wraps it, as in `(a, b) -> max(a, b)`.
 - **`repeat` and `break` are keywords**, so Haskell's `repeat` is `forever` and Haskell's `break`
   is `spanNot`.
 - **`length` is the field `.length`**, not a function, so the prelude defines no `length`;
@@ -591,10 +591,17 @@ native check it against this source on the same inputs.
 > value is a tuple**, and only an unmatched value is iterated. Until then no prelude function yields
 > tuples.
 
-> **Open question P4 — builtins as values.** **Recommendation:** a builtin named without a call is a
-> function value when it has one arity (`max`, `odd`, `abs`), so `foldl(max, 0, xs)` and
-> `filter(odd, xs)` work, and is refused with today's message when it has several (`map`). It is a
-> language change, outside the prelude, and it waits for the user.
+> **Decided (user, 2026-10-08) — P4, builtins as values.** **Decision:** a builtin named without a
+> call is a function value when it takes a fixed number of arguments (`abs`, `odd`, `sum`, every
+> function of a built-in module), so `filter(odd, xs)` works. The value calls the builtin with its
+> arguments as a direct call would; a generating builtin still generates and fails through it, and a
+> call through it with the wrong number of arguments faults as any function value's does
+> (`'abs' takes 1 argument and was given 2`), where a direct call is refused when compiled. **It
+> follows that `import * as fs from funl:fs` names a value**: the map from each export to its
+> value, as a FunL module's is (§ "A module is a value"). A builtin that takes any number of
+> arguments (`max`, `min`, `map`, `write`) is refused with today's message: the registry records no
+> range for it, only that it checks its own count, and whether such a builtin becomes a value is
+> left open.
 
 ## Questions decided
 
