@@ -104,6 +104,11 @@ E_F_AND_G_WRITE_A_FLOAT_WITH_A_PRECISION()
     assert_eq(shown("format(\"~g\", [0.5])"), ok("0.5"))
     assert_eq(shown("format(\"~g\", [1000000.0])"), ok("1e+06"))
     assert_eq(shown("format(\"~3g\", [3.14159])"), ok("3.14"))
+    assert_eq(shown("format(\"~0e\", [12345.678])"), ok("1e+04"))
+    assert_eq(shown("format(\"~10e\", [12345.678])"), ok("1.2345678000e+04"))
+    assert_eq(shown("format(\"~10f\", [3.14159])"), ok("3.1415900000"))
+    assert_eq(shown("format(\"~*f\", [10, 3.14159])"), ok("3.1415900000"))
+    assert_eq(shown("format(\"~*f\", [0, 3.7])"), ok("4"))
 
 @test
 F_WRITES_AN_INTEGER_EXACTLY_AND_E_AND_G_TAKE_ONE_AS_A_FLOAT()

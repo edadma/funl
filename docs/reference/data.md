@@ -400,6 +400,34 @@ write( bytes([1]) + 'a' )
 Text and bytes never turn into each other by themselves: `bytes(s)` encodes a string as UTF-8, and
 `decode(b)` reads UTF-8 back as a string ([Strings](strings.md#bytes-and-decode)).
 
+In Prolog a byte string is an **atomic, opaque value**: `atomic/1` is true of it, and `atom/1`,
+`number/1`, `compound/1` and `callable/1` are false. It unifies only with a byte string holding the
+same bytes, and `compare/3` puts it after every number, atom and string and orders two byte strings
+byte by byte. [`data/bytes.pl`](data/bytes.pl) holds `kinds/2`, `same/2`, `order/3` and `sorted/2`.
+
+```funl
+import "data/bytes.pl"
+b = bytes([1, 2])
+
+free k, o, s
+kinds( b, k )
+order( b, bytes([1, 3]), o )
+sorted( [bytes([2]), b, 3, bytes([1])], s )
+write( k, o )
+write( s )
+write( if same(b, bytes([1, 2])) then 'same' else 'differ' )
+write( if same(b, bytes([1])) then 'same' else 'differ' )
+write( if same(b, 'bytes') then 'same' else 'differ' )
+```
+
+```output
+[atomic], <
+[3, bytes([1]), bytes([1, 2]), bytes([2])]
+same
+differ
+differ
+```
+
 ## Handles
 
 A **handle** is a live resource a built-in module gives a program -- an open connection, a
