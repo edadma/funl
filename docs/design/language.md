@@ -120,6 +120,13 @@ lazy list.
 > non-collection value (which was the old behaviour and made a generating function unusable in a
 > comprehension). This makes an iterator value unnecessary for drawing from a generator in a
 > `for` or comprehension: `x <- g()` does it.
+>
+> **Decided (2026-10-08): a map is drawn whole by `<-`, as a string and a tuple are.** So
+> `for row <- db.query(sql)` gives each row (a row is a map), and a generator of maps gives the
+> maps. Iterating a map's entries is explicit: `x <- !m`, since `!` still generates them as pairs
+> `(key, value)`, so `for (k, v) <- !m`. This holds for a mutable map too. **Rejected:** keeping
+> maps iterated, which made every generator of records (rows, parsed JSON objects) need
+> `x <- [g()]`.
 
 **Goal-directed evaluation is what makes a search an expression.** In n-queens the row is chosen by
 a generator, the three constraints are comparisons, and the placement is a reversible assignment —
@@ -347,7 +354,7 @@ write( counts("zzz") )               ;; 0, and "zzz" is still not a key
   `m.length` is still the size, since a collection's `length` is answered before the default.
 - **Assigning adds the key**, and an update such as `+=` or `-=` is a read and an assignment, so it
   starts from the default and adds the key.
-- **The default is not an entry**: `k in m`, `m.length`, `for (k, v) <- m` and `!m` see only the
+- **The default is not an entry**: `k in m`, `m.length` and `!m` (so `for (k, v) <- !m`) see only the
   keys that were assigned.
 - **The default is one value, never copied**, Icon's behaviour and Icon's trap: with
   `map({}, buffer())` every missing key reads the *same* buffer, and `m(k) += x` appends to that

@@ -216,7 +216,7 @@ a range counts with integers, and its end is the rational 1/2
 ## Drawing from a generator with `<-`
 
 The binding `x <- e` of a `for` or a comprehension takes **every** value `e` produces. A value that
-is a collection — a list, set, map, array, buffer or range — is iterated, and any other value is
+is a collection — a list, set, array, buffer or range — is iterated, and any other value is
 taken as it is. So `x <- [1, 2]` and `x <- 1..2` give the elements, and `x <- g()` gives each value
 a generating function produces:
 
@@ -238,8 +238,9 @@ for x <- evens(2) do write( x )
 4
 ```
 
-A string and a tuple are not collections here: each is taken whole. To draw a string's characters
-or a tuple's elements, say so with `!`, which generates them:
+A string, a tuple and a map are not collections here: each is taken whole. To draw a string's
+characters, a tuple's elements or a map's entries, say so with `!`, which generates them — a map's
+entries as pairs `(key, value)`:
 
 ```funl
 write( [w | w <- ('to' | 'be')] )
@@ -247,6 +248,9 @@ write( [c | c <- 'to'] )
 write( [c | c <- !'to'] )
 write( [t | t <- (1, 2)] )
 write( [x | x <- !(1, 2)] )
+write( [m | m <- {a: 1}] )
+write( [e | e <- !{a: 1}] )
+for (k, v) <- !{a: 1, b: 2} do write( k, v )
 ```
 
 ```output
@@ -255,6 +259,25 @@ write( [x | x <- !(1, 2)] )
 ["t", "o"]
 [(1, 2)]
 [1, 2]
+[{"a": 1}]
+[("a", 1)]
+a, 1
+b, 2
+```
+
+So a generator of maps gives the maps:
+
+```funl
+def rows()
+  yield {id: 1}
+  yield {id: 2}
+
+for r <- rows() do write( r.id )
+```
+
+```output
+1
+2
 ```
 
 Because each collection is iterated, a generator of lists gives their elements. To keep each value

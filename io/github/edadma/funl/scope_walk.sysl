@@ -592,10 +592,8 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
             n_params
         Relation(r) -> w.res.rels.at(r).arity
         Builtin(id) ->
-            if is_constant(id)
-                w.report.add(error(at, s"`$n` is a value, and is used without calling it")
-                    .with_label("called here"))
-                return
+            // A constant is applied as its value is: the call indexes it, or calls it.
+            if is_constant(id) then return
 
             val nat = current().natives.at(id)
 

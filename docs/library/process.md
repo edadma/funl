@@ -56,7 +56,7 @@ write( run("/bin/echo") )
 
 `args` is the list of what followed the program's name on the command line, each a string:
 `funl report.funl june "all regions"` gives `["june", "all regions"]`. It is a value, not a
-function. The programs on this page are started with no arguments, so here it is empty:
+function, and is indexed like any list. The programs on this page are started with no arguments, so here it is empty:
 
 ```funl
 import { args } from funl:process
@@ -72,11 +72,24 @@ for a <- args do write( a )
 ```funl
 import { args } from funl:process
 
+write( args(0) | "no first argument" )
+```
+
+```output
+no first argument
+```
+
+`args` is indexed from 0 as any list is, and an index past the end is failure. Calling it with no
+index is an error, as it is for any list:
+
+```funl
+import { args } from funl:process
+
 write( args() )
 ```
 
 ```error
-`args` is a value, and is used without calling it
+the empty list is indexed by one key, and was given 0 arguments
 ```
 
 ## The environment

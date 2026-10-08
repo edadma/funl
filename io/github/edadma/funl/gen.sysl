@@ -23,8 +23,9 @@ import sysl.text.{from_utf8_unchecked, is_char_boundary}
 // itself staying put. A map produces its entries as pairs `(key, value)`.
 
 // `GenStart`: the collection on top becomes its first cursor. Under `draw` (a binding `p <- e`) a
-// string or a tuple is not a collection, and it and any other value is drawn as it is, the cursor of
-// a one-element list of it; `!` generates a string's characters and a tuple's elements.
+// string, a tuple or a map is not a collection, and it and any other value is drawn as it is, the
+// cursor of a one-element list of it; `!` generates a string's characters, a tuple's elements and a
+// map's entries.
 gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
     val top = v.stack.len()
 
@@ -36,6 +37,8 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
     val whole = c match
         Str(_) -> true
         Tuple(_) -> true
+        Map(_) -> true
+        MutMap(_) -> true
         _ -> false
 
     if draw && whole

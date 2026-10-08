@@ -17,7 +17,7 @@ val counts = map( {}, 0 )
 
 every counts( words(text) ) += 1
 
-for (w, n) <- counts
+for (w, n) <- !counts
   write( w, n )
 
 ;; the, 4 / cat, 2 / sat, 2 / ran, 2 / a, 1 / dog, 2 / and, 1 / end, 1

@@ -273,7 +273,8 @@ if r.status != 0 then exit( 1 )
 so `|` gives the default.
 
 > **Built — what the sketch left open.** `args` is a value, as the sketch writes it: a constant
-> builtin (`register_constant`), the list of the driver's arguments after the program's name, which
+> builtin (`register_constant`), the list of the driver's arguments after the program's name (applying a constant, `args(0)`, is applying
+> its value, as it is for a variable holding the same value), which
 > `run_source` puts on the machine before compiling. `run(program, args?, options?)` captures both
 > streams and gives a map of `out`, `err` and exactly one of `status`, `signal` or `timed_out`, so the
 > two ways a child can end without a status are failures to read rather than sentinels; a program
@@ -356,9 +357,9 @@ standard package elsewhere, and slate carries it unconditionally for that reason
 > SQLite reports is `system_error` with SQLite's sentence; a parameter SQLite cannot hold is
 > `type_error(sql_value, X)`, an integer past 64 bits `representation_error(max_integer)`, the wrong
 > number of parameters `domain_error(sql_parameters, N)`; `true`/`false` bind as 1/0. Closing the
-> database ends every query still running over it. **A row is a map, and `x <- e` draws a map's
-> entries**, so the example's `for row <- db.query(...)` is written `for row <- [db.query(...)]` (or
-> `every write( db.query(...).title )`). Prolog cannot call a handle's methods, so the module is
+> database ends every query still running over it. **A row is a map, and `x <- e` draws a map
+> whole** (language.md, Decided 2026-10-08), so the example's `for row <- db.query(...)` gives each
+> row as written. Prolog cannot call a handle's methods, so the module is
 > FunL's alone for now.
 
 ## `async` and `await`
