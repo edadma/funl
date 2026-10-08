@@ -216,9 +216,9 @@ a range counts with integers, and its end is the rational 1/2
 ## Drawing from a generator with `<-`
 
 The binding `x <- e` of a `for` or a comprehension takes **every** value `e` produces. A value that
-is a collection — a list, tuple, set, map, array, buffer, string or range — is iterated, and any
-other value is taken as it is. So `x <- [1, 2]` and `x <- 1..2` give the elements, and
-`x <- g()` gives each value a generating function produces:
+is a collection — a list, set, map, array, buffer or range — is iterated, and any other value is
+taken as it is. So `x <- [1, 2]` and `x <- 1..2` give the elements, and `x <- g()` gives each value
+a generating function produces:
 
 ```funl
 def evens(n)
@@ -238,18 +238,37 @@ for x <- evens(2) do write( x )
 4
 ```
 
-Because each collection is iterated, a generator of strings or lists gives their elements. To keep
-each value whole, put the generator in a list, `x <- [e]`: each of its values is then a list of one,
-whose element is the value.
+A string and a tuple are not collections here: each is taken whole. To draw a string's characters
+or a tuple's elements, say so with `!`, which generates them:
 
 ```funl
 write( [w | w <- ('to' | 'be')] )
-write( [w | w <- ['to' | 'be']] )
+write( [c | c <- 'to'] )
+write( [c | c <- !'to'] )
+write( [t | t <- (1, 2)] )
+write( [x | x <- !(1, 2)] )
 ```
 
 ```output
-["t", "o", "b", "e"]
 ["to", "be"]
+["to"]
+["t", "o"]
+[(1, 2)]
+[1, 2]
+```
+
+Because each collection is iterated, a generator of lists gives their elements. To keep each value
+whole, put the generator in a list, `x <- [e]`: each of its values is then a list of one, whose
+element is the value.
+
+```funl
+write( [l | l <- ([1, 2] | [3])] )
+write( [l | l <- [[1, 2] | [3]]] )
+```
+
+```output
+[1, 2, 3]
+[[1, 2], [3]]
 ```
 
 A generator that produces nothing gives nothing to draw:

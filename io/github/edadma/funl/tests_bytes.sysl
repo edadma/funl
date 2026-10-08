@@ -73,3 +73,16 @@ PROLOG_SEES_BYTES_AS_AN_ATOMIC_VALUE_UNIFYING_BY_VALUE()
     val program = s"import \"$pl\"\nval b = bytes([1, 2])\nshow(b)\nwrite( if same(b, bytes([1, 2])) then \"same\" else \"differ\", if same(b, bytes([1])) then \"same\" else \"differ\" )\nfree k\nkind(b, k)\nwrite( k )\n"
 
     assert_eq(ran_funl(program), "bytes([1, 2])\nsame, differ\natomic\nsucceeded")
+
+@test
+PROLOG_TYPE_TESTS_AND_STANDARD_ORDER_TREAT_BYTES_AS_OPAQUE_ATOMIC()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "kinds.pl", "kinds(X, Ks) :- findall(K, ( member(K, [atom, number, compound, callable, atomic]), G =.. [K, X], call(G) ), Ks).\nsame(X, X).\norder(X, Y, O) :- compare(O, X, Y).\nsorted(L, S) :- msort(L, S).\n")
+    val head = s"import \"$pl\"\nval b = bytes([1, 2])\nfree k, o1, o2, o3, o4, s\n"
+
+    assert_eq(ran_funl(head + "kinds(b, k)\nwrite( k )\n"), "[atomic]\nsucceeded")
+    assert_eq(ran_funl(head + "order(b, bytes([1, 3]), o1)\norder(b, bytes([1, 2]), o2)\norder(b, 1, o3)\norder(b, \"x\", o4)\nwrite( o1, o2, o3, o4 )\n"), "<, =, >, >\nsucceeded")
+    assert_eq(ran_funl(head + "sorted([bytes([2]), b, 3, bytes([1])], s)\nwrite( s )\n"), "[3, bytes([1]), bytes([1, 2]), bytes([2])]\nsucceeded")
+    assert_eq(ran_funl(head + "write( if same(b, \"x\") then \"same\" else \"differ\", if same(b, 12) then \"same\" else \"differ\" )\n"), "differ, differ\nsucceeded")

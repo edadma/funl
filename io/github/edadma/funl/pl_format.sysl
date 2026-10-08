@@ -19,8 +19,6 @@ import sysl.text.{char_from_u32, chars_of, str_builder}
 // The directives: `~w ~p ~q ~a ~d ~D ~s ~e ~f ~g ~n ~c ~r ~R ~~ ~i ~* ~t ~| ~+`. A numeric argument
 // is digits, `*` (taken from the arguments) or a backquote and a character (its code).
 
-extern snprintf(out: *u8, size: usize, fmt: *u8, ...) -> int
-
 install_prolog_format(v: *Vm)
     register(v, "format/1", 1, (b, n) -> pl_format(arg(b, 0), Nil))
     register(v, "format/2", 2, (b, n) -> pl_format(arg(b, 0), arg(b, 1)))
@@ -450,22 +448,12 @@ private float_text(e: Value, kind: char, places: long) -> Result[string, Fault]
     Ok(real_text(kind, int(places), r))
 
 private real_text(kind: char, places: int, r: real) -> string
-    var out: [1500]u8
-    var k: int = 0
-
     if kind == 'e'
-        k = snprintf(&out[0], 1500, c"%.*e", places, r)
+        f"${r}%.${places}e"
     elif kind == 'f'
-        k = snprintf(&out[0], 1500, c"%.*f", places, r)
+        f"${r}%.${places}f"
     else
-        k = snprintf(&out[0], 1500, c"%.*g", places, r)
-
-    var b = str_builder()
-
-    for i in 0..<usize(k)
-        b.push_char(char(out[i]))
-
-    b.finish()
+        f"${r}%.${places}g"
 
 // `~Nr` and `~NR`: the integer expression `e` evaluates to, in radix `radix`, in capitals for `~R`.
 private radix_text(e: Value, radix: int, d: char) -> Result[string, Fault]
