@@ -1,0 +1,272 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+#if feature_http
+import sysl.fs.write_bytes
+import sysl.posix.net.{resolve_passive, socket}
+import sysl.posix.threads.{spawn, Thread}
+import sysl.posix.time.sleep
+import sysl.slices.as_ptr
+import sysl.sync.Atomic
+import sysl.text.from_utf8_unchecked
+import sysl.time.DurationUnits
+
+// `funl:http` (`docs/library/http.md`): `fetch`, its options, the response map, and what faults.
+//
+// **No test reaches the network.** A `file://` URL is fetched from a scratch directory, and a request
+// that needs a server goes to one this file starts on a loopback port: it answers a reply the test
+// wrote, so a 404, a header that repeats and a cookie can be asked for, and it keeps what the
+// request said, so the method, the headers and the body that went out can be read back. A program
+// runs on both heaps, so a server answers every request twice.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// FunL program `body` with `fetch` imported.
+private fetched(body: string) -> string = ran_funl("import { fetch } from funl:http\n" + body)
+
+// -- a server, in as few lines as a test can get away with ----------------------------------------
+
+// What one canned server needs to know. **A `*Job` crosses to the server's thread**, so the reply is
+// a raw pointer and a length rather than a slice, which may not cross a domain.
+private struct Job
+    // Asked for as 0 and read back after `bind`, so no test names a port somebody else may hold.
+    port: Atomic[int]
+    ready: Atomic[int]
+    reply: *u8
+    len: usize
+
+    // How many connections to answer before closing; and, when the reply is empty, a flag the test
+    // raises to let a connection the server is holding open go.
+    count: int
+    release: Atomic[int]
+
+    // The first request, as it arrived.
+    request: [4096]u8
+    request_len: usize
+
+// Answer `count` connections, each with the reply -- or, when it is empty, with nothing until released.
+private serve(j: *Job)
+    val addrs = resolve_passive(0).unwrap()
+    var lis = socket(addrs[0]).unwrap()
+
+    lis.reuse_address(true).unwrap()
+    lis.bind(addrs[0]).unwrap()
+    lis.listen(4).unwrap()
+    j.port.store(lis.local().unwrap().port())
+    j.ready.store(1)
+
+    for i in 0..<j.count
+        var conn = lis.accept().unwrap().0
+        var scratch: [4096]u8
+        val n = conn.recv(scratch[0..<4096]).unwrap_or(0)
+
+        if i == 0
+            for k in 0..<n
+                j.request[k] = scratch[k]
+
+            j.request_len = n
+
+        if j.len == 0
+            while j.release.load() == 0
+                sleep(1.ms)
+        else
+            conn.send_all(j.reply[0..<j.len]).unwrap_or(())
+
+        conn.close().unwrap_or(())
+
+    lis.close().unwrap_or(())
+
+// A server answering `count` connections with `reply`, listening before this returns.
+private serving(reply: []const u8, count: int) -> (&Job, Thread)
+    var j: &Job = Job(Atomic(0), Atomic(0), as_ptr(reply), reply.len, count, Atomic(0), [0; 4096], 0)
+    val t = spawn(&serve, &*j).unwrap()
+
+    while j.ready.load() == 0
+        sleep(1.ms)
+
+    (j, t)
+
+private url_of(j: &Job, path: string) -> string = "http://127.0.0.1:" + str(j.port.load()) + path
+
+// The first request the server was sent.
+private request_text(j: &Job) -> string = from_utf8_unchecked(j.request[0..<j.request_len])
+
+private val OkReply: string = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nVia: one\r\nVia: two\r\n" +
+    "Set-Cookie: a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\r\nSet-Cookie: b=2\r\n" +
+    "Content-Length: 5\r\nConnection: close\r\n\r\nhello"
+
+// -- file:// -------------------------------------------------------------------------------------
+
+@test
+A_FILE_URL_IS_FETCHED_WHOLE_WITH_STATUS_ZERO()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "a.txt", "alpha\nbeta\n")
+
+    assert_eq(fetched(s"r = fetch( \"file://$f\" )\nwrite( r.status, r.body, r.bytes.length, r.headers(\"content-length\") )\n"),
+        "0, alpha\nbeta\n, 11, 11\nsucceeded")
+
+@test
+A_BODY_THAT_IS_NOT_UTF8_HAS_ONLY_BYTES()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/b.bin"
+
+    var raw: [3]u8 = [255, 254, 0]
+
+    write_bytes(f, raw[0..<3]).unwrap()
+
+    assert_eq(fetched(s"r = fetch( \"file://$f\" )\nwrite( r.bytes, r.body | #binary )\n"),
+        "bytes([255, 254, 0]), binary\nsucceeded")
+
+// -- a server ------------------------------------------------------------------------------------
+
+@test
+A_RESPONSE_IS_A_MAP_OF_STATUS_URL_HEADERS_BODY_AND_BYTES()
+    val pair = serving(OkReply.bytes, 2)
+    val u = url_of(pair.0, "/hello")
+
+    assert_eq(fetched(s"r = fetch( \"$u\" )\nwrite( r.status, r.url, r.body, r.bytes )\n" +
+        "write( r.headers(\"content-type\"), r.headers.via, r.headers(\"set-cookie\") )\n"),
+        s"200, $u, hello, bytes([104, 101, 108, 108, 111])\n" +
+        "text/plain, one, two, [\"a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\", \"b=2\"]\nsucceeded")
+    pair.1.join()
+
+    val req = request_text(pair.0)
+
+    assert(req.starts_with("GET /hello HTTP/1.1\r\n"), req)
+
+@test
+A_404_IS_A_RESPONSE_AND_NOT_A_FAULT()
+    val reply = "HTTP/1.1 404 Not Found\r\nContent-Length: 4\r\nConnection: close\r\n\r\ngone"
+    val pair = serving(reply.bytes, 2)
+
+    assert_eq(fetched(s"r = fetch( \"${url_of(pair.0, "/x")}\" )\nwrite( r.status, r.body )\n"), "404, gone\nsucceeded")
+    pair.1.join()
+
+@test
+A_BODY_IS_POSTED_WITH_THE_HEADERS_GIVEN()
+    val pair = serving(OkReply.bytes, 2)
+    val u = url_of(pair.0, "/api")
+
+    assert_eq(fetched(s"r = fetch( \"$u\", {headers: {\"Content-Type\": \"application/json\", \"X-Count\": 3}, body: \"{\\\"q\\\": 1}\"} )\nwrite( r.status )\n"),
+        "200\nsucceeded")
+    pair.1.join()
+
+    val req = request_text(pair.0)
+
+    assert(req.starts_with("POST /api HTTP/1.1\r\n"), req)
+    assert(has(req, "\r\nContent-Type: application/json\r\n"), req)
+    assert(has(req, "\r\nX-Count: 3\r\n"), req)
+    assert(req.ends_with("\r\n\r\n{\"q\": 1}"), req)
+
+@test
+A_METHOD_IS_NAMED_BY_A_STRING_OR_AN_ATOM_IN_ANY_CASE()
+    val put_pair = serving(OkReply.bytes, 2)
+
+    assert_eq(fetched(s"write( fetch( \"${url_of(put_pair.0, "/p")}\", {method: #put, body: bytes([1, 2])} ).status )\n"), "200\nsucceeded")
+    put_pair.1.join()
+    assert(request_text(put_pair.0).starts_with("PUT /p HTTP/1.1\r\n"))
+
+    val other = serving(OkReply.bytes, 2)
+
+    assert_eq(fetched(s"write( fetch( \"${url_of(other.0, "/o")}\", {method: \"patch\", body: \"x\"} ).status )\n"), "200\nsucceeded")
+    other.1.join()
+    assert(request_text(other.0).starts_with("PATCH /o HTTP/1.1\r\n"))
+
+@test
+A_SERVER_THAT_SAYS_NOTHING_RUNS_INTO_THE_TIMEOUT()
+    val pair = serving([], 2)
+
+    val said = fetched(s"write( fetch( \"${url_of(pair.0, "/slow")}\", {timeout: 0.2} ) catch error(system_error, context(_, m)) -> #timed_out )\n")
+
+    pair.0.release.store(1)
+    pair.1.join()
+    assert_eq(said, "timed_out\nsucceeded")
+
+// -- what faults ---------------------------------------------------------------------------------
+
+@test
+A_FETCH_THAT_CANNOT_BE_DONE_FAULTS_AND_IS_CAUGHT()
+    assert_eq(fetched("write( fetch( \"file:///no/such/place.txt\" ) catch error(system_error, context(_, m)) -> m )\n"),
+        "'fetch' cannot fetch `file:///no/such/place.txt`: Couldn't read a file:// file\nsucceeded")
+    assert_eq(fetched("write( fetch( \"gopher+x://host\" ) catch error(e, _) -> e )\n"),
+        "domain_error(url, \"gopher+x://host\")\nsucceeded")
+
+@test
+A_WRONG_ARGUMENT_OR_OPTION_IS_REFUSED_BY_NAME()
+    assert_eq(fetched("write( fetch( 42 ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", [1] ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {colour: 1} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {method: 7} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {method: \"\"} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {headers: [1]} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {headers: {a: [1]}} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {body: 1} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {body: \"b\", method: #get} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {body: \"b\", method: #head} ) catch e -> e.message )\n" +
+        "write( fetch( \"file:///x\", {timeout: 0} ) catch error(e, _) -> e )\n" +
+        "write( fetch( \"file:///x\", {timeout: \"1\"} ) catch error(e, _) -> e )\n"),
+        "type_error(string, 42)\n" +
+        "type_error(map, [1])\n" +
+        "domain_error(fetch_option, \"colour\")\n" +
+        "type_error(string, 7)\n" +
+        "domain_error(http_method, \"\")\n" +
+        "type_error(map, [1])\n" +
+        "type_error(string, [1])\n" +
+        "type_error(string, 1)\n" +
+        "domain_error(fetch_option, \"body\")\n" +
+        "'fetch' cannot send a body with HEAD\n" +
+        "domain_error(positive_timeout, 0)\n" +
+        "type_error(number, \"1\")\n" +
+        "succeeded")
+
+@test
+FETCH_TAKES_ONE_OR_TWO_ARGUMENTS()
+    assert_eq(complaints("import { fetch } from funl:http\nwrite( fetch() )\n"),
+        "error 2:8 `fetch` takes from 1 to 2 arguments, and this call gives 0\n")
+    assert_eq(complaints("import * as http from funl:http\nwrite( http.fetch(\"a\", {}, 3) )\n"),
+        "error 2:8 `http.fetch` takes from 1 to 2 arguments, and this call gives 3\n")
+    assert(has(complaints("import { get } from funl:http\n"), "`funl:http` does not export `get`"))
+
+// -- from Prolog ---------------------------------------------------------------------------------
+
+@test
+PROLOG_CALLS_FETCH_WITH_AND_WITHOUT_OPTIONS()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "a.txt", "alpha")
+    val pl = put(d, "get.pl", ":- import(\"funl:http\").\n" +
+        s"plain(B) :- http:fetch(\"file://$f\", R), B = R.\n" +
+        s"timed(O, S) :- http:fetch(\"file://$f\", O, R), S = R.\n" +
+        "failed(E) :- catch(http:fetch(\"file:///no/such\", _), error(E, _), true).\n")
+
+    assert_eq(ran_funl(s"import \"$pl\"\nfree b, s, e\nif plain(b) then write( b.body )\n" +
+        "if timed({timeout: 5}, s) then write( s.status )\nif failed(e) then write( e )\n"),
+        "alpha\n0\nsystem_error\nsucceeded")
+
+#endif
+#if !feature_http
+
+// A build without the `http` feature has no `funl:http`, and says which feature it is behind rather
+// than calling the import a misspelling -- to FunL and to Prolog alike.
+@test
+A_BUILD_WITHOUT_THE_HTTP_FEATURE_SAYS_SO()
+    assert_eq(complaints("import { fetch } from funl:http\n"),
+        "error 1:23 `funl:http` is not in this build -- it is behind the `http` feature, so build with `--features http`\n")
+
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "get.pl", ":- import(\"funl:http\").\n")
+
+    val said = ran_funl(s"import \"$pl\"\n")
+
+    assert(said.index_of("behind the `http` feature").is_some(), said)
+
+#endif

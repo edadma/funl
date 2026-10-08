@@ -117,7 +117,17 @@ private pages_in(dir: string, out: *Buf[string])
     sort_by(names.view(), (a, b) -> a < b)
 
     for i in 0..<names.len()
-        if names.at(i).ends_with(".md") then out.push(s"$dir/${names.at(i)}")
+        val page = s"$dir/${names.at(i)}"
+
+        if page.ends_with(".md") && page_runs_here(page) then out.push(page)
+
+// Whether this build has what `page` is about: the page of a module behind a feature this build left
+// off has nothing to run against.
+private page_runs_here(page: string) -> bool
+#if !feature_http
+    if page == "docs/library/http.md" then return false
+#endif
+    true
 
 // The fenced blocks of a markdown document, in order.
 //
@@ -485,7 +495,15 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/strings.md 14 5 0 0\n" +
     "docs/reference/success-and-failure.md 17 5 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
-    "docs/library/fs.md 12 3 0 0\n"
+    "docs/library/fs.md 12 3 0 0\n" + HttpCensus
+
+// `docs/library/http.md`'s line, which a build without the `http` feature does not run.
+#if feature_http
+private val HttpCensus: string = "docs/library/http.md 5 2 1 0\n"
+#endif
+#if !feature_http
+private val HttpCensus: string = ""
+#endif
 
 // -- the runner itself -------------------------------------------------------------------------------
 

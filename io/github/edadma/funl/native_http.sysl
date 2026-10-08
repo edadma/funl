@@ -1,0 +1,261 @@
+module io.github.edadma.funl
+#if feature_http
+
+import sh.sysl.curl
+import sh.sysl.curl.{Error, Header, Get, Head, Post, Put, Delete, Other, client, headers, init}
+import sh.sysl.curl.c
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, from_utf8, to_lower, to_upper}
+
+// `funl:http`: an HTTP client, over the `sysl-lang/curl` package -- libcurl.
+//
+// **It is behind the `http` feature** (`modules.md` § "Features keep the core link line short"):
+// this whole file, its `install_http` line, its arm in `builtin_modules` and its tests are gated
+// with it, so a build with `--no-default-features` links no libcurl and answers `funl:http is not in
+// this build` to a program that imports it.
+//
+// **`fetch` is slate's name, and it blocks**: it answers when the whole response has arrived. The
+// response is an immutable map -- `status`, `url`, `headers`, `body` and `bytes` -- so `r.status`
+// reads. A status of 404 or 500 is a response like any other, since the server answered.
+//
+// **Everything else that goes wrong is a fault** (`modules.md`, failure or fault): a network that
+// is down, a host that does not resolve, a timeout -- `system_error`, carrying libcurl's own words --
+// and a URL that is not one, `domain_error(url, U)`; each caught with `catch`. The one failure is a
+// body that is not UTF-8, which has no `body` entry to read, so `r.body | ""` is the test.
+
+// What `funl:http` exports, each name the short form of a native `install_http` registered as
+// `http.name`.
+private val HttpNames: [1]string = ["fetch"]
+
+install_http(v: *Vm)
+    // **libcurl's global set-up is asked for here, once per machine made**, and never from a request:
+    // libcurl wants it before any handle exists and no request can know whether it has happened.
+    // A second call only counts up libcurl's own reference.
+    init().unwrap_or(())
+
+    register_between(v, "http.fetch", 1, 2, do_fetch)
+end install_http
+
+// The exports of `funl:http`.
+http_exports() -> Buf[ModExport] = native_exports("http", HttpNames)
+
+// -- the request ---------------------------------------------------------------------------------
+
+// What a request is, read off `fetch`'s arguments before anything is allocated: the method, the
+// headers as `name: value` lines, the body, and the whole-transfer timeout in milliseconds.
+private struct Request
+    url: string
+    method: string
+    lines: Buf[string]
+    body: Buf[u8]
+    has_body: bool
+    timeout_ms: int
+
+// `fetch(url)` and `fetch(url, options)`: the response, once the whole of it has arrived.
+private do_fetch(base: usize, argc: usize) -> Result[Value, Fault]
+    val req = request_of(base, argc)?
+
+    val cl = client("funl") match
+        Ok(cl) -> cl
+        Err(e) -> return Err(curl_fault(e, req.url))
+
+    cl.timeout_ms(req.timeout_ms).map_err((e) -> curl_fault(e, req.url))?
+
+    val hs = headers()
+
+    for line in req.lines.view()
+        val cut = line.index_of(": ").unwrap_or(line.len)
+
+        hs.add(line[0..<cut], line[cut + 2..<line.len]).map_err((e) -> curl_fault(e, req.url))?
+
+    val r = cl.send(curl_method(req.method), req.url, req.body.view(), Some(hs)) match
+        Ok(r) -> r
+        Err(e) -> return Err(curl_fault(e, req.url))
+
+    val out = new_map()?
+
+    map_put(out, new_str("status")?, Int(long(r.status)))?
+    map_put(out, new_str("url")?, new_str(r.url)?)?
+    map_put(out, new_str("headers")?, Map(header_map(r.headers.view())?))?
+
+    from_utf8(r.body.view()) match
+        Ok(s) -> map_put(out, new_str("body")?, new_str(s)?)?
+        Err(_) -> ()
+
+    var bytes: Buf[u8] = buf()
+
+    bytes.extend(r.body.view())
+    map_put(out, new_str("bytes")?, new_bytes(bytes)?)?
+    Ok(Map(out))
+end do_fetch
+
+// The request `fetch`'s arguments describe: argument 0 the URL, argument 1, when there is one, a map
+// of options -- `method`, `headers`, `body` and `timeout` -- each optional.
+private request_of(base: usize, argc: usize) -> Result[Request, Fault]
+    val u = deref(arg(base, 0))
+
+    val url = u match
+        Str(p) -> p.s
+        _ -> return Err(kind_error(u, "string", s"'fetch' wants a URL, a string, and was given ${described(u)}"))
+
+    var req = Request(url, "GET", buf(), buf(), false, 30000)
+    var named_method = false
+
+    if argc < 2 then return Ok(req)
+
+    val o = deref(arg(base, 1))
+
+    val m = o match
+        Map(m) -> m
+        MutMap(m) -> m
+        _ -> return Err(type_error("map", o, s"'fetch' wants its options as a map, and was given ${described(o)}"))
+
+    for i in 0..<m.keys.len()
+        val k = deref(m.keys.at(i))
+        val x = deref(m.vals.at(i))
+
+        val key = k match
+            Str(p) -> p.s
+            _ -> return Err(domain_error("fetch_option", k, s"'fetch' takes the options method, headers, body and timeout, and was given ${described(k)}"))
+
+        if key == "method"
+            req.method = method_of(x)?
+            named_method = true
+        elif key == "headers"
+            req.lines = header_lines(x)?
+        elif key == "body"
+            x match
+                Str(p) -> req.body.extend(p.s.bytes)
+                Bytes(p) -> req.body.extend(p.b.view())
+                _ -> return Err(type_error("string", x, s"'fetch' wants a body that is a string or bytes, and was given ${described(x)}"))
+
+            req.has_body = true
+        elif key == "timeout"
+            req.timeout_ms = millis_of(x)?
+        else
+            return Err(domain_error("fetch_option", k, s"'fetch' takes the options method, headers, body and timeout, and was given `$key`"))
+
+    // **A body with no method named is a POST**, which is what sending one means; a body on a GET or
+    // a HEAD is refused rather than dropped, since nothing would carry it.
+    if req.has_body
+        if !named_method then req.method = "POST"
+
+        if req.method == "GET" || req.method == "HEAD"
+            return Err(domain_error("fetch_option", new_str("body")?, s"'fetch' cannot send a body with ${req.method}"))
+
+    Ok(req)
+end request_of
+
+// The method `x` names, upper-cased: a string or an atom, in any case -- `"post"`, `#POST`.
+private method_of(x: Value) -> Result[string, Fault]
+    val name = x match
+        Str(p) -> to_upper(p.s)
+        Atom(id) -> to_upper(atom_name(id))
+        _ -> return Err(type_error("string", x, s"'fetch' wants a method, a string, and was given ${described(x)}"))
+
+    if name.len == 0 then return Err(domain_error("http_method", x, "'fetch' wants a method, and was given an empty one"))
+
+    Ok(name)
+
+// The method called `name`, as libcurl's binding spells it.
+private curl_method(name: string) -> curl.Method =
+    if name == "GET" then Get
+    elif name == "HEAD" then Head
+    elif name == "POST" then Post
+    elif name == "PUT" then Put
+    elif name == "DELETE" then Delete
+    else Other(name)
+
+// The request headers map `x` holds, as `name: value` lines: each value a string, or a number written
+// as FunL writes it.
+private header_lines(x: Value) -> Result[Buf[string], Fault]
+    val m = x match
+        Map(m) -> m
+        MutMap(m) -> m
+        _ -> return Err(type_error("map", x, s"'fetch' wants its headers as a map, and was given ${described(x)}"))
+
+    var out: Buf[string] = buf()
+
+    for i in 0..<m.keys.len()
+        val k = deref(m.keys.at(i))
+        val v = deref(m.vals.at(i))
+
+        val name = k match
+            Str(p) -> p.s
+            _ -> return Err(type_error("string", k, s"'fetch' wants a header name that is a string, and was given ${described(k)}"))
+
+        val value = v match
+            Str(p) -> p.s
+            Int(n) -> str(n)
+            _ -> return Err(type_error("string", v, s"'fetch' wants the header `$name` to be a string, and was given ${described(v)}"))
+
+        out.push(name + ": " + value)
+
+    Ok(out)
+
+// The timeout `x` names, in seconds, as milliseconds: a positive number.
+private millis_of(x: Value) -> Result[int, Fault]
+    val ms = x match
+        Int(n) -> real(n) * 1000.0
+        Real(r) -> r * 1000.0
+        _ -> return Err(type_error("number", x, s"'fetch' wants a timeout in seconds, a number, and was given ${described(x)}"))
+
+    if ms < 1.0 then return Err(domain_error("positive_timeout", x, s"'fetch' wants a timeout of more than nothing, and was given ${described(x)}"))
+
+    Ok(int(ms))
+
+// -- the response --------------------------------------------------------------------------------
+
+// The response headers as a map from lower-cased name to value. **A name that repeats has its values
+// joined with `", "`**, which RFC 9110 allows; **`set-cookie` is the exception and is a list** of the
+// lines as they arrived, a cookie carrying commas inside itself.
+private header_map(hs: []const Header) -> Result[*MapObj, Fault]
+    var names: Buf[string] = buf()
+    var values: Buf[string] = buf()
+    var cookies: Buf[string] = buf()
+
+    for h in hs
+        val name = to_lower(h.name)
+
+        if name == "set-cookie"
+            cookies.push(h.value)
+            continue
+
+        var found = false
+
+        for i in 0..<names.len()
+            if names.at(i) == name
+                values.set(i, values.at(i) + ", " + h.value)
+                found = true
+
+        if !found
+            names.push(name)
+            values.push(h.value)
+
+    val out = new_map()?
+
+    for i in 0..<names.len()
+        map_put(out, new_str(names.at(i))?, new_str(values.at(i))?)?
+
+    if cookies.len() > 0
+        var items: Buf[Value] = buf()
+
+        for line in cookies.view()
+            items.push(new_str(line)?)
+
+        map_put(out, new_str("set-cookie")?, list_of(&items, Nil)?)?
+
+    Ok(out)
+
+// The fault for libcurl's error `e` fetching `url`: a URL that is not one is the program's mistake,
+// `domain_error(url, U)`, and everything else -- no network, no such host, a timeout, a certificate
+// that does not check out -- `system_error`, with libcurl's own words.
+private curl_fault(e: Error, url: string) -> Fault
+    if e.code == c.E_URL_MALFORMAT || e.code == c.E_UNSUPPORTED_PROTOCOL
+        return new_str(url) match
+            Ok(u) -> domain_error("url", u, s"'fetch' cannot fetch `$url`: ${e.message}")
+            Err(m) -> Broken(m)
+
+    system_error(s"'fetch' cannot fetch `$url`: ${e.message}")
+
+#endif

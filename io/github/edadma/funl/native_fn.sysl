@@ -58,30 +58,43 @@ enum Impl
 // The arity of a builtin that takes any number of arguments.
 const Variadic: usize = 4294967295
 
+// A builtin: called with from `least` to `arity` arguments. **The two are equal for nearly every
+// builtin**; a `Variadic` one takes any number from none, and one with an optional last argument --
+// `fetch(url)` and `fetch(url, options)` -- is the range `register_between` makes, which a Prolog
+// importer sees as one predicate per count.
 struct Native
     name: string
     arity: usize
     how: Impl
+    least: usize
+
+// The fewest arguments a builtin of `arity` takes.
+private least_of(arity: usize) -> usize = if arity == Variadic then 0 else arity
 
 // Add a builtin to `v`'s table and answer its id.
 register(v: *Vm, name: string, arity: usize, go: NativeGo) -> usize
-    v.natives.push(Native(name, arity, Plain(go)))
+    v.natives.push(Native(name, arity, Plain(go), least_of(arity)))
+    v.natives.len() - 1
+
+// Add a builtin taking from `least` to `most` arguments.
+register_between(v: *Vm, name: string, least: usize, most: usize, go: NativeGo) -> usize
+    v.natives.push(Native(name, most, Plain(go), least))
     v.natives.len() - 1
 
 // Add a builtin that may fail or generate.
 register_generator(v: *Vm, name: string, arity: usize, go: GeneratorGo) -> usize
-    v.natives.push(Native(name, arity, Generating(go)))
+    v.natives.push(Native(name, arity, Generating(go), least_of(arity)))
     v.natives.len() - 1
 
 // Add a generator over a handle: each call makes a fresh state handle with `start` and takes values
 // from it with `step`, one per resumption, until `step` runs out (see `call_stepping`).
 register_stepping(v: *Vm, name: string, arity: usize, start: StartGo, step: StepGo) -> usize
-    v.natives.push(Native(name, arity, Stepping(start, step)))
+    v.natives.push(Native(name, arity, Stepping(start, step), least_of(arity)))
     v.natives.len() - 1
 
 // Add a name for the value `go` makes.
 register_constant(v: *Vm, name: string, go: NativeGo) -> usize
-    v.natives.push(Native(name, 0, Constant(go)))
+    v.natives.push(Native(name, 0, Constant(go), 0))
     v.natives.len() - 1
 
 // Whether builtin `id` names a value rather than something to call.

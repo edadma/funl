@@ -594,7 +594,16 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
                     .with_label("called here"))
                 return
 
-            current().natives.at(id).arity
+            val b = current().natives.at(id)
+
+            // A builtin with an optional argument takes a range, and says both ends.
+            if b.least != b.arity && b.arity != Variadic
+                if argc < b.least || argc > b.arity
+                    w.report.add(error(at, s"`$n` takes from ${b.least} to ${counted(b.arity, "argument")}, and this call gives $argc"))
+
+                return
+
+            b.arity
         Predicate(_) ->
             if !pred_defined(pred_key(n, argc))
                 w.report.add(error(at, s"the Prolog predicate `$n` has no clauses of ${counted(argc, "argument")}")

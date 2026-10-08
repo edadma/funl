@@ -292,6 +292,18 @@ resp = fetch( "https://example.com/api", {method: "POST", body: stringify({q: 1}
 [`async` and `await`](#async-and-await). **A feature because libcurl is not on every machine** a `funl` is built on, and its link
 line would otherwise sit under every build; on by default, so the release has it.
 
+> **Built — what the sketch left open.** `fetch(url)` and `fetch(url, options)` are one native
+> taking one or two arguments (`register_between`), which Prolog sees as `http:fetch/2` and
+> `http:fetch/3`. The options are `method` (a string or an atom, any case), `headers`, `body` (a
+> string or bytes; a body with no method is a `POST`, and one on `GET` or `HEAD` is refused) and
+> `timeout` in seconds; any other key is `domain_error(fetch_option, K)`. The response is a map of
+> `status`, `url`, `headers` (lower-cased names; a repeated header joined with `", "`, and
+> `set-cookie` a list, as slate's), `body` and `bytes`: `body` is the text and is absent when the
+> body is not UTF-8 (not well-formed, question 3), `bytes` is always there. A non-2xx status is a
+> response; a request that cannot be done is `system_error`, and a URL that is not one
+> `domain_error(url, U)` (question 3's fault side). The `prolog` member takes `funl-vm` with
+> `default_features = false`, so its executable links no libcurl.
+
 ### `funl:sqlite` — core, over `sysl-lang/sqlite3`
 
 ```

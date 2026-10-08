@@ -7,8 +7,11 @@ package {
   sysl    = "0.1.0-alpha.4"
 }
 
+// **`default_features = false`, because standard Prolog imports no `funl:` module** (`modules.md`
+// § "Features keep the core link line short"): the machine comes without the features that would put
+// a library such as libcurl on this executable's link line.
 dependencies {
-  funl-vm   { workspace = true }
+  funl-vm   { workspace = true, default_features = false }
   parsing   { git = "github.com/sysl-lang/parsing", version = "0.12.1" }
   linenoise { git = "github.com/sysl-lang/linenoise", version = "0.3.0" }
 }

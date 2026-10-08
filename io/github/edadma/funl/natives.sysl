@@ -13,3 +13,6 @@ install_natives(v: *Vm)
     install_prolog(v)
     install_catch(v)
     install_fs(v)
+#if feature_http
+    install_http(v)
+#endif

@@ -97,6 +97,9 @@ builtin_modules() -> Buf[ModuleProvider]
     var out: Buf[ModuleProvider] = buf()
 
     out.push(ModuleProvider("fs", fs_exports))
+#if feature_http
+    out.push(ModuleProvider("http", http_exports))
+#endif
     out
 
 // The provider of `funl:name`, if FunL has one.
@@ -104,6 +107,18 @@ builtin_module(name: string) -> Option[ModuleProvider]
     for p in builtin_modules().view()
         if p.name == name then return Some(p)
 
+    None
+
+// What an import of `funl:name` is told when this build has no such module.
+unknown_builtin(name: string) -> string = left_out_module(name).unwrap_or(s"unknown module `funl:$name`")
+
+// Why `funl:name` is not in this build, when it is a module behind a feature this build left off: the
+// diagnostic names the feature (`modules.md` § "Features keep the core link line short"), rather than
+// reading as a misspelling of a line that is right.
+left_out_module(name: string) -> Option[string]
+#if !feature_http
+    if name == "http" then return Some("`funl:http` is not in this build -- it is behind the `http` feature, so build with `--features http`")
+#endif
     None
 
 // One name an import declares: what the importer calls it, where, and what module export it is.
@@ -191,7 +206,7 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
             BuiltinSpec(name) ->
                 builtin_module(name) match
                     Some(p) -> bind(&out, provided(p), s"funl:$name", i.form, report)
-                    None -> report.add(error(i.at, s"unknown module `funl:$name`"))
+                    None -> report.add(error(i.at, unknown_builtin(name)))
 
     out
 end imports_of
@@ -566,7 +581,7 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
         None ->
             val now = refusal(why, report, Unreadable)
 
-            report.add(error(at, s"unknown module `funl:$name`"))
+            report.add(error(at, unknown_builtin(name)))
             return now
 
     for x in p.exports().view()
@@ -574,35 +589,41 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
             ExNative(id) -> id
             _ -> continue
 
-        val arity = current().natives.at(id).arity
-        val key = pred_key(s"$name:${x.name}", arity + 1)
+        val b = current().natives.at(id)
 
-        if pred_defined(key) then continue
+        // A builtin taking a range of counts -- an optional last argument -- is one predicate per
+        // count. A `Variadic` one has no count to make a predicate of.
+        if b.arity == Variadic then continue
 
-        var e = emit(key)
+        for arity in b.least..<b.arity + 1
+            val key = pred_key(s"$name:${x.name}", arity + 1)
 
-        for k in 0..<arity
-            e.op(LoadArg(k))
+            if pred_defined(key) then continue
 
-        if is_generator(id)
-            e.op(PushInt(0))
-            e.op(NativeGen(id, arity))
-        else
-            e.op(Native(id, arity))
+            var e = emit(key)
 
-        e.op(LoadArg(arity))
-        e.op(Unify)
-        e.op(Pop)
-        e.op(PushUnit)
-        e.op(Return)
+            for k in 0..<arity
+                e.op(LoadArg(k))
 
-        define_predicate(key, e, Origin(s"funl:$name", x.what)) match
-            Ok(_) -> ()
-            Err(m) ->
-                val now = refusal(why, report, Unreadable)
+            if is_generator(id)
+                e.op(PushInt(0))
+                e.op(NativeGen(id, arity))
+            else
+                e.op(Native(id, arity))
 
-                report.add(error(at, s"the compiler failed: $m"))
-                return now
+            e.op(LoadArg(arity))
+            e.op(Unify)
+            e.op(Pop)
+            e.op(PushUnit)
+            e.op(Return)
+
+            define_predicate(key, e, Origin(s"funl:$name", x.what)) match
+                Ok(_) -> ()
+                Err(m) ->
+                    val now = refusal(why, report, Unreadable)
+
+                    report.add(error(at, s"the compiler failed: $m"))
+                    return now
 
     why
 end prolog_builtin_module

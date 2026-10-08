@@ -39,10 +39,25 @@ workspace = ["funl", "prolog"]
 //
 // **`dal` is the numeric tower** -- integers that grow past 64 bits, exact rationals and doubles,
 // with FunL's arithmetic under `dal.funl()` and Prolog's under `dal.iso_prolog(prefer_rationals)`.
+//
+// **`curl` is `funl:http`'s, and it is optional, behind the `http` feature.** libcurl is not on every
+// machine a `funl` is built on, and a link directive is never pruned, so bound in the core it would
+// sit on the link line of every `funl` and `prolog` build whether a program fetched anything or not.
 dependencies {
   dal     { git = "github.com/sysl-lang/dal", version = "0.1.1" }
   gc      { git = "github.com/sysl-lang/gc", version = "0.2.7" }
   parsing { git = "github.com/sysl-lang/parsing", version = "0.12.1" }
+  curl    { git = "github.com/sysl-lang/curl", version = "0.1.1", optional = true }
+}
+
+// **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`
+// § "Features keep the core link line short"). `http` is on in `default`, so a build that asks for
+// nothing -- and the release -- has `funl:http`; `--no-default-features` leaves libcurl out and
+// answers `funl:http is not in this build` to a program that imports it.
+features {
+  default = [http]
+
+  http = [curl]
 }
 
 // An interpreter grows its operand stack, control stack and trail while it runs, and none of the
