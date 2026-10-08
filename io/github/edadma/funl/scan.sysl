@@ -53,7 +53,7 @@ private int_arg(base: usize, i: usize, name: string) -> Result[long, Fault]
         Int(n) -> Ok(n)
         _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
 
-private str_arg(base: usize, i: usize, name: string) -> Result[*StrObj, Fault]
+str_arg(base: usize, i: usize, name: string) -> Result[*StrObj, Fault]
     val x = deref(arg(base, i))
 
     x match

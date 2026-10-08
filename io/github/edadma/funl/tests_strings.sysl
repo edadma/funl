@@ -1,0 +1,74 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// The string builtins: `split`, `join`, `trim` and its one-sided forms, `upper`, `lower`, `replace`,
+// and the tests `starts_with`, `ends_with` and `contains`.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+SPLIT_WITH_NO_SEPARATOR_GIVES_THE_WORDS()
+    assert_eq(ran_funl("write(split('  the quick  brown\\tfox\\n'))\nwrite(split(''), split(' \\t '))\n"),
+        "[\"the\", \"quick\", \"brown\", \"fox\"]\n[], []\nsucceeded")
+
+@test
+SPLIT_AT_A_STRING_KEEPS_EMPTY_PIECES()
+    assert_eq(ran_funl("write(split('a,b,,c', ','))\nwrite(split(',a,', ','))\nwrite(split('a::b::c', '::'))\nwrite(split('née, né', 'é'))\n"),
+        "[\"a\", \"b\", \"\", \"c\"]\n[\"\", \"a\", \"\"]\n[\"a\", \"b\", \"c\"]\n[\"n\", \"e, n\", \"\"]\nsucceeded")
+
+@test
+SPLIT_AT_A_CSET_CUTS_AT_EACH_OF_ITS_CHARACTERS()
+    assert_eq(ran_funl("write(split('x1y22z', digits))\nwrite(split('a,b;c', cset(',;')))\n"),
+        "[\"x\", \"y\", \"\", \"z\"]\n[\"a\", \"b\", \"c\"]\nsucceeded")
+
+@test
+SPLIT_REFUSES_AN_EMPTY_SEPARATOR_AND_A_NON_STRING()
+    faults_with("write(split('abc', ''))\n", "'split' was given an empty separator")
+    faults_with("write(split(5))\n", "'split' wants a string and was given the integer 5")
+    faults_with("write(split('a', 5))\n", "'split' wants a string or a cset to split at and was given the integer 5")
+    faults_with("write(split('a', 'b', 'c'))\n", "'split' takes 1 or 2 arguments, and was given 3")
+
+@test
+JOIN_PUTS_THE_SEPARATOR_BETWEEN_ELEMENTS_AND_WRITES_NON_STRINGS()
+    assert_eq(ran_funl("write(join(['a', 'b', 'c'], ', '))\nwrite(join(['a', 'b']))\nwrite(join(1..3, '-'))\nwrite(join([], ', ') + '|')\nwrite(join(['x', #y, 2.5], ' '))\n"),
+        "a, b, c\nab\n1-2-3\n|\nx y 2.5\nsucceeded")
+
+@test
+JOIN_REFUSES_A_NON_STRING_SEPARATOR_AND_A_NON_COLLECTION()
+    faults_with("write(join(['a'], 0))\n", "'join' wants a string and was given the integer 0")
+    faults_with("write(join(5))\n", "'join' wants a list and reached the integer 5")
+
+@test
+TRIM_TAKES_SPACES_OFF_THE_ENDS_ASKED_FOR()
+    assert_eq(ran_funl("s = ' \\t a  b \\n'\nwrite('[' + trim(s) + ']')\nwrite('[' + trim_start('  a  ') + ']')\nwrite('[' + trim_end('  a  ') + ']')\nwrite('[' + trim('   ') + ']')\n"),
+        "[a  b]\n[a  ]\n[  a]\n[]\nsucceeded")
+    faults_with("write(trim(1))\n", "'trim' wants a string and was given the integer 1")
+    faults_with("write(trim_end([]))\n", "'trim_end' wants a string")
+
+@test
+UPPER_AND_LOWER_MAP_EVERY_CHARACTER_ONE_FOR_ONE()
+    assert_eq(ran_funl("write(upper('héllo straße 1'))\nwrite(lower('ÀÉÎ ЖУК ABC'))\n"),
+        "HÉLLO STRAẞE 1\nàéî жук abc\nsucceeded")
+    faults_with("write(upper(#a))\n", "'upper' wants a string and was given the atom a")
+    faults_with("write(lower(3))\n", "'lower' wants a string and was given the integer 3")
+
+@test
+REPLACE_CHANGES_EVERY_PLACE_FROM_LEFT_TO_RIGHT()
+    assert_eq(ran_funl("write(replace('a-b-c', '-', ' + '))\nwrite(replace('aaaa', 'aa', 'b'))\nwrite(replace('aaa', 'aa', 'b'))\nwrite(replace('café', 'é', 'e'))\nwrite(replace('abc', 'x', 'y'))\n"),
+        "a + b + c\nbb\nba\ncafe\nabc\nsucceeded")
+    faults_with("write(replace('abc', '', '-'))\n", "'replace' was given an empty string to replace")
+    faults_with("write(replace('abc', 'a', 1))\n", "'replace' wants a string and was given the integer 1")
+
+// A test produces its first argument or fails, so it serves as a condition and as a filter.
+@test
+THE_TESTS_PRODUCE_THE_STRING_OR_FAIL()
+    assert_eq(ran_funl("write(starts_with('hello', 'he'))\nwrite(starts_with('hello', 'lo'))\nwrite(ends_with('hello', 'lo'))\nwrite(ends_with('hello', 'he'))\nwrite(contains('hello', 'ell'))\nwrite(contains('hello', 'z'))\nwrite(contains('', ''))\nwrite([w | w <- split('one two three') if ends_with(w, 'e')])\n"),
+        "hello\nhello\nhello\n\n[\"one\", \"three\"]\nsucceeded")
+    faults_with("write(starts_with(5, '5'))\n", "'starts_with' wants a string and was given the integer 5")
+    faults_with("write(contains('a', #b))\n", "'contains' wants a string and was given the atom b")
