@@ -47,8 +47,18 @@ PLUS_AND_MINUS_MAKE_NEW_MAPS()
 
 @test
 A_MAP_TESTS_ITS_KEYS_AND_GENERATES_ITS_ENTRIES()
-    assert_eq(ran_funl("write( \"a\" in {a: 1}, \"z\" not in {a: 1}, {a: 1, b: 2} == {b: 2, a: 1} )\nevery write( !{a: 1, b: 2} )\nfor (k, v) <- map({x: 9})\n  write( k, v )\n"),
+    assert_eq(ran_funl("write( \"a\" in {a: 1}, \"z\" not in {a: 1}, {a: 1, b: 2} == {b: 2, a: 1} )\nevery write( !{a: 1, b: 2} )\nfor (k, v) <- !map({x: 9})\n  write( k, v )\n"),
         "a, z, {\"b\": 2, \"a\": 1}\n(\"a\", 1)\n(\"b\", 2)\nx, 9\nsucceeded")
+
+// `<-` draws a map whole, immutable or mutable, as it does a string and a tuple; `x <- !m` draws its
+// entries, and a tuple pattern over an undrawn map matches nothing.
+@test
+A_MAP_IS_DRAWN_WHOLE_BY_A_BINDING_AND_ITS_ENTRIES_BY_BANG()
+    assert_eq(ran_funl("m = {a: 1, b: 2}\nwrite( [x | x <- m] )\nwrite( [x | x <- !m] )\nfor x <- map({c: 3}) do write( x )\nfor (k, v) <- !map({c: 3}) do write( k, v )\nwrite( [k | (k, v) <- m] )\n"),
+        "[{\"a\": 1, \"b\": 2}]\n[(\"a\", 1), (\"b\", 2)]\nMutableMap(\"c\": 3)\nc, 3\n[]\nsucceeded")
+    assert_eq(ran_funl("def rows()\n  yield {id: 1}\n  yield {id: 2}\n\nwrite( [r.id | r <- rows()] )\nwrite( [m | m <- ({a: 1} | [1, 2])] )\n"),
+        "[1, 2]\n[{\"a\": 1}, 1, 2]\nsucceeded")
+    faults_with("free m\nfor x <- m do write( x )\n", "`<-` was given an unbound variable")
 
 @test
 A_MUTABLE_MAP_TAKES_NEW_KEYS_BY_CALL_AND_FIELD()
@@ -72,7 +82,7 @@ AN_UPDATE_OF_A_NEW_KEY_IN_A_MAP_WITH_A_DEFAULT_STARTS_FROM_IT_AND_ADDS_THE_KEY()
 
 @test
 MEMBERSHIP_SIZE_AND_ITERATION_SEE_ONLY_THE_ENTRIES_OF_A_MAP_WITH_A_DEFAULT()
-    assert_eq(ran_funl("val m = map([(1, 10)], 0)\nwrite( m(2), m.length )\nif 2 in m then write( #in ) else write( #out )\nif 1 in m then write( #in ) else write( #out )\nfor (k, v) <- m\n  write( k, v )\nevery write( !m )\n"),
+    assert_eq(ran_funl("val m = map([(1, 10)], 0)\nwrite( m(2), m.length )\nif 2 in m then write( #in ) else write( #out )\nif 1 in m then write( #in ) else write( #out )\nfor (k, v) <- !m\n  write( k, v )\nevery write( !m )\n"),
         "0, 1\nout\nin\n1, 10\n(1, 10)\nsucceeded")
 
 // Icon's trap, kept as Icon has it: the default is one value, so every missing key reads the same
