@@ -104,6 +104,8 @@ Each is argued where it arises; this is the list.
 | Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
 | Default parameters? | none; two arities are the default. If ever added, sugar for the arities (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
 | A constructor value over two field counts picks the last silently | the family of them as a value (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| In a goal, the program's `f/n` as relation `f/(n+1)` or a builtin/prelude function of `n+1` arguments? | the program's own `f/n`, the nearer definition (user, 2026-10-09; confirmed as built) | [language](language.md#one-name-several-arities) |
+| With `pt \| pt(x)`, is bare `pt` the family or the atom? | the nullary constructor's atom, as in a pattern (user, 2026-10-09; confirmed as built) | [language](language.md#one-name-several-arities) |
 | E1 Optional, checked `end` markers? | yes, Scala 3's rules (Option A); a marker naming the wrong construct is refused naming both (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
 | E2 Which constructs take `end`? | `def` clauses (`end f`), a bare `def` group (`end def`), block `val`/`var` (`end x`, `end val`), `if` chains, `while`/`for`/`repeat`/`every`; no lambda, scan, `catch`, `where`, sequence, `data` (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
 | E3 A labelled loop: `end for` or `end outer`? | `end for` only (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
@@ -130,4 +132,12 @@ Each is argued where it arises; this is the list.
 
 Each has a recommendation in its chapter; the user decides them before the milestone that needs them.
 
-None is open now.
+| question | recommendation | where |
+|---|---|---|
+| M1 Map patterns: exact, or partial by default? | exact unless the pattern ends in `..`; `..rest` binds the other entries as an immutable map | [language](language.md#map-patterns) |
+| M2 A map pattern's keys | a bare name is the string, a constant itself, `(e)` an expression evaluated when tried — in literals too (`{(k): 1}` is `{"k": 1}` today); never bound; equal constant keys refused | [language](language.md#map-patterns) |
+| M3 What a map pattern matches, and what a mismatch is | both map kinds, a mutable one by its entries (no default); any other value a mismatch, not a fault; the place's own rule for a mismatch | [language](language.md#map-patterns) |
+| M4 A map pattern in a relation head | unified against a map; an exact pattern builds the map for an unbound argument; an open one there is an `instantiation_error` | [language](language.md#map-patterns) |
+| M5 Does `~` unify two immutable maps by content? | yes, same keys then values unified; a mutable map stays opaque | [language](language.md#map-patterns) |
+| M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning | [language](language.md#map-patterns) |
+| M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form; its own question if wanted | [language](language.md#map-patterns) |

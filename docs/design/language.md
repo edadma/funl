@@ -854,6 +854,19 @@ What follows for each neighbour:
 >    over `pt(x) | pt(x, y)` answers `g(3)` and `g(3, 4)`. A name that also has a constructor of
 >    no fields is that constructor's atom, as it is in a pattern.
 
+> **Decided (user, 2026-10-09) — two questions the build raised, both confirmed as built.**
+>
+> 8. **In a goal, the program's own function `f/n`, called as the relation `f/(n+1)`, comes before
+>    a builtin or prelude function of `n+1` arguments.** With `def take( x ) = x * 10` and
+>    `def r( y ) :- take( 3, y )`, `every r( y ) do write( y )` prints `30`: the goal is the
+>    program's `take/1` with its result unified with `y`, not the prelude's `take/2`. The program's
+>    own name is the nearer definition, as it is everywhere else in scope. Test:
+>    `IN_A_GOAL_A_FUNCTION_IS_THE_RELATION_OF_ONE_MORE_ARGUMENT_BEFORE_A_BUILTIN_OF_THAT_COUNT`.
+> 9. **With `data mark = pt | pt( x )`, the bare name `pt` is the nullary constructor's atom, not
+>    the family of `pt/0` and `pt/1`.** `write( pt, pt(1) )` prints `pt, pt(1)`, and `pt is atom`
+>    succeeds — the same reading `pt` has in a pattern, so a name means one thing on both sides of
+>    `=`. Test: `A_CONSTRUCTOR_NAME_OVER_SEVERAL_FIELD_COUNTS_IS_THE_FAMILY_OF_THEM_AS_A_VALUE`.
+
 The questions as they were put:
 
 1. **Adopt Option C — name/arity for functions and relations alike?** *Recommended: yes.*
@@ -961,6 +974,196 @@ none.
 > position, wherever the two are written (a nested block, or a FunL file Prolog imports). A record is
 > known by its functor and number of fields, so two such constructors could not be told apart in a
 > term Prolog made. The same name with a different number of fields is a different functor and is allowed.
+
+### Map patterns
+
+*Open (2026-10-09): a design with a recommendation; nothing below is built. The questions are at the
+end of this section and in the [README](README.md#open-questions).*
+
+**A map is FunL's record of named parts — a parsed JSON object, an options argument, a row — and a
+pattern cannot take one apart.** Every other compound value has a pattern: a tuple, a list, a cons,
+a `data` record. A map is read only by calls, `m("a")` or `m.a`, so a function over a map's parts
+binds them by hand in its body, and a relation cannot say in its head what shape of map it is about.
+The wanted form is `val {name: n, age: a} = person`, and the same pattern wherever a pattern goes.
+
+**What FunL does today** (dev `9274729`, run with `funl/funl`; `val m = {a: 1, b: 2}`):
+
+| program | what happens |
+|---|---|
+| `val {a: x} = m` | refused: `this cannot be matched against anything`, its note listing the pattern forms (no map) |
+| `def f( {a: x} ) = x` | refused, the same |
+| an arm of a partial function literal, `{a: x} -> x` | refused, the same |
+| `[x \| {a: x} <- [{a: 1}, {a: 2}]]` | refused, the same |
+| `def p( {a: x} )`, a relation head | refused: `a head argument is a variable, a constant or a term` |
+| `free x` then `{a: x} ~ {a: 1}` | fails, and `x` stays unbound: maps unify only by identity ([prolog](prolog.md#the-term-mapping)) |
+| `{a: 1} ~ {a: 1}` | fails, for the same reason |
+| `{a: 1, b: 2} == {b: 2, a: 1}` | succeeds: equality compares entries, in any order |
+| `{a: 1} == map({a: 1})` | fails: an immutable and a mutable map are never equal |
+| `m("z")`, a missing key | fails; `(m) -> m.a` given `5` faults, `the integer 5 has no field 'a'` |
+| `"a" in map({}, 0)` | fails: a mutable map's default is not an entry |
+| `val k = "z"` then `{"$k": 1}` | `{"z": 1}` |
+| `{k: 1}` and `{(k): 1}` | both `{"k": 1}`: a bare name is the string, **and so is a parenthesized one** |
+| `val n = 3` then `{(n): 1}`, `{n + 0: 1}` | `{"n": 1}`, `{3: 1}` |
+| `{#a: 1, 2: 3, true: 4}`, `{(1, 2): "t", [1]: "l"}` | any value is a key |
+| `def f( (x, x) ) = x`, `f((1, 1))`, `f((1, 2))` | `1`, then the next clause: a repeated name means "equal" |
+
+The braces as an expression, today ([`braces` in `parse_expr.sysl`](../../io/github/edadma/funl/parse_expr.sysl)):
+`{}` is the empty map; the first item decides map or set; a map's entry is one expression taken
+apart at its top `:` (cons everywhere else), and a one-parameter lambda whose parameter is a cons is
+taken apart the same way ([decided 2026-10-08](#data)):
+
+| program | prints or says |
+|---|---|
+| `{a: x:xs -> x}` | `{"a": <function lambda>}`: key `a`, lambda `x:xs -> x` |
+| `{x:xs -> x}` | `` `x` is not defined `` — key `x`, lambda `xs -> x`, the decided reading |
+| `{(x:xs -> x)}`, `{(x:xs) -> x}` | `{<function lambda>}`: a set holding the lambda |
+| `{a: 1 \| 2}` | `` `a` is not defined ``: `\|` is looser than `:`, so the one item is `(a:1) \| 2`, a set |
+| `{x \ 2 \| x <- 1..5}` | a set comprehension: `\|` followed by `<-` |
+| `..` before an item, `{..m}` | a syntax error: `..` is only ever infix |
+
+**FunL has no brace-delimited block lambda.** The anonymous multi-clause function is the indented
+[partial function literal](#partial-function-literals), and a lambda is `params -> body`. So `{`
+always opens a collection; nothing has to tell a block of code from a set.
+
+#### The design
+
+**1. Syntax.** A map pattern is the map literal's own braces read as a pattern, with one addition at
+the end:
+
+```
+{k1: p1, k2: p2}           exactly these keys
+{k1: p1, ..}               these keys, and any others
+{k1: p1, ..rest}           these keys; `rest` is an immutable map of the others
+{}                         the empty map
+{..}                       any map
+```
+
+Each `p` is any pattern, nested freely (`{point: (x, y), tags: t:_}`). `..` or `..name` may only be
+the last item, once, and only in a pattern; in an expression it is refused (question 7). The entry is
+split at its top `:` exactly as in a literal, so `{a: h:t}` is the key `a` and the cons `h:t`. An
+alternation of values is parenthesized, `{kind: (#a | #b)}`, because `|` is looser than `:`; an
+alternation of whole maps is written as anywhere else, `{a: x} | {b: x}`.
+
+**2. Exact unless it says `..`.** `{a: x}` matches a map whose only key is `a`. This is how every
+other FunL pattern reads: `[a, b]` is a list of exactly two, a tuple pattern has its arity, a record
+pattern its fields, and the open form is written — `a:rest` for a list, `..` for a map. It keeps `{}`
+meaning the empty map in a pattern as in a literal (under a partial reading it would match every
+map, Elixir's `%{}` trap), and it is the only reading under which a map pattern in a relation head is
+unification and can run backwards (point 6). `..` is Rust's spelling for "and the other fields", and
+`..rest` binds them, JavaScript's `...rest` without the third dot. A JSON-shaped match is then
+`{name: n, ..}`: two characters for a partial match, against `m.length == 1` in a guard for an exact
+one under the other default.
+
+**3. Keys are values, computed, never bound.** A key is written as in a literal — a bare name is that
+name as a string, a constant is itself — and any other key is an expression evaluated when the
+pattern is tried, with the names in scope: `{(k): v}` looks up the value of `k`. **This needs the
+literal fixed first**: `{(k): 1}` is `{"k": 1}` today, because the parentheses are lost before the
+key is read, and `{"$k": 1}` or `{k + "": 1}` is the only way to use a variable's string value as a
+key. Under this design a parenthesized key is always the expression, in a literal and a pattern
+alike; a bare name stays the string. A pattern never binds a key: "for any key" is iteration, and
+`(k, v) <- !m` already writes it. Two entries with one constant key in a pattern are refused when
+compiled (a literal keeps its last, as today); two computed keys that turn out equal at run time
+make the pattern fail, since no map has both.
+
+**4. What a map pattern matches.** An immutable map, and a mutable map read through its entries
+only — a default is not an entry, as `in` already says, so `{a: x}` does not match `map({}, 0)`.
+`..rest` is always an immutable map, a copy of the other entries. A key is found as `m(k)` finds it.
+Anything that is not a map — a record, a set, a number, `undefined` — simply does not match: a map
+pattern is a question about shape, like `(a, b)` meeting a list, never a type fault.
+
+**5. Failure and fault, by place.** A map pattern fails to match for one of four reasons: not a map,
+a key missing, a key too many (no `..`), or a value pattern failing. What the mismatch does is the
+place's rule, unchanged:
+
+| place | a map the pattern does not match |
+|---|---|
+| `val {a: x} = e` | the statement fails and `x` stays unassigned |
+| `p <- e` in `for` or a comprehension | the value is passed over (P3.2) |
+| a function parameter | the next clause; no clause left is `argument match not found` |
+| an arm of a partial function literal | the next arm, the same committed choice |
+| a relation head | the next clause, by backtracking |
+
+What faults is what faults in any expression: a computed key whose expression faults, and in a
+relation a key that is an unbound logic variable (`instantiation_error`, as `is` gives).
+
+**6. In a relation, a map pattern is unified, and runs backwards when it is exact.** A head argument
+`{k: p, ...}` compiles as a compound does ([head unification](logic.md#head-unification-is-two-way)):
+
+| the caller's argument | an exact pattern `{a: x, b: 1}` | an open pattern `{a: x, ..}` / `{a: x, ..r}` |
+|---|---|---|
+| a map | the same keys, then each value unified with its pattern, two-way | each named key's value unified; `r` unified with the rest |
+| an unbound variable | **build `{a: X, b: 1}` with fresh variables and bind it**, as `point(a, b)` builds a term | `instantiation_error`: an open map cannot be built |
+| anything else | fails | fails |
+
+So `def age( {name: n, age: a}, n, a )` answers `age(p, "ann", x)` for a known `p` and builds `p`
+when it is unknown, and `def named( {name: n, ..}, n )` selects from maps. Keys in a head must be
+known when the clause is tried (constants, or names bound by an earlier argument).
+
+**7. `~` unifies two immutable maps by their entries.** Point 6 is unification only if the unifier
+agrees: today `{a: x} ~ {a: 1}` fails because a map is opaque and unifies only with itself. An
+immutable map cannot change, which is the reason the term mapping gave for opacity, so it can be
+unified as a term: the same set of keys (compared as `==` compares keys; a key that is an unbound
+variable is an `instantiation_error`), then each pair of values pushed onto the work list. A mutable
+map stays opaque and unifies by identity. To Prolog an immutable map is still printed `<map>` and
+cannot be taken apart by a Prolog head; it only now unifies by content.
+
+**8. How the braces read, all together.** `{` opens a collection or its pattern and nothing else;
+there is no block lambda in braces, and a design should not add one, since `{x -> e}` is already a
+set holding a lambda.
+
+- `{}` the empty map; `{k: v, ...}` a map; `{a, b}` a set; `{e | p <- c}` a set comprehension — as
+  today.
+- `{x:xs -> x}` stays the map reading decided 2026-10-08 (key `x`, lambda `xs -> x`). Its refusal
+  gains a note: when an entry came from splitting a lambda and the body then names the key as an
+  undefined variable, *a set holding a lambda over a cons is `{(x:xs -> x)}`*.
+- `{a: x} -> e` is a lambda whose parameter is a map pattern, and `{ {a: x} -> x }` a set holding it:
+  an entry is split only where the item's top is `:`, or a lambda whose *parameter* is a cons, and
+  here the parameter is a map.
+- `..` and `..name` are a new item, legal last in a map pattern. In an expression they are refused,
+  naming the pattern form.
+- **A set is not a pattern**, and `{a, b}` in a pattern is refused with a note naming `x in s` and
+  `s is set`: matching a set means searching it, which is a goal (`x <- !s`), not a shape. And there is
+  no key punning — `{name, age}` cannot mean `{name: name, age: age}` in a pattern while it means a
+  set in an expression.
+
+**Cost.** Parser: the `..` item in `braces`, and `(e)` kept as an expression key (a paren node or a
+flag on the key) — this changes a literal's meaning for a parenthesized bare name, which nothing in
+the tests or reference pages relies on (to be confirmed by grep when built). `scope_walk.sysl`'s
+`declare_pattern` gains `MapE` (values declared, keys walked as expressions), and its note lists maps.
+The pattern compiler gains a map test: kind, size unless open, each key looked up then its value
+pattern, the rest copied. Relations: a `GetMap` head instruction beside `GetCompound`, and the
+unifier's map row. Tests for each place in the table of point 5, both map kinds, the defaults, every
+failure reason, a computed key that faults, and the relation table's six cells. Reference: a map
+pattern section in `docs/reference/data.md` (or `functions.md`) and `relations.md`, every row above a
+runnable block.
+
+#### Open questions
+
+1. **Exact unless the pattern ends in `..`, with `..rest` binding the other entries as an immutable
+   map?** Or partial by default (Elixir, JavaScript), with no exact form? *Recommended:* exact plus
+   `..` — every other FunL pattern is exact with a written open form, `{}` keeps meaning the empty
+   map, and only an exact pattern can be built backwards in a relation head.
+2. **Keys: a bare name is the string, a constant is itself, and a parenthesized key is an expression
+   evaluated when the pattern is tried — in literals too, where `{(k): 1}` is `{"k": 1}` today?**
+   *Recommended:* yes; keys are never bound by a pattern (`(k, v) <- !m` is "any key"), two equal
+   constant keys in a pattern are refused, and the literal is fixed in the same change.
+3. **What matches, and what a mismatch is.** *Recommended:* both map kinds, a mutable one through its
+   entries only (its default ignored); any other value is a mismatch, never a type fault; a mismatch
+   follows its place's rule (point 5) and only a faulting key expression or an unbound key in a
+   relation faults.
+4. **In a relation head: unify against a map, and build the map from an exact pattern when the
+   argument is unbound; an open pattern over an unbound argument is an `instantiation_error`?**
+   *Recommended:* yes, as `GetCompound` does for a term.
+5. **Should `~` unify two immutable maps by their entries** (same keys, values unified), revising the
+   term-mapping decision for immutable maps only, mutable ones staying opaque? *Recommended:* yes —
+   the opacity was for values that can change, and without it a map pattern in a head is not
+   unification.
+6. **The braces: no block lambda; `{x:xs -> x}` stays the decided map reading and gains a note; a
+   lambda over a map pattern needs nothing new; no set patterns and no key punning?**
+   *Recommended:* yes to all four.
+7. **`..m` in an expression — a spread, `{..m, a: 1}` for "`m` with `a` set"?** *Recommended:* not in
+   this work: refused in expressions with a note naming the pattern form, and put as its own question
+   if a program wants it (`m + {a: 1}`-style update may be the better spelling).
 
 ### Types, and `is`
 
