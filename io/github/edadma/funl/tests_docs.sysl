@@ -271,8 +271,11 @@ private compiled_with(chunk: Option[usize], said: string) -> Compiled = chunk ma
 
 // A FunL, Prolog or literate block compiled into the running VM. A literate block is compiled as the
 // `funl` driver compiles a `.lfunl` file named `file`.
+// A block in a project whose manifest needs a newer FunL is refused first, as the driver refuses it.
 private built(lang: string, file: string, text: string) -> Compiled =
-    if lang == "funl"
+    if project_floor_refusal(file).is_some()
+        Compiled.Refused(s"error: ${project_floor_refusal(file).unwrap()}\n")
+    elif lang == "funl"
         compiled_block(file, text)
     elif lang == "lfunl"
         compile_text(file, text)
