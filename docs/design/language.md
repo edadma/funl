@@ -144,6 +144,140 @@ def solve( c )
       solve( c + 1 )
 ```
 
+### Taking drawn values apart with a pattern
+
+> **Open question P3, revisited (2026-10-08) — what does a pattern on the left of `<-` see?** The
+> question was raised when `<-` iterated every collection it drew, tuples included: `[a | (a, b) <-
+> pairs()]` over a generator yielding `(1, "a")` drew `1` and `"a"`, matched neither, and answered
+> `[]`. The three Decided blocks above have since made a tuple, a string and a map whole to `<-`,
+> and `zip` has become a native that answers a list of tuples. This section re-asks P3 in that light.
+
+**The problem, as first stated, is gone.** Run today (dev `63fa7ac`), with
+`def pairs() = (1, "a") | (2, "b")` and `val m = {x: 1, y: 2}`:
+
+| program | prints |
+|---|---|
+| `write( zip([1, 2, 3], ["a", "b"]) )` | `[(1, "a"), (2, "b")]` |
+| `write( zip3([1, 2, 3], ["a", "b"], [true, false]) )` | `[(1, "a", true), (2, "b", false)]` |
+| `write( [b \| (a, b) <- zip([1, 2, 3], ["a", "b"])] )` | `["a", "b"]` |
+| `for (a, b) <- pairs() do write( b )` | `a` then `b` |
+| `write( [a \| (a, b) <- pairs()] )` | `[1, 2]` |
+| `write( [p \| p <- pairs()] )` | `[(1, "a"), (2, "b")]` — no longer flattened |
+| `write( [a \| (a, b) <- (1, "a")] )` | `[1]` — one tuple, drawn whole |
+| `for (k, v) <- !m do write( k, v )` | `x, 1` then `y, 2` (a mutable map alike) |
+| `write( [p \| p <- !m] )` | `[("x", 1), ("y", 2)]` |
+| `write( [0 \| () <- [(), (1, 2), ()]] )` | `[0, 0]` — `()` is the empty tuple |
+
+So `(a, b) <- zip(xs, ys)` and `(k, v) <- !m` both work, because each drawn value is one tuple
+and the pattern meets it whole. Nothing in the language needs to change for the case P3 named.
+
+**What the rest of the pattern language does on the left of `<-` today:**
+
+| program | prints | reading |
+|---|---|---|
+| `[a \| (a, b) <- [(1, "a"), 5, (2, "b", 3), (3, "c")]]` | `[1, 3]` | a value the pattern does not match is passed over |
+| `[a \| (a, b) <- [[1, 2], [3, 4]]]` | `[]` | a tuple pattern does not match a list |
+| `[y \| [x, y] <- [(1, 2)]]` | `[]` | nor a list pattern a tuple |
+| `[x \| [x, y] <- [[1, 2], [3, 4]]]` | `[1, 3]` | a list pattern over a list of lists |
+| `[x \| x:_ <- [[1, 2], [3, 4]]]` | `[1, 3]` | a cons pattern likewise |
+| `[a + c \| ((a, b), c) <- [((1, 2), 3), ((4, 5), 6)]]` | `[4, 10]` | nested patterns |
+| `[p \| p@(a, _) <- [(1, 2), (3, 4)]]` | `[(1, 2), (3, 4)]` | a named pattern |
+| `[x \| (x, 0 \| 1) <- [(1, 0), (2, 5), (3, 1)]]` | `[1, 3]` | an alternation inside a tuple |
+| `[x + y \| point(x, y) <- [point(1, 2), 7, point(3, 4)]]` | `[3, 7]` | a record pattern (`data point(x, y)`) |
+| `[x + y \| point(x, y) <- pts()]`, `pts()` yielding records | `[3, 7]` | a record is not a collection, so drawn whole |
+| `[r \| circle(r) <- [circle(1), square(2), circle(3)]]` | `[1, 3]` | selecting one constructor of a `data` type |
+| `[n \| (n, _) <- ()]` | `[]` | `()` produces nothing |
+
+**The one shape that still does not reach its values is a list or cons pattern over a generator of
+lists**, because a drawn list is a collection and is iterated before the pattern sees it. With
+`def lists() = [1, 2] | [3, 4]`:
+
+| program | prints |
+|---|---|
+| `[x \| [x, y] <- lists()]` | `[]` — the pattern meets `1`, `2`, `3`, `4` |
+| `[x \| x:_ <- lists()]` | `[]` |
+| `[x \| x <- lists()]` | `[1, 2, 3, 4]` — the Decided flattening |
+| `[x \| [x, y] <- [lists()]]` | `[1, 3]` — `[e]` keeps each list whole |
+| `[x \| [x, y] <- ![[1, 2], [3, 4]]]` | `[]` — `!` generates the lists, `<-` then iterates each |
+
+This is the Decided rule working as written ("a generator of collections is flattened; keeping each
+value whole is `x <- [e]`"), not a defect, and no prelude function generates lists.
+
+**How the other binding places treat the same patterns, today:**
+
+| place | a value the pattern does not match | example, and what it prints |
+|---|---|---|
+| `x <- e` in a comprehension or `for` | passed over; the next value is drawn | `[a \| (a, b) <- [(1, 2), 5]]` → `[1]` |
+| a function parameter | a fault, since clauses are committed choice | `def f( (a, b) ) = a` then `f([1, 2])` → `argument match not found: no clause of 'f' matches ([1, 2])` |
+| `val (c, d) = e` | the statement fails and the names stay unassigned | `val (c, d) = [3, 4]` then `write( c + d )` → `'+' wants numbers and was given undefined` |
+| `every` | takes no pattern: `(a, b) = e` is a statement, not an expression | `every (a, b) = !zip(...)` → `this cannot be matched against anything` (read as a pattern `every(a, b)`); `every x = !zip(...) do write( x(0) )` works |
+
+The `<-` reading is the goal-directed one: a mismatch is a failure, and a failure inside a `for`
+head or a comprehension backtracks into the generator for its next value, exactly as a failing
+`if` filter does. A function's clauses fault because a call that no clause accepts has nowhere left
+to go. The two rules are consistent with each other; they differ where the failure lands.
+
+#### Options
+
+**A — close P3: the current rule is the rule.** A pattern on the left of `<-` meets each drawn
+value; a tuple, string, map or record arrives whole, a list, array, set or range is iterated first,
+and a value the pattern does not match is passed over. A generator of lists is taken apart through
+`[e]`. *Cost:* documentation only — this section becomes a Decided block, the `modules.md` P3 block
+is replaced by a pointer here, and the comprehensions reference page shows the tables above as
+runnable blocks. *Binds:* nothing that runs today changes.
+
+**B — a pattern's shape decides whether a drawn collection is iterated.** A list or cons pattern
+would meet a drawn list whole, so `[x | [x, y] <- lists()]` is `[1, 3]`. *Breaks:* the same rule
+applies to the one value `[[1, 2], [3, 4]]`, which is a list whose shape is `[x, y]`, so
+`[x | [x, y] <- [[1, 2], [3, 4]]]` would become `[[1, 2]]` instead of `[1, 3]`. One value cannot
+say whether it came from a generator (the Decided block's own reason for rejecting that test), so
+the only way out is "try whole, then iterate", which answers both — two different results from one
+pattern over one value. *Cost:* the `<-` drawing code in the compiler and its tests; every list
+comprehension in the prelude source (`concat`, `concatMap`, `unzip`) re-read under the new rule.
+Rejected in the recommendation for that ambiguity.
+
+**C — a value the pattern does not match is a fault, as a parameter's is.** `[a | (a, b) <- [(1,
+2), 5]]` would fault on `5`. *Breaks:* selecting by constructor (`circle(r) <- shapes`) and by
+literal (`(x, 0) <- pairs`), both of which read naturally and both of which Haskell's list
+comprehensions also treat as a filter; and it makes a failure that FunL handles everywhere else by
+backtracking into a fault in this one place. *Cost:* small (one branch in the drawing code), plus a
+`|` filter in every program that relies on selection.
+
+**Recommendation: A.** Making tuples, strings and maps whole has already answered P3: zipped lists,
+map entries and generators of tuples all destructure, nested, with constructors and alternations.
+What remains — a list pattern over a generator of lists — is the Decided flattening rule doing what
+it says, and `[e]` is its documented escape; B cannot change it without making one pattern mean two
+things over one value. The mismatch rule stays a filter because a mismatch is a failure and `<-`
+is where failure means "try the next value".
+
+#### Open questions
+
+1. **Is P3 closed by the whole-drawing decisions, with the rule as stated in option A?**
+   *Recommended:* yes.
+2. **A drawn value the pattern does not match — passed over (today) or a fault?** *Recommended:*
+   passed over, as a filter, matching a failing `if` in the same head.
+3. **A list or cons pattern over a generator of lists — `[e]` (today) or shape-directed drawing?**
+   *Recommended:* `[e]`; no prelude function generates lists, so it arises only in a program's own
+   generator, which can as easily `yield` a tuple.
+4. **`zip` beside an endless range.** Today `zip([1, 2], 0..)` faults with `'zip' was given the
+   endless range 0.., which has no last element`, as `docs/library/prelude.md` shows. The natives
+   pair as many places as the shortest input has, so they can stop at a finite input's end and need
+   never reach an endless range's last element. *Recommended:* accept an endless range when at least
+   one other input is finite, so `zip(0.., xs)` numbers a list (`[(0, "a"), (1, "b")]`); fault only
+   when every input is endless. *Cost:* the zip family's natives in `prelude.sysl` (which convert each input through
+   `seq.sysl`, where the refusal is raised) and their tests, and
+   the prelude page's refusal example.
+5. **`zip` given a string, tuple or map.** Today the natives draw their inputs as `<-` does, so
+   `zip("ab", [1, 2, 3])` is `[("ab", 1)]`, `zip({a: 1}, [1])` is `[({"a": 1}, 1)]` and
+   `zip((1, 2), [3, 4])` is `[((1, 2), 3)]`, while `reverse("abc")` faults with `'reverse' wants a
+   list and reached the string 'abc'`; the source-carried ones follow `<-` too (`take(2, "abc")` is
+   `["abc"]`, `map(c -> c + c, "ab")` is `["abab"]`). *Recommended:* the prelude's list functions
+   refuse a string, tuple or map as `reverse` does, naming the explicit form in the message
+   (`[c | c <- !s]`), since a one-element answer is never what such a call meant.
+6. **Should `every` take a pattern, `every (a, b) = !zip(xs, ys) do …`?** Today it cannot: a pattern
+   assignment is a statement, and `every (a, b) = …` reads as the term `every(a, b)`. *Recommended:*
+   no — `for (a, b) <- e do …` is the destructuring form, and `every` keeps an expression.
+
 ### Control structures, and which of them are bounded
 
 **A bounded expression is one whose generators are discarded once it has produced its first
@@ -308,6 +442,184 @@ val classify =
 
 **Closed by design:** it compiles exactly as a multi-clause anonymous function with committed
 choice, and never to nothing.
+
+### One name, several arities
+
+*Open — the questions at the end of this section are the user's. Nothing here is built.*
+
+**The problem.** A function wants a short form and a long one, and FunL has no default parameters;
+a relation wants the arities Prolog would give it:
+
+```
+def range( n )       = range( 0, n )
+def range( a, b )    = a..<b
+
+def parent( #tom )               ;; parent/1: tom is a parent
+def parent( #tom, #bob )         ;; parent/2: tom is bob's parent
+```
+
+The design already speaks of **one namespace keyed by name and arity** ([prolog](prolog.md#calling-funl-from-prolog)),
+of `any(c)` and `any(p, xs)` being kept apart by it ([prelude](modules.md#the-prelude--the-first-module-written-in-funl)),
+and of `sides` being "a relation of two arguments and a function of one at once"
+([modules](modules.md#questions-decided)). What FunL *does* is narrower.
+
+**What FunL does today.** Within one file, a name is one definition of one arity:
+
+```
+def f( x ) = x + 1
+def f( x, y ) = x * y
+```
+```
+error: `f` was defined with 1 argument, and this clause has 2
+ --> a1.funl:2:5
+  = note: every clause of a definition takes the same number of arguments
+```
+
+The same refusal meets two arities in a `where` block, and two relations (`def p(#a)` and
+`def p(#a, #b)`). Name/arity *does* work in three places:
+
+- **Builtin against prelude**, by a fallback in `called` (`scope.sysl`): a builtin that does not take
+  the call's count hands the call to the prelude's function of that arity. `any(odd, [2, 3])` prints
+  `true`. But a program's own definition hides every arity of the name — with `def any( x ) = x * 100`,
+  `any(odd, [1, 2])` is refused: `` `any` takes 1 argument, and this call gives 2 ``.
+- **Prolog predicates called from FunL.** With `p(a).` and `p(b, c).` in an imported `.pl` file,
+  `every p(x) do write( x )` and `every p(x, y) do write( (x, y) )` print `a` and `(b, c)`.
+  A FunL relation of the name hides the other arity, though: with `def q( #a )` in the file and
+  `q(b, c).` imported, `q(x, y)` is refused, `` `q` takes 1 argument, and this call gives 2 `` — the
+  shared name/arity namespace the Prolog chapter decided is not what FunL's own scope does.
+- **Constructors**, which the [data decision](#data) lets share a name across field counts:
+  `data t = pt(x) | pt(x, y)` builds both `pt(1)` and `pt(1, 2)`. **As a value it picks one
+  silently**: `g = pt` then `g(3)` faults, `the constructor 'pt' takes 2 fields, and was given 1`.
+
+Through a function value the count is checked when the call is made: `g = f` with one-argument `f`,
+then `g(5, 6)`, faults `'f' takes 1 argument and was given 2`. A builtin of several counts is
+already one value that answers each: `g = map`, then `g(abs, [-1, 2])` is `[1, 2]` and
+`g({"a": 1})` makes a map. There are no default parameters: `def f( x, y = 1 )` is refused,
+`this cannot be matched against anything`.
+
+#### Option A — one name, one arity (today), made consistent
+
+Keep the refusal. A FunL definition owns its name at every arity, in FunL's scope; the name/arity
+namespace is a Prolog-side notion only. Fix the constructor value to refuse when the name has two
+field counts, and rewrite the Prolog chapter's sentence and the `sides` example to say so.
+
+```
+def range( n )    = range2( 0, n )
+def range2( a, b ) = a..<b
+```
+
+- **Cost:** small — the constructor-value refusal, a test each, and the doc sentences. ~50 lines.
+- **Binds:** FunL relations can never mirror a Prolog program's `p/1` and `p/2`; a Prolog
+  library ported to FunL renames. A program's `def any( x )` keeps hiding prelude `any/2`. FunL and
+  its Prolog view disagree about what a name is, which every reader of the Prolog chapter will trip on.
+
+#### Option B — name/arity for relations only
+
+Relations are keyed by name and arity, as Prolog's are; functions stay one arity per name. Relations
+are not values (`write( p )` is refused today, *called rather than used as a value*), so the
+question of what `f` means as a value never arises.
+
+- **Cost:** `scope.sysl` (`add_top_clause`, `by_name`) and `scope_walk.sysl` (local `def` groups)
+  key relations by `(name, arity)`; `global`/`called` take the count. ~150 lines.
+- **Binds:** `range(n)` / `range(a, b)` still needs two names. Two rules for one keyword — a `def`
+  with `=` and a `def` without obey different namespaces, which is the kind of split a user learns
+  by tripping on it.
+
+#### Option C — name/arity for everything, and a name with several arities is one dispatching value
+
+**A definition is keyed by name and arity, function or relation.** A call written `f(a, b)` is
+resolved when compiled, by its count, to `f/2` — a static call, indexed, no cost. **Named without
+a call, `f` is one function value holding every function arity of the name in scope**, and a call
+through it picks the member by its count when it is made. That is what a builtin of several counts
+already is (`map` above), so it adds no new behaviour, only a new way to reach it.
+
+```
+def f( x )    = x + 1
+def f( x, y ) = x * y
+
+f( 10 )                    ;; 11, f/1
+f( 3, 4 )                  ;; 12, f/2
+map( f, [1, 2, 3] )        ;; [2, 3, 4]: map calls with one argument
+foldl( f, 1, [2, 3, 4] )   ;; 24: foldl calls with two
+g = f
+g( 1, 2, 3 )               ;; fault: 'f' takes 1 or 2 arguments and was given 3
+f( 1, 2, 3 )               ;; refused: `f` takes 1 or 2 arguments, and this call gives 3
+```
+
+What follows for each neighbour:
+
+- **Default parameters** — FunL has none, and with C it needs none: `def range( n ) = range( 0, n )`
+  is the default. A later `y = 1` in a parameter list would be sugar for exactly that pair of
+  arities, never a second mechanism.
+- **Variables shadow every arity.** A `val`, `var`, parameter, pattern, `free` or assignment holds
+  one value, so it hides the whole name where it is in scope — the decided
+  [shadowing rule](#assignment-and-assignment-that-undoes-itself), unchanged.
+- **Builtins and the prelude are shadowed per arity.** A program's `def any( x )` takes `any/1`;
+  `any(p, xs)` still reaches the prelude. This is the rule `called` already applies between a
+  builtin and the prelude, extended to the program's own definitions, and it is Prolog's: a
+  program's `p/1` does not hide a library's `p/2`. The value `any` is then the program's `any/1`
+  together with the prelude's `any/2`.
+- **Nested `def` and `where`** — see question 3: the nearest block that defines the name owns it at
+  every arity, or only at the arities it defines.
+- **Modules.** Already decided: `export` exports a procedure (a name and arity), and **an import
+  brings every exported arity of the name**. A module's value is a map from export name to value
+  ([modules](modules.md#a-module-is-a-value)), so its entry for a multi-arity name is the dispatching
+  value, and `geometry.area(...)` written as a call is still resolved statically against the
+  module's export list.
+- **Constructors** become values the same way: `g = pt` answers `g(3)` with `pt(3)` and `g(3, 4)`
+  with `pt(3, 4)`, where today it faults.
+- **Relations** are not values, so the value of a name is its *function* arities only; a name with
+  no function arity keeps the "called rather than used as a value" refusal.
+- **The Prolog view is the natural one.** FunL relation `p/n` is predicate `p/n`, function `f/n` is
+  `f/(n+1)`. Two FunL definitions that would occupy one Prolog key are refused in the file, naming
+  both: **function `f/1` and relation `f/2` are both `f/2` to Prolog** (question 5). Prolog calling a
+  multi-arity FunL name needs nothing new; a dispatching value passed to Prolog is an opaque
+  `<function>`, as any closure is.
+
+- **Cost:** `scope.sysl` and `scope_walk.sysl` key definitions by `(name, arity)` and keep a name →
+  arities index; `add_top_clause` and the local-group code drop the arity refusal and add the
+  Prolog-key refusal; `global`/`called` resolve by count against the merged program, import,
+  builtin and prelude layers; the compiler emits a **family value** for a bare multi-arity name (a
+  small VM object holding one function value per arity, its call checking the count where
+  `run.sysl` checks a native's); `module.sysl` puts the family in the export map. A few hundred lines
+  and ~25 tests, every refusal among them; the reference page on functions gains a section.
+- **Binds:** no valid program changes meaning — every program FunL accepts today defines each name
+  at one arity. The refusal `` `f` was defined with 1 argument, and this clause has 2 `` goes away;
+  its tests become tests of the two arities working. **A mistyped clause with a wrong parameter
+  count is no longer caught at the definition** but at the first call of the arity the program meant,
+  as in Prolog (`` `f` takes 1 or 2 arguments, and this call gives 3 ``). The `sides` example in
+  the modules decision is exactly the clash of question 5.
+
+> **Recommendation: Option C.** FunL is the modern Prolog, and Prolog's unit is `name/arity`; the
+> design already claims that namespace in two chapters and the implementation already honours it for
+> builtins, the prelude and Prolog predicates — C makes FunL's own definitions agree. It is also the
+> pleasant answer to default parameters without adding them. The value question has a precedent the
+> user decided: a builtin of several counts is one value that answers each count (P4), so a
+> program's name of several arities is the same thing, and a module's map entry needs exactly one
+> value per name.
+
+**Open questions.**
+
+1. **Adopt Option C — name/arity for functions and relations alike?** *Recommended: yes.*
+2. **What is a bare multi-arity name as a value?** The dispatching family above, or refused (*`f` has
+   arities 1 and 2; write a lambda*)? *Recommended: the family — it is what a variadic builtin's
+   value already is, and a module map needs one value per name.*
+3. **Does a nested `def` or `where` group of `g` hide every outer `g`, or only its own arities?**
+   *Recommended: every arity — the nearest block that defines a name owns it, so a reader finds every
+   clause of a call in one place, and a missing arity is a clear refusal. Only the program's top level
+   merges per arity, and only with the builtins and the prelude, which no block of the program wrote.*
+4. **May a file define `f/2` while importing `f` (at other arities)?** *Recommended: no, as decided
+   ([modules](modules.md#names-and-the-builtin-rule): an imported name may not also be defined by
+   the file); `as` renames on the way in.*
+5. **Function `f/n` and relation `f/(n+1)` in one file — the same Prolog key — refused always, or
+   only when Prolog imports the file?** *Recommended: always, at the second definition, naming both
+   and saying which Prolog key they share, so a FunL file never becomes unimportable later; and the
+   `sides` example in the modules decision is reworded to arities that do not clash.*
+6. **Default parameters?** *Recommended: none; two arities are how FunL writes a default. If they
+   are ever added, `def f( x, y = 1 )` is sugar for `f/1` and `f/2`.*
+7. **Until C is decided, the constructor value `g = pt` over two field counts picks the last one
+   silently.** *Recommended: under C it becomes the family; under A or B it is refused when compiled,
+   naming both counts.*
 
 ## Data
 

@@ -104,7 +104,6 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| A generator of tuples cannot be destructured by `<-` | a tuple pattern matches a generated tuple whole; until then `zip` answers lists | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | How does a package fetch: `git` or HTTPS tarballs? | `git clone --depth 1 --branch v<version>` and `git ls-remote --tags`, as the sysl compiler does; works in every build | [packages](packages.md#open-questions) |
 | A package's other module: `tabular/pivot` or `tabular.pivot`? | `tabular/pivot`, as slate does | [packages](packages.md#open-questions) |
 | Constructors unique across packages too? | keep the rule; the refusal names both packages; revisit on a real collision | [packages](packages.md#open-questions) |
@@ -113,3 +112,16 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | A trailing comma in a map, set or list literal? | yes, language-wide, so a manifest stays ordinary FunL | [packages](packages.md#open-questions) |
 | A `funl` floor key in the manifest? | yes, optional, because the grammar is still moving | [packages](packages.md#open-questions) |
 | Which package commands? | `add`, `fetch`, `vendor`, `deps` now; `bundle`, `brew`, `scripts` when shipping is wanted | [packages](packages.md#open-questions) |
+| P3.1 Is P3 (a generator of tuples cannot be destructured by `<-`) closed by drawing tuples whole? | yes: `(a, b) <- zip(xs, ys)`, `(k, v) <- !m` and generated tuples already destructure; the rule is option A | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.2 A drawn value the pattern does not match: passed over or a fault? | passed over, as a failing `if` filter is | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.3 A list or cons pattern over a generator of lists | keep `[e]` to keep each list whole; no shape-directed drawing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.4 `zip` beside an endless range | accept it when another input is finite, so `zip(0.., xs)` numbers a list | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.5 `zip` (and the prelude's list functions) given a string, tuple or map | refuse it as `reverse` does, not answer a one-element pairing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.6 Should `every` take a pattern? | no: `for (a, b) <- e` is the destructuring form | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| One name, several arities: adopt name/arity for functions and relations? | yes (Option C): `f(x)` and `f(x, y)` are `f/1` and `f/2`, a call resolved by its count when compiled | [language](language.md#one-name-several-arities) |
+| A bare multi-arity name as a value | one family value that picks the arity by the count of each call, as a variadic builtin's value does | [language](language.md#one-name-several-arities) |
+| Does a nested `def`/`where` of `g` hide every outer `g`? | yes, every arity; only the top level merges per arity, with the builtins and the prelude | [language](language.md#one-name-several-arities) |
+| May a file define `f/2` while importing `f`? | no, as decided for imports; `as` renames | [language](language.md#one-name-several-arities) |
+| Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded | [language](language.md#one-name-several-arities) |
+| Default parameters? | none; two arities are the default. If ever added, sugar for the arities | [language](language.md#one-name-several-arities) |
+| A constructor value over two field counts picks the last silently | the family under C; refused when compiled otherwise | [language](language.md#one-name-several-arities) |

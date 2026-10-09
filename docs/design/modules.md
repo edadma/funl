@@ -745,16 +745,11 @@ native check it against this source on the same inputs.
 > each calls back into FunL, which a native can only do through the callback machinery, and
 > generator-bodied ones cannot be natives at all.
 
-> **Open question P3 — a generator of tuples cannot be taken apart.** `x <- e` draws every value of
-> `e` and iterates a value that is a collection, so `[a | (a, b) <- pairs()]` over a generator that
-> yields `(1, "a")` draws `1` and `"a"` and matches neither against the pattern (the answer is
-> `[]`), and `[p | p <- pairs()]` flattens the pairs. A list of tuples is fine
-> (`[a | (a, b) <- [(1, "a")]]` is `[1]`). **Recommendation:** make `zip` and its family answer
-> lists, which is what the source above does and why they need finite inputs (a program zips
-> `0..` with a list by taking the list's length first), and decide the language question
-> separately: **a tuple pattern on the left of `<-` matches each generated value whole when that
-> value is a tuple**, and only an unmatched value is iterated. Until then no prelude function yields
-> tuples.
+> **Open question P3 — taking drawn values apart with a pattern — moved to
+> [language.md](language.md#taking-drawn-values-apart-with-a-pattern).** Since `<-` draws a tuple
+> whole, `(a, b) <- zip(xs, ys)` and `(a, b) <- pairs()` already work; what remains there is the
+> mismatch rule, list patterns over a generator of lists, and `zip` beside an endless range or given
+> a string.
 
 > **Decided (user, 2026-10-08) — P4, builtins as values.** **Decision:** a builtin named without a
 > call is a function value when it takes a fixed number of arguments (`abs`, `odd`, `sum`, every
