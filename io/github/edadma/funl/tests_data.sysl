@@ -408,7 +408,7 @@ A_ONE_ELEMENT_TUPLE_OR_A_COMMA_THAT_ENDS_NOTHING_IS_REFUSED()
     assert_eq(complaints("write( (,) )\n"), "error 1:9 expected an expression\n")
     assert_eq(complaints("write( max(,) )\n"), "error 1:12 expected an expression\n")
     assert_eq(complaints("write( (1,,) )\n"), "error 1:11 expected an expression\n")
-    assert_eq(complaints("write( max(1,,) )\n"), "error 1:15 expected an expression\n")
+    assert_eq(complaints("write( max(1,,) )\n"), "error 1:14 expected an expression\n")
 
 // -- interpolation -------------------------------------------------------------------------------------
 
