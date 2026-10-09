@@ -51,7 +51,7 @@ struct Walk
             None -> ()
 
         self.sc.fns.get(name) match
-            Some(r) -> return Function(r, if self.sid == self.res.top then self.res.top_up else 0)
+            Some(rs) -> return fns_meaning(name, rs, if self.sid == self.res.top then self.res.top_up else 0)
             None -> ()
 
         val m = self.res.meaning_above(self.sc.parent, self.sc.parent_block, Anywhere, 1, name)
@@ -192,12 +192,21 @@ refused_as_variable(w: *Walk, n: string, at: Span) -> bool
             .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
         return true
 
-    w.res.global(n) match
+    val g = w.res.global(n)
+
+    g match
         Relation(_) -> ()
         Predicate(_) -> ()
         Function(_, _) ->
             w.report.add(error(at, s"`$n` is already a function, and cannot also be a variable"))
             return true
+        Family(_, ms) ->
+            for x in ms.view()
+                x match
+                    Function(_, _) ->
+                        w.report.add(error(at, s"`$n` is already a function, and cannot also be a variable"))
+                        return true
+                    _ -> ()
         _ -> return false
 
     w.report.add(error(at, s"`$n` is already a relation, and cannot also be a variable"))
@@ -289,6 +298,7 @@ walk(w: *Walk, e: &Expr)
                 Relation(_) -> called_not_used(w, n, e.span)
                 Predicate(_) -> called_not_used(w, n, e.span)
                 Builtin(id) -> if !is_constant(id) && !is_function_value(id) then called_not_used(w, n, e.span)
+                Family(_, ms) -> if !family_value(ms) then called_not_used(w, n, e.span)
                 Unknown ->
                     // `import * as fs from funl:fs`: the module is the map of its exports.
                     if w.res.aliases.get(n).is_some() then return
@@ -302,7 +312,7 @@ walk(w: *Walk, e: &Expr)
                         w.report.add(error(e.span, s"`$n` is not defined")
                             .with_note("a name is a parameter, a `val`, a function, or declared with `free`"))
         CallE(n, at, args) ->
-            val m = w.meaning(n, at.start)
+            val m = picked_call(w, n, w.meaning(n, at.start), at, args.len())
 
             if is_all_solutions(m, n)
                 all_solutions(w, n, at, args)
@@ -313,7 +323,7 @@ walk(w: *Walk, e: &Expr)
             elif is_combinator(m, n)
                 check_combinator(w, n, at, args)
             else
-                callable(w, n, at, args.len())
+                check_call(w, m, n, at, args.len())
 
             for a in args.view()
                 walk(w, a)
@@ -350,7 +360,10 @@ walk(w: *Walk, e: &Expr)
 
                             m match
                                 Unknown -> not_exported_at(w, x, name, f.span)
-                                _ -> check_call(w, m, s"${ref_name(x)}.$name", f.span, args.len())
+                                _ ->
+                                    val qn = s"${ref_name(x)}.$name"
+
+                                    check_call(w, picked_call(w, qn, m, f.span, args.len()), qn, f.span, args.len())
                         None -> ()
                 _ -> ()
 
@@ -583,8 +596,17 @@ private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
         Ref(g) -> w.report.add(not_exported(w.res, g, name, at))
         _ -> ()
 
-// A call names something callable, with as many arguments as it takes.
-private callable(w: *Walk, n: string, at: Span, argc: usize) = check_call(w, w.res.called(n, w.meaning(n, at.start), argc), n, at, argc)
+// What a call of `n` written at `at` with `argc` arguments reaches, `n` meaning `m` there; for a
+// name of several arities, decided here -- where it is known whether the call is in a goal -- and
+// kept for the compiler.
+private picked_call(w: *Walk, n: string, m: Meaning, at: Span, argc: usize) -> Meaning
+    val p = w.res.called_in(n, m, argc, w.goal)
+
+    m match
+        Family(_, _) -> w.res.picks.put(at.start, p)
+        _ -> ()
+
+    p
 
 // A call of `n`, which means `m`, with as many arguments as it takes.
 private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
@@ -626,6 +648,10 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
             if argc != fields && w.res.ctor_of(n, id, argc).is_none()
                 w.report.add(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this call gives $argc"))
 
+            return
+        Family(_, ms) ->
+            // No member takes the count: `called` would have answered it.
+            w.report.add(error(at, s"`$n` takes ${counts_text(w.res, ms)}, and this call gives $argc"))
             return
         _ ->
             // `fs("basename")`: a module of FunL's own is a map, which a call indexes.
@@ -815,22 +841,24 @@ private hoist_clause(w: *Walk, c: Clause)
             .with_note("a `def` inside a body or a `where` defines a function, with `=`, a guard or a block"))
         return
 
-    w.sc.fns.get(c.name) match
-        Some(i) ->
-            var r = w.res.rels.at(i)
+    // The function of this name and arity in the scope, which the clause joins, or a new one.
+    var rs: Buf[usize] = w.sc.fns.get(c.name) match
+        Some(x) -> x
+        None -> buf()
 
-            if c.params.len() != r.arity
-                w.report.add(error(c.head, s"`${c.name}` was defined with ${counted(r.arity, "argument")}, and this clause has ${c.params.len()}")
-                    .with_note("every clause of a definition takes the same number of arguments"))
-                return
+    for i in rs.view()
+        var r = w.res.rels.at(i)
 
+        if r.arity == c.params.len()
             r.clauses.push(c)
             w.res.rels.set(i, r)
-        None ->
-            var cs: Buf[Clause] = buf()
+            return
 
-            cs.push(c)
-            w.sc.fns.put(c.name, w.res.rels.len())
-            w.pending.push(w.res.rels.len())
-            w.res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), true, w.sid, 0, buf()))
+    var cs: Buf[Clause] = buf()
+
+    cs.push(c)
+    rs.push(w.res.rels.len())
+    w.sc.fns.put(c.name, rs)
+    w.pending.push(w.res.rels.len())
+    w.res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), true, w.sid, 0, buf()))
 end hoist_clause

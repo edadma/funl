@@ -655,7 +655,8 @@ choice, and never to nothing.
 
 ### One name, several arities
 
-*Open — the questions at the end of this section are the user's. Nothing here is built.*
+*Decided (user, 2026-10-09): Option C, every question as recommended — see the Decided block at
+the end of this section. Built; "What FunL did before the decision" records where it started.*
 
 **The problem.** A function wants a short form and a long one, and FunL has no default parameters;
 a relation wants the arities Prolog would give it:
@@ -671,9 +672,9 @@ def parent( #tom, #bob )         ;; parent/2: tom is bob's parent
 The design already speaks of **one namespace keyed by name and arity** ([prolog](prolog.md#calling-funl-from-prolog)),
 of `any(c)` and `any(p, xs)` being kept apart by it ([prelude](modules.md#the-prelude--the-first-module-written-in-funl)),
 and of `sides` being "a relation of two arguments and a function of one at once"
-([modules](modules.md#questions-decided)). What FunL *does* is narrower.
+([modules](modules.md#questions-decided), since reworded). What FunL *did* was narrower.
 
-**What FunL does today.** Within one file, a name is one definition of one arity:
+**What FunL did before the decision.** Within one file, a name was one definition of one arity:
 
 ```
 def f( x ) = x + 1
@@ -808,7 +809,31 @@ What follows for each neighbour:
 > program's name of several arities is the same thing, and a module's map entry needs exactly one
 > value per name.
 
-**Open questions.**
+> **Decided (user, 2026-10-09): Option C, with every question below answered as recommended.**
+>
+> 1. **A definition is keyed by name and arity**, function or relation. A call is resolved by its
+>    count when it is compiled; a count no arity takes is refused there: `` `f` takes 1 or 2
+>    arguments, and this call gives 3 ``.
+> 2. **A bare name of several arities is one family value** that picks the member by the count of
+>    each call made through it, as a variadic builtin's value does; a count none takes faults,
+>    `'f' takes 1 or 2 arguments and was given 3`. A relation is no value, so a name's family holds
+>    its function arities (and a builtin's, at the top level); a name with none is still "called
+>    rather than used as a value".
+> 3. **A nested `def` or `where` group hides every outer arity of its name.** Only the top level
+>    merges per arity, with the builtins, the prelude and the Prolog predicates the program loaded:
+>    a program's `def any( x )` leaves `any(p, xs)` to the prelude.
+> 4. **A file may not define `f` at any arity while importing `f`**; `as` renames. An import, and
+>    an `export`, carries every arity of the name, and a module's map holds the family.
+> 5. **Function `f/n` and relation `f/(n+1)` are refused at the second definition**, naming both
+>    and the Prolog key they share; the `sides` example in [modules](modules.md#questions-decided)
+>    is reworded.
+> 6. **No default parameters**: two arities are how FunL writes a default. If they are ever added,
+>    `def f( x, y = 1 )` is sugar for `f/1` and `f/2`.
+> 7. **A constructor name over several field counts is the family of them as a value**: `g = pt`
+>    over `pt(x) | pt(x, y)` answers `g(3)` and `g(3, 4)`. A name that also has a constructor of
+>    no fields is that constructor's atom, as it is in a pattern.
+
+The questions as they were put:
 
 1. **Adopt Option C — name/arity for functions and relations alike?** *Recommended: yes.*
 2. **What is a bare multi-arity name as a value?** The dispatching family above, or refused (*`f` has

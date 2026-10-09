@@ -97,6 +97,13 @@ Each is argued where it arises; this is the list.
 | Prelude `map` against the builtin `map`? | one `map/2`: a function as first argument maps, anything else is the constructor (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Which prelude names are core natives? | `reverse`, `sort`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, `zip`, `zip3`, and `sortBy`, `zipWith`, `zipWith3` calling their function back as bounded calls (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Builtins as values? | a builtin named without a call is a function value (a variadic one passes on however many arguments it is given), and `import * as` a module of FunL's own names the map of them (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| One name, several arities: adopt name/arity for functions and relations? | yes (Option C): `f(x)` and `f(x, y)` are `f/1` and `f/2`, a call resolved by its count when compiled (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| A bare multi-arity name as a value | one family value that picks the arity by the count of each call, as a variadic builtin's value does (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| Does a nested `def`/`where` of `g` hide every outer `g`? | yes, every arity; only the top level merges per arity, with the builtins and the prelude (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| May a file define `f/2` while importing `f`? | no, as decided for imports; `as` renames (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| Default parameters? | none; two arities are the default. If ever added, sugar for the arities (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| A constructor value over two field counts picks the last silently | the family of them as a value (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
 
 ## Open questions
 
@@ -118,13 +125,6 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | P3.4 `zip` beside an endless range | accept it when another input is finite, so `zip(0.., xs)` numbers a list | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
 | P3.5 `zip` (and the prelude's list functions) given a string, tuple or map | refuse it as `reverse` does, not answer a one-element pairing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
 | P3.6 Should `every` take a pattern? | no: `for (a, b) <- e` is the destructuring form | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
-| One name, several arities: adopt name/arity for functions and relations? | yes (Option C): `f(x)` and `f(x, y)` are `f/1` and `f/2`, a call resolved by its count when compiled | [language](language.md#one-name-several-arities) |
-| A bare multi-arity name as a value | one family value that picks the arity by the count of each call, as a variadic builtin's value does | [language](language.md#one-name-several-arities) |
-| Does a nested `def`/`where` of `g` hide every outer `g`? | yes, every arity; only the top level merges per arity, with the builtins and the prelude | [language](language.md#one-name-several-arities) |
-| May a file define `f/2` while importing `f`? | no, as decided for imports; `as` renames | [language](language.md#one-name-several-arities) |
-| Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded | [language](language.md#one-name-several-arities) |
-| Default parameters? | none; two arities are the default. If ever added, sugar for the arities | [language](language.md#one-name-several-arities) |
-| A constructor value over two field counts picks the last silently | the family under C; refused when compiled otherwise | [language](language.md#one-name-several-arities) |
 | E1 Optional, checked `end` markers, Scala 3's rules (Option A)? | yes | [language](language.md#blocks-and-optional-end-markers) |
 | E2 Which constructs take `end`? | `def` clauses (`end f`), a bare `def` group (`end def`), block `val`/`var` (`end x`, `end val`), `if` chains, `while`/`for`/`repeat`/`every`; no lambda, scan, `catch`, `where`, sequence, `data` | [language](language.md#blocks-and-optional-end-markers) |
 | E3 A labelled loop: `end for` or `end outer`? | `end for` only | [language](language.md#blocks-and-optional-end-markers) |

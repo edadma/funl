@@ -105,8 +105,9 @@ struct Scope
     parent: usize
     parent_block: usize
 
-    // The functions a `def` or a `where` defines here, as indices into `Resolved.rels`.
-    fns: Map[string, usize]
+    // The functions a `def` or a `where` defines here, as indices into `Resolved.rels`: every arity
+    // of each name, in the order they were first written.
+    fns: Map[string, Buf[usize]]
 
     // The slots a `data` declaration's constructors are declared in, and each one's constructor id.
     ctors: Map[usize, usize]
@@ -226,6 +227,12 @@ enum Meaning
     // A `data` constructor, `id` indexing `Vm.ctors`.
     Constructor(id: usize)
 
+    // A name defined at several arities (`language.md` § "One name, several arities"): what each
+    // arity means, in the order a call looks through them. A call is resolved to the member that
+    // takes its count (`Resolved.called`); the name as a value is one function value that picks the
+    // member by the count of each call made through it (`family.sysl`).
+    Family(name: string, members: Buf[Meaning])
+
     Unknown
 
 // Where a loop that `break` or `continue` leaves records its marks: the slot holding the index of
@@ -238,8 +245,9 @@ struct LoopSlots
 struct Resolved
     rels: Buf[Rel]
 
-    // The top-level definitions by name.
-    by_name: Map[string, usize]
+    // The top-level definitions by name: every arity of each, functions and relations, in the order
+    // they were first written. A definition is keyed by its name and arity.
+    by_name: Map[string, Buf[usize]]
 
     // Every scope, by id.
     scopes: Buf[Scope]
@@ -266,6 +274,10 @@ struct Resolved
 
     // The code being resolved, which positions are read in.
     src: Source
+
+    // What each call of a name of several arities reaches, by the offset of the name, as the
+    // resolver decided it knowing whether the call is in a goal (`called_in`).
+    picks: Map[usize, Meaning]
 
     // What each name an `import { ... }` declares means, and each `import * as` alias its map
     // (`module.sysl`).
@@ -398,8 +410,10 @@ struct Resolved
                 Some(k) -> return s.named(d, k)
                 None -> ()
 
+            // The nearest scope that defines the name owns it at every arity; only the top level's
+            // definitions are merged with the builtins and the prelude, by `global`.
             s.fns.get(name) match
-                Some(r) -> return Function(r, if at == self.top then self.top_up else d)
+                Some(rs) -> return fns_meaning(name, rs, if at == self.top then self.top_up else d)
                 None -> ()
 
             at = s.parent
@@ -436,7 +450,7 @@ struct Resolved
             None -> ()
 
         s.fns.get(name) match
-            Some(r) -> Function(r, self.top_up)
+            Some(rs) -> fns_meaning(name, rs, self.top_up)
             None -> Unknown
 
     // The constructor the top level's root block declares as `name`, wherever it is written.
@@ -456,9 +470,14 @@ struct Resolved
     // What `name` means among the top-level definitions, the imported names, the builtins and the
     // prelude: an imported name shadows a builtin, as a definition does, and each of them shadows the
     // prelude.
+    //
+    // **The program's own definitions are merged with the rest per arity**, as Prolog keeps a
+    // program's `p/1` apart from a library's `p/2`: a builtin, the prelude's functions and the
+    // Prolog predicates the program loaded keep every arity the program does not define, so a
+    // program's `def any( x )` leaves `any(p, xs)` to the prelude.
     global(self, name: string) -> Meaning
         self.by_name.get(name) match
-            Some(i) -> return if self.rels.at(i).function then Function(i, self.top_up) else Relation(i)
+            Some(rs) -> return self.merged(name, rs)
             None -> ()
 
         self.imported.get(name) match
@@ -482,7 +501,53 @@ struct Resolved
     //
     // **A Prolog predicate the program loaded shadows the prelude too**, at the arity it is defined
     // with: `all(ls)` calls an imported `all/1`. The Prolog library's predicates do not.
-    called(self, name: string, m: Meaning, argc: usize) -> Meaning
+    //
+    // **A name of several arities is resolved here, by the call's count**: the first member that
+    // takes it, or -- in a goal -- the function of one parameter fewer, called as a relation. A call
+    // no member takes keeps the family, which `check_call` refuses.
+    called(self, name: string, m: Meaning, argc: usize) -> Meaning = self.called_in(name, m, argc, false)
+
+    // `called`, for a call written in a goal when `goal`: there the program's own function of
+    // `argc - 1` parameters is the relation of `argc` -- the Prolog key it has -- and comes before
+    // a builtin or the prelude of `argc`.
+    called_in(self, name: string, m: Meaning, argc: usize, goal: bool) -> Meaning
+        m match
+            Family(_, ms) ->
+                // A predicate of the Prolog key one of the family's own definitions has is that
+                // definition, which Prolog was given.
+                val own = self.own_key(ms, argc)
+
+                for x in ms.view()
+                    if self.is_own(x) && self.takes(name, x, argc) then return x
+
+                if goal
+                    for x in ms.view()
+                        x match
+                            Function(r, _) -> if self.is_own(x) && self.rels.at(r).arity + 1 == argc then return x
+                            _ -> ()
+
+                for x in ms.view()
+                    x match
+                        Predicate(_) -> if own then continue
+                        _ -> ()
+
+                    if self.takes(name, x, argc) then return x
+
+                if goal
+                    for x in ms.view()
+                        x match
+                            Function(r, _) -> if self.rels.at(r).arity + 1 == argc then return x
+                            _ -> ()
+
+                // A library predicate is reached last, after the prelude.
+                for x in ms.view()
+                    x match
+                        Predicate(_) -> if !own && pred_defined(pred_key(name, argc)) then return x
+                        _ -> ()
+
+                return m
+            _ -> ()
+
         if self.prelude_meant(name, m)
             val key = pred_key(name, argc)
 
@@ -499,8 +564,94 @@ struct Resolved
         self.prelude.get(name) match
             Some(p) -> p match
                 Function(r, _) -> if self.rels.at(r).arity == argc then p else m
+                Family(_, ps) ->
+                    for x in ps.view()
+                        if self.takes(name, x, argc) then return x
+
+                    m
                 _ -> m
             None -> m
+
+    // Whether member `x` of the family of `name` takes a call of `argc` arguments itself: a
+    // definition of that arity, a builtin that takes the count, or a predicate the program loaded
+    // with it -- not the Prolog library's, which comes after the prelude.
+    takes(self, name: string, x: Meaning, argc: usize) -> bool = x match
+        Function(r, _) -> self.rels.at(r).arity == argc
+        Relation(r) -> self.rels.at(r).arity == argc
+        Builtin(id) -> !is_constant(id) && takes_count(current().natives.at(id), argc)
+        Predicate(_) ->
+            val key = pred_key(name, argc)
+
+            pred_defined(key) && !is_library(key)
+        _ -> false
+
+    // The program's own top-level definitions `rs` of `name`, with each arity they leave to a
+    // builtin, the prelude or a Prolog predicate: one meaning, or the family of them.
+    merged(self, name: string, rs: Buf[usize]) -> Meaning
+        var ms: Buf[Meaning] = buf()
+
+        for i in rs.view()
+            ms.push(if self.rels.at(i).function then Function(i, self.top_up) else Relation(i))
+
+        native_id(name) match
+            Some(id) ->
+                val nat = current().natives.at(id)
+
+                // A builtin stays only for a count the program leaves it.
+                var left = nat.arity == Variadic
+
+                if !left
+                    for k in nat.least..nat.arity
+                        if !self.defines(rs, k) then left = true
+
+                if left && !is_constant(id) then ms.push(Builtin(id))
+            None -> ()
+
+        if pred_name_known(name) then ms.push(Predicate(name))
+
+        self.prelude.get(name) match
+            Some(p) -> p match
+                Function(r, _) -> if !self.defines(rs, self.rels.at(r).arity) then ms.push(p)
+                Family(_, ps) ->
+                    for x in ps.view()
+                        x match
+                            Function(r, _) -> if !self.defines(rs, self.rels.at(r).arity) then ms.push(x)
+                            _ -> ()
+                _ -> ()
+            None -> ()
+
+        if ms.len() == 1 then ms.at(0) else Family(name, ms)
+    end merged
+
+    // Whether `x` is a definition this file wrote, rather than the prelude's or a builtin.
+    is_own(self, x: Meaning) -> bool = x match
+        Function(r, _) -> self.rels.at(r).clauses.len() > 0
+        Relation(r) -> self.rels.at(r).clauses.len() > 0
+        _ -> false
+
+    // The call written at offset `pos`, of `name` meaning `m` there with `argc` arguments: what the
+    // resolver decided it reaches (`picks`), or `called`'s answer when it decided nothing.
+    picked(self, pos: usize, name: string, m: Meaning, argc: usize) -> Meaning = self.picks.get(pos) match
+        Some(p) -> p
+        None -> self.called(name, m, argc)
+
+    // Whether one of the FunL definitions among `ms` is the Prolog predicate of `argc` arguments: a
+    // relation of `argc`, or a function of one fewer.
+    own_key(self, ms: Buf[Meaning], argc: usize) -> bool
+        for x in ms.view()
+            x match
+                Function(r, _) -> if self.rels.at(r).arity + 1 == argc then return true
+                Relation(r) -> if self.rels.at(r).arity == argc then return true
+                _ -> ()
+
+        false
+
+    // Whether one of the definitions `rs` has `arity` arguments.
+    defines(self, rs: Buf[usize], arity: usize) -> bool
+        for i in rs.view()
+            if self.rels.at(i).arity == arity then return true
+
+        false
 
     // Whether `name` means a definition of the prelude's here: one a declaration may take over, as
     // it takes over a builtin's.
@@ -510,7 +661,17 @@ struct Resolved
         self.prelude.get(name).is_some()
 
     // Whether `m`, what `name` means where it is written, is the prelude's function of that name.
+    // A family of the prelude's own arities is too.
     prelude_meant(self, name: string, m: Meaning) -> bool
+        m match
+            Family(_, ms) ->
+                self.prelude.get(name) match
+                    Some(p) -> p match
+                        Family(_, ps) -> return ms.len() == ps.len() && ms.len() > 0 && self.prelude_meant(name, ms.at(0))
+                        _ -> return false
+                    None -> return false
+            _ -> ()
+
         val r = m match
             Function(r, _) -> r
             _ -> return false
@@ -518,9 +679,46 @@ struct Resolved
         self.prelude.get(name) match
             Some(p) -> p match
                 Function(q, _) -> q == r
+                Family(_, ps) ->
+                    for x in ps.view()
+                        x match
+                            Function(q, _) -> if q == r then return true
+                            _ -> ()
+
+                    false
                 _ -> false
             None -> false
 end Resolved
+
+// What the functions `rs` of `name`, all defined by one scope, mean where they are written, `up`
+// naming that scope's frame: the one function, or the family of them.
+fns_meaning(name: string, rs: Buf[usize], up: usize) -> Meaning
+    if rs.len() == 1 then return Function(rs.at(0), up)
+
+    var ms: Buf[Meaning] = buf()
+
+    for r in rs.view()
+        ms.push(Function(r, up))
+
+    Family(name, ms)
+
+// What `name` means once `m` -- one more arity of it, from the same module -- joins what it meant
+// before, `old`: the family of both.
+with_member(name: string, old: Option[Meaning], m: Meaning) -> Meaning
+    val prior = old match
+        Some(o) -> o
+        None -> return m
+
+    var ms: Buf[Meaning] = buf()
+
+    prior match
+        Family(_, ps) ->
+            for x in ps.view()
+                ms.push(x)
+        _ -> ms.push(prior)
+
+    ms.push(m)
+    Family(name, ms)
 
 // The constructors `ids` holds, and `id` after them.
 private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
@@ -534,7 +732,7 @@ private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map(), map())
 
     res.top = new_scope_id(&res)
 
@@ -582,32 +780,75 @@ new_scope_id(res: *Resolved) -> usize
     res.scopes.push(scope())
     res.scopes.len() - 1
 
-// A top-level clause joins the definition of its name.
+// A top-level clause joins the definition of its name and arity, or begins one.
+//
+// **A new arity is refused when Prolog would see it as one already defined**: a function of `n`
+// parameters is the predicate of `n + 1` arguments, so function `f/1` and relation `f/2` are both
+// `f/2` to Prolog (`language.md` § "One name, several arities").
 private add_top_clause(res: *Resolved, c: Clause, report: *Report)
-    res.by_name.get(c.name) match
-        None ->
-            var cs: Buf[Clause] = buf()
-            val f = is_function(c.kind)
+    val f = is_function(c.kind)
+    val n = c.params.len()
 
-            cs.push(c)
-            res.by_name.put(c.name, res.rels.len())
-            res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), f, if f then res.top else NoScope, 0, buf()))
-        Some(i) ->
-            var r = res.rels.at(i)
+    var rs: Buf[usize] = res.by_name.get(c.name) match
+        Some(x) -> x
+        None -> buf()
+
+    for i in rs.view()
+        var r = res.rels.at(i)
+
+        if r.arity != n then continue
+
+        val first = r.clauses.at(0)
+
+        if r.function != f
+            report.add(error(c.head, s"`${c.name}` mixes a function clause with relation clauses")
+                .with_label(s"this is ${kind_text(c.kind)}")
+                .with_note("a definition is one kind or the other: facts and `:-` rules make a relation, `=` clauses a function"))
+            report.add(Diagnostic(Note, first.head, s"`${c.name}` is first defined here, by ${kind_text(first.kind)}", "", ""))
+            return
+
+        r.clauses.push(c)
+        res.rels.set(i, r)
+        return
+
+    val key = if f then n + 1 else n
+
+    for i in rs.view()
+        val r = res.rels.at(i)
+
+        if (if r.function then r.arity + 1 else r.arity) == key
             val first = r.clauses.at(0)
 
-            if is_function(first.kind) != is_function(c.kind)
-                report.add(error(c.head, s"`${c.name}` mixes a function clause with relation clauses")
-                    .with_label(s"this is ${kind_text(c.kind)}")
-                    .with_note("a definition is one kind or the other: facts and `:-` rules make a relation, `=` clauses a function"))
-                report.add(Diagnostic(Note, first.head, s"`${c.name}` is first defined here, by ${kind_text(first.kind)}", "", ""))
-            elif c.params.len() != r.arity
-                report.add(error(c.head, s"`${c.name}` was defined with ${counted(r.arity, "argument")}, and this clause has ${c.params.len()}")
-                    .with_note("every clause of a definition takes the same number of arguments"))
-            else
-                r.clauses.push(c)
-                res.rels.set(i, r)
+            report.add(error(c.head, s"`${c.name}` is ${definition_text(f, n)} here and ${definition_text(r.function, r.arity)} already, and both are `${c.name}/$key` to Prolog")
+                .with_note(s"a function of n parameters is the Prolog predicate of n + 1 arguments, so the two would be one predicate; give one of them another name"))
+            report.add(Diagnostic(Note, first.head, s"`${c.name}` is ${definition_text(r.function, r.arity)} here", "", ""))
+            return
+
+    rs.push(res.rels.len())
+    res.by_name.put(c.name, rs)
+    res.rels.push(Rel(c.name, n, single(c), reserve_chunk(c.name), f, if f then res.top else NoScope, 0, buf()))
 end add_top_clause
+
+// "a function of 1 parameter", "a relation of 2 arguments".
+private definition_text(function: bool, n: usize) -> string
+    if function then s"a function of ${counted(n, "parameter")}" else s"a relation of ${counted(n, "argument")}"
+
+private single(c: Clause) -> Buf[Clause]
+    var cs: Buf[Clause] = buf()
+
+    cs.push(c)
+    cs
+
+// Whether `i` is one of the top level's own definitions, rather than a local function, a lambda or
+// another module's definition.
+is_top_rel(res: *Resolved, i: usize) -> bool
+    res.by_name.get(res.rels.at(i).name) match
+        Some(rs) ->
+            for j in rs.view()
+                if j == i then return true
+
+            false
+        None -> false
 
 is_function(k: ClauseKind) -> bool = k match
     FunctionC(_) -> true

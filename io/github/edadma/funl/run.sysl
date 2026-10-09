@@ -624,6 +624,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Await -> Ok(if await_top(v)? then Next else Idle)
         Settle -> Ok(if settle_top(v)? then Next else Idle)
         Orphan -> Ok(if orphan_top(v) then Next else Quits)
+        ArgsIn(least, most, to) ->
+            val n = v.frame.args.len()
+
+            if n < least || (most != AnyArity && n > most) then v.ip = to
+
+            Ok(Next)
+        NoArity -> Err(no_arity(v))
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it

@@ -239,6 +239,130 @@ write( 'never printed' )
 argument match not found: no clause of 'only_zero' matches (1)
 ```
 
+## One name, several arities
+
+A definition is known by its name and its number of parameters, so one name may be defined at
+several arities: `f/1` and `f/2` below are two functions. A call is resolved by its count when the
+program is compiled. Named without a call, `f` is one function value holding every arity, which
+picks the one each call through it needs:
+
+```funl
+def f( x )    = x + 1
+def f( x, y ) = x * y
+
+write( f(10), f(3, 4) )
+write( map(f, [1, 2, 3]) )
+write( foldl(f, 1, [2, 3, 4]) )
+
+g = f
+write( g(5), g(5, 6) )
+```
+
+```output
+11, 12
+[2, 3, 4]
+24
+6, 30
+```
+
+There are no default parameters; a second arity is how a default is written:
+
+```funl
+def f( x, y = 1 ) = x + y
+```
+
+```error
+this cannot be matched against anything
+```
+
+A call with a count no arity takes is refused when the program is compiled:
+
+```funl
+def f( x )    = x + 1
+def f( x, y ) = x * y
+
+write( f(1, 2, 3) )
+```
+
+```error
+`f` takes 1 or 2 arguments, and this call gives 3
+```
+
+A call through the value is checked when it is made:
+
+```funl
+def f( x )    = x + 1
+def f( x, y ) = x * y
+
+g = f
+write( g(1, 2, 3) )
+```
+
+```error
+'f' takes 1 or 2 arguments and was given 3
+```
+
+At the top level a program's definitions take only their own arities from the builtins and the
+prelude. Defining `any` of one parameter leaves the prelude's `any` of two:
+
+```funl
+def any( x ) = x * 100
+
+write( any(3) )
+write( any(odd, [2, 3]) )
+```
+
+```output
+300
+true
+```
+
+A function defined inside another, by `def` or `where`, hides **every** arity of its name, so all
+the clauses a call can reach are in one place:
+
+```funl
+def f( x ) = x
+def f( x, y ) = x + y
+
+def g( n ) = f( n, 1 )
+  where
+    f( a ) = a * 10
+
+write( g(2) )
+```
+
+```error
+`f` takes 1 argument, and this call gives 2
+```
+
+A function of `n` parameters is the Prolog predicate of `n + 1` arguments, its value the last
+([Calling FunL from Prolog](prolog.md)). A function and a relation that Prolog would see as one
+predicate are refused at the second:
+
+```funl
+def sides( s ) = 4
+def sides( #square, 4 )
+```
+
+```error
+`sides` is a relation of 2 arguments here and a function of 1 parameter already, and both are `sides/2` to Prolog
+```
+
+A constructor name with several field counts is the same kind of value:
+
+```funl
+data point = pt( x ) | pt( x, y )
+
+make = pt
+write( make(3), make(3, 4) )
+write( map(pt, [1, 2]) )
+```
+
+```output
+pt(3), pt(3, 4)
+[pt(1), pt(2)]
+```
+
 ## Patterns
 
 Every parameter is a pattern. A pattern may be a literal, a variable, `_` (which matches anything

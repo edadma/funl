@@ -1,0 +1,231 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.counted
+import sysl.buf.{Buf, buf}
+import sysl.text.str_builder
+
+// Family values: a name of several arities, named without a call (`language.md` § "One name,
+// several arities").
+//
+// **A family is one function value that picks its member by the count of each call made through
+// it**, as a builtin of several counts already is. It is compiled into a chunk of its own, which
+// takes any number of arguments and tries each member in turn:
+//
+//     ArgsIn(1, 1, m2); LoadArgs; TailCallFn(f/1, 1, up); Return
+//     m2: ArgsIn(2, 2, end); LoadArgs; TailCallFn(f/2, 2, up); Return
+//     end: NoArity
+//
+// A member is a function, a builtin, or a constructor of the name with that many fields. A
+// relation is no value, and is not a member.
+
+// One member of a family value, as the family's chunk calls it.
+enum Member
+    // A function compiled into `chunk`, of `arity` parameters, whose frames' static link is the
+    // frame `up` names from the family's own frame.
+    FnMember(chunk: usize, arity: usize, up: usize)
+
+    // A builtin, for each count it takes.
+    NativeMember(id: usize)
+
+    // A constructor, making its record.
+    CtorMember(id: usize)
+
+// Whether a family whose members are `ms` is a value: one of them is a function, or a builtin that
+// is a function value.
+family_value(ms: Buf[Meaning]) -> bool
+    for x in ms.view()
+        x match
+            Function(_, _) -> return true
+            Builtin(id) -> if is_function_value(id) then return true
+            _ -> ()
+
+    false
+
+// The counts the family `ms` takes, for a refusal: "1 or 2 arguments".
+counts_text(res: *Resolved, ms: Buf[Meaning]) -> string
+    var counts: Buf[usize] = buf()
+    var from = AnyArity
+
+    for x in ms.view()
+        x match
+            Function(r, _) -> counts.push(res.rels.at(r).arity)
+            Relation(r) -> counts.push(res.rels.at(r).arity)
+            Builtin(id) ->
+                val nat = current().natives.at(id)
+
+                if nat.arity == Variadic
+                    if nat.least < from then from = nat.least
+                else
+                    for k in nat.least..nat.arity
+                        counts.push(k)
+            _ -> ()
+
+    counts_phrase(counts, from)
+
+// "1 argument", "1 or 2 arguments", "1, 2 or 4 arguments", and "or 3 or more" when a member takes
+// any count from `from` up (`AnyArity` when none does).
+counts_phrase(counts: Buf[usize], from: usize) -> string
+    var sorted: Buf[usize] = buf()
+
+    // Each count below `from` once, smallest first.
+    var last: usize = 0
+    var first = true
+
+    while true
+        var next = from
+        var found = false
+
+        for k in counts.view()
+            if k < next && (first || k > last)
+                next = k
+                found = true
+
+        if !found then break
+
+        sorted.push(next)
+        last = next
+        first = false
+
+    var words: Buf[string] = buf()
+
+    for k in sorted.view()
+        words.push(s"$k")
+
+    if from != AnyArity then words.push(s"$from or more")
+
+    if words.len() == 0 then return "no count of arguments"
+
+    if words.len() == 1 && from == AnyArity then return counted(sorted.at(0), "argument")
+
+    var out = str_builder()
+
+    for i in 0..<words.len()
+        if i > 0 then out.push(if i == words.len() - 1 then " or " else ", ")
+
+        out.push(words.at(i))
+
+    out.push(" arguments")
+    out.finish()
+
+// The chunk of a family value named `name` over `members`, tried in order.
+family_chunk(name: string, members: Buf[Member]) -> Result[usize, string]
+    var e = emit_function(name, AnyArity)
+
+    for m in members.view()
+        val next = e.label()
+
+        m match
+            FnMember(chunk, arity, up) ->
+                e.op(ArgsIn(arity, arity, next))
+                e.op(LoadArgs)
+                e.op(TailCallFn(chunk, arity, up))
+            NativeMember(id) ->
+                val nat = current().natives.at(id)
+
+                e.op(ArgsIn(nat.least, if nat.arity == Variadic then AnyArity else nat.arity, next))
+                e.op(LoadArgs)
+
+                if is_generator(id)
+                    e.op(PushInt(0))
+                    e.op(NativeGen(id, Variadic))
+                else
+                    e.op(Native(id, Variadic))
+            CtorMember(id) ->
+                val n = current().ctors.at(id).fields.len()
+
+                e.op(ArgsIn(n, n, next))
+                e.op(LoadArgs)
+                e.op(MakeRecord(id, n))
+
+        e.op(Return)
+        e.place(next)
+
+    e.op(NoArity)
+    finish(e)
+
+// Push the value of the family `ms` of `name`: a function value over a family chunk. Every member
+// a function defined in one scope shares that scope's frame, which the family's own frame links to.
+push_family(e: *Emit, res: *Resolved, ms: Buf[Meaning], name: string) -> Result[unit, string]
+    var members: Buf[Member] = buf()
+    var up = TopUp
+
+    for x in ms.view()
+        x match
+            Function(r, u) ->
+                val rel = res.rels.at(r)
+
+                // The top level's frame, or a file's, is named the same from anywhere; a count of
+                // static links is one more from inside the family's frame.
+                if u >= TopUp - FileUps
+                    members.push(FnMember(rel.chunk, rel.arity, u))
+                else
+                    up = u
+                    members.push(FnMember(rel.chunk, rel.arity, 1))
+            Builtin(id) -> if is_function_value(id) then members.push(NativeMember(id))
+            _ -> ()
+
+    if members.len() == 0 then return Err(s"'$name' was resolved and is not a value")
+
+    e.op(MakeClosure(family_chunk(name, members)?, up))
+    Ok(())
+
+// Push the value of constructor `id`, whose name has the constructors `kin` (`None` for none other):
+// a nullary constructor's atom, the constructor itself, or -- when the name has constructors of
+// several field counts -- the family of them. A name with a constructor of no fields is that atom.
+push_ctor_value(e: *Emit, id: usize, kin: Option[Buf[usize]]) -> Result[unit, string]
+    val v = current()
+    val d = v.ctors.at(id)
+    var members: Buf[Member] = buf()
+    var counts: Buf[usize] = buf()
+    var nullary = d.fields.len() == 0
+
+    members.push(CtorMember(id))
+    counts.push(d.fields.len())
+
+    kin match
+        Some(ids) ->
+            for i in ids.view()
+                val k = v.ctors.at(i)
+
+                if k.functor != d.functor then continue
+
+                if k.fields.len() == 0 then nullary = true
+
+                var seen = false
+
+                for c in counts.view()
+                    if c == k.fields.len() then seen = true
+
+                if !seen
+                    counts.push(k.fields.len())
+                    members.push(CtorMember(i))
+        None -> ()
+
+    if nullary
+        e.op(PushConst(e.constant(Atom(d.functor))))
+    elif members.len() == 1
+        e.op(PushConst(e.constant(Ctor(u32(id)))))
+    else
+        e.op(MakeClosure(family_chunk(atom_name(d.functor), members)?, TopUp))
+
+    Ok(())
+
+// The fault of a family value called with a count none of its members takes, naming the counts
+// the running chunk's `ArgsIn`s do take.
+no_arity(v: *Vm) -> Fault
+    val c = v.chunks.at(v.code)
+    val n = v.frame.args.len()
+    var counts: Buf[usize] = buf()
+    var from = AnyArity
+
+    for o in c.code.view()
+        o match
+            ArgsIn(least, most, _) ->
+                if most == AnyArity
+                    if least < from then from = least
+                else
+                    for k in least..most
+                        counts.push(k)
+            _ -> ()
+
+    wrong_count(c.name, n, s"'${c.name}' takes ${counts_phrase(counts, from)} and was given $n")

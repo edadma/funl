@@ -93,7 +93,7 @@ bind_prelude(res: *Resolved)
         x.kind match
             ExFunction(chunk, arity) ->
                 res.rels.push(Rel(x.name, arity, buf(), chunk, true, NoScope, 0, buf()))
-                res.prelude.put(x.name, Function(res.rels.len() - 1, md.up))
+                res.prelude.put(x.name, with_member(x.name, res.prelude.get(x.name), Function(res.rels.len() - 1, md.up)))
             _ -> ()
 
 // The prelude's function `name` as a value, for a builtin that hands its call on to it.

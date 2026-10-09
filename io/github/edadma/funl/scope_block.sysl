@@ -202,9 +202,11 @@ private fixed_refused(w: *Walk, n: string, at: Span)
 written_in_block(w: *Walk, clauses: Buf[Clause])
     for c in clauses.view()
         w.sc.fns.get(c.name) match
-            Some(i) ->
-                var r = w.res.rels.at(i)
+            Some(rs) ->
+                for i in rs.view()
+                    var r = w.res.rels.at(i)
 
-                r.outer_block = w.blk
-                w.res.rels.set(i, r)
+                    if r.arity == c.params.len()
+                        r.outer_block = w.blk
+                        w.res.rels.set(i, r)
             None -> ()

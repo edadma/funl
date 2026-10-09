@@ -281,7 +281,10 @@ private bind(out: *Imports, index: usize, given: string, form: ImportForm, repor
         NamedForm(names) ->
             for n in names.view()
                 exported_as(md, n.name) match
-                    Some(x) -> out.names.push(Binding(n.local, n.at, index, x))
+                    Some(_) ->
+                        // Every arity of the name comes in.
+                        for x in md.exports.view()
+                            if x.name == n.name then out.names.push(Binding(n.local, n.at, index, x))
                     None ->
                         left_out_export(md.file, n.name) match
                             Some(m) -> report.add(error(n.at, m))
@@ -416,7 +419,19 @@ private circle(file: string) -> string
 // The names `im` binds, made top-level names of the file `res` resolves: each refused where the file
 // defines it too, or where two imports take it.
 bind_imports(res: *Resolved, im: Imports, report: *Report)
-    for b in im.names.view()
+    for i in 0..<im.names.len()
+        val b = im.names.at(i)
+
+        // Another arity of the name the binding before it took, from the same import, joins it.
+        val again = i > 0 && same_import(im.names.at(i - 1), b)
+
+        if again
+            export_meaning(res, current().modules.at(b.source), b.export) match
+                Some(m) -> res.imported.put(b.local, with_member(b.local, res.imported.get(b.local), m))
+                None -> ()
+
+            continue
+
         if !free_to_import(res, b.local, b.at, current().modules.at(b.source).file, report) then continue
 
         b.export.kind match
@@ -445,10 +460,17 @@ bind_imports(res: *Resolved, im: Imports, report: *Report)
                 ExCtor(_, kin) -> see_kin(res, s"${a.alias}.${x.name}", kin)
                 _ -> ()
 
+            // A name exported at several arities is the family of them.
+            val q = s"${a.alias}.${x.name}"
+
             export_meaning(res, md, x) match
-                Some(m) -> res.qualified.put(s"${a.alias}.${x.name}", m)
+                Some(m) -> res.qualified.put(q, with_member(q, res.qualified.get(q), m))
                 None -> ()
 end bind_imports
+
+// Whether bindings `a` and `b` are two arities of one name one import brought.
+private same_import(a: Binding, b: Binding) -> bool
+    a.local == b.local && a.source == b.source && a.export.name == b.export.name && a.at.start == b.at.start
 
 // The constructors `kin` an exported name brings, seen in the file `res` resolves under `name`.
 private see_kin(res: *Resolved, name: string, kin: Buf[usize])
@@ -459,8 +481,8 @@ private see_kin(res: *Resolved, name: string, kin: Buf[usize])
 // one another import has taken. The refusal is reported.
 private free_to_import(res: *Resolved, n: string, at: Span, file: string, report: *Report) -> bool
     res.by_name.get(n) match
-        Some(i) ->
-            report.add(error(res.rels.at(i).clauses.at(0).head, s"`$n` is imported from `$file`, and this file cannot also define it")
+        Some(rs) ->
+            report.add(error(res.rels.at(rs.at(0)).clauses.at(0).head, s"`$n` is imported from `$file`, and this file cannot also define it")
                 .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
             return false
         None -> ()
@@ -587,15 +609,17 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
 
         seen.push(n)
 
+        // Every arity of the name is exported.
         res.by_name.get(n) match
-            Some(i) ->
-                val r = res.rels.at(i)
-                val at = located(res.src, r.clauses.at(0).head.start)
+            Some(rs) ->
+                for i in rs.view()
+                    val r = res.rels.at(i)
+                    val at = located(res.src, r.clauses.at(0).head.start)
 
-                if r.function
-                    out.exports.push(ModExport(n, ExFunction(r.chunk, r.arity), s"the FunL function `$n` at $at, which is `${pred_key(n, r.arity + 1)}` to Prolog"))
-                else
-                    out.exports.push(ModExport(n, ExRelation(r.chunk, r.arity), s"the FunL relation `$n` at $at"))
+                    if r.function
+                        out.exports.push(ModExport(n, ExFunction(r.chunk, r.arity), s"the FunL function `$n` at $at, which is `${pred_key(n, r.arity + 1)}` to Prolog"))
+                    else
+                        out.exports.push(ModExport(n, ExRelation(r.chunk, r.arity), s"the FunL relation `$n` at $at"))
 
                 continue
             None -> ()
