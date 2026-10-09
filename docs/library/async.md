@@ -3,11 +3,12 @@ title: funl:async
 weight: 25
 ---
 
-# `funl:async` — timers and promises to await
+# `funl:async` — timers, I/O and promises to await
 
 `funl:async` makes [promises](../reference/async.md) that do not come from calling an `async`
-function: `sleep` answers one a timer keeps, and `resolve`, `reject`, `pending`, `settle` and `settle_error`
-make and answer them by hand.
+function: `sleep` answers one a timer keeps; `read_file`, `write_file`, `run` and `fetch` answer one
+the file, the child or the network keeps ([I/O that answers a promise](#io-that-answers-a-promise));
+and `resolve`, `reject`, `pending`, `settle` and `settle_error` make and answer them by hand.
 
 ```funl
 import { sleep } from funl:async
@@ -85,7 +86,7 @@ A wait starts when it is asked for, however long the program ran before asking.
 ## The order things run in
 
 There are two queues. One holds the calls a promise that has been kept owes a turn; the other is the
-timers. **The first is run until it is empty before a timer is looked at**, so a call that awaited
+timers and the I/O. **The first is run until it is empty before a timer is looked at**, so a call that awaited
 something already there goes before a timer that is already due, even one of zero milliseconds:
 
 ```funl
@@ -233,3 +234,136 @@ settle( 42, 1 )
 ```error
 'settle' wants a promise and was given the integer 42
 ```
+
+## I/O that answers a promise
+
+`read_file`, `write_file`, `run` and `fetch` are the promise-answering twins of the blocking forms in
+[`funl:fs`](fs.md), [`funl:process`](process.md) and [`funl:http`](http.md). Each starts its work and
+answers a promise at once, so the program goes on while the disk, the child or the network does what
+it was asked, and several can be in flight together:
+
+```funl
+import { read_file, run } from funl:async
+
+poem = read_file( "docs/library/fs/poem.txt" )
+echo = run( "/bin/echo", ["from", "a", "child"] )
+write( "both started" )
+write( await poem )
+write( (await echo).out )
+write( "both done" )
+```
+
+```output
+both started
+Roses are red,
+violets are blue.
+
+from a child
+
+both done
+```
+
+| | |
+|---|---|
+| `read_file(path)` | a promise of the file's text |
+| `write_file(path, text)` | a promise kept with `()` once the file is made or replaced with string `text` |
+| `run(program, args, options)` | a promise of the map `funl:process`'s `run` gives: `out`, `err`, and `status`, `signal` or `timed_out`; `args` and `options` are optional, and the options are the same |
+| `fetch(url, options)` | a promise of the response `funl:http`'s `fetch` gives; `options` is optional, and the options are the same |
+
+The names are the same as the blocking ones, so a file chooses which it has by the module it imports
+them from:
+
+```funl
+import { write_file, read_file } from funl:async
+import { remove } from funl:fs
+
+await write_file( "docs/library/async-note.txt", "kept for later" )
+write( await read_file( "docs/library/async-note.txt" ) )
+remove( "docs/library/async-note.txt" )
+```
+
+```output
+kept for later
+```
+
+A response comes back as the blocking `fetch` would give it:
+
+```funl
+import { fetch } from funl:async
+import { cwd, join } from funl:fs
+
+r = await fetch( "file://" + join(cwd(), "docs/library/http/greeting.txt") )
+write( r.body )
+write( r.status )
+```
+
+```output
+Hello from a file.
+
+0
+```
+
+**What is not there fails the promise, and `await` fails where it is written**, exactly as the
+blocking call would fail: no such file, no directory to write the file into, no such program. Text
+that is not UTF-8 fails a `read_file` as well. So `| default` and `if` test an `await` as they test a
+call:
+
+```funl
+import { read_file, run } from funl:async
+
+write( await read_file("docs/library/fs/nothing.txt") | "(no such file)" )
+write( await run("funl-no-such-program") | "not installed" )
+```
+
+```output
+(no such file)
+not installed
+```
+
+**Anything else that goes wrong faults the promise**, with the term the blocking call would raise --
+`permission_error` for a file that may not be read or a program that may not be run, `system_error`
+for the rest, a network that is down among them -- and `await` raises it where it is written, so a
+`catch` there sees it:
+
+```funl
+import { run } from funl:async
+
+write( (await run("docs/library/process/notes.txt")) catch e -> e )
+```
+
+```output
+error(permission_error(execute, source_sink, "docs/library/process/notes.txt"), context(_G2, "'run' cannot start `docs/library/process/notes.txt`: permission denied"))
+```
+
+**A mistake in the arguments is raised by the call itself**, before any work starts, since it is the
+program's own and no answer could change it:
+
+```funl
+import { read_file } from funl:async
+
+p = read_file( 42 )
+```
+
+```error
+'read_file' wants a path, a string, and was given the integer 42
+```
+
+**Anything in flight keeps the program alive**, as a timer does: the program does not end while a
+file is being read or a child is running, whether or not anything awaits its promise.
+
+`run`'s `inherit_env: false` gives the child only the variables `env` names, and at least one has to
+be named: a child with no environment at all cannot be started this way.
+
+```funl
+import { run } from funl:async
+
+write( await run("/usr/bin/env", [], {inherit_env: false}) )
+```
+
+```error
+with no environment at all
+```
+
+These four are behind the `async` feature, which is on unless a build turns it off; `fetch` is
+behind `http` as well. A build without them still has `sleep` and the promise makers, and answers an
+import of one of the four with the feature it needs.

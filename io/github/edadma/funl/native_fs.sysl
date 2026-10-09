@@ -74,8 +74,9 @@ native_exports(owner: string, names: []const string) -> Buf[ModExport]
 
 // -- arguments and errors ------------------------------------------------------------------------
 
-// Argument `i`, a path: a string, or an atom, as a Prolog program names a file.
-private path_arg(base: usize, i: usize, name: string) -> Result[string, Fault]
+// Argument `i`, a path: a string, or an atom, as a Prolog program names a file. Not `private`:
+// `funl:async`'s `read_file` and `write_file` read their paths the same way.
+path_arg(base: usize, i: usize, name: string) -> Result[string, Fault]
     val x = deref(arg(base, i))
 
     x match

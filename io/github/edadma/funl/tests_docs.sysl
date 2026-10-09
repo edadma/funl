@@ -127,6 +127,9 @@ private page_runs_here(page: string) -> bool
 #if !feature_http
     if page == "docs/library/http.md" then return false
 #endif
+#if !feature_async || !feature_http
+    if page == "docs/library/async.md" then return false
+#endif
     true
 
 // The fenced blocks of a markdown document, in order.
@@ -496,7 +499,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/strings.md 14 5 0 0\n" +
     "docs/reference/success-and-failure.md 17 5 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
-    "docs/library/async.md 8 2 0 0\n" +
+    AsyncCensus +
     "docs/library/fs.md 13 2 0 0\n" +
     HttpCensus +
     "docs/library/json.md 7 1 0 0\n" +
@@ -511,6 +514,15 @@ private val HttpCensus: string = "docs/library/http.md 5 2 1 0\n"
 #endif
 #if !feature_http
 private val HttpCensus: string = ""
+#endif
+
+// `docs/library/async.md`'s line: its I/O needs the `async` feature, and its `fetch` `http` as well,
+// so a build without both does not run the page. Its timers are tested in `tests_events.sysl` in
+// every build.
+#if feature_async && feature_http
+private val AsyncCensus: string = "docs/library/async.md 13 4 0 0\n"
+#else
+private val AsyncCensus: string = ""
 #endif
 
 // -- the runner itself -------------------------------------------------------------------------------

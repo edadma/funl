@@ -1,0 +1,226 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.{set_permissions, write_bytes}
+import sysl.text.Search
+
+// `funl:async`'s promise-shaped I/O (`docs/library/async.md`): `read_file`, `write_file`, `run` and
+// `fetch`, each a promise the loop settles while the machine goes on, answered as the blocking form
+// answers -- and, in a build without the `async` feature, the sentence an import of one of them gets.
+//
+// **No test reaches the network or needs a server**: files are scratch files, children are programs
+// every POSIX system has (`/bin/echo`, `/bin/sh`, `/bin/sleep`), and `fetch` reads a `file://` URL.
+// Every program runs on both heaps, the second collecting before every instruction, so each also
+// runs a second time in the same process -- after the first run's loop has been let go.
+
+#if feature_async
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// FunL program `body` with the I/O imported.
+private with_io(body: string) -> string =
+    ran_funl("import { sleep, read_file, write_file, run } from funl:async\n" + body)
+
+@test
+READ_FILE_AND_WRITE_FILE_ANSWER_PROMISES_OF_WHAT_THE_BLOCKING_FORMS_ANSWER()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "alpha\nbeta\n")
+
+    assert_eq(with_io(s"p = read_file( \"$f\" )\nwrite( p )\n" +
+        s"write( await p )\nwrite( await write_file( \"$d/out.txt\", \"gamma\" ) )\n" +
+        s"write( await read_file( \"$d/out.txt\" ) )\n"),
+        "<promise pending>\nalpha\nbeta\n\n()\ngamma\nsucceeded")
+
+@test
+WHAT_IS_NOT_THERE_FAILS_THE_PROMISE_AND_AWAIT_FAILS_WHERE_IT_IS_WRITTEN()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad = s"$d/bad.bin"
+
+    write_bytes(bad, [0xff, 0xfe, 0x41]).unwrap()
+
+    assert_eq(with_io(s"write( await read_file( \"$d/missing.txt\" ) | \"absent\" )\n" +
+        s"write( await read_file( \"$bad\" ) | \"not text\" )\n" +
+        s"write( await write_file( \"$d/no/such/dir.txt\", \"x\" ) | \"no directory\" )\n" +
+        "write( await run( \"no-such-program-funl\" ) | \"no program\" )\n"),
+        "absent\nnot text\nno directory\nno program\nsucceeded")
+
+@test
+A_PERMISSION_REFUSED_FAULTS_THE_PROMISE_AND_CATCH_SEES_IT_AT_THE_AWAIT()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "locked.txt", "secret")
+
+    set_permissions(f, 0).unwrap()
+
+    val plain = put(d, "plain.txt", "not a program")
+
+    set_permissions(plain, 0o644).unwrap()
+
+    assert_eq(with_io(s"write( (await read_file( \"$f\" )) catch e -> e )\n" +
+        s"write( (await run( \"$plain\" )) catch e -> e )\n"),
+        s"error(permission_error(open, source_sink, \"$f\"), context(_G2, \"'read_file' cannot open `$f`: permission denied\"))\n" +
+        s"error(permission_error(execute, source_sink, \"$plain\"), context(_G5, \"'run' cannot start `$plain`: permission denied\"))\n" +
+        "succeeded")
+
+    set_permissions(f, 0o644).unwrap()
+
+    // Nothing awaits one, so a faulted promise thrown away ends the run where it faults.
+    assert_eq(unplaced(with_io(s"await run( \"$plain\" )\n")), s"fault: main: 'run' cannot start `$plain`: permission denied")
+
+@test
+A_MISTAKE_IN_THE_ARGUMENTS_FAULTS_AT_THE_CALL_NOT_IN_THE_PROMISE()
+    assert_eq(with_io("write( read_file( 42 ) catch e -> e )\n" +
+        "write( write_file( \"x\", 7 ) catch e -> e )\n" +
+        "write( run( \"/bin/echo\", [], {bogus: 1} ) catch e -> e )\n"),
+        "error(type_error(string, 42), context(_G2, \"'read_file' wants a path, a string, and was given the integer 42\"))\n" +
+        "error(type_error(string, 7), context(_G5, \"'write_file' writes a string and was given the integer 7\"))\n" +
+        "error(domain_error(process_option, \"bogus\"), context(_G8, \"'run' has no option `bogus`: its options are `cwd`, `env`, `inherit_env` and `timeout`\"))\n" +
+        "succeeded")
+
+@test
+RUN_ANSWERS_THE_MAP_THE_BLOCKING_RUN_ANSWERS()
+    val d = scratch()
+    defer scrap(d)
+
+    val die = put(d, "die.sh", "kill -9 $$\n")
+    val noisy = put(d, "noisy.sh", "printenv FUNL_PROBE\necho complaint >&2\nexit 3\n")
+
+    assert_eq(with_io("write( await run( \"/bin/echo\", [\"a b\", \"c\"] ) )\n" +
+        s"write( await run( \"/bin/sh\", [\"$noisy\"], {env: {FUNL_PROBE: \"set\"}} ) )\n" +
+        s"write( await run( \"/bin/sh\", [\"$die\"] ) )\n" +
+        "write( await run( \"/bin/sleep\", [\"5\"], {timeout: 100} ) )\n" +
+        "write( (await run( \"/bin/pwd\", [], {cwd: \"/\"} )).out )\n"),
+        "{\"out\": \"a b c\n\", \"err\": \"\", \"status\": 0}\n" +
+        "{\"out\": \"set\n\", \"err\": \"complaint\n\", \"status\": 3}\n" +
+        "{\"out\": \"\", \"err\": \"\", \"signal\": 9}\n" +
+        "{\"out\": \"\", \"err\": \"\", \"timed_out\": true}\n" +
+        "/\n\nsucceeded")
+
+@test
+RUN_WITH_INHERIT_ENV_FALSE_GIVES_THE_CHILD_ONLY_WHAT_ENV_NAMES()
+    val d = scratch()
+    defer scrap(d)
+
+    val show = put(d, "show.sh", "printenv FUNL_ONE\nprintenv HOME || echo no home\n")
+
+    assert_eq(with_io(s"write( (await run( \"/bin/sh\", [\"$show\"], {env: {FUNL_ONE: \"1\"}, inherit_env: false} )).out )\n"),
+        "1\nno home\n\nsucceeded")
+
+    // libuv reads an empty environment as this program's own, so a child with none is refused rather
+    // than handed this program's.
+    assert_eq(with_io("write( run( \"/bin/echo\", [], {inherit_env: false} ) catch e -> e )\n"),
+        "error(system_error, context(_G2, \"'run' cannot start `/bin/echo` with no environment at all: libuv reads an empty one as this program's own\"))\n" +
+        "succeeded")
+
+// The machine goes on while the loop waits: a child, a file and a timer are all in flight at once,
+// and each task resumes as its own answer arrives -- the file first, then the child after about 100
+// milliseconds, then the timer at 400 -- while the top level has long since written its line.
+@test
+TWO_IO_OPERATIONS_INTERLEAVE_WITH_A_TIMER_AND_NONE_BLOCKS_THE_MACHINE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "file")
+
+    assert_eq(with_io("async def show( name, p ) =\n" +
+        "  x = await p\n" +
+        "  write( name )\n" +
+        "\n" +
+        "async def main() =\n" +
+        "  t = show( \"timer\", sleep( 400 ) )\n" +
+        "  c = show( \"child\", run( \"/bin/sleep\", [\"0.1\"] ) )\n" +
+        s"  r = show( \"file\", read_file( \"$f\" ) )\n" +
+        "  write( \"all started\" )\n" +
+        "  await t\n" +
+        "  await c\n" +
+        "  await r\n" +
+        "\n" +
+        "main()\n"),
+        "all started\nfile\nchild\ntimer\nsucceeded")
+
+@test
+THE_COLLECTOR_RUNS_WHILE_IO_IS_IN_FLIGHT_AND_CHANGES_NOTHING()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "kept")
+
+    // `read_file( ... )` on a line of its own is held by nothing but the loop's table.
+    val text = "import { read_file, run } from funl:async\n" +
+        "\n" +
+        "async def late( s ) =\n" +
+        s"  t = await read_file( \"$f\" )\n" +
+        "  r = await run( \"/bin/echo\", [t] )\n" +
+        "  write( s, r.out )\n" +
+        "\n" +
+        s"read_file( \"$f\" )\n" +
+        "late( [1, 2, 3] )\n" +
+        "write( \"set\" )\n"
+
+    val calm = roomy(() -> compiled_text(text))
+    val tight = stressed(() -> compiled_text(text))
+
+    assert_eq(calm.text, "set\n[1, 2, 3], kept\n\nsucceeded")
+    assert_eq(tight.text, calm.text)
+    assert(tight.collections > 100, s"the stressed heap collected ${tight.collections} times")
+
+// A run that faults with I/O still in flight leaves nothing behind for the next: the child's answer
+// arrives after the run has ended and settles nothing of the run after it.
+@test
+AN_ANSWER_FOR_A_RUN_THAT_HAS_ENDED_REACHES_NOTHING_OF_THE_NEXT()
+    assert(has(with_io("run( \"/bin/sleep\", [\"0.2\"] )\nwrite( 1 / 0 )\n"), "divides by zero"), "the first run faults")
+    assert_eq(with_io("await sleep( 300 )\nwrite( \"clean\" )\n"), "clean\nsucceeded")
+
+#endif
+#if feature_async && feature_http
+
+@test
+FETCH_ANSWERS_A_PROMISE_OF_THE_RESPONSE_THE_BLOCKING_FETCH_ANSWERS()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "page.txt", "hello")
+
+    assert_eq(ran_funl(s"import { fetch } from funl:async\np = fetch( \"file://$f\" )\nwrite( p )\n" +
+        "r = await p\nwrite( r.status, r.body, r.bytes )\n" +
+        "write( (await fetch( \"file:///no/such/funl/page\" )) catch e -> \"faulted\" )\n" +
+        "write( fetch( 42 ) catch e -> e )\n"),
+        "<promise pending>\n0, hello, bytes([104, 101, 108, 108, 111])\nfaulted\n" +
+        "error(type_error(string, 42), context(_G5, \"'fetch' wants a URL, a string, and was given the integer 42\"))\n" +
+        "succeeded")
+
+#endif
+#if feature_async && !feature_http
+
+@test
+A_BUILD_WITHOUT_THE_HTTP_FEATURE_SAYS_FETCH_IS_BEHIND_IT()
+    assert_eq(complaints("import { fetch } from funl:async\n"),
+        "error 1:10 `fetch` of `funl:async` is not in this build -- it is behind the `http` feature, so build with `--features http`\n")
+
+#endif
+#if !feature_async
+
+// A build without the `async` feature has `funl:async`'s timers and promise makers, and says which
+// feature the I/O is behind rather than calling the name a misspelling -- imported by name or reached
+// through `import * as`.
+@test
+A_BUILD_WITHOUT_THE_ASYNC_FEATURE_SAYS_THE_IO_IS_BEHIND_IT()
+    assert_eq(complaints("import { sleep, read_file } from funl:async\n"),
+        "error 1:17 `read_file` of `funl:async` is not in this build -- it is behind the `async` feature, so build with `--features async`\n")
+    assert_eq(complaints("import * as a from funl:async\nwrite( a.run( \"x\" ) )\n"),
+        "error 2:8 `run` of `funl:async` is not in this build -- it is behind the `async` feature, so build with `--features async`\n")
+    assert_eq(complaints("import { sleep } from funl:async\nawait sleep( 1 )\n"), "")
+
+#endif
+#if !feature_async && !feature_http
+
+@test
+A_BUILD_WITHOUT_EITHER_FEATURE_NAMES_BOTH_FOR_FETCH()
+    assert_eq(complaints("import { fetch } from funl:async\n"),
+        "error 1:10 `fetch` of `funl:async` is not in this build -- it is behind the `async` and `http` features, so build with `--features async,http`\n")
+
+#endif

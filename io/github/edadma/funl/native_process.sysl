@@ -182,8 +182,9 @@ private start_fault(e: IoError, name: string, program: string) -> Fault
 
     system_error(msg)
 
-// The program, arguments and options of a call of `name` with `argc` arguments.
-private asked(base: usize, argc: usize, name: string) -> Result[Asked, Fault]
+// The program, arguments and options of a call of `name` with `argc` arguments. Not `private`:
+// `funl:async`'s `run` reads the same three.
+asked(base: usize, argc: usize, name: string) -> Result[Asked, Fault]
     if argc < 1 || argc > 3
         return Err(wrong_count(name, argc, s"'$name' takes 1 to 3 arguments, and was given $argc"))
 

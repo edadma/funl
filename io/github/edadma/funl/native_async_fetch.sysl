@@ -1,0 +1,82 @@
+module io.github.edadma.funl
+#if feature_async && feature_http
+
+import sh.sysl.curl
+import sh.sysl.libuv
+import sysl.buf.{Buf, buf}
+import sysl.text.from_utf8_unchecked
+
+// `funl:async`'s `fetch`: a promise of the response `funl:http`'s `fetch` answers, behind both the
+// `async` and the `http` features.
+//
+// **libcurl's call blocks, so it runs on libuv's thread pool** (`libuv.queue`) and the loop goes on
+// with everything else; the completion comes back on the loop's thread, which settles the promise.
+// The request is read, and a mistake in it faults, where the call is written; what the network says
+// settles the promise exactly as the blocking `fetch` would answer it -- a response for any status,
+// and a fault for a network that is down, a host that does not resolve, or a timeout.
+//
+// **What crosses to the pool thread is a `*Fetching` and nothing counted**: a string or a slice may
+// not cross, its count being one two threads would tear. The job box is held by the completion
+// callback, which stays on the loop's thread, and its request is a copy whose strings and buffers
+// share nothing with the machine, so the pool thread is the only one touching them until the
+// completion runs.
+
+// One `fetch` handed to the pool: the request, and what sending it came to.
+private struct Fetching
+    req: Request
+    got: Option[Result[curl.Response, curl.Error]]
+
+install_async_fetch(v: *Vm)
+    register_between(v, "async.fetch", 1, 2, do_fetch)
+
+// `fetch(url)` and `fetch(url, options)`: a promise of the response.
+private do_fetch(base: usize, argc: usize) -> Result[Value, Fault]
+    val req = request_of(base, argc)?
+    val v = current()
+    val p = promise_made()?
+    val lp = uv_driver(v).on_loop()
+    val fl = waiting_on_loop(v, p)
+    val url = req.url
+    val job: &Fetching = Fetching(own_copy(req), None)
+    val at: *Fetching = &*job
+
+    libuv.queue(() -> send_on_pool(at), (r) -> answered(v, fl, p, () -> fetched(r, job, url)), lp) match
+        Ok(_) -> ()
+        Err(e) -> answered(v, fl, p, () -> Err(system_error(s"'fetch' cannot fetch `$url`: ${e.message()}")))
+
+    Ok(Promise(p))
+
+// On a pool thread: send the request and keep what it came to.
+private send_on_pool(j: *Fetching)
+    j.got = Some(sent(j.req))
+
+// The response the job came to, or the fault: the pool's own refusal to run it, or what sending met.
+private fetched(r: Result[unit, libuv.Error], job: &Fetching, url: string) -> Result[Answer, Fault]
+    r match
+        Ok(_) -> ()
+        Err(e) -> return Err(system_error(s"'fetch' cannot fetch `$url`: ${e.message()}"))
+
+    job.got match
+        Some(got) -> Ok(Gives(response_of(got, url)?))
+        None -> Err(system_error(s"'fetch' cannot fetch `$url`: the request was never sent"))
+
+// A copy of `req` sharing no storage with it, for a thread the original's counts may not reach.
+private own_copy(req: Request) -> Request
+    var lines: Buf[string] = buf()
+
+    for line in req.lines.view()
+        lines.push(own_text(line))
+
+    var body: Buf[u8] = buf()
+
+    body.extend(req.body.view())
+    Request(own_text(req.url), own_text(req.method), lines, body, req.has_body, req.timeout_ms)
+
+// The text of `s` in storage of its own.
+private own_text(s: string) -> string
+    var b: Buf[u8] = buf()
+
+    b.extend(s.bytes)
+    from_utf8_unchecked(b.view())
+
+#endif

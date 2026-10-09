@@ -1,0 +1,306 @@
+module io.github.edadma.funl
+#if feature_async
+
+import sh.sysl.kairos.uv.Uv
+import sh.sysl.libuv
+import sh.sysl.libuv.Handle
+import sh.sysl.libuv.Stream
+import sysl.buf.{Buf, buf}
+import sysl.env.vars
+import sysl.text.from_utf8
+
+// `funl:async`'s promise-shaped I/O: `read_file`, `write_file` and `run`, each answering a promise
+// the loop settles (`events.sysl`), so the machine never waits for a disk or a child. `fetch` is in
+// `native_async_fetch.sysl`, behind `http` as well.
+//
+// **It is behind the `async` feature**, which puts the loop on kairos's libuv driver: this file, its
+// `install_async_io` line and its names in `funl:async`'s export list are gated with it, and a build
+// without it answers an import of one of these names with the feature it needs.
+//
+// **Each is the promise-answering twin of a blocking form** -- `funl:fs`'s `read_file` and
+// `write_file`, `funl:process`'s `run` -- and answers what that one answers, the same way: its
+// arguments are read, and a mistake in them faults, where the call is written; what the disk or
+// the child then says settles the promise. **A thing that is not there fails the promise** -- no
+// such file, no such directory to write into, no such program -- so `await read_file(p) | ""` is the
+// test a program writes; text that is not UTF-8 fails it too. A permission refused faults it with
+// `permission_error`, anything else with `system_error`, and `await` raises the fault where it is
+// written.
+//
+// **Files are kairos tasks on the loop** (`Uv.read_file`, `Uv.write_file`), each step its own libuv
+// request on the thread pool, and a task that finishes settles its promise in the same pass a timer
+// would. **A child is started with libuv directly**, kairos wrapping no process: its two pipes are
+// read as it writes, and the promise is settled once it has exited and both have ended -- a child
+// may exit with output still in a pipe.
+
+install_async_io(v: *Vm)
+    register(v, "async.read_file", 1, do_read_file)
+    register(v, "async.write_file", 2, do_write_file)
+    register_between(v, "async.run", 1, 3, do_run)
+
+// The libuv driver the loop runs on, making the loop if this is the program's first use of it. Not
+// `private`: `fetch` hands its job to the thread pool of the same libuv loop.
+uv_driver(v: *Vm) -> &Uv
+    loop_of(v)
+
+    v.clock.expect("the loop is made with its driver")
+
+// -- files ---------------------------------------------------------------------------------------
+
+// `read_file(path)`: a promise of the file's text.
+private do_read_file(base: usize, argc: usize) -> Result[Value, Fault]
+    val path = path_arg(base, 0, "read_file")?
+    val v = current()
+    val p = promise_made()?
+    val io = uv_driver(v)
+    val fl = waiting_on_loop(v, p)
+
+    loop_of(v).spawn(reading(v, fl, p, io, path))
+    Ok(Promise(p))
+
+private async reading(v: *Vm, fl: &Flight, p: *PromiseObj, io: &Uv, path: string)
+    val r = await io.read_file(path)
+
+    answered(v, fl, p, () -> text_read(r, path))
+
+// The text of a file read, failing where there was no such file or its bytes are not UTF-8.
+private text_read(r: Result[[]u8, libuv.Error], path: string) -> Result[Answer, Fault] = r match
+    Ok(b) ->
+        from_utf8(b) match
+            Ok(s) -> Ok(Gives(new_str(s)?))
+            Err(_) -> Ok(Refuses)
+    Err(e) -> file_refusal(e, "read_file", "open", path)
+
+// `write_file(path, text)`: a promise kept with `()` once the file is made or replaced with the
+// string.
+private do_write_file(base: usize, argc: usize) -> Result[Value, Fault]
+    val path = path_arg(base, 0, "write_file")?
+    val x = deref(arg(base, 1))
+
+    val text = x match
+        Str(s) -> s.s
+        _ -> return Err(kind_error(x, "string", s"'write_file' writes a string and was given ${described(x)}"))
+
+    val v = current()
+    val p = promise_made()?
+    val io = uv_driver(v)
+    val fl = waiting_on_loop(v, p)
+
+    loop_of(v).spawn(writing(v, fl, p, io, path, text))
+    Ok(Promise(p))
+
+private async writing(v: *Vm, fl: &Flight, p: *PromiseObj, io: &Uv, path: string, text: string)
+    val r = await io.write_file(path, text.bytes)
+
+    answered(v, fl, p, () -> r match
+        Ok(_) -> Ok(Gives(Unit))
+        Err(e) -> file_refusal(e, "write_file", "open", path))
+
+// What libuv's error `e`, met by `name` doing `action` to `path`, settles a promise as: no such
+// file or directory fails it, a permission refused is `permission_error(Action, source_sink, Path)`,
+// anything else `system_error` -- `funl:fs`'s answers for the same errors.
+private file_refusal(e: libuv.Error, name: string, action: string, path: string) -> Result[Answer, Fault]
+    if e.name() == "ENOENT" then return Ok(Refuses)
+
+    val msg = s"'$name' cannot $action `$path`: ${e.message()}"
+
+    if e.name() == "EACCES" || e.name() == "EPERM"
+        return Err(permission_error(action, "source_sink", new_str(path)?, msg))
+
+    Err(system_error(msg))
+
+// -- running a program ---------------------------------------------------------------------------
+
+// One child `run` started: what it has written so far, the three things that have to have happened
+// before there is an answer -- the exit and the end of both pipes -- and how it ended. **The handles
+// are held here while libuv may still call back**, and let go when the answer is made.
+private struct Child
+    proc: Option[&libuv.Process]
+    watchdog: Option[&libuv.Timer]
+    out: Buf[u8]
+    err: Buf[u8]
+    exited: bool
+    out_done: bool
+    err_done: bool
+    status: long
+    signal: int
+    timed_out: bool
+
+// `run(program)`, `run(program, args)`, `run(program, args, options)`: a promise of the map
+// `funl:process`'s `run` answers -- `out`, `err`, and `status`, `signal` or `timed_out` -- with the
+// same options.
+private do_run(base: usize, argc: usize) -> Result[Value, Fault]
+    val a = asked(base, argc, "run")?
+    val env = child_env(a)?
+    val v = current()
+    val p = promise_made()?
+    val lp = uv_driver(v).on_loop()
+    val fl = waiting_on_loop(v, p)
+    val program = a.program
+
+    val out_pipe = libuv.pipe(false, lp) match
+        Ok(x) -> x
+        Err(e) ->
+            answered(v, fl, p, () -> Err(system_error(s"'run' cannot start `$program`: ${e.message()}")))
+            return Ok(Promise(p))
+
+    val err_pipe = libuv.pipe(false, lp) match
+        Ok(x) -> x
+        Err(e) ->
+            out_pipe.close()
+            answered(v, fl, p, () -> Err(system_error(s"'run' cannot start `$program`: ${e.message()}")))
+            return Ok(Promise(p))
+
+    val st: &Child = Child(None, None, buf(), buf(), false, false, false, 0, 0, false)
+
+    // **`WRITABLE_PIPE` is from the child's point of view**: a pipe this program reads is one the
+    // child writes.
+    var stdio: Buf[libuv.Stdio] = buf()
+
+    stdio.push(libuv.Ignore)
+    stdio.push(libuv.ToPipe(out_pipe, libuv.WRITABLE_PIPE))
+    stdio.push(libuv.ToPipe(err_pipe, libuv.WRITABLE_PIPE))
+
+    val child = libuv.spawn(program, a.args.view(), (status, signal) -> (), stdio.view(), a.dir, env.view(), 0,
+            lp) match
+        Ok(c) -> c
+        Err(e) ->
+            out_pipe.close()
+            err_pipe.close()
+            answered(v, fl, p, () -> start_refusal(e, program))
+            return Ok(Promise(p))
+
+    st.proc = Some(child)
+
+    // **The exit callback is replaced now that there is a handle to close**: nothing can have run in
+    // between, a callback firing only on a turn of the loop.
+    child.on_exit((status, signal) ->
+        st.exited = true
+        st.status = long(status)
+        st.signal = int(signal)
+        child.close()
+        finish_run(v, fl, p, st))
+
+    read_into(v, fl, p, st, out_pipe, true)
+    read_into(v, fl, p, st, err_pipe, false)
+
+    if a.timeout > 0 then start_watchdog(st, lp, a.timeout)
+
+    Ok(Promise(p))
+end do_run
+
+// The environment the child is given, as libuv takes it: `NAME=value` entries, and none at all for
+// this program's own. `env` adds to this program's environment unless `inherit_env` is false, when
+// it is the whole of it.
+private child_env(a: Asked) -> Result[Buf[string], Fault]
+    var out: Buf[string] = buf()
+
+    if a.inherit_env
+        if a.env.is_empty() then return Ok(out)
+
+        for kv in vars().view()
+            var named = false
+
+            for e in a.env.view()
+                if e.name == kv.0 then named = true
+
+            if !named then out.push(s"${kv.0}=${kv.1}")
+
+    for e in a.env.view()
+        out.push(s"${e.name}=${e.value}")
+
+    // libuv reads an empty list as "this program's own", so a child with no variables at all cannot
+    // be asked of it.
+    if out.is_empty()
+        return Err(system_error(s"'run' cannot start `${a.program}` with no environment at all: libuv reads an empty one as this program's own"))
+
+    Ok(out)
+
+// Read one of the child's pipes into `st` until it ends. **A read that fails is an end and not a
+// fault**: the child has still said everything it managed to.
+private read_into(v: *Vm, fl: &Flight, p: *PromiseObj, st: &Child, pipe: &libuv.Pipe, is_out: bool)
+    pipe.read_start((r) ->
+        r match
+            Data(bytes) -> if is_out then st.out.extend(bytes) else st.err.extend(bytes)
+            End ->
+                pipe.close()
+                stream_ended(v, fl, p, st, is_out)
+            Failed(_) ->
+                pipe.close()
+                stream_ended(v, fl, p, st, is_out)) match
+        Ok(_) -> ()
+        Err(_) ->
+            pipe.close()
+            stream_ended(v, fl, p, st, is_out)
+
+private stream_ended(v: *Vm, fl: &Flight, p: *PromiseObj, st: &Child, is_out: bool)
+    if is_out then st.out_done = true else st.err_done = true
+
+    finish_run(v, fl, p, st)
+
+// A child that has run past its `timeout` is killed, and its answer says so. **`SIGKILL`**, since a
+// timeout is the caller no longer willing to wait, and a signal the child may ignore would leave the
+// promise pending.
+private start_watchdog(st: &Child, lp: &libuv.Loop, ms: int)
+    libuv.timer(lp) match
+        Err(_) -> ()
+        Ok(t) ->
+            st.watchdog = Some(t)
+            t.start(u64(ms), 0, () -> kill_child(st)).unwrap_or(())
+
+private kill_child(st: &Child)
+    st.timed_out = true
+
+    st.proc match
+        Some(c) -> c.kill(libuv.SIGKILL).unwrap_or(())
+        None -> ()
+
+// Settle the promise, once the child has exited and both pipes have ended, letting go of the handles.
+private finish_run(v: *Vm, fl: &Flight, p: *PromiseObj, st: &Child)
+    if !st.exited || !st.out_done || !st.err_done then return
+
+    st.watchdog match
+        Some(t) -> t.close()
+        None -> ()
+
+    st.watchdog = None
+    st.proc = None
+
+    val out = from_utf8(st.out.view()).unwrap_or("")
+    val err = from_utf8(st.err.view()).unwrap_or("")
+    val status = st.status
+    val signal = st.signal
+    val timed_out = st.timed_out
+
+    answered(v, fl, p, () -> ran_map(out, err, status, signal, timed_out))
+
+// The answer `funl:process`'s `run` gives: what the child wrote, and of `status`, `signal` and
+// `timed_out` only the one that happened.
+private ran_map(out: string, err: string, status: long, signal: int, timed_out: bool) -> Result[Answer, Fault]
+    val m = new_map()?
+
+    map_put(m, new_str("out")?, new_str(out)?)?
+    map_put(m, new_str("err")?, new_str(err)?)?
+
+    if timed_out
+        map_put(m, new_str("timed_out")?, atom("true"))?
+    elif signal != 0
+        map_put(m, new_str("signal")?, Int(long(signal)))?
+    else
+        map_put(m, new_str("status")?, Int(status))?
+
+    Ok(Gives(Map(m)))
+
+// What libuv's refusal to start `program` settles the promise as: a program that is not there fails
+// it, one that may not be run is `permission_error(execute, source_sink, Program)`, anything else
+// `system_error`.
+private start_refusal(e: libuv.Error, program: string) -> Result[Answer, Fault]
+    if e.name() == "ENOENT" then return Ok(Refuses)
+
+    val msg = s"'run' cannot start `$program`: ${e.message()}"
+
+    if e.name() == "EACCES" || e.name() == "EPERM"
+        return Err(permission_error("execute", "source_sink", new_str(program)?, msg))
+
+    Err(system_error(msg))
+
+#endif

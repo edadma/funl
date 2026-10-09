@@ -126,6 +126,38 @@ left_out_module(name: string) -> Option[string]
 #endif
     None
 
+// Why module `file` has no export `name` in this build, when it is one behind a feature this build
+// left off: `funl:async`'s promise-shaped I/O is behind `async`, and its `fetch` behind `http` as
+// well. The module is there, so the diagnostic names the export and its feature rather than calling
+// the name a misspelling. Not `private`: a qualified `a.read_file` is refused through it too.
+left_out_export(file: string, name: string) -> Option[string]
+    if file != "funl:async" then return None
+
+    val io = name == "read_file" || name == "write_file" || name == "run"
+    val net = name == "fetch"
+
+    if !io && !net then return None
+
+    var missing: Buf[string] = buf()
+
+#if !feature_async
+    missing.push("async")
+#endif
+#if !feature_http
+    if net then missing.push("http")
+#endif
+
+    if missing.is_empty() then return None
+
+    val said = s"`$name` of `funl:async` is not in this build"
+
+    if missing.len() == 1
+        val f = missing.at(0)
+
+        return Some(s"$said -- it is behind the `$f` feature, so build with `--features $f`")
+
+    Some(s"$said -- it is behind the `async` and `http` features, so build with `--features async,http`")
+
 // One name an import declares: what the importer calls it, where, and what module export it is.
 struct Binding
     local: string
@@ -250,7 +282,10 @@ private bind(out: *Imports, index: usize, given: string, form: ImportForm, repor
             for n in names.view()
                 exported_as(md, n.name) match
                     Some(x) -> out.names.push(Binding(n.local, n.at, index, x))
-                    None -> report.add(error(n.at, s"`$given` does not export `${n.name}`").with_note(exports_text(md)))
+                    None ->
+                        left_out_export(md.file, n.name) match
+                            Some(m) -> report.add(error(n.at, m))
+                            None -> report.add(error(n.at, s"`$given` does not export `${n.name}`").with_note(exports_text(md)))
 
 // The export of `md` named `name`.
 private exported_as(md: FunlModule, name: string) -> Option[ModExport]
@@ -477,6 +512,10 @@ qualified_name(res: *Resolved, g: string, gm: Meaning, name: string) -> Option[M
 // The refusal of `g.name`, which module alias `g` does not export.
 not_exported(res: *Resolved, g: string, name: string, at: Span) -> Diagnostic
     val md = current().modules.at(res.aliases.get(g).unwrap())
+
+    left_out_export(md.file, name) match
+        Some(m) -> return error(at, m)
+        None -> ()
 
     error(at, s"`${md.file}` does not export `$name`").with_note(exports_text(md))
 

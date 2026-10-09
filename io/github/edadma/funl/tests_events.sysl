@@ -249,4 +249,4 @@ SETTLE_ERROR_WANTS_A_PROMISE()
 @test
 THE_MODULE_IS_NAMED_FOR_THE_RESERVED_WORD_AND_IMPORTS_EITHER_WAY()
     assert_eq(ran_funl("import * as a from funl:async\nwrite( await a.resolve( 3 ) )\n"), "3\nsucceeded")
-    assert(has(complaints("import { fetch } from funl:async\n"), "`funl:async` does not export `fetch`"))
+    assert(has(complaints("import { fetchit } from funl:async\n"), "`funl:async` does not export `fetchit`"))

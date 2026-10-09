@@ -16,8 +16,19 @@ import sysl.time.micros
 //
 // Every native is registered as `async.name` and exported under the short name, as `funl:fs` does.
 
-// What `funl:async` exports, each the short form of a native `install_async` registered as `async.name`.
+// What `funl:async` exports, each the short form of a native `install_async` registered as
+// `async.name`. **The promise-shaped I/O is in `native_async_io.sysl`, behind the `async` feature**,
+// and `fetch` behind `http` as well; a build without them exports the timers and promise makers
+// alone, and `left_out_export` in `module.sysl` says which feature an import of a missing one needs.
+#if feature_async && feature_http
+private val AsyncNames: [10]string = ["sleep", "resolve", "reject", "pending", "settle", "settle_error",
+    "fetch", "read_file", "write_file", "run"]
+#elif feature_async
+private val AsyncNames: [9]string = ["sleep", "resolve", "reject", "pending", "settle", "settle_error",
+    "read_file", "write_file", "run"]
+#else
 private val AsyncNames: [6]string = ["sleep", "resolve", "reject", "pending", "settle", "settle_error"]
+#endif
 
 install_async(v: *Vm)
     register(v, "async.sleep", 1, do_sleep)
@@ -26,6 +37,12 @@ install_async(v: *Vm)
     register(v, "async.pending", 0, do_pending)
     register(v, "async.settle", 2, do_settle)
     register(v, "async.settle_error", 2, do_settle_error)
+#if feature_async
+    install_async_io(v)
+#endif
+#if feature_async && feature_http
+    install_async_fetch(v)
+#endif
 
 // The exports of `funl:async`.
 async_exports() -> Buf[ModExport] = native_exports("async", AsyncNames)
@@ -102,7 +119,8 @@ private do_settle_error(base: usize, argc: usize) -> Result[Value, Fault]
         Var(_) -> Err(instantiation_error("instantiation error: 'settle_error' was given an unbound variable"))
         y -> Err(type_error("promise", y, s"'settle_error' wants a promise and was given ${described(x)}"))
 
-// A new pending promise, or the heap's refusal as a fault.
-private promise_made() -> Result[*PromiseObj, Fault] = new_promise() match
+// A new pending promise, or the heap's refusal as a fault. Not `private`: the I/O in
+// `native_async_io.sysl` makes its promises the same way.
+promise_made() -> Result[*PromiseObj, Fault] = new_promise() match
     Ok(p) -> Ok(p)
     Err(e) -> Err(Broken(e))

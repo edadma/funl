@@ -40,8 +40,9 @@ workspace = ["funl", "prolog"]
 // **`dal` is the numeric tower** -- integers that grow past 64 bits, exact rationals and doubles,
 // with FunL's arithmetic under `dal.funl()` and Prolog's under `dal.iso_prolog(prefer_rationals)`.
 //
-// **`kairos` is the event loop** under `async`, used in callback form: a timer settles a promise and
-// the task waiting for it is queued, and a pending timer keeps the program alive.
+// **`kairos` is the event loop** under `async`, used in callback form: a timer or a finished I/O
+// operation settles a promise and the task waiting for it is queued, and anything still pending on
+// the loop keeps the program alive.
 //
 // **`json` is `funl:json`'s reader and writer**, pure sysl, so it costs no link line and needs no
 // feature.
@@ -59,20 +60,32 @@ dependencies {
   // package elsewhere, so every `funl` carries it.
   sqlite3 { git = "github.com/sysl-lang/sqlite3", version = "0.7.0" }
 
-  // `async`'s loop. Its timers and its host driver need no library, so it is not a feature.
+  // `async`'s loop. Its timers and its host driver need no library, so kairos itself is not behind a
+  // feature; its libuv driver is, through `async` below.
   kairos { git = "github.com/sysl-lang/kairos", version = "0.1.1" }
 
   curl   { git = "github.com/sysl-lang/curl", version = "0.1.1", optional = true }
+
+  // `funl:async`'s `run` starts its child with libuv directly, kairos wrapping no process, and
+  // `fetch` waits for libcurl on libuv's thread pool -- so libuv is named here as well as under
+  // kairos, behind the same feature.
+  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.8", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`
-// § "Features keep the core link line short"). `http` is on in `default`, so a build that asks for
-// nothing -- and the release -- has `funl:http`; `--no-default-features` leaves libcurl out and
-// answers `funl:http is not in this build` to a program that imports it.
+// § "Features keep the core link line short"). `http` and `async` are on in `default`, so a build
+// that asks for nothing -- and the release -- has `funl:http` and the promise-shaped I/O of
+// `funl:async`; `--no-default-features` leaves libcurl and libuv out, answers `funl:http is not in
+// this build` to a program that imports it, and keeps `funl:async`'s timers on kairos's host driver.
+//
+// **`async` turns on kairos's own `uv` feature**, which is what brings kairos's libuv driver -- its
+// loop, files and sockets -- and libuv with it.
 features {
-  default = [http]
+  default = [http, async]
 
   http = [curl]
+
+  async = ["kairos/uv", libuv]
 }
 
 // An interpreter grows its operand stack, control stack and trail while it runs, and none of the

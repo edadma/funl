@@ -1,35 +1,70 @@
 module io.github.edadma.funl
 
 import sh.sysl.kairos.{Driver, Loop, event_loop}
-import sh.sysl.kairos.host.{Host, host}
+import sysl.buf.{Buf, buf}
 import sysl.time.Duration
+#if feature_async
+import sh.sysl.kairos.uv.{Uv, uv}
+#else
+import sh.sysl.kairos.host.{Host, host}
+#endif
 
 // The event loop: `sh.sysl.kairos`, used in callback form.
 //
+// **The driver is chosen by the `async` feature.** With it, the loop runs on kairos's libuv driver,
+// which reads files, waits for children and hears back from libuv's thread pool as well as keeping
+// time; without it, on kairos's host driver, which keeps time and links no library. A timer is the
+// same on both.
+//
 // **There are two queues, in a fixed order.** The ready queue (`task.sysl`) holds the machines a
 // settled promise owes a turn, and is drained to empty first. Only then is the loop asked for
-// anything: the promises of the timers that fired in its last pass are kept, in deadline order, and
-// the ready queue is drained to empty again; when none has fired, the loop is run until one does.
-// **A turn of the loop is a pass, as slate's is**: two timers due in the same pass are both kept
-// before either waiting task runs.
+// anything: the promises its last pass settled -- a timer that fired, a file read, a child that
+// exited -- are settled in that order, and the ready queue is drained to empty again; when the pass
+// settled none, the loop is run until one does. **A turn of the loop is a pass, as slate's is**: two
+// timers due in the same pass are both kept before either waiting task runs, and a file read that
+// finished in the same pass as a timer is settled beside it.
 //
-// **A timer's callback runs no FunL.** It moves its promise from `timed` to `fired` and stops the
-// loop, so `run` returns at the end of that pass and the instruction loop carries on. The loop is
-// never entered from inside a FunL machine, and a machine never runs inside the loop.
+// **Nothing the loop calls runs FunL.** A timer's callback, a kairos task that finished reading a
+// file, a libuv callback for a child or a thread-pool job: each moves its promise from `timed` to
+// `fired`, with a `Settling` beside it that makes the value once FunL is running again, and stops
+// the loop, so `run` returns at the end of that pass and the instruction loop carries on. The loop
+// is never entered from inside a FunL machine, and a machine never runs inside the loop.
 //
-// **A pending timer keeps the program alive**: the top level halting with one set is parked, as it is
-// with tasks still owed a turn, and the run ends when both queues are empty and no timer is left.
+// **Anything pending on the loop keeps the program alive**: the top level halting with a promise in
+// `timed` is parked, as it is with tasks still owed a turn, and the run ends when both queues are
+// empty and the loop owes nothing.
 //
 // Both tables are collector roots, so a promise nothing else holds -- `sleep( 10 )` on a line of its
-// own -- is still there to keep when its timer fires.
+// own -- is still there to settle when its time comes.
 
-// The loop, made by the first timer a program sets.
-private events_of(v: *Vm) -> &Loop[Host]
+// The driver the loop runs on in this build.
+#if feature_async
+type Driven = Uv
+#else
+type Driven = Host
+#endif
+
+// How a promise the loop settled is to be settled, run once FunL is running again: `Gives` keeps it
+// with the value, `Refuses` fails it, and a fault faults it. **It captures no FunL value**, only what
+// sysl handed back -- bytes, text, a status -- so nothing in it needs the collector to see it.
+type Settling = &Fn() -> Result[Answer, Fault]
+
+// Whether an I/O operation's answer may still reach the run that started it. `forget_events` lowers
+// every one, so a callback arriving after a run has ended -- or after its VM is gone -- does nothing.
+struct Flight
+    live: bool
+
+// The loop, made by the first timer or I/O operation a program starts.
+loop_of(v: *Vm) -> &Loop[Driven]
     v.events match
         Some(lp) -> return lp
         None -> ()
 
+#if feature_async
+    val h = uv()
+#else
     val h = host()
+#endif
     val lp = event_loop(h)
 
     v.clock = Some(h)
@@ -45,7 +80,7 @@ private events_of(v: *Vm) -> &Loop[Host]
 // in one stretch with the same delay are due together and fire in the same pass, in the order they
 // were set.
 arm_timer(v: *Vm, p: *PromiseObj, d: Duration)
-    val lp = events_of(v)
+    val lp = loop_of(v)
 
     val base = v.stretch match
         Some(t) -> t
@@ -61,12 +96,24 @@ arm_timer(v: *Vm, p: *PromiseObj, d: Duration)
 
     v.timed.push(Promise(p))
 
-    lp.after(d + since, (l) ->
-        timer_fired(v, p)
-        l.stop())
+    lp.after(d + since, (l) -> came_back(v, p, kept_with_nothing))
 
-// A timer has fired: its promise moves from those waiting on a timer to those owed keeping.
-private timer_fired(v: *Vm, p: *PromiseObj)
+// A timer's settling: the promise is kept with `()`.
+private kept_with_nothing() -> Result[Answer, Fault] = Ok(Gives(Unit))
+
+// Promise `p` is now waiting on the loop, for an I/O operation whose callbacks check the flag this
+// answers before touching anything of the run.
+waiting_on_loop(v: *Vm, p: *PromiseObj) -> &Flight
+    val fl: &Flight = Flight(true)
+
+    v.timed.push(Promise(p))
+    v.flights.push(fl)
+    fl
+
+// The loop has settled promise `p`, which `how` says how: it moves from those waiting on the loop to
+// those owed settling, and the loop is stopped at the end of this pass. Not `private`: the I/O of
+// `funl:async` (`native_async_io.sysl`) answers through it.
+came_back(v: *Vm, p: *PromiseObj, how: Settling)
     val n = v.timed.len()
 
     for i in 0..<n
@@ -80,20 +127,43 @@ private timer_fired(v: *Vm, p: *PromiseObj)
             break
 
     v.fired.push(Promise(p))
+    v.owed.push(how)
 
-// Whether the loop holds anything: a fired timer's promise not yet kept, or a timer still to fire.
+    v.events match
+        Some(lp) -> lp.stop()
+        None -> ()
+
+// An I/O operation has answered: unless its run has ended, its promise is settled by `how`. The
+// flag is lowered either way, and the flags of operations that have answered are let go.
+answered(v: *Vm, fl: &Flight, p: *PromiseObj, how: Settling)
+    if !fl.live then return
+
+    fl.live = false
+    came_back(v, p, how)
+
+    var kept: Buf[&Flight] = buf()
+
+    for f in v.flights.view()
+        if f.live then kept.push(f)
+
+    v.flights = kept
+
+// Whether the loop holds anything: a promise it settled not yet settled here, or one still waiting.
 events_owed(v: *Vm) -> bool = !v.fired.is_empty() || !v.timed.is_empty()
 
-// The ready queue is empty: keep the promises the loop's last pass fired, or, none having fired, run
-// the loop until one does. False when there is nothing left that could make a machine ready.
+// The ready queue is empty: settle the promises the loop's last pass settled, or, none having been,
+// run the loop until one is. False when there is nothing left that could make a machine ready -- the
+// loop having run out with nothing settled, which leaves a promise in `timed` that nothing will
+// ever settle.
 next_event(v: *Vm) -> bool
     if !v.fired.is_empty()
-        for x in v.fired.view()
-            x match
-                Promise(p) -> settle_promise(v, p, PromiseKept, Unit, "")
+        for i in 0..<v.fired.len()
+            v.fired.at(i) match
+                Promise(p) -> settled_by(v, p, v.owed.at(i))
                 _ -> ()
 
         v.fired.clear()
+        v.owed.clear()
         return true
 
     if v.timed.is_empty() then return false
@@ -104,14 +174,31 @@ next_event(v: *Vm) -> bool
         Some(lp) -> lp.run()
         None -> return false
 
-    true
+    !v.fired.is_empty()
 end next_event
 
-// Drop the loop and every timer: when a VM is disposed, and when a run begins, so a timer a faulted
-// run left set does not hold the next one open.
+// Settle `p` as `how` says: kept with the value it gives, failed where it refuses, faulted with the
+// fault it raises -- a thrown term as `await` will raise it again, the machine's own fault as its
+// message.
+private settled_by(v: *Vm, p: *PromiseObj, how: Settling)
+    how() match
+        Ok(Gives(x)) -> settle_promise(v, p, PromiseKept, x, "")
+        Ok(GivesMore(x, _)) -> settle_promise(v, p, PromiseKept, x, "")
+        Ok(Refuses) -> settle_promise(v, p, PromiseFailed, Undefined, "")
+        Err(Thrown(ball)) -> settle_promise(v, p, PromiseFaulted, ball, uncaught_text(ball))
+        Err(f) -> settle_promise(v, p, PromiseFaulted, Undefined, fault_text(f))
+
+// Drop the loop and every promise waiting on it: when a VM is disposed, and when a run begins, so a
+// timer a faulted run left set does not hold the next one open, and an answer for an operation it
+// left in flight does not reach the next one.
 forget_events(v: *Vm)
+    for f in v.flights.view()
+        f.live = false
+
+    v.flights.clear()
     v.events = None
     v.clock = None
     v.stretch = None
     v.timed.clear()
     v.fired.clear()
+    v.owed.clear()

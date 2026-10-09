@@ -324,7 +324,7 @@ if resp.status == 200 then write( parse(resp.body).name )
 resp = fetch( "https://example.com/api", {method: "POST", body: stringify({q: 1})} )
 ```
 
-`fetch` is slate's name. Here it blocks; the promise-answering form comes with
+`fetch` is slate's name. Here it blocks; the promise-answering form is `funl:async`'s, with
 [`async` and `await`](#async-and-await). **A feature because libcurl is not on every machine** a `funl` is built on, and its link
 line would otherwise sit under every build; on by default, so the release has it.
 
@@ -503,6 +503,29 @@ the regex captures. A **task** is exactly those fields, in their own `Machine`:
 > pending changes nothing, and a first argument that is not a promise faults as `settle`'s does. An
 > `await` re-raises the fault where it is awaited (a `catch` sees it), and one nothing awaits is
 > reported as any unawaited fault is.
+
+> **Built — the promise-shaped I/O (milestone 10, part 4).** `funl:async` has `read_file`,
+> `write_file`, `run` and `fetch`, each answering a promise the loop settles while the machine goes
+> on. **The FunL feature `async`, on in `default`, turns on kairos's `uv` feature** (Cargo's meaning
+> of `"kairos/uv"` in a feature list) and makes `sh.sysl.libuv` a direct optional dependency; with
+> it the loop is `Loop[Uv]`, without it `Loop[Host]` as before, and `events.sysl`'s `Driven` names
+> which. **Nothing the loop calls runs FunL**: a timer's callback, a kairos task, a libuv callback
+> each moves its promise from `Vm.timed` to `Vm.fired` with a `Settling` -- a closure capturing only
+> sysl values, which makes the FunL value once the ready queue is empty -- and stops the loop. **Files
+> are kairos tasks** over `Uv.read_file` and `Uv.write_file`, so a read settles in the same pass as a
+> timer; **`run` is `libuv.spawn`** with both pipes read as the child writes and a `SIGKILL` watchdog
+> for `timeout`, settled once the exit and both pipe ends have happened; **`fetch` runs the blocking
+> libcurl call on `libuv.queue`**, the pool thread reaching a `*Fetching` whose request is a copy
+> sharing no storage with the machine. Each answers what its blocking twin answers, shaped the same
+> way: an argument mistake faults at the call; no such file, directory or program fails the promise,
+> as does text that is not UTF-8; a permission refused faults it with `permission_error`, anything
+> else with `system_error`. **A flag per operation in flight (`Flight`) is lowered by
+> `forget_events`**, so an answer arriving after its run ended touches nothing. A build without
+> `async` answers an import of one of the four -- by name or through `import * as` -- with
+> ``read_file` of `funl:async` is not in this build -- it is behind the `async` feature``
+> (`left_out_export`), and `fetch` names `http` too where that is off. **One difference from the
+> blocking `run`**: `inherit_env: false` with no `env` is refused, libuv's `spawn` reading an empty
+> environment as the parent's own.
 
 ## The prelude — the first module written in FunL
 

@@ -42,8 +42,10 @@ http_exports() -> Buf[ModExport] = native_exports("http", HttpNames)
 // -- the request ---------------------------------------------------------------------------------
 
 // What a request is, read off `fetch`'s arguments before anything is allocated: the method, the
-// headers as `name: value` lines, the body, and the whole-transfer timeout in milliseconds.
-private struct Request
+// headers as `name: value` lines, the body, and the whole-transfer timeout in milliseconds. Not
+// `private`, nor are `request_of`, `sent` and `response_of`: `funl:async`'s `fetch` reads the same
+// request, sends it on libuv's thread pool, and answers the same response.
+struct Request
     url: string
     method: string
     lines: Buf[string]
@@ -55,22 +57,29 @@ private struct Request
 private do_fetch(base: usize, argc: usize) -> Result[Value, Fault]
     val req = request_of(base, argc)?
 
-    val cl = client("funl") match
-        Ok(cl) -> cl
-        Err(e) -> return Err(curl_fault(e, req.url))
+    response_of(sent(req), req.url)
 
-    cl.timeout_ms(req.timeout_ms).map_err((e) -> curl_fault(e, req.url))?
+// Send `req` and wait for the whole of the response. **It touches nothing of the machine**, so it
+// may run on another thread.
+sent(req: Request) -> Result[curl.Response, Error]
+    val cl = client("funl")?
+
+    cl.timeout_ms(req.timeout_ms)?
 
     val hs = headers()
 
     for line in req.lines.view()
         val cut = line.index_of(": ").unwrap_or(line.len)
 
-        hs.add(line[0..<cut], line[cut + 2..<line.len]).map_err((e) -> curl_fault(e, req.url))?
+        hs.add(line[0..<cut], line[cut + 2..<line.len])?
 
-    val r = cl.send(curl_method(req.method), req.url, req.body.view(), Some(hs)) match
+    cl.send(curl_method(req.method), req.url, req.body.view(), Some(hs))
+
+// The response map for what sending a request to `url` came to, or its fault.
+response_of(got: Result[curl.Response, Error], url: string) -> Result[Value, Fault]
+    val r = got match
         Ok(r) -> r
-        Err(e) -> return Err(curl_fault(e, req.url))
+        Err(e) -> return Err(curl_fault(e, url))
 
     val out = new_map()?
 
@@ -87,11 +96,11 @@ private do_fetch(base: usize, argc: usize) -> Result[Value, Fault]
     bytes.extend(r.body.view())
     map_put(out, new_str("bytes")?, new_bytes(bytes)?)?
     Ok(Map(out))
-end do_fetch
+end response_of
 
 // The request `fetch`'s arguments describe: argument 0 the URL, argument 1, when there is one, a map
 // of options -- `method`, `headers`, `body` and `timeout` -- each optional.
-private request_of(base: usize, argc: usize) -> Result[Request, Fault]
+request_of(base: usize, argc: usize) -> Result[Request, Fault]
     val u = deref(arg(base, 0))
 
     val url = u match

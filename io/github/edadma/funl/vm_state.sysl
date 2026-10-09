@@ -2,7 +2,6 @@ module io.github.edadma.funl
 
 import sh.sysl.gc
 import sh.sysl.kairos.Loop
-import sh.sysl.kairos.host.Host
 import sysl.buf.{Buf, buf}
 import sysl.container.{Map, map}
 import sysl.rand.{Rng, rng}
@@ -238,19 +237,25 @@ struct Vm
 
     // -- the loop (`events.sysl`) -------------------------------------------------------------------
 
-    // The event loop and the clock it reads, made by the first timer a program sets.
-    events: Option[&Loop[Host]]
-    clock: Option[&Host]
+    // The event loop and the driver it runs on, made by the first timer or I/O operation a program
+    // starts.
+    events: Option[&Loop[Driven]]
+    clock: Option[&Driven]
 
     // The clock's reading when the stretch of FunL since the loop's last pass first set a timer.
     stretch: Option[Duration]
 
-    // The promises a timer will keep, until it fires.
+    // The promises the loop will settle -- a timer's, or an I/O operation's -- until it does.
     timed: Buf[Value]
 
-    // The promises whose timers fired in the loop's last pass, in the order they fired: kept together
-    // once the ready queue is empty.
+    // The promises the loop's last pass settled, in the order it did, and beside each how it is to be
+    // settled: kept together once the ready queue is empty.
     fired: Buf[Value]
+    owed: Buf[Settling]
+
+    // A flag for each I/O operation in flight, which `forget_events` lowers so an answer arriving for
+    // a run that has ended touches nothing of it.
+    flights: Buf[&Flight]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -282,7 +287,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, (prompt) -> stdin_line(), "", false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf())
+        buf(), buf(), buf())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")
