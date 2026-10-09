@@ -40,8 +40,8 @@ EVERY_INSTRUCTION_KIND_IS_NAMED_FOR_ITS_OP_VARIANT()
 @test
 A_PROFILE_BUILD_COUNTS_EVERY_INSTRUCTION_A_RUN_EXECUTES_EXACTLY()
     // The instructions one turn of `looped` executes, and how many of each.
-    val kinds = ["LoadSlot", "PushInt", "Arith", "Unmark", "StoreSlot", "Mark", "MarkThrough", "Branch", "Dup", "FailIfFalse"]
-    val each = [2u64, 2u64, 2u64, 2u64, 1u64, 1u64, 1u64, 1u64, 1u64, 1u64]
+    val kinds = ["LoadSlot", "PushInt", "Arith", "Pop", "StoreSlot", "Branch", "Dup", "FailIfFalse", "Mark", "MarkThrough", "Unmark"]
+    val each = [2u64, 2u64, 2u64, 2u64, 1u64, 1u64, 1u64, 1u64, 0u64, 0u64, 0u64]
 
     assert_eq(counted(looped(10)), "10\nsucceeded")
 
@@ -53,10 +53,10 @@ A_PROFILE_BUILD_COUNTS_EVERY_INSTRUCTION_A_RUN_EXECUTES_EXACTLY()
 
     assert_eq(counted(looped(20)), "20\nsucceeded")
 
-    // Ten more turns, fourteen instructions each: the test loads `i`, pushes the bound, compares
-    // (`Arith`) inside a mark and leaves it; the body loads `i`, adds one, stores it, and branches
-    // back to the head.
-    assert_eq(profile_steps() - total10, 140u64)
+    // Ten more turns, twelve instructions each: the test loads `i`, pushes the bound, compares
+    // (`Arith`) and drops the result; the body loads `i`, adds one, stores it, drops its value, and
+    // branches back to the head. Neither needs a mark (`settled.sysl`).
+    assert_eq(profile_steps() - total10, 120u64)
 
     for j in 0..<kinds.len
         assert_eq(profile_count(kinds[j]) - at10.at(j), each[j] * 10u64, kinds[j])
@@ -81,12 +81,12 @@ THE_PROFILE_REPORT_LISTS_EACH_KIND_HEAVIEST_FIRST_WITH_ITS_SHARE()
     assert(tenths < 100u64, "a share under 10%, three characters wide in a column of five")
     assert(report.contains(s"\n  Dup                      10   ${tenths / 10u64}.${tenths % 10u64}%\n"), report)
 
-    // Heaviest first: two loads a turn, then one mark, then once at the end.
+    // Heaviest first: two loads a turn, then one copy, then once at the end.
     val load = report.index_of("\n  LoadSlot ").unwrap()
-    val mark = report.index_of("\n  Mark ").unwrap()
+    val dup = report.index_of("\n  Dup ").unwrap()
     val halt = report.index_of("\n  Halt ").unwrap()
 
-    assert(load < mark && mark < halt, report)
+    assert(load < dup && dup < halt, report)
     assert(report.index_of("Rethrow").is_none(), "a kind that never ran is not listed")
 
 @test
