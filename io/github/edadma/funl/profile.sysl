@@ -1,0 +1,281 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
+import sysl.env
+import sysl.slices.sort_by
+import sysl.text.str_builder
+
+// How many of each instruction a run executed: the measurement a change to the machine's speed is
+// chosen from.
+//
+// **Counting is a feature, `profile`, and is not in `default`.** `sysl build -p funl --features
+// profile` builds a `funl` that counts; any other build carries none of it. With a counting build,
+// `FUNL_PROFILE=1 funl program.funl` writes the table to standard error when the program ends.
+
+// Whether this build counts instructions, which is `--features profile` and nothing else.
+//
+// **It is a constant so that the optimiser deletes the branch.** `drive` in `run.sysl` reads
+// `CountingInstructions && profile_on`; where the constant is false the condition folds and the
+// instruction loop is the loop it would be with no instrument in the source at all. Not `private`:
+// `run.sysl` reads it directly, and a function answering it would be a call the optimiser has to see
+// through first.
+#if feature_profile
+const CountingInstructions: bool = true
+#else
+const CountingInstructions: bool = false
+#endif
+
+// Whether the instrument is on. Module storage rather than a field of `Vm`, because the instruction
+// loop reads it before every instruction and reaching it through the machine would put an
+// indirection into the hottest code in the project. Not `private`: `run.sysl` reads it.
+//
+// process-wide: one program runs in a `funl` process, and a profile is of that program; the machine's
+// tasks share its one thread.
+var profile_on: bool = false
+
+// Executions per instruction kind, keyed by the name of the `Op` variant.
+//
+// process-wide: the tally belongs to the instrument `profile_on` switches, and nothing touches it
+// while that is off.
+private var profile_ops: Map[string, u64] = map()
+
+// process-wide: the total of `profile_ops`, for the same reason.
+private var profile_total: u64 = 0u64
+
+// Start counting, from nothing. Not `private`: the `funl` driver calls it where `FUNL_PROFILE` says
+// to, and `tests_profile.sysl` calls it to ask what a known program executes.
+profile_start()
+    profile_ops = map()
+    profile_total = 0u64
+    profile_on = true
+
+// Stop counting, leaving the tally to be read.
+profile_stop()
+    profile_on = false
+
+// Whether the environment asked for a profile: `FUNL_PROFILE` set to anything but `0` or the empty
+// string, so that `FUNL_PROFILE=yes` means what it says.
+asked_to_profile() -> bool = profile_wanted(env.get("FUNL_PROFILE"))
+
+// Whether a value of `FUNL_PROFILE` asks for a profile. Not `private`: `tests_profile.sysl` asks it.
+profile_wanted(value: Option[string]) -> bool = value match
+    Some(s) -> s != "" && s != "0"
+    None -> false
+
+// Count one instruction. Called only from behind `CountingInstructions && profile_on`.
+profile_step(op: Op)
+    val label = op_label(op)
+
+    profile_total += 1u64
+    profile_ops.put(label, profile_ops.get_or(label, 0u64) + 1u64)
+
+// Instructions counted since `profile_start`.
+profile_steps() -> u64 = profile_total
+
+// How many instructions of kind `label` were counted since `profile_start`.
+profile_count(label: string) -> u64 = profile_ops.get_or(label, 0u64)
+
+private struct Row
+    name: string
+    count: u64
+
+// The kinds counted, heaviest first; kinds with equal counts in name order, so a report is the same
+// from one run to the next.
+private ranked() -> Buf[Row]
+    var out: Buf[Row] = buf()
+    var walk = profile_ops.walk()
+
+    loop
+        walk.next() match
+            None -> break
+            Some(pair) -> out.push(Row(pair.0, pair.1))
+
+    sort_by(out.view(), (a, b) -> a.count > b.count || (a.count == b.count && a.name < b.name))
+    out
+end ranked
+
+// A count as a percentage of the total, to a tenth: integer arithmetic, so it reads the same on every
+// platform.
+private share(part: u64, whole: u64) -> string
+    if whole == 0u64 then return "0.0"
+
+    val tenths = part * 1000u64 / whole
+
+    s"${tenths / 10u64}.${tenths % 10u64}"
+
+// What the run came to, ready for standard error: the total, then one line per instruction kind,
+// heaviest first, with its count and its share of the total.
+//
+// **A build that does not count says so** rather than showing an empty table, which would read as a
+// program that ran no instructions.
+profile_report() -> string
+    var out = str_builder()
+
+    out.push("funl profile\n")
+
+    if !CountingInstructions
+        out.push("  instructions are not counted in this build -- rebuild with\n")
+        out.push("  `sysl build -p funl --features profile` to count them\n")
+        return out.finish()
+
+    val rows = ranked()
+
+    out.push(s"  instructions  ${profile_total}\n")
+    out.push(s"  kinds         ${rows.len()}\n\n")
+
+    for i in 0..<rows.len()
+        val r = rows.at(i)
+
+        out.push(s"  ${padded(r.name, 14, false)} ${padded(s"${r.count}", 12, true)} ${padded(share(r.count, profile_total), 5, true)}%\n")
+
+    out.finish()
+end profile_report
+
+// `text` widened with spaces to `width` bytes, on the left where `right` (a number's column) and on
+// the right otherwise. Every name and figure here is ASCII.
+private padded(text: string, width: usize, right: bool) -> string
+    var fill = ""
+    var n = text.bytes.len
+
+    while n < width
+        fill = fill + " "
+        n += 1
+
+    if right then fill + text else text + fill
+
+// The name of an instruction's kind: its `Op` variant.
+op_label(op: Op) -> string = op match
+    Op.Halt -> "Halt"
+    Op.Mark(_) -> "Mark"
+    Op.MarkThrough -> "MarkThrough"
+    Op.Choice(_) -> "Choice"
+    Op.Unmark -> "Unmark"
+    Op.UnmarkKeep -> "UnmarkKeep"
+    Op.Fail -> "Fail"
+    Op.Branch(_) -> "Branch"
+    Op.SaveMark(_) -> "SaveMark"
+    Op.UnmarkTo(_) -> "UnmarkTo"
+    Op.Pop -> "Pop"
+    Op.PushConst(_) -> "PushConst"
+    Op.PushNil -> "PushNil"
+    Op.PushInt(_) -> "PushInt"
+    Op.LoadSlot(_, _) -> "LoadSlot"
+    Op.NewVar(_) -> "NewVar"
+    Op.PushVar -> "PushVar"
+    Op.MakeCompound(_, _) -> "MakeCompound"
+    Op.MakeCons -> "MakeCons"
+    Op.Unify -> "Unify"
+    Op.TestEq -> "TestEq"
+    Op.TestNe -> "TestNe"
+    Op.Frame(_) -> "Frame"
+    Op.Call(_, _) -> "Call"
+    Op.TailCall(_, _) -> "TailCall"
+    Op.Return -> "Return"
+    Op.ReturnCommit -> "ReturnCommit"
+    Op.Native(_, _) -> "Native"
+    Op.Callback(_, _) -> "Callback"
+    Op.GetVar(_, _) -> "GetVar"
+    Op.GetValue(_, _) -> "GetValue"
+    Op.GetConst(_, _) -> "GetConst"
+    Op.GetCompound(_, _, _) -> "GetCompound"
+    Op.GetMap(_, _, _, _) -> "GetMap"
+    Op.PushUnit -> "PushUnit"
+    Op.MakeTuple(_) -> "MakeTuple"
+    Op.Arith(_) -> "Arith"
+    Op.Negate -> "Negate"
+    Op.FailIfFalse -> "FailIfFalse"
+    Op.Dup -> "Dup"
+    Op.LoadArg(_) -> "LoadArg"
+    Op.LoadArgs -> "LoadArgs"
+    Op.StoreSlot(_) -> "StoreSlot"
+    Op.MakeClosure(_, _) -> "MakeClosure"
+    Op.CallFn(_, _, _) -> "CallFn"
+    Op.TailCallFn(_, _, _) -> "TailCallFn"
+    Op.CallValue(_) -> "CallValue"
+    Op.KeepTop(_) -> "KeepTop"
+    Op.TailCallValue(_) -> "TailCallValue"
+    Op.MatchTuple(_) -> "MatchTuple"
+    Op.MatchCompound(_, _) -> "MatchCompound"
+    Op.MatchMap(_, _, _) -> "MatchMap"
+    Op.NoMatch -> "NoMatch"
+    Op.StoreUp(_, _) -> "StoreUp"
+    Op.Update(_, _, _) -> "Update"
+    Op.GenStart(_) -> "GenStart"
+    Op.GenNext -> "GenNext"
+    Op.GenRange(_) -> "GenRange"
+    Op.MakeRange(_, _, _) -> "MakeRange"
+    Op.MatchCons -> "MatchCons"
+    Op.MatchNil -> "MatchNil"
+    Op.Member(_) -> "Member"
+    Op.TestDefined(_) -> "TestDefined"
+    Op.TestType(_) -> "TestType"
+    Op.Field(_) -> "Field"
+    Op.MethodOf(_) -> "MethodOf"
+    Op.CallMethod(_, _, _) -> "CallMethod"
+    Op.StoreBack(_, _) -> "StoreBack"
+    Op.Collect(_) -> "Collect"
+    Op.Collected(_, _) -> "Collected"
+    Op.ChangeMark(_) -> "ChangeMark"
+    Op.MakeMap(_) -> "MakeMap"
+    Op.MakeSet(_) -> "MakeSet"
+    Op.MakeRecord(_, _) -> "MakeRecord"
+    Op.StoreElem(_) -> "StoreElem"
+    Op.UpdateElem(_) -> "UpdateElem"
+    Op.InPlace(_, _, _) -> "InPlace"
+    Op.SwapElems -> "SwapElems"
+    Op.Concat(_) -> "Concat"
+    Op.NativeGen(_, _) -> "NativeGen"
+    Op.ScanBegin -> "ScanBegin"
+    Op.ScanEnd -> "ScanEnd"
+    Op.ScanLeave(_) -> "ScanLeave"
+    Op.Char(_, _) -> "Char"
+    Op.Class(_) -> "Class"
+    Op.ClassOf -> "ClassOf"
+    Op.AnyChar(_) -> "AnyChar"
+    Op.LitOf -> "LitOf"
+    Op.Backref(_, _) -> "Backref"
+    Op.GroupStart -> "GroupStart"
+    Op.GroupEnd(_) -> "GroupEnd"
+    Op.CharRev(_, _) -> "CharRev"
+    Op.ClassRev(_) -> "ClassRev"
+    Op.ClassOfRev -> "ClassOfRev"
+    Op.AnyCharRev(_) -> "AnyCharRev"
+    Op.LitOfRev -> "LitOfRev"
+    Op.BackrefRev(_, _) -> "BackrefRev"
+    Op.GroupEndRev(_) -> "GroupEndRev"
+    Op.Assert(_) -> "Assert"
+    Op.SavePos -> "SavePos"
+    Op.RestorePos -> "RestorePos"
+    Op.RepNext(_, _, _, _) -> "RepNext"
+    Op.RepStep(_, _) -> "RepStep"
+    Op.ResetGroups(_, _) -> "ResetGroups"
+    Op.Barrier -> "Barrier"
+    Op.CutTo -> "CutTo"
+    Op.RxBegin(_) -> "RxBegin"
+    Op.RxEnd -> "RxEnd"
+    Op.GetNil(_) -> "GetNil"
+    Op.GetCons(_) -> "GetCons"
+    Op.SwitchFirst(_, _, _) -> "SwitchFirst"
+    Op.Case(_, _) -> "Case"
+    Op.Instantiated(_) -> "Instantiated"
+    Op.CollectCopy -> "CollectCopy"
+    Op.Gathered(_) -> "Gathered"
+    Op.CutClause -> "CutClause"
+    Op.SaveHeight(_) -> "SaveHeight"
+    Op.CutSlot(_) -> "CutSlot"
+    Op.SoftCut(_) -> "SoftCut"
+    Op.CallGoal(_) -> "CallGoal"
+    Op.Consult -> "Consult"
+    Op.NoProcedure -> "NoProcedure"
+    Op.TryDynamic(_) -> "TryDynamic"
+    Op.PushCatch(_) -> "PushCatch"
+    Op.ExitCatch(_) -> "ExitCatch"
+    Op.PushTrap(_) -> "PushTrap"
+    Op.ExitTrap(_) -> "ExitTrap"
+    Op.Rethrow -> "Rethrow"
+    Op.Await -> "Await"
+    Op.Settle -> "Settle"
+    Op.Orphan -> "Orphan"
+    Op.ArgsIn(_, _, _) -> "ArgsIn"
+    Op.NoArity -> "NoArity"

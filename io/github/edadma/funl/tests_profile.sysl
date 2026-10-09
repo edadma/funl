@@ -1,0 +1,108 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.text.Search
+
+// The instruction counter (`profile.sysl`): exact counts in a `--features profile` build, and no
+// counting at all in any other.
+
+// A loop of `n` turns, which is what makes a count checkable: every instruction inside the loop runs
+// once per turn, so the difference between two lengths of the same loop is exact.
+private looped(n: int) -> string = s"var i = 0\nwhile i < $n\n  i = i + 1\nwrite( i )\n"
+
+// Run FunL `text` once on a roomy heap with the counter on; the transcript.
+private counted(text: string) -> string
+    profile_start()
+
+    val said = roomy(() -> compiled_text(text))
+
+    profile_stop()
+    said.text
+
+@test
+FUNL_PROFILE_ASKS_FOR_A_PROFILE_WITH_ANYTHING_BUT_0_OR_NOTHING()
+    assert(profile_wanted(Some("1")))
+    assert(profile_wanted(Some("yes")))
+    assert(!profile_wanted(Some("0")))
+    assert(!profile_wanted(Some("")))
+    assert(!profile_wanted(None))
+
+@test
+EVERY_INSTRUCTION_KIND_IS_NAMED_FOR_ITS_OP_VARIANT()
+    assert_eq(op_label(Op.Mark(3)), "Mark")
+    assert_eq(op_label(Op.MarkThrough), "MarkThrough")
+    assert_eq(op_label(Op.UnmarkKeep), "UnmarkKeep")
+    assert_eq(op_label(Op.TailCallFn(1, 2, 3)), "TailCallFn")
+    assert_eq(op_label(Op.NoArity), "NoArity")
+
+#if feature_profile
+@test
+A_PROFILE_BUILD_COUNTS_EVERY_INSTRUCTION_A_RUN_EXECUTES_EXACTLY()
+    // The instructions one turn of `looped` executes, and how many of each.
+    val kinds = ["LoadSlot", "PushInt", "Arith", "Unmark", "StoreSlot", "Mark", "MarkThrough", "Branch", "Dup", "FailIfFalse"]
+    val each = [2u64, 2u64, 2u64, 2u64, 1u64, 1u64, 1u64, 1u64, 1u64, 1u64]
+
+    assert_eq(counted(looped(10)), "10\nsucceeded")
+
+    val total10 = profile_steps()
+    var at10: Buf[u64] = buf()
+
+    for k in kinds
+        at10.push(profile_count(k))
+
+    assert_eq(counted(looped(20)), "20\nsucceeded")
+
+    // Ten more turns, fourteen instructions each: the test loads `i`, pushes the bound, compares
+    // (`Arith`) inside a mark and leaves it; the body loads `i`, adds one, stores it, and branches
+    // back to the head.
+    assert_eq(profile_steps() - total10, 140u64)
+
+    for j in 0..<kinds.len
+        assert_eq(profile_count(kinds[j]) - at10.at(j), each[j] * 10u64, kinds[j])
+
+    // What runs once whatever the length: the end of the program, and nothing the loop never reaches.
+    assert_eq(profile_count("Halt"), 1u64)
+    assert_eq(profile_count("Rethrow"), 0u64)
+    assert_eq(profile_count("NoSuchKind"), 0u64)
+
+@test
+THE_PROFILE_REPORT_LISTS_EACH_KIND_HEAVIEST_FIRST_WITH_ITS_SHARE()
+    assert_eq(counted(looped(10)), "10\nsucceeded")
+
+    val report = profile_report()
+    val steps = profile_steps()
+
+    assert(report.starts_with(s"funl profile\n  instructions  $steps\n"), report)
+
+    // `Dup` ran once a turn: its count, right-aligned, then its share of the total to a tenth.
+    val tenths = 10u64 * 1000u64 / steps
+
+    assert(tenths < 100u64, "a share under 10%, three characters wide in a column of five")
+    assert(report.contains(s"\n  Dup                      10   ${tenths / 10u64}.${tenths % 10u64}%\n"), report)
+
+    // Heaviest first: two loads a turn, then one mark, then once at the end.
+    val load = report.index_of("\n  LoadSlot ").unwrap()
+    val mark = report.index_of("\n  Mark ").unwrap()
+    val halt = report.index_of("\n  Halt ").unwrap()
+
+    assert(load < mark && mark < halt, report)
+    assert(report.index_of("Rethrow").is_none(), "a kind that never ran is not listed")
+
+@test
+A_PROFILE_BUILD_COUNTS_NOTHING_WHILE_THE_COUNTER_IS_OFF()
+    assert_eq(counted(looped(5)), "5\nsucceeded")
+
+    val before = profile_steps()
+
+    assert_eq(roomy(() -> compiled_text(looped(5))).text, "5\nsucceeded")
+    assert_eq(profile_steps(), before)
+#else
+@test
+A_BUILD_WITHOUT_THE_PROFILE_FEATURE_COUNTS_NOTHING_AND_SAYS_SO()
+    assert(!CountingInstructions)
+    assert_eq(counted(looped(10)), "10\nsucceeded")
+    assert_eq(profile_steps(), 0u64)
+    assert_eq(profile_count("LoadSlot"), 0u64)
+    assert_eq(profile_report(), "funl profile\n  instructions are not counted in this build -- rebuild with\n  `sysl build -p funl --features profile` to count them\n")
+#endif

@@ -43,6 +43,10 @@ sysl build -p prolog
 
 This produces `funl/funl` and `prolog/prolog`. The test suite is `sysl test .`.
 
+To see where a program's time goes, build with `--features profile` and run it with
+`FUNL_PROFILE=1`: the instructions it executed, per kind, are written to standard error at the end
+(`docs/design/implementation.md` § "Measuring the machine").
+
 ## A taste
 
 A family tree: facts, rules over them, and queries from ordinary code. This is the heart of

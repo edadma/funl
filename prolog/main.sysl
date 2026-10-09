@@ -1,4 +1,4 @@
-import io.github.edadma.funl.toplevel
+import io.github.edadma.funl.{asked_to_profile, profile_report, profile_start, profile_stop, toplevel}
 import sh.sysl.linenoise.{history_add, history_set_max_len, read}
 import sysl.text.Search
 
@@ -12,9 +12,18 @@ import sysl.text.Search
 main(args: []string)
     history_set_max_len(500)
 
-    val status = toplevel(args[1..], (prompt) -> line(prompt), (text) -> print(text))
+    // `FUNL_PROFILE=1`: the instructions executed, per kind, on standard error at the end.
+    val profiling = asked_to_profile()
 
-    exit(status)
+    if profiling then profile_start()
+
+    val code = toplevel(args[1..], (prompt) -> line(prompt), (text) -> print(text))
+
+    if profiling
+        profile_stop()
+        eprints(profile_report())
+
+    exit(code)
 
 // A line, remembered for the arrow keys unless it is blank.
 private line(prompt: string) -> Option[string]

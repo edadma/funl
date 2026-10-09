@@ -86,6 +86,11 @@ features {
   http = [curl]
 
   async = ["kairos/uv", libuv]
+
+  // **`profile` counts the instructions a run executes** (`profile.sysl`), and it is not in
+  // `default`: the count is a branch in the instruction loop, and a build without the feature has
+  // the branch folded away by a constant.
+  profile = []
 }
 
 // An interpreter grows its operand stack, control stack and trail while it runs, and none of the

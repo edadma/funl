@@ -259,3 +259,30 @@ which matters, because the AT&T data is written for POSIX and this engine is not
   missing from the list above, fails a test instead of a user's program.
 - **Error paths are tested with the features**: every instantiation error, type error and existence
   error the chapters name has a test asserting the sentence it prints.
+
+## Measuring the machine
+
+**Speed work is chosen from counts of what the machine executes, and the counter is a package
+feature, `profile`, that is not in `default`** — slate's arrangement. `profile.sysl` defines
+`CountingInstructions` as a constant the feature sets; the instruction loop in `run.sysl` bumps a
+count per `Op` kind only behind `CountingInstructions && profile_on`, so in any other build the
+optimiser deletes the branch and the loop is the one it would be with no counter in the source.
+Measured at `-O2`, best of five on five loop and recursion programs, the build without the feature
+ran within noise of the build before the counter existed (every program 0–4% faster, never slower).
+
+```
+sysl build -O2 -p funl --features profile
+FUNL_PROFILE=1 funl/funl program.funl
+```
+
+**`FUNL_PROFILE` set to anything but `0` or the empty string** has `funl` (and `prolog`, built the
+same way) write a table to standard error when the program ends, whatever its status: the total,
+then each instruction kind executed, heaviest first, with its count and its share to a tenth of a
+percent. A build without the feature answers the variable with two lines saying so, rather than an
+empty table that would read as a program that ran nothing.
+
+**The gate has a third shape**, beside `sysl test .` and `sysl test . --no-default-features`:
+`sysl test . --features profile`, the shipped `default` plus the counter. `tests_profile.sysl`'s
+exact-count tests exist only in a counting build, and the test that a build without the feature
+counts nothing exists only outside one. Plain `sysl test .` turns on every feature the manifest
+declares, `profile` included, so it is `--no-default-features` that tests the uncounted build.

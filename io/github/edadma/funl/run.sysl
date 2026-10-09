@@ -96,6 +96,10 @@ private drive(v: *Vm) -> Outcome
 
                 v.ip = at + 1
 
+                // Counted only in a `--features profile` build, where `profile.sysl` says why the
+                // constant comes first: elsewhere this whole statement folds away.
+                if CountingInstructions && profile_on then profile_step(code.at(at))
+
                 val r = execute(v, code.at(at))
 
                 // An instruction that tried to bind another task's variable is that fault, whatever

@@ -13,6 +13,12 @@ dependencies {
   linenoise { git = "github.com/sysl-lang/linenoise", version = "0.3.0" }
 }
 
+// `sysl build -p funl --features profile` builds a `funl` that counts the instructions a run
+// executes; `FUNL_PROFILE=1` then has it write the table to standard error when the program ends.
+features {
+  profile = ["funl-vm/profile"]
+}
+
 requires {
   heap = true
 }

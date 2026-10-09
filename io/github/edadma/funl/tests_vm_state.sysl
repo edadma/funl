@@ -15,8 +15,9 @@ private const ModuleDir: string = "io/github/edadma/funl"
 
 // The `gc.Kind` tables in `collector.sysl`, `funl:sqlite`'s tables of connections and running
 // queries in `native_sqlite.sysl`, the package cache a test points elsewhere in `package.sysl`, and
-// the git source a test fetches from in `package_commands.sysl`.
-private const ProcessWide: usize = 20
+// the git source a test fetches from in `package_commands.sysl`, and the instruction counter's switch
+// and tally in `profile.sysl`.
+private const ProcessWide: usize = 23
 
 private struct Census
     the_vm: usize

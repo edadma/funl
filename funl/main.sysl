@@ -32,7 +32,20 @@ main(args: []string)
         exit(package_command(args[1], args[2..<args.len], working_dir(), (text) -> prints(text), (text) -> eprints(text)))
 
     history_set_max_len(500)
-    exit(run_file(args[1], (prompt) -> line(prompt), (text) -> print(text), (text) -> eprints(text), args[2..<args.len]))
+
+    // `FUNL_PROFILE=1`: the instructions the run executed, per kind, on standard error when it ends,
+    // whatever its status (`profile.sysl`).
+    val profiling = asked_to_profile()
+
+    if profiling then profile_start()
+
+    val code = run_file(args[1], (prompt) -> line(prompt), (text) -> print(text), (text) -> eprints(text), args[2..<args.len])
+
+    if profiling
+        profile_stop()
+        eprints(profile_report())
+
+    exit(code)
 end main
 
 // A line, remembered for the arrow keys unless it is blank.

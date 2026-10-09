@@ -16,6 +16,12 @@ dependencies {
   linenoise { git = "github.com/sysl-lang/linenoise", version = "0.3.0" }
 }
 
+// `sysl build -p prolog --features profile` builds a `prolog` that counts the instructions it
+// executes; `FUNL_PROFILE=1` then has it write the table to standard error when it ends.
+features {
+  profile = ["funl-vm/profile"]
+}
+
 requires {
   heap = true
 }
