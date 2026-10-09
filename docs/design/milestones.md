@@ -142,7 +142,8 @@ generator of tuples.
   `Handle` and `Bytes` kinds with their tracers and finalizers; native generators over a handle.
 - `funl:fs`, `funl:json`, `funl:process`, `funl:time`, `funl:sqlite` in the core; `funl:http` behind
   the `http` feature, with `left_out_module`; a FunL `catch` before `funl:http`.
-- Packages: the manifest, the cache, the lock, `funl add`, `funl vendor`.
+- [Packages](packages.md): the manifest, the cache, `funl.sum`, `funl add`, `funl fetch`,
+  `funl vendor`, `funl deps`; its open questions answered first.
 - [The prelude](modules.md#the-prelude--the-first-module-written-in-funl), the first module written
   in FunL: the Haskell-style list library as a source module carried in the binary and auto-imported
   (shadowable by a program's own names), the natives for speed (`reverse`, `sort`, …), and the

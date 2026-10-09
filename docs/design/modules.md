@@ -143,6 +143,10 @@ layout. The manifest is `package.funl`, read as data, as slate's `package.sl` is
 **A package cannot carry a native**, as in slate: a package is FunL source, and a native is code in
 the `funl` binary. What this means for a third party is under [native modules](#who-can-add-one).
 
+**The whole package design — manifest, resolution, `funl.sum`, the cache, offline use, the
+commands — is its own chapter, [Packages](packages.md)**, with the transport and the places FunL
+differs from slate as open questions.
+
 ## Built-in modules: `funl:name`
 
 **As slate does, there are two kinds, and they differ in one place.** A built-in module either has

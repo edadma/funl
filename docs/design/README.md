@@ -37,6 +37,7 @@ Read them in order; each leans on the one before it.
 | [Prolog on the same machine](prolog.md) | standard Prolog syntax compiled to the same instructions, the builtin set it aims for, and the failure modes of a Prolog engine its design rules out |
 | [The sysl implementation](implementation.md) | the repository and module layout, the parser, the collector and its roots, what is reused and what is written fresh, and how it is tested |
 | [Modules and native modules](modules.md) | modules and `import` as slate has them, `funl:` modules over sysl packages, features, values that cross, the first batch, and `async`/`await` |
+| [Packages](packages.md) | the manifest, specifiers and what they resolve to, exact versions and `funl.sum`, the cache and `vendor/`, offline use, `funl add`, and what a package can and cannot bring |
 | [Milestones](milestones.md) | the order the work is done in, and what proves each step |
 
 ## Conventions on these pages
@@ -104,3 +105,11 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | question | recommendation | where |
 |---|---|---|
 | A generator of tuples cannot be destructured by `<-` | a tuple pattern matches a generated tuple whole; until then `zip` answers lists | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| How does a package fetch: `git` or HTTPS tarballs? | `git clone --depth 1 --branch v<version>` and `git ls-remote --tags`, as the sysl compiler does; works in every build | [packages](packages.md#open-questions) |
+| A package's other module: `tabular/pivot` or `tabular.pivot`? | `tabular/pivot`, as slate does | [packages](packages.md#open-questions) |
+| Constructors unique across packages too? | keep the rule; the refusal names both packages; revisit on a real collision | [packages](packages.md#open-questions) |
+| How does Prolog name a package? | an atom is a package (`:- import(tabular/pivot).`), a string a file | [packages](packages.md#open-questions) |
+| May a package carry Prolog files? | yes, imported whole as `import "file.pl"` is | [packages](packages.md#open-questions) |
+| A trailing comma in a map, set or list literal? | yes, language-wide, so a manifest stays ordinary FunL | [packages](packages.md#open-questions) |
+| A `funl` floor key in the manifest? | yes, optional, because the grammar is still moving | [packages](packages.md#open-questions) |
+| Which package commands? | `add`, `fetch`, `vendor`, `deps` now; `bundle`, `brew`, `scripts` when shipping is wanted | [packages](packages.md#open-questions) |
