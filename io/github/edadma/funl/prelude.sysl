@@ -40,6 +40,7 @@ install_prelude(v: *Vm)
     register(v, "zip", 2, do_zip)
     register(v, "zip3", 3, do_zip3)
     register(v, "_list", 2, do_list_guard)
+    register_generator(v, "_nonlist", 2, do_nonlist)
 
 // The prelude's index in `Vm.modules`, once it is loaded.
 prelude_index() -> Option[usize]
@@ -161,14 +162,14 @@ private drawn(c: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
             Ok(())
 
 // Refuses anything but a list, a range, a set, an array, a buffer or a byte string where a list
-// function wants a list: a string, a tuple, a map or a scalar is one value to `<-`, and answering a
+// function wants a list: `()`, a string, a tuple, a map or a scalar is one value to `<-`, and answering a
 // one-element pairing or a one-element result for it would hide the mistake. An unbound variable is
 // left for the function's own instantiation error.
 list_guard(c: Value, what: string) -> Result[unit, Fault]
     val x = deref(c)
 
     x match
-        Nil | Cons(_) | Range(_) | Unit | Set(_) | MutSet(_) | Array(_) | Buffer(_) | Bytes(_) | Var(_) -> Ok(())
+        Nil | Cons(_) | Range(_) | Set(_) | MutSet(_) | Array(_) | Buffer(_) | Bytes(_) | Var(_) -> Ok(())
         _ -> Err(type_error("list", x, s"$what wants a list and reached ${described(x)}"))
 
 // `drawn` for a list function's own list argument: a string, a tuple or a map is refused.
@@ -185,6 +186,17 @@ private do_list_guard(base: usize, argc: usize) -> Result[Value, Fault]
 
     list_guard(arg(base, 1), name)?
     Ok(arg(base, 1))
+
+// `_nonlist(name, xs)`: the last guard of a clause-defined list function. A value that is no list is
+// the type error `list_guard` gives; a list that reached it has only failed the clauses before it, so
+// the guard refuses and the function answers its ordinary no-clause fault.
+private do_nonlist(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val name = deref(arg(base, 0)) match
+        Str(p) -> s"'${p.s}'"
+        _ -> "a list function"
+
+    list_guard(arg(base, 1), name)?
+    Ok(Refuses)
 
 // The columns `zip`, `zip3`, `zipWith` and `zipWith3` pair, one buffer per argument, and how many
 // places they reach. An endless range is a column as long as the shortest finite one; with no finite
@@ -650,20 +662,31 @@ private prelude_text() -> string = raw"""
       snd( (_, b) ) = b
 
       head( x:_ ) = x
+      head( xs ) | _nonlist( "head", xs ) = xs
       tail( _:xs ) = xs
+      tail( xs ) | _nonlist( "tail", xs ) = xs
 
       foldl( f, z, [] ) = z
       foldl( f, z, x:xs ) = foldl( f, f(z, x), xs )
+      foldl( f, z, xs ) | _nonlist( "foldl", xs ) = xs
       foldl1( f, x:xs ) = foldl( f, x, xs )
+      foldl1( f, xs ) | _nonlist( "foldl1", xs ) = xs
       foldr( f, z, [] ) = z
       foldr( f, z, x:xs ) = f( x, foldr(f, z, xs) )
+      foldr( f, z, xs ) | _nonlist( "foldr", xs ) = xs
       foldr1( f, [x] ) = x
       foldr1( f, x:xs ) = f( x, foldr1(f, xs) )
+      foldr1( f, xs ) | _nonlist( "foldr1", xs ) = xs
 
+      product( xs ) | _nonlist( "product", xs ) = xs
       product( xs ) = foldl( (a, b) -> a*b, 1, xs )
+      maximum( xs ) | _nonlist( "maximum", xs ) = xs
       maximum( xs ) = foldl1( (a, b) -> max(a, b), xs )
+      minimum( xs ) | _nonlist( "minimum", xs ) = xs
       minimum( xs ) = foldl1( (a, b) -> min(a, b), xs )
+      maxBy( f, xs ) | _nonlist( "maxBy", xs ) = xs
       maxBy( f, xs ) = foldl1( (a, b) -> if f(b) > f(a) then b else a, xs )
+      minBy( f, xs ) | _nonlist( "minBy", xs ) = xs
       minBy( f, xs ) = foldl1( (a, b) -> if f(b) < f(a) then b else a, xs )
 
       map( f, xs ) = if xs is function then mapDraw( f, xs ) else [f(x) | x <- _list( "map", xs )]
@@ -673,9 +696,14 @@ private prelude_text() -> string = raw"""
 
       dropWhile( p, [] ) = []
       dropWhile( p, x:xs ) = if p(x) then dropWhile( p, xs ) else x:xs
+      dropWhile( p, xs ) | _nonlist( "dropWhile", xs ) = xs
+      splitAt( n, xs ) | _nonlist( "splitAt", xs ) = xs
       splitAt( n, xs ) = (take(n, xs), drop(n, xs))
+      span( p, xs ) | _nonlist( "span", xs ) = xs
       span( p, xs ) = (takeWhile(p, xs), dropWhile(p, xs))
+      spanNot( p, xs ) | _nonlist( "spanNot", xs ) = xs
       spanNot( p, xs ) = span( x -> not p(x), xs )
+      partition( p, xs ) | _nonlist( "partition", xs ) = xs
       partition( p, xs ) = (filter(p, xs), filter(x -> not p(x), xs))
 
       concatMap( f, xs ) = [y | x <- _list( "concatMap", xs ), y <- f(x)]
@@ -698,9 +726,11 @@ private prelude_text() -> string = raw"""
         for (key, v) <- _list( "lookup", ps ) if key == k
           return v
         fail
+      nub( xs ) | _nonlist( "nub", xs ) = xs
       nub( xs ) = foldl( (acc, x) -> if x in acc then acc else acc + [x], [], xs )
       group( [] ) = []
       group( x:xs ) = (x:takeWhile( y -> y == x, xs )) : group( dropWhile( y -> y == x, xs ) )
+      group( xs ) | _nonlist( "group", xs ) = xs
 
     def
       mapDraw( f, xs )
