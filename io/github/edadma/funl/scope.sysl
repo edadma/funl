@@ -116,6 +116,10 @@ struct Scope
     // function clause that generates by `yield`.
     yields: bool
 
+    // Whether a `return` is written in this scope's own code: its commit is a cut, which leaves the
+    // reversible changes made inside the statement it leaves to the caller's mark.
+    returns: bool
+
     count(self) -> usize = self.names.len()
 
     // What declaration `d` of this scope means, the scope `depth` static links up: a constructor, or a
@@ -204,7 +208,7 @@ child_scope(parent: usize, parent_block: usize) -> Scope
     var decls: Map[string, Decl] = map()
 
     blocks.push(Block(decls, NoScope))
-    Scope(blocks, buf(), map(), 0, parent, parent_block, map(), map(), false)
+    Scope(blocks, buf(), map(), 0, parent, parent_block, map(), map(), false, false)
 
 // What a name means where it is written.
 enum Meaning
@@ -240,6 +244,10 @@ enum Meaning
 struct LoopSlots
     whole: usize
     turn: usize
+
+    // Whether a `continue` leaves the loop: it ends the turn by its mark, so the turn keeps one even
+    // where its body settles.
+    continued: bool
 
 // What the resolver decided about a whole program.
 struct Resolved
@@ -317,6 +325,11 @@ struct Resolved
     // lambda's span and the key. `{x:xs -> x}` is one, and a refusal of `x` inside it says how a set
     // holding a lambda over a cons is written.
     split_lambdas: Buf[(Span, string)]
+
+    // Whether each definition, by index into `rels`, is a function that settles: a call of it
+    // completes with one value or faults (`settled.sysl`). Decided once resolution is done; a
+    // definition past its end does not settle.
+    settled: Buf[bool]
 
     // The `data` type `name` means in this file, if any: its own first, then an imported one.
     data_type(self, name: string) -> Option[usize]
@@ -738,7 +751,7 @@ private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map(), map(), buf())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map(), map(), buf(), buf())
 
     res.top = new_scope_id(&res)
 

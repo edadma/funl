@@ -201,6 +201,8 @@ funl_predicate(key: string, name: string, chunk: usize, arity: usize, function: 
 // for its functions to reach, takes the snapshot of its exports `out` describes, then returns `()`
 // to the file that imported it. A definition with no clauses is another module's, already compiled.
 private compiled(res: *Resolved, loads: Buf[usize], out: ModuleOut) -> Result[usize, string]
+    settle_functions(res)
+
     for r in res.rels.view()
         if r.clauses.len() == 0 then continue
 

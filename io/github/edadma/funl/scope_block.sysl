@@ -121,7 +121,12 @@ loop_target(w: *Walk, label: Option[string], at: Span, word: string)
                 val whole = w.sc.declare(0, "$whole" + s"${l.id}", at, 0, false)
                 val turn = w.sc.declare(0, "$turn" + s"${l.id}", at, 0, false)
 
-                w.res.loops.put(l.id, LoopSlots(whole, turn))
+                w.res.loops.put(l.id, LoopSlots(whole, turn, false))
+
+            if word == "continue"
+                w.res.loops.get(l.id) match
+                    Some(s) -> w.res.loops.put(l.id, LoopSlots(s.whole, s.turn, true))
+                    None -> ()
 
             return
 

@@ -151,8 +151,24 @@ its condition fails the loop fails, which the enclosing statement absorbs.
 > orderings or `div`), tuples and lists of these, ordinary assignment, compound assignment and steps
 > of locals, `val`/`var` of a plain name, and calls of an explicit allow-list of builtins that answer
 > one value. A fault unwinds to its `catch` past every mark, so dropping one changes nothing there;
-> `break` and `continue` record their loop's mark position when they run, so they still reach it. A
-> call of a user function keeps its mark: whether it can fail is not decided interprocedurally.
+> `break` and `continue` record their loop's mark position when they run, so they still reach it.
+>
+> **Decided — calls of functions that settle, and loop turns that settle, run without a mark**
+> (user, 2026-10-09). The test also takes `if c then a else b` of settled branches (the condition
+> has its own mark), a block whose last statement settles, and a call of one of the file's own
+> functions that settles. **A function settles** when every guarded body of every clause settles in
+> tail position and it neither `yield`s, `return`s nor is `async`: choosing a clause never fails,
+> since running out of clauses is an error, a fault; `return` is out because its commit is a cut,
+> leaving the reversible changes inside the statement it leaves to the caller's mark. Which functions
+> settle is the **greatest fixpoint**: every candidate assumed to, then struck out while its body
+> calls one that does not. That is sound for recursion because the property is about what a call
+> does when it finishes, and the first call to break it would have to do so through a form of its
+> own body. The prelude's functions, another module's, and any function called through a value are
+> never taken to settle. **A loop body that settles runs without its turn mark** (`b; Pop`), unless
+> a `continue` leaves the loop, which ends the turn by that mark; a `break` leaves by the mark around
+> the whole loop, which stays. **A `while` condition or `for` filter that fails cleanly** — settles,
+> or compares or computes on operands that do — runs as `c; FailIfFalse; Pop`: its failure is its
+> context's anyway, and the next entry failure reaches undoes everything its mark would have.
 
 ### Leaving several marks at once
 

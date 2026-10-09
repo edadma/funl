@@ -513,6 +513,8 @@ walk(w: *Walk, e: &Expr)
                 w.report.add(error(e.span, "`return` is written inside a function")
                     .with_note("it leaves the function it is in, and the top level and a relation are not one"))
 
+            w.sc.returns = true
+
             x match
                 Some(v) -> walk(w, v)
                 None -> ()

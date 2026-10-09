@@ -1,6 +1,6 @@
 module io.github.edadma.funl
 
-import sysl.buf.Buf
+import sysl.buf.{Buf, buf}
 
 // Which statements need no mark around them.
 //
@@ -20,11 +20,33 @@ import sysl.buf.Buf
 // - an ordinary assignment, compound assignment or step of a local (`x = e`, `x += e`, `x++`), which
 //   stores without trailing;
 // - a call of one of the builtins in `settling_builtins`, each answering one value and touching no
-//   trailed state, with such arguments.
+//   trailed state, with such arguments;
+// - a call of one of the program's own functions that settles (below), with such arguments, at the
+//   arity it is defined with;
+// - `if c then a else b` where `a` and `b` settle: the condition is bounded by a mark of its own,
+//   whose `Unmark` cuts and commits whatever it did;
+// - a block whose last statement settles, or is not an expression: every statement before it is
+//   bounded by its own mark, or settles.
 //
-// Anything else -- a comparison, unification, a pattern, a call of a function or relation, a
-// generator, alternation, scanning, a regex, a logic variable, `<-` -- may fail, generate or trail,
-// and keeps its mark.
+// Anything else -- a comparison, unification, a pattern, a call of a relation or of a function value,
+// a generator, alternation, scanning, a regex, a logic variable, `<-`, a loop (which fails when it
+// runs out) -- may fail, generate or trail, and keeps its mark.
+//
+// **A function settles** when every clause's every guarded body settles in tail position and the
+// function neither `yield`s, `return`s nor is `async`. Choosing a clause never fails: a clause whose
+// parameters, `where` values or guards fail moves on to the next, and running out of clauses is an
+// error (`NoMatch`), a fault. A body's statements before its last are bounded by their own marks.
+// `return` is ruled out because its commit is a cut, which leaves the reversible changes made
+// inside the statement it leaves to the caller's mark.
+//
+// Which functions settle is the greatest fixpoint over the program's own: every candidate is first
+// assumed to settle, then any whose body calls one that does not is struck out, until nothing
+// changes. That is sound for recursion because the property is about what a call does when it
+// finishes: the first call in any run to fail, generate or leave a change pending would have to do
+// so through a form of its body that is excluded, or through a call that finished before it --
+// which, being earlier, did not. A function that never finishes breaks nothing. Only functions
+// whose clauses this file resolved are candidates: the prelude's and another module's, compiled
+// elsewhere, are not; nor is a function reached through a value, which a call of a local names.
 
 // Builtins that answer exactly one value or fault, and change nothing failure would undo.
 private settling_builtins(n: string) -> bool =
@@ -83,8 +105,98 @@ settles(c: Ctx, x: &Expr) -> bool
         StepE(n, _, _) -> is_local(c, n, x.span.start)
         CallE(n, at, args) -> c.res.picked(at.start, n, c.meaning(n, at.start), args.len()) match
             Builtin(id) -> settling_builtin(id, n) && all_settle(c, args)
+            Function(r, _) -> settled_function(c.res, r, args.len()) && all_settle(c, args)
             _ -> false
+        IfE(_, yes, no) -> no match
+            Some(other) -> settles(c, yes) && settles(c, other)
+            None -> false
+        BlockE(id, stmts) -> block_settles(c, id, stmts, false)
         _ -> false
+
+// Whether a call of definition `r` with `argc` arguments reaches a function that settles: one called
+// at its own arity, not as the relation of one more.
+private settled_function(res: *Resolved, r: usize, argc: usize) -> bool =
+    r < res.settled.len() && res.settled.at(r) && res.rels.at(r).arity == argc
+
+// Whether block `id`, of statements `stmts`, settles -- in tail position when `tail`: its last
+// statement is an expression that does, or is a statement, after which the block's value is `()`.
+private block_settles(c: Ctx, id: usize, stmts: Buf[Stmt], tail: bool) -> bool
+    if stmts.len() == 0 then return false
+
+    val inner = c.in_block(id) match
+        Ok(b) -> b
+        Err(_) -> return false
+
+    stmts.at(stmts.len() - 1) match
+        ExprS(last) -> if tail then tail_settles(inner, last) else settles(inner, last)
+        _ -> true
+
+// Whether `x`, compiled in tail position (`body_tail`), returns exactly one value or faults.
+private tail_settles(c: Ctx, x: &Expr) -> bool
+    x.kind match
+        IfE(_, yes, no) -> no match
+            Some(other) -> tail_settles(c, yes) && tail_settles(c, other)
+            None -> false
+        BlockE(id, stmts) -> block_settles(c, id, stmts, true)
+        _ -> settles(c, x)
+
+// Whether `x`, a condition followed by `FailIfFalse`, either fails or completes with one value,
+// leaving no choice point and no reversible change: one that settles, or a comparison or arithmetic
+// of operands that do. Such a condition needs no mark of its own where its failure is its context's.
+fails_cleanly(c: Ctx, x: &Expr) -> bool
+    x.kind match
+        BinE(_, a, b) -> settles(c, a) && settles(c, b)
+        EqualE(a, b) -> settles(c, a) && settles(c, b)
+        DifferE(a, b) -> settles(c, a) && settles(c, b)
+        _ -> settles(c, x)
+
+// Decide which of `res`'s definitions are functions that settle: the greatest fixpoint, every
+// candidate assumed to and then struck out while its body says otherwise.
+settle_functions(res: *Resolved)
+    res.settled.clear()
+
+    for r in res.rels.view()
+        res.settled.push(candidate(res, r))
+
+    var changed = true
+
+    while changed
+        changed = false
+
+        for i in 0..<res.rels.len()
+            if res.settled.at(i) && !function_settles(res, res.rels.at(i))
+                res.settled.set(i, false)
+                changed = true
+
+// Whether `r` may settle at all: a function this file resolved, neither `async` nor `yield`ing nor
+// `return`ing in any clause.
+private candidate(res: *Resolved, r: Rel) -> bool
+    if !r.function || r.clauses.len() == 0 || r.scopes.len() != r.clauses.len() || is_async_rel(r)
+        return false
+
+    for sid in r.scopes.view()
+        val sc = res.scopes.at(sid)
+
+        if sc.yields || sc.returns then return false
+
+    true
+
+// Whether every guarded body of every clause of `r` settles in tail position, with the functions
+// `res.settled` marks as they stand.
+private function_settles(res: *Resolved, r: Rel) -> bool
+    for i in 0..<r.clauses.len()
+        var loops: Buf[Looping] = buf()
+        val c = context(res, r.scopes.at(i), &loops)
+
+        r.clauses.at(i).kind match
+            FunctionC(b) ->
+                if b.guards.len() == 0 then return false
+
+                for g in b.guards.view()
+                    if !tail_settles(c, g.body) then return false
+            _ -> return false
+
+    true
 
 private is_local(c: Ctx, n: string, pos: usize) -> bool = c.meaning(n, pos) match
     Local(_, _, _) -> true

@@ -12,6 +12,9 @@ import sysl.buf.{Buf, buf}
 //     break (v)         [ScanLeave(n)]; UnmarkTo(whole); v; Branch(exit)
 //     continue          [ScanLeave(n)]; UnmarkTo(turn); Branch(top)      -- `Fail` instead, into the generator, in `every` and `for`
 //
+// A body that settles runs as `b; Pop` with no turn mark, where no `continue` leaves the loop; a
+// `while`'s condition or a filter that fails cleanly runs as `c; FailIfFalse; Pop` (`settled.sysl`).
+//
 // `[W]` is `MarkThrough; SaveMark(whole)`, a mark around the whole loop, and `[T]` is
 // `SaveMark(turn)` after the mark around one turn. Both are emitted only for a loop something
 // leaves, and `UnmarkTo` truncates the control stack to the recorded mark however many marks the
@@ -65,10 +68,7 @@ compile_while(e: *Emit, c: Ctx, id: usize, label: Option[string], cond: &Expr, b
 
     whole_mark(e, slots)
     e.place(top)
-    e.op(MarkThrough)
-    compile_value(e, c, cond)?
-    e.op(FailIfFalse)
-    e.op(Unmark)
+    through_condition(e, c, cond)?
     turn(e, c, Looping(id, label, exit, top, false, c.scans, last), slots, body, Mark(top))?
     e.op(Branch(top))
     e.place(exit)
@@ -141,13 +141,26 @@ bind_generator(e: *Emit, c: Ctx, g: ForGen) -> Result[unit, string]
     match_fresh(e, c, g.pat)?
 
     g.filter match
-        Some(f) ->
-            e.op(MarkThrough)
-            compile_value(e, c, f)?
-            e.op(FailIfFalse)
-            e.op(Unmark)
+        Some(f) -> through_condition(e, c, f)?
         None -> ()
 
+    Ok(())
+
+// A condition whose failure is its context's -- a `while`'s, which ends the loop, or a filter's, which
+// moves on to the next element: `MarkThrough; c; FailIfFalse; Unmark`. **One that fails cleanly
+// (`fails_cleanly`) runs with no mark**, its value popped: failing, it leaves nothing for the mark to
+// undo that the next entry failure reaches would not undo too, and succeeding, nothing to cut.
+private through_condition(e: *Emit, c: Ctx, cond: &Expr) -> Result[unit, string]
+    if fails_cleanly(c, cond)
+        compile_value(e, c, cond)?
+        e.op(FailIfFalse)
+        e.op(Pop)
+        return Ok(())
+
+    e.op(MarkThrough)
+    compile_value(e, c, cond)?
+    e.op(FailIfFalse)
+    e.op(Unmark)
     Ok(())
 
 // What a binding iterates: `i to j` is its own generator, and a range written in place with an end,
@@ -189,10 +202,30 @@ private whole_mark(e: *Emit, slots: Option[LoopSlots])
 
 // One turn of a loop's body: opened with `open` -- the mark whose failure starts the next turn --
 // recorded for `continue` when something leaves the loop, and closed with `Unmark`.
+//
+// **A body that settles (`settled.sysl`) runs with no turn mark**, its value popped: it cannot fail,
+// leaves no choice point and no reversible change, so the mark would have nothing to do -- unless a
+// `continue` leaves the loop, which ends the turn by that mark. A `break` ends the loop by the mark
+// around the whole loop, which stays.
 private turn(e: *Emit, c: Ctx, l: Looping, slots: Option[LoopSlots], body: Option[&Expr], open: Op) -> Result[unit, string]
     val b = body match
         Some(x) -> x
         None -> return Ok(())
+
+    val continued = slots match
+        Some(s) -> s.continued
+        None -> false
+
+    if !continued && settles(c, b)
+        c.loops.push(l)
+
+        val ran = compile_value(e, c, b)
+
+        c.loops.pop()
+        ran?
+        thrown_away(e, b)
+        e.op(Pop)
+        return Ok(())
 
     e.op(open)
 

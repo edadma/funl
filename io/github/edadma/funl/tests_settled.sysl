@@ -35,6 +35,38 @@ private counted_marks(v: *Vm, name: string) -> string
 
     s"no chunk '$name'"
 
+// How many `Mark`, `MarkThrough` and `Unmark` instructions the chunk named `name` holds, once `text`
+// is compiled.
+private bounds_in(text: string, name: string) -> string
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+
+    val said = compiled_text(text) match
+        Ok(_) -> counted_bounds(&v, name)
+        Err(e) -> s"assembly: $e"
+
+    dispose_vm(&v)
+    leave(was)
+    said
+
+private counted_bounds(v: *Vm, name: string) -> string
+    for ch in v.chunks.view()
+        if ch.name == name
+            var marks: usize = 0
+            var throughs: usize = 0
+            var unmarks: usize = 0
+
+            for o in ch.code.view()
+                o match
+                    Mark(_) -> marks += 1
+                    MarkThrough -> throughs += 1
+                    Unmark -> unmarks += 1
+                    _ -> ()
+
+            return s"$marks/$throughs/$unmarks"
+
+    s"no chunk '$name'"
+
 // A function's clause has one mark of its own, around its head; every other is a statement's.
 @test
 AN_ASSIGNMENT_OF_ARITHMETIC_ON_LOCALS_RUNS_WITHOUT_A_MARK()
@@ -44,7 +76,7 @@ AN_ASSIGNMENT_OF_ARITHMETIC_ON_LOCALS_RUNS_WITHOUT_A_MARK()
 A_STATEMENT_THAT_MAY_FAIL_OR_GENERATE_KEEPS_ITS_MARK()
     assert_eq(marks_in("def f()\n  var x = 0\n  x = (1 | 2)\n  x\n", "f"), "2 marks, 2 unmarks")
     assert_eq(marks_in("def f()\n  var x = 0\n  x < 3\n  x\n", "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g() = 1\ndef f()\n  val x = g()\n  x\n", "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g() = 1 | 2\ndef f()\n  val x = g()\n  x\n", "f"), "2 marks, 2 unmarks")
     assert_eq(marks_in("def f()\n  var x = 0\n  x <- 3\n  x\n", "f"), "2 marks, 2 unmarks")
     assert_eq(marks_in("def f()\n  var x = 0\n  x = 6 div 3\n  x\n", "f"), "2 marks, 2 unmarks")
 
@@ -81,3 +113,157 @@ A_FAULT_IN_A_STATEMENT_WITHOUT_A_MARK_IS_REPORTED_AND_CAUGHT_AS_BEFORE()
 
     assert(said.starts_with("zero_divisor\n[number, a]\n1\n2\n3\nfault: "), said)
     assert(said.contains("5 / 0 divides by zero"), said)
+
+// Functions that settle: one clause or several, guarded, partial, recursive, mutually recursive, with
+// a block body. Choosing a clause never fails -- running out of them is an error -- so none of these
+// can fail, and a call of one is a statement that settles.
+private const SettledFunctions: string = "def double( x ) = x * 2\n" +
+    "def fib( n ) | n < 2 = n\n" +
+    "def fib( n ) = fib( n - 1 ) + fib( n - 2 )\n" +
+    "def count( 0, acc ) = acc\n" +
+    "def count( n, acc ) = count( n - 1, acc + n )\n" +
+    "def sign( x ) = if x < 0 then -1 else if x == 0 then 0 else 1\n" +
+    "def even( n ) = if n == 0 then true else odd( n - 1 )\n" +
+    "def odd( n ) = if n == 0 then false else even( n - 1 )\n" +
+    "def area( w, h )\n  val a = w * h\n  write( #area )\n  a + 0\n" +
+    "def pick( #a ) = 1\n" +
+    "def pick( _ ) = 2\n" +
+    "def part( 0 ) = #zero\n" +
+    "def guarded( x )\n  | x > 10 = #big\n  | x > 0 = #small\n  | otherwise = #none\n" +
+    "def run()\n" +
+    "  val a = double( 4 )\n" +
+    "  val b = fib( 10 )\n" +
+    "  var c = count( 100, 0 )\n" +
+    "  c += sign( -5 ) + sign( 0 ) + sign( 9 )\n" +
+    "  val d = even( 7 )\n" +
+    "  val e = area( 3, 4 )\n" +
+    "  val f = pick( #a ) + pick( #z )\n" +
+    "  val g = [guarded( 20 ), guarded( 5 ), guarded( -1 )]\n" +
+    "  double( 1 )\n" +
+    "  write( a, b, c, d, e, f, g )\n" +
+    "  part( 0 )\n" +
+    "\n" +
+    "run()\n" +
+    "write( part( 1 ) catch _ -> #no_clause )\n"
+
+@test
+A_CALL_OF_A_FUNCTION_THAT_SETTLES_RUNS_WITHOUT_A_MARK()
+    assert_eq(marks_in(SettledFunctions, "run"), "1 marks, 1 unmarks")
+    // The top level's two are the `catch` statement's: its own mark and the one `catch` makes.
+    assert_eq(marks_in(SettledFunctions, "main"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def r() = 2\n\nr()\n", "main"), "0 marks, 0 unmarks")
+    assert_eq(ran_funl(SettledFunctions), "area\n8, 55, 5050, false, 12, 3, [big, small, none]\nno_clause\nsucceeded")
+
+@test
+A_CALL_OF_A_FUNCTION_THAT_MAY_FAIL_OR_GENERATE_KEEPS_ITS_MARK()
+    val caller = "\ndef f()\n  val y = g( 1 )\n  y\n"
+
+    // A comparison, a generator, an `if` with no `else`, `return`, `yield`, a call of one that may
+    // fail, a call of a value, recursion and mutual recursion that reach `fail`, `async`, `<-`.
+    assert_eq(marks_in("def g( x ) = x < 3" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( x ) = x | x + 1" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( x ) = if x > 0 then x" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( x )\n  return x\n  x" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( x )\n  yield x\n  x" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def k( x ) = x < 3\ndef g( x ) = k( x ) + 0" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( x ) = x( 1 )" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( n ) = if n == 0 then fail else g( n - 1 )" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( n ) = if n == 0 then fail else h( n - 1 )\ndef h( n ) = if n == 0 then 0 else g( n - 1 )" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("async def g( x ) = x" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( x ) = (x <- 2)" + caller, "f"), "2 marks, 2 unmarks")
+
+    // A function that settles, reached through a value, is a call of a value.
+    assert_eq(marks_in("def g( x ) = x * 2\ndef f()\n  val h = g\n  val y = h( 3 )\n  y\n", "f"), "3 marks, 3 unmarks")
+
+@test
+A_FAILING_CALL_STILL_MOVES_ON_AND_A_GENERATING_ONE_STILL_GENERATES()
+    val text = "def lt3( x ) = x < 3\n" +
+        "def both( x ) = x | x + 1\n" +
+        "def half( x ) = if x > 0 then x\n" +
+        "def early( x )\n  return x div 4\n  x\n" +
+        "def gen( x )\n  yield x\n  yield x + 1\n" +
+        "def via( x ) = lt3( x ) + 0\n" +
+        "def apply( f, x ) = f( x )\n" +
+        "def down( n ) = if n == 0 then fail else down( n - 1 )\n" +
+        "def ping( n ) = if n == 0 then fail else pong( n - 1 )\n" +
+        "def pong( n ) = if n == 0 then 0 else ping( n - 1 )\n" +
+        "def guard( x ) | x > 0 = x\n" +
+        "def part( 0 ) = #zero\n" +
+        "\n" +
+        "def run()\n" +
+        "  var r = []\n" +
+        "  val a = lt3( 5 )\n  r = r + [#a]\n" +
+        "  val b = half( -1 )\n  r = r + [#b]\n" +
+        "  val c = early( 3 )\n  r = r + [#c]\n" +
+        "  val d = via( 7 )\n  r = r + [#d]\n" +
+        "  val e = apply( (y) -> y > 0, -2 )\n  r = r + [#e]\n" +
+        "  val f = down( 3 )\n  r = r + [#f]\n" +
+        "  val g = ping( 3 )\n  r = r + [#g]\n" +
+        "  val h = ping( 2 )\n  r = r + [#h, h]\n" +
+        "  val k = (guard( -1 ) catch _ -> #no_guard)\n" +
+        "  val m = (part( 1 ) catch _ -> #no_part)\n" +
+        "  r = r + [k, m]\n" +
+        "  r\n" +
+        "\n" +
+        "write( run() )\n" +
+        "every write( both(10) )\n" +
+        "every write( gen(20) )\n"
+
+    assert_eq(ran_funl(text), "[a, b, c, d, e, f, g, h, undefined, no_guard, no_part]\n10\n11\n20\n21\nsucceeded")
+
+@test
+A_FUNCTION_ANOTHER_MODULE_DEFINES_IS_NOT_TAKEN_TO_SETTLE()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "twice.funl", "export def double( x ) = x * 2\n")
+    val text = s"import { double } from \"$m\"\n" + "def f()\n  val y = double( 3 )\n  y\n\nwrite( f() )\n"
+
+    assert_eq(marks_in(text, "f"), "2 marks, 2 unmarks")
+    assert_eq(ran_funl(text), "6\nsucceeded")
+
+@test
+A_LOOP_WHOSE_BODY_SETTLES_RUNS_EACH_TURN_WITHOUT_A_MARK()
+    // The counts are `Mark`/`MarkThrough`/`Unmark` in the top level: one `Mark` and `Unmark` is the
+    // loop statement's own.
+    assert_eq(bounds_in("def sq( x ) = x * x\nvar s = 0\nfor x <- 1..5 do s += sq( x )\n", "main"), "1/0/1")
+    assert_eq(bounds_in("var i = 0\nvar t = 0\nwhile i < 5\n  t = t + i\n  i += 1\n", "main"), "1/0/1")
+    assert_eq(bounds_in("var u = 0\nfor x <- 1..10 if x % 3 == 0 do u += x\n", "main"), "1/0/1")
+    assert_eq(bounds_in("var n = 0\nevery (1 | 2 | 3) do n += 1\n", "main"), "1/0/1")
+    assert_eq(bounds_in("var y = 0\nrepeat\n  y += 1\n  if y >= 7 then break\n  y += 0\n", "main"), "3/1/3")
+
+    // A `break` leaves by the mark around the whole loop, which stays; a `continue` ends the turn by
+    // its mark, which stays too.
+    assert_eq(bounds_in("var j = 0\nvar w = 0\nwhile true\n  j += 1\n  if j > 4 then break\n  w += j\n", "main"), "3/1/3")
+    assert_eq(bounds_in("var z = 0\nfor x <- 1..6\n  if x % 2 == 0 then continue\n  z += x\n", "main"), "3/2/4")
+
+@test
+A_LOOP_WHOSE_BODY_OR_CONDITION_MAY_FAIL_OR_GENERATE_KEEPS_ITS_MARK()
+    assert_eq(bounds_in("var p = 0\nwhile p < (3 | 9)\n  p += 1\n", "main"), "1/1/2")
+    assert_eq(bounds_in("for x <- 1..3 do x > 1\n", "main"), "1/1/2")
+    assert_eq(bounds_in("for x <- 1..3 if x > (1 | 2) do write( x )\n", "main"), "1/1/2")
+    assert_eq(bounds_in("def g( x ) = x | 1\nvar s = 0\nfor x <- 1..3 do s = g( x )\n", "main"), "1/1/2")
+
+@test
+LOOPS_WHOSE_BODIES_SETTLE_GIVE_WHAT_THEY_GAVE_WITH_MARKS()
+    val text = "def sq( x ) = x * x\n" +
+        "var s = 0\nfor x <- 1..5 do s += sq( x )\nwrite( s )\n" +
+        "var i = 0\nvar t = 0\nwhile i < 5\n  t = t + sq( i )\n  i += 1\nwrite( t )\n" +
+        "var u = 0\nfor x <- 1..10 if x % 3 == 0 do u += x\nwrite( u )\n" +
+        "var n = 0\nevery k <- (1 | 2 | 3) do n += k\nwrite( n )\n" +
+        "var j = 0\nvar w = 0\nwhile true\n  j += 1\n  if j > 4 then break\n  w += j\nwrite( j, w )\n" +
+        "var q = 0\nouter: for a <- 1..3\n  for b <- 1..3\n    if b > a then break outer\n    q += 10 * a + b\n  q += 100\nwrite( q )\n" +
+        "var z = 0\nfor x <- 1..6\n  if x % 2 == 0 then continue\n  z += x\nwrite( z )\n" +
+        "var y = 0\nrepeat\n  y += 1\n  if y >= 7 then break\n  y += 0\nwrite( y )\n" +
+        "var v = 0\nfor x <- 1..3 do v += (sq( x ) catch _ -> 0)\nwrite( v )\n" +
+        "var p = 0\nwhile p < (3 | 9)\n  p += 1\nwrite( p )\n"
+
+    assert_eq(ran_funl(text), "55\n30\n18\n6\n5, 10\n11\n9\n7\n14\n9\nsucceeded")
+
+@test
+A_FAULT_IN_A_LOOP_BODY_WITHOUT_A_MARK_IS_REPORTED_AND_CAUGHT_AS_BEFORE()
+    val text = "def f()\n  var k = 0\n  while k < 3\n    k += 1\n    write( k )\n    k = k / 0\n  k\n\nwrite( f() catch error(evaluation_error(w), _) -> w )\nvar r = 0\nfor x <- 1..3 do r = x / 0\n"
+    val said = ran_funl(text)
+
+    assert(said.starts_with("1\nzero_divisor\nfault: "), said)
+    assert(said.contains("1 / 0 divides by zero"), said)
