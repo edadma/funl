@@ -274,7 +274,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         GetValue(slot, src) -> Ok(fails_if(get_value(v, slot, src)?))
         GetConst(k, src) -> Ok(fails_if(get_const(v, k, src)?))
         GetCompound(functor, n, src) -> Ok(fails_if(get_compound(v, functor, n, src)?))
-        GetMap(n, rest, exact, src) -> Ok(fails_if(get_map(v, n, rest, exact, src)?))
+        GetMap(n, rest, given, exact, src) -> Ok(fails_if(get_map(v, n, rest, given, exact, src)?))
         PushUnit ->
             v.stack.push(Unit)
             Ok(Next)

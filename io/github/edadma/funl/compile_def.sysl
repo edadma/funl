@@ -382,10 +382,29 @@ private head_arg(e: *Emit, sc: *Scope, p: &Expr, src: Src, seen: *Buf[bool]) -> 
     Ok(())
 end head_arg
 
-// A map pattern in a head: its keys pushed, `GetMap`, then each value's head argument and the rest's.
-// A key variable no earlier argument has bound is a fresh variable here, which `GetMap` refuses as
-// an unbound key.
+// A map pattern in a head: a rest name an earlier argument bound pushed, then its keys, `GetMap`, then
+// each value's head argument and the rest's. A key variable no earlier argument has bound is a fresh
+// variable here, which `GetMap` refuses as an unbound key.
 private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest: Option[&Expr], src: Src, seen: *Buf[bool]) -> Result[unit, string]
+    val named: Option[&Expr] = rest match
+        Some(r) -> r.kind match
+            Anon -> None
+            _ -> Some(r)
+        None -> None
+
+    var given = false
+
+    named match
+        Some(r) -> r.kind match
+            Ref(n) ->
+                val s = sc.slot(n).unwrap()
+
+                if seen.at(s)
+                    given = true
+                    e.op(LoadSlot(0, s))
+            _ -> ()
+        None -> ()
+
     for k in keys.view()
         k.kind match
             Ref(n) ->
@@ -403,13 +422,7 @@ private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest:
             BoolE(b) -> e.op(PushConst(e.constant(boolean(b))))
             _ -> return Err("a head key the resolver refused reached the compiler")
 
-    val named: Option[&Expr] = rest match
-        Some(r) -> r.kind match
-            Anon -> None
-            _ -> Some(r)
-        None -> None
-
-    e.op(GetMap(keys.len(), named.is_some(), rest.is_none() && keys.len() == 0, src))
+    e.op(GetMap(keys.len(), named.is_some(), given, rest.is_none() && keys.len() == 0, src))
 
     for x in vals.view()
         head_arg(e, sc, x, Popped, seen)?

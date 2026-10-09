@@ -1095,7 +1095,8 @@ place's rule, unchanged:
 | a relation head | the next clause, by backtracking |
 
 What faults is what faults in any expression: a computed key whose expression faults, and in a
-relation a key that is an unbound logic variable (`instantiation_error`, as `is` gives).
+relation head a key that is an unbound logic variable (`instantiation_error`, as `is` gives). `~`
+never faults on one: a map holding an unbound key does not unify (point 7).
 
 **6. In a relation, a map pattern is unified, and builds the map it names (M4).** A head argument
 `{k: p, ...}` compiles as a compound does ([head unification](logic.md#head-unification-is-two-way)):
@@ -1103,7 +1104,7 @@ relation a key that is an unbound logic variable (`instantiation_error`, as `is`
 | the caller's argument | `{a: x, b: 1}` | `{a: x, ..r}` |
 |---|---|---|
 | a map | each named key's value unified with its pattern, two-way; other keys ignored | the same, and `r` unified with a map of the other entries |
-| an unbound variable | **build `{a: X, b: 1}` with fresh variables and bind it**, as `point(a, b)` builds a term | the same map, and `r` unified with `{}` |
+| an unbound variable | **build `{a: X, b: 1}` with fresh variables and bind it**, as `point(a, b)` builds a term | the same map, and `r` unified with `{}`; when an earlier argument bound `r` to an immutable map, the map built holds `r`'s entries too (`{a: X}` and `r = {b: 2}` build `{a: X, b: 2}`), and `r` bound to anything else, or holding `a`, fails |
 | anything else | fails | fails |
 
 So `def age( {name: n, age: a}, n, a )` answers `age(p, "ann", x)` for a known `p`, whatever else
@@ -1114,7 +1115,8 @@ So `def age( {name: n, age: a}, n, a )` answers `age(p, "ann", x)` for a known `
 agrees: today `{a: x} ~ {a: 1}` fails because a map is opaque and unifies only with itself. An
 immutable map cannot change, which is the reason the term mapping gave for opacity, so it can be
 unified as a term: the same set of keys (compared as `==` compares keys; a key that is an unbound
-variable is an `instantiation_error`), then each pair of values pushed onto the work list. A mutable
+variable cannot be compared, so the maps do not unify — `~` fails, as Prolog's `=` never raises),
+then each pair of values pushed onto the work list. A mutable
 map stays opaque and unifies by identity. To Prolog an immutable map is still printed `<map>` and
 cannot be taken apart by a Prolog head; it only now unifies by content.
 
@@ -1163,7 +1165,13 @@ runnable block.
 >   the keys the pattern names, each value a fresh variable unified with its pattern; there is no
 >   `instantiation_error`. `..rest` then builds nothing extra: the rest is `{}`.
 > - **M5: `~` unifies two immutable maps by content** — the same keys, then the values unified; a
->   mutable map stays opaque and unifies by identity.
+>   mutable map stays opaque and unifies by identity. **A key that is an unbound variable fails `~`**,
+>   as Prolog's `=` never raises (user, 2026-10-09); in a relation head it stays an
+>   `instantiation_error`.
+> - **M4a: a head's `..rest` already bound (user, 2026-10-09).** Given an unbound argument while an
+>   earlier argument has bound `rest` to an immutable map, the head builds the keys it names plus
+>   `rest`'s entries (`p(r, {a: x, ..r})` with `r = {b: 2}` builds `{a: X, b: 2}`). `rest` bound to
+>   anything else, or holding a key the pattern names, fails the clause; an unbound `rest` is `{}`.
 > - **M6: the braces.** No block lambda; `{x:xs -> x}` stays the map reading and its refusal gains a
 >   note; a lambda over a map pattern needs nothing new; no set patterns; no key punning.
 > - **M7: no spread in an expression.** `..m` there is refused, its note naming the pattern form.
