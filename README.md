@@ -27,7 +27,7 @@ With Homebrew:
 brew install edadma/tap/funl
 ```
 
-Or build from source. You need `sysl` 0.1.0-alpha.4 or later:
+Or build from source. You need `sysl` 0.1.0-alpha.5 or later:
 
 ```
 brew install sysl-lang/tap/sysl
@@ -95,6 +95,13 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
 - [`docs/library/`](docs/library/README.md) documents the modules, each imported by a name beginning
   `funl:`: `funl:fs`, `funl:process`, `funl:json`, `funl:time`, `funl:sqlite`, `funl:async` and
   `funl:http` (`fetch`, which needs libcurl on the machine). Prolog reaches them too.
+- `funl:async` also has promise-shaped `fetch`, `read_file`, `write_file` and `run`, driven by libuv
+  (Homebrew's `libuv` on macOS).
+- `funl:process` has `env()`, which lists every environment variable, and an `inherit_env` option on
+  `run`. A bare program name is found on the child's `PATH`.
+- Input that is not valid UTF-8 is an error rather than a crash: a file name from `funl:fs`
+  `read_dir` faults with `system_error`, an imported or consulted source is reported as unreadable,
+  and Prolog's standard input refuses it. `ß` upper-cases to itself.
 - The prelude is a list library every program sees: folds, `map` and the other transformers,
   slicing, zipping, `any`, `all`, `elem` and `lookup`. A program's own names shadow it.
 - `async def` and `await` run tasks as parked machines on one loop, with promises from `funl:async`;

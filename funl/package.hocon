@@ -4,7 +4,7 @@
 
 package {
   name    = "funl"
-  version = "0.0.3"
+  version = "0.0.4"
   sysl    = "0.1.0-alpha.5"
 }
 
