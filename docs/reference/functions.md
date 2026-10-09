@@ -367,8 +367,9 @@ pt(3), pt(3, 4)
 
 Every parameter is a pattern. A pattern may be a literal, a variable, `_` (which matches anything
 and binds nothing), a tuple `(a, b)`, a list `[x, y]`, the empty list `[]`, a cons `x:xs` (a
-non-empty list split into its head and the rest), a record `point(x, y)`, an alternation `1 | 2`,
-or a named pattern `p@(a, b)`, which binds the whole argument as well as its parts.
+non-empty list split into its head and the rest), a record `point(x, y)`, a map `{name: n}`
+([below](#map-patterns)), an alternation `1 | 2`, or a named pattern `p@(a, b)`, which binds the
+whole argument as well as its parts.
 
 ```funl
 def kind( 0 ) = 'zero'
@@ -467,6 +468,128 @@ write( l )
 ```output
 [2, 3]
 [1, 2, 3]
+```
+
+### Map patterns
+
+A map pattern is written like a map literal, each value a pattern. It matches any map that has every
+key it names, whatever other keys the map holds; a key it names that the map lacks is a mismatch,
+and so is a value that is not a map. `{}` matches only the empty map, and `{..}` any map. A mutable
+map matches through its entries, as an immutable one does.
+
+```funl
+def describe( {name: n, age: a} ) = n + ' is ' + a
+def describe( {name: n} ) = n + ', age unknown'
+def describe( {} ) = 'nobody'
+def describe( {..} ) = 'a map with no name'
+def describe( _ ) = 'not a map'
+
+write( describe({name: 'ann', age: 30, town: 'york'}) )
+write( describe({name: 'bob'}) )
+write( describe({}) )
+write( describe({town: 'york'}) )
+write( describe(map({name: 'cy'})) )
+write( describe([1, 2]) )
+```
+
+```output
+ann is 30
+bob, age unknown
+nobody
+a map with no name
+cy, age unknown
+not a map
+```
+
+The last item may be `..rest`, which binds `rest` to an immutable map of the entries the pattern does
+not name:
+
+```funl
+val {name: n, ..rest} = {name: 'ann', age: 30, town: 'york'}
+write( n )
+write( rest )
+```
+
+```output
+ann
+{"age": 30, "town": "york"}
+```
+
+A map that must hold exactly the named keys is matched with the rest and a guard that it is empty:
+
+```funl
+def exactly( {a: x, ..r} ) | r == {} = x
+def exactly( _ ) = 'more than a'
+
+write( exactly({a: 1}), exactly({a: 1, b: 2}) )
+```
+
+```output
+1, more than a
+```
+
+Keys are written as in a literal: a bare name is that name as a string, a constant is itself, and a
+key in parentheses is an expression, evaluated when the pattern is tried. A pattern never binds a key.
+The same holds in a literal, where `(field)` is the variable's value and `field` the string:
+
+```funl
+val field = 'age'
+val {(field): a, 1: one, #k: k} = {name: 'ann', age: 30, 1: 'first', #k: 'atom'}
+write( a, one, k )
+write( {field: 1}, {(field): 1} )
+```
+
+```output
+30, first, atom
+{"field": 1}, {"age": 1}
+```
+
+A mismatch does what it does for any pattern in that place: a `val` fails and leaves its names
+unassigned, a value drawn by `<-` is passed over, and a function tries its next clause. A mutable
+map's default is not one of its entries:
+
+```funl
+val counts = map({}, 0)
+counts('seen') = 2
+write( [n | {seen: n} <- [counts, {seen: 5}, 'seen', {other: 1}]] )
+write( [n | {unseen: n} <- [counts]] )
+val {unseen: u} = counts
+write( u )
+```
+
+```output
+[2, 5]
+[]
+undefined
+```
+
+A pattern names a key once, and a set is not a pattern:
+
+```funl
+val {a: x, 'a': y} = {a: 1}
+```
+
+```error
+this key is already in the map pattern
+```
+
+```funl
+val {x, y} = {1, 2}
+```
+
+```error
+a set is not a pattern
+```
+
+`..` belongs only to a pattern; it does not build a map:
+
+```funl
+val m = {a: 1}
+write( {b: 2, ..m} )
+```
+
+```error
+`..` does not build a map: it belongs to a map pattern
 ```
 
 ## `where`

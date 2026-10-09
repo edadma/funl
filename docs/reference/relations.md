@@ -93,6 +93,24 @@ same
 4
 ```
 
+Two immutable maps unify when they have the same keys, each pair of values unified, in whatever
+order the entries were written. A mutable map can change, so it unifies only with itself:
+
+```funl
+free x, y
+{name: x, tags: [y]} ~ {tags: ['new'], name: 'ann'}
+write( x, y )
+write( {a: 1} ~ {a: 1, b: 2} )
+write( map({a: 1}) ~ map({a: 1}) )
+val m = map({a: 1})
+write( m ~ m )
+```
+
+```output
+ann, new
+MutableMap("a": 1)
+```
+
 ## Atoms
 
 An **atom** is a bare name, written `#` and the name: `#don`. Two atoms unify when they are the same
@@ -331,6 +349,64 @@ if point_x(p, 5) then write( p )
 
 ```output
 point(5, _G2)
+```
+
+A map pattern in a head ([Functions](functions.md#map-patterns)) is unified the same way. Given a
+map, each key it names must be there, other keys being ignored, and each value is unified with its
+pattern; given an unbound variable, it builds a map of exactly the keys it names, each value a fresh
+variable:
+
+```funl
+def age( {name: n, age: a}, n, a )
+
+free a, p
+if age({name: 'ann', age: 30, town: 'york'}, 'ann', a) then write( a )
+if age(p, 'bob', 40) then write( p )
+```
+
+```output
+30
+{"name": "bob", "age": 40}
+```
+
+`..rest` is unified with a map of the other entries, and with `{}` when the map is built:
+
+```funl
+def named( {name: n, ..others}, n, others )
+
+free n, o, p, q
+if named({name: 'cy', a: 1, b: 2}, n, o) then write( n, o )
+if named(p, 'di', q) then write( p, q )
+```
+
+```output
+cy, {"a": 1, "b": 2}
+{"name": "di"}, {}
+```
+
+A key in a head is a constant, or a variable in parentheses that an earlier argument binds. A key
+that is still unbound when the clause is tried is an error:
+
+```funl
+def field( k, {(k): v}, v )
+
+free v
+if field('b', {a: 1, b: 2}, v) then write( v )
+```
+
+```output
+2
+```
+
+```funl
+def field( k, {(k): v}, v )
+
+free k
+field( k, {a: 1}, 1 )
+```
+
+```error
+instantiation error: a map pattern's key is an unbound variable
 ```
 
 ## Calling a relation from FunL

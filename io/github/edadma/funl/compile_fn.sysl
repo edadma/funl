@@ -291,10 +291,49 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
             e.op(Dup)
             bind_name(e, c, n, seen, param)?
             pattern(e, c, x, seen, param)?
+        MapE(keys, vals) -> map_pattern(e, c, keys, vals, None, seen, param)?
+        MapRestE(keys, vals, rest) -> map_pattern(e, c, keys, vals, Some(rest), seen, param)?
         _ -> return Err("a pattern the resolver refused reached the compiler")
 
     Ok(())
 end pattern
+
+// `{k: p, ...}`, `{k: p, ..rest}`: the keys evaluated over the value, then `MatchMap`, then each
+// value's pattern and the rest's. A key that is not a constant is an expression whose first value is
+// the key; its failure is the pattern's. A bare `..` or `.._` asks for no rest map.
+private map_pattern(e: *Emit, c: Ctx, keys: Buf[&Expr], vals: Buf[&Expr], rest: Option[&Expr], seen: *Buf[bool], param: usize) -> Result[unit, string]
+    inspect(e, param)
+    map_keys(e, c, keys)?
+
+    val named: Option[&Expr] = rest match
+        Some(r) -> r.kind match
+            Anon -> None
+            _ -> Some(r)
+        None -> None
+
+    e.op(MatchMap(keys.len(), named.is_some(), rest.is_none() && keys.len() == 0))
+
+    for x in vals.view()
+        pattern(e, c, x, seen, param)?
+
+    named match
+        Some(r) -> pattern(e, c, r, seen, param)?
+        None -> ()
+
+    Ok(())
+
+// A map pattern's keys, pushed in order: a constant as itself, any other key the first value of its
+// expression.
+map_keys(e: *Emit, c: Ctx, keys: Buf[&Expr]) -> Result[unit, string]
+    for k in keys.view()
+        if constant_key(k)
+            compile_value(e, c, k)?
+        else
+            e.op(MarkThrough)
+            compile_value(e, c, k)?
+            e.op(UnmarkKeep)
+
+    Ok(())
 
 // Before a pattern looks inside the value on top: the check that names the function, where the
 // pattern is one of its parameters.

@@ -142,6 +142,9 @@ well, as SWI-Prolog's rationals are. `true` and `false` are atoms on both sides.
 > cursors are opaque** — they unify only with themselves and print as `<map>`, `<function>` and so
 > on — because their contents can change and a term that changes under a binding is not a term;
 > **`()` and `undefined`** are two distinct constants that unify only with themselves.
+> *Revised for immutable maps (user, 2026-10-09, [map patterns](language.md#map-patterns) M5):* an
+> immutable map cannot change, so it unifies with another by content — the same keys, then the
+> values unified. It still prints `<map>`; a mutable map stays opaque.
 > **Rejected:** tuples as `','(a, b)` (the conjunction functor, which some systems use and every
 > reader trips on); or converting maps to association lists at the boundary, which copies on every
 > call and silently breaks identity.

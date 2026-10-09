@@ -285,13 +285,81 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
         AsE(n, x) ->
             w.sc.declare(w.blk, n, p.span, from, fixed)
             declare_pattern(w, x, from, fixed)
+        MapE(keys, vals) -> declare_map(w, keys, vals, from, fixed)
+        MapRestE(keys, vals, rest) ->
+            declare_map(w, keys, vals, from, fixed)
+
+            rest.kind match
+                Ref(_) -> declare_pattern(w, rest, from, fixed)
+                Anon -> ()
+                _ ->
+                    w.report.add(error(rest.span, "a map pattern's `..` is followed by a name, `_` or nothing")
+                        .with_note("`..rest` binds `rest` to a map of the entries the pattern does not name"))
+        SetE(_) ->
+            w.report.add(error(p.span, "a set is not a pattern")
+                .with_note("matching a set means searching it: test a member with `x in s`, draw them with `x <- !s`, and the kind with `s is set`"))
         BadE -> ()
         _ -> unmatchable(w, p)
 end declare_pattern
 
+// A map literal's value; a lambda under a key written as a name is noted for `split_lambda_notes`.
+private walk_entry_value(w: *Walk, k: &Expr, x: &Expr)
+    walk(w, x)
+
+    k.kind match
+        StrE(n) -> x.kind match
+            LambdaE(_, _) -> w.res.split_lambdas.push((x.span, n))
+            _ -> ()
+        _ -> ()
+
+// A map pattern's entries: each key an expression, walked where it is written and never declared,
+// and each value a pattern. Two keys that are one constant are refused: no map has both.
+private declare_map(w: *Walk, keys: Buf[&Expr], vals: Buf[&Expr], from: usize, fixed: bool)
+    for i in 0..<keys.len()
+        val k = keys.at(i)
+
+        if constant_key(k)
+            for j in 0..<i
+                if same_constant_key(keys.at(j), k)
+                    w.report.add(error(k.span, "this key is already in the map pattern")
+                        .with_note("a map holds a key once, so a pattern names it once"))
+                    break
+        else
+            walk(w, k)
+
+        declare_pattern(w, vals.at(i), from, fixed)
+
+// Whether a map key is written as a constant, which a pattern compares without evaluating.
+constant_key(k: &Expr) -> bool = k.kind match
+    StrE(_) -> true
+    IntE(_) -> true
+    AtomE(_) -> true
+    BoolE(_) -> true
+    NumE(_) -> true
+    _ -> false
+
+// Whether two constant keys are one key.
+same_constant_key(a: &Expr, b: &Expr) -> bool = a.kind match
+    StrE(x) -> b.kind match
+        StrE(y) -> x == y
+        _ -> false
+    IntE(x) -> b.kind match
+        IntE(y) -> x == y
+        _ -> false
+    AtomE(x) -> b.kind match
+        AtomE(y) -> x == y
+        _ -> false
+    BoolE(x) -> b.kind match
+        BoolE(y) -> x == y
+        _ -> false
+    NumE(x) -> b.kind match
+        NumE(y) -> x == y
+        _ -> false
+    _ -> false
+
 private unmatchable(w: *Walk, p: &Expr)
     w.report.add(error(p.span, "this cannot be matched against anything")
-        .with_note("a pattern is a name, `_`, a constant, a tuple, a list `[a, b]` or `h:t`, a term, an alternation `p | q`, or `name@pattern`"))
+        .with_note("a pattern is a name, `_`, a constant, a tuple, a list `[a, b]` or `h:t`, a map `{k: p}`, a term, an alternation `p | q`, or `name@pattern`"))
 
 // Whether `f`, a pattern's `m.name` given `argc` fields (`None` for the bare name), is a qualified
 // name: `m` a module. A name the module does not export, or that is not a constructor of as many
@@ -362,8 +430,11 @@ walk(w: *Walk, e: &Expr)
             for x in keys.view()
                 walk(w, x)
 
-            for x in vals.view()
-                walk(w, x)
+            for i in 0..<vals.len()
+                walk_entry_value(w, keys.at(i), vals.at(i))
+        MapRestE(_, _, rest) ->
+            w.report.add(error(rest.span, "`..` does not build a map: it belongs to a map pattern")
+                .with_note("in a pattern, `{k: p, ..rest}` binds `rest` to a map of the entries it does not name, as in `val {a: x, ..rest} = m`"))
         SetE(items) ->
             for x in items.view()
                 walk(w, x)

@@ -274,6 +274,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         GetValue(slot, src) -> Ok(fails_if(get_value(v, slot, src)?))
         GetConst(k, src) -> Ok(fails_if(get_const(v, k, src)?))
         GetCompound(functor, n, src) -> Ok(fails_if(get_compound(v, functor, n, src)?))
+        GetMap(n, rest, exact, src) -> Ok(fails_if(get_map(v, n, rest, exact, src)?))
         PushUnit ->
             v.stack.push(Unit)
             Ok(Next)
@@ -371,6 +372,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
                     Ok(Next)
                 Var(_) -> Err(instantiation_error(s"instantiation error: a pattern '${atom_name(functor)}(...)' was given an unbound variable"))
                 _ -> Ok(Fails)
+        MatchMap(n, rest, exact) -> Ok(fails_if(match_map(v, n, rest, exact)?))
         NoMatch ->
             no_match(v)?
             Ok(Next)

@@ -346,6 +346,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(StoreBack(v.depth, v.slot))
         UndefE -> e.op(PushConst(e.constant(Undefined)))
         MapE(keys, vals) -> compile_map(e, c, keys, vals)?
+        MapRestE(_, _, _) -> return Err("a map pattern's `..` the resolver refused reached the compiler")
         SetE(items) -> compile_set(e, c, items)?
         SetElemE(coll, k, a, back) -> compile_store(e, c, coll, k, a, back)?
         UpdateElemE(coll, k, o, a) -> compile_update(e, c, coll, k, o, a)?

@@ -977,8 +977,9 @@ none.
 
 ### Map patterns
 
-*Open (2026-10-09): a design with a recommendation; nothing below is built. The questions are at the
-end of this section and in the [README](README.md#open-questions).*
+*Decided (user, 2026-10-09): M1–M7 at the end of this section, M1 and M4 revised from the
+recommendation — a map pattern matches partially, and in a relation it builds the map it names. The
+design below is written to the decisions.*
 
 **A map is FunL's record of named parts — a parsed JSON object, an options argument, a row — and a
 pattern cannot take one apart.** Every other compound value has a pattern: a tuple, a list, a cons,
@@ -1031,28 +1032,26 @@ always opens a collection; nothing has to tell a block of code from a set.
 the end:
 
 ```
-{k1: p1, k2: p2}           exactly these keys
-{k1: p1, ..}               these keys, and any others
+{k1: p1, k2: p2}           these keys, and any others
 {k1: p1, ..rest}           these keys; `rest` is an immutable map of the others
 {}                         the empty map
 {..}                       any map
 ```
 
-Each `p` is any pattern, nested freely (`{point: (x, y), tags: t:_}`). `..` or `..name` may only be
-the last item, once, and only in a pattern; in an expression it is refused (question 7). The entry is
+Each `p` is any pattern, nested freely (`{point: (x, y), tags: t:_}`). `..`, `.._` or `..name` may
+only be the last item, once, and only in a pattern; in an expression it is refused (M7). The entry is
 split at its top `:` exactly as in a literal, so `{a: h:t}` is the key `a` and the cons `h:t`. An
 alternation of values is parenthesized, `{kind: (#a | #b)}`, because `|` is looser than `:`; an
 alternation of whole maps is written as anywhere else, `{a: x} | {b: x}`.
 
-**2. Exact unless it says `..`.** `{a: x}` matches a map whose only key is `a`. This is how every
-other FunL pattern reads: `[a, b]` is a list of exactly two, a tuple pattern has its arity, a record
-pattern its fields, and the open form is written — `a:rest` for a list, `..` for a map. It keeps `{}`
-meaning the empty map in a pattern as in a literal (under a partial reading it would match every
-map, Elixir's `%{}` trap), and it is the only reading under which a map pattern in a relation head is
-unification and can run backwards (point 6). `..` is Rust's spelling for "and the other fields", and
-`..rest` binds them, JavaScript's `...rest` without the third dot. A JSON-shaped match is then
-`{name: n, ..}`: two characters for a partial match, against `m.length == 1` in a guard for an exact
-one under the other default.
+**2. Partial: the keys it names, and any others (M1).** `{a: x}` matches any map that has the key
+`a`; the map's other keys are ignored, and a key the pattern names that the map lacks is a mismatch.
+This is how TypeScript, Python and Elixir read a map pattern, and it is what a JSON-shaped match
+wants: `{name: n}` asks for a name and does not care what else the object carries. `..rest` binds the
+other entries as an immutable map — JavaScript's `...rest` without the third dot. **`{}` is the one
+exception: it matches only the empty map**, as it is the empty map in a literal; `{..}` is any map.
+An exact match is written with the rest and a guard, `{a: x, ..r} | r == {}`, and needs no syntax of
+its own.
 
 **3. Keys are values, computed, never bound.** A key is written as in a literal — a bare name is that
 name as a string, a constant is itself — and any other key is an expression evaluated when the
@@ -1072,7 +1071,7 @@ Anything that is not a map — a record, a set, a number, `undefined` — simply
 pattern is a question about shape, like `(a, b)` meeting a list, never a type fault.
 
 **5. Failure and fault, by place.** A map pattern fails to match for one of four reasons: not a map,
-a key missing, a key too many (no `..`), or a value pattern failing. What the mismatch does is the
+a key missing, a map that is not empty meeting `{}`, or a value pattern failing. What the mismatch does is the
 place's rule, unchanged:
 
 | place | a map the pattern does not match |
@@ -1086,18 +1085,18 @@ place's rule, unchanged:
 What faults is what faults in any expression: a computed key whose expression faults, and in a
 relation a key that is an unbound logic variable (`instantiation_error`, as `is` gives).
 
-**6. In a relation, a map pattern is unified, and runs backwards when it is exact.** A head argument
+**6. In a relation, a map pattern is unified, and builds the map it names (M4).** A head argument
 `{k: p, ...}` compiles as a compound does ([head unification](logic.md#head-unification-is-two-way)):
 
-| the caller's argument | an exact pattern `{a: x, b: 1}` | an open pattern `{a: x, ..}` / `{a: x, ..r}` |
+| the caller's argument | `{a: x, b: 1}` | `{a: x, ..r}` |
 |---|---|---|
-| a map | the same keys, then each value unified with its pattern, two-way | each named key's value unified; `r` unified with the rest |
-| an unbound variable | **build `{a: X, b: 1}` with fresh variables and bind it**, as `point(a, b)` builds a term | `instantiation_error`: an open map cannot be built |
+| a map | each named key's value unified with its pattern, two-way; other keys ignored | the same, and `r` unified with a map of the other entries |
+| an unbound variable | **build `{a: X, b: 1}` with fresh variables and bind it**, as `point(a, b)` builds a term | the same map, and `r` unified with `{}` |
 | anything else | fails | fails |
 
-So `def age( {name: n, age: a}, n, a )` answers `age(p, "ann", x)` for a known `p` and builds `p`
-when it is unknown, and `def named( {name: n, ..}, n )` selects from maps. Keys in a head must be
-known when the clause is tried (constants, or names bound by an earlier argument).
+So `def age( {name: n, age: a}, n, a )` answers `age(p, "ann", x)` for a known `p`, whatever else
+`p` holds, and builds `p` when it is unknown. Keys in a head must be known when the clause is tried
+(constants, or names bound by an earlier argument); an unbound one is an `instantiation_error`.
 
 **7. `~` unifies two immutable maps by their entries.** Point 6 is unification only if the unifier
 agrees: today `{a: x} ~ {a: 1}` fails because a map is opaque and unifies only with itself. An
@@ -1137,33 +1136,25 @@ failure reason, a computed key that faults, and the relation table's six cells. 
 pattern section in `docs/reference/data.md` (or `functions.md`) and `relations.md`, every row above a
 runnable block.
 
-#### Open questions
-
-1. **Exact unless the pattern ends in `..`, with `..rest` binding the other entries as an immutable
-   map?** Or partial by default (Elixir, JavaScript), with no exact form? *Recommended:* exact plus
-   `..` — every other FunL pattern is exact with a written open form, `{}` keeps meaning the empty
-   map, and only an exact pattern can be built backwards in a relation head.
-2. **Keys: a bare name is the string, a constant is itself, and a parenthesized key is an expression
-   evaluated when the pattern is tried — in literals too, where `{(k): 1}` is `{"k": 1}` today?**
-   *Recommended:* yes; keys are never bound by a pattern (`(k, v) <- !m` is "any key"), two equal
-   constant keys in a pattern are refused, and the literal is fixed in the same change.
-3. **What matches, and what a mismatch is.** *Recommended:* both map kinds, a mutable one through its
-   entries only (its default ignored); any other value is a mismatch, never a type fault; a mismatch
-   follows its place's rule (point 5) and only a faulting key expression or an unbound key in a
-   relation faults.
-4. **In a relation head: unify against a map, and build the map from an exact pattern when the
-   argument is unbound; an open pattern over an unbound argument is an `instantiation_error`?**
-   *Recommended:* yes, as `GetCompound` does for a term.
-5. **Should `~` unify two immutable maps by their entries** (same keys, values unified), revising the
-   term-mapping decision for immutable maps only, mutable ones staying opaque? *Recommended:* yes —
-   the opacity was for values that can change, and without it a map pattern in a head is not
-   unification.
-6. **The braces: no block lambda; `{x:xs -> x}` stays the decided map reading and gains a note; a
-   lambda over a map pattern needs nothing new; no set patterns and no key punning?**
-   *Recommended:* yes to all four.
-7. **`..m` in an expression — a spread, `{..m, a: 1}` for "`m` with `a` set"?** *Recommended:* not in
-   this work: refused in expressions with a note naming the pattern form, and put as its own question
-   if a program wants it (`m + {a: 1}`-style update may be the better spelling).
+> **Decided (user, 2026-10-09) — map patterns, M1–M7.**
+>
+> - **M1 (revised): partial by default.** `{a: x}` matches any map having the key `a`; extra keys are
+>   ignored; a key the pattern names that the map lacks is a mismatch. `..rest` binds the other
+>   entries as an immutable map. `{}` matches only the empty map. An exact match is `..r` and a guard
+>   that `r` is empty; there is no syntax for it.
+> - **M2: keys.** A bare name is the string, a constant is itself, and `(e)` is an expression
+>   evaluated when the pattern is tried — in a literal too, so `{(k): 1}` uses `k`'s value. A pattern
+>   never binds a key; two equal constant keys in one pattern are refused.
+> - **M3: what matches.** Both map kinds, a mutable one by its entries (its default is not one); any
+>   other value is a mismatch, never a type fault; a mismatch follows its place's rule (point 5).
+> - **M4 (revised): a relation head, or `~`, against an unbound argument builds the map** with exactly
+>   the keys the pattern names, each value a fresh variable unified with its pattern; there is no
+>   `instantiation_error`. `..rest` then builds nothing extra: the rest is `{}`.
+> - **M5: `~` unifies two immutable maps by content** — the same keys, then the values unified; a
+>   mutable map stays opaque and unifies by identity.
+> - **M6: the braces.** No block lambda; `{x:xs -> x}` stays the map reading and its refusal gains a
+>   note; a lambda over a map pattern needs nothing new; no set patterns; no key punning.
+> - **M7: no spread in an expression.** `..m` there is refused, its note naming the pattern form.
 
 ### Types, and `is`
 

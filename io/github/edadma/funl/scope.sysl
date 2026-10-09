@@ -313,6 +313,11 @@ struct Resolved
     // definitions, its imports and the builtins, so any of them shadows it.
     prelude: Map[string, Meaning]
 
+    // Each map literal entry whose value is a lambda, under its key written as a bare name: the
+    // lambda's span and the key. `{x:xs -> x}` is one, and a refusal of `x` inside it says how a set
+    // holding a lambda over a cons is written.
+    split_lambdas: Buf[(Span, string)]
+
     // The `data` type `name` means in this file, if any: its own first, then an imported one.
     data_type(self, name: string) -> Option[usize]
         self.own_types.get(name) match
@@ -733,7 +738,7 @@ private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map(), map())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map(), map(), buf())
 
     res.top = new_scope_id(&res)
 
@@ -773,8 +778,21 @@ resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report)
         resolve_function(&res, pending.at(i), &pending, report)
         i += 1
 
+    split_lambda_notes(&res, report)
     res
 end resolve
+
+// **`{x:xs -> x}` is the key `x` and the lambda `xs -> x`**, so where the lambda's body names its
+// own entry's key and the name is undefined, the refusal says how a set holding a lambda over a cons
+// is written.
+private split_lambda_notes(res: *Resolved, report: *Report)
+    for i in 0..<report.len()
+        val d = report.at(i)
+
+        for (at, n) in res.split_lambdas.view()
+            if d.message == s"`$n` is not defined" && d.span.start >= at.start && d.span.end <= at.end
+                report.items.set(i, d.with_note(s"`{$n:rest -> e}` is the key `$n` and the lambda `rest -> e`; a set holding a lambda over a cons is `{($n:rest -> e)}`"))
+                break
 
 // A fresh scope id, its scope stored once it is complete.
 new_scope_id(res: *Resolved) -> usize
@@ -920,6 +938,8 @@ private head_atoms(res: *Resolved, p: &Expr, report: *Report) -> &Expr
         CallE(n, at, args) -> expr(CallE(n, at, heads_atoms(res, args, report)), p.span)
         ListE(items) -> expr(ListE(heads_atoms(res, items, report)), p.span)
         ConsE(h, t) -> expr(ConsE(head_atoms(res, h, report), head_atoms(res, t, report)), p.span)
+        MapE(keys, vals) -> expr(MapE(keys, heads_atoms(res, vals, report)), p.span)
+        MapRestE(keys, vals, rest) -> expr(MapRestE(keys, heads_atoms(res, vals, report), rest), p.span)
 
         // `m.name(p, ...)` and `m.name`, `m` a module: the term, or the atom, of the constructor the
         // module exports as `name`, written as one of the file's own would be.
@@ -980,11 +1000,41 @@ private walk_head(sc: *Scope, p: &Expr, report: *Report)
         ConsE(h, t) ->
             walk_head(sc, h, report)
             walk_head(sc, t, report)
+        MapE(keys, vals) -> walk_head_map(sc, keys, vals, report)
+        MapRestE(keys, vals, rest) ->
+            walk_head_map(sc, keys, vals, report)
+
+            rest.kind match
+                Ref(n) -> sc.note(n, rest.span)
+                Anon -> ()
+                _ ->
+                    report.add(error(rest.span, "a map pattern's `..` is followed by a name, `_` or nothing")
+                        .with_note("`..rest` binds `rest` to a map of the entries the pattern does not name"))
         BadE -> ()
         _ ->
             report.add(error(p.span, "a head argument is a variable, a constant or a term")
                 .with_note("a goal belongs in the body, after `:-`"))
 end walk_head
+
+// A map pattern in a head: each key a constant or a clause variable in parentheses, which an earlier
+// argument binds, and each value a head argument. One constant written twice is refused.
+private walk_head_map(sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], report: *Report)
+    for i in 0..<keys.len()
+        val k = keys.at(i)
+
+        k.kind match
+            Ref(n) -> sc.note(n, k.span)
+            _ ->
+                if constant_key(k)
+                    for j in 0..<i
+                        if same_constant_key(keys.at(j), k)
+                            report.add(error(k.span, "this key is already in the map pattern")
+                                .with_note("a map holds a key once, so a pattern names it once"))
+                            break
+                else
+                    report.add(error(k.span, "a key in a head is a constant or a variable in parentheses, `(k)`"))
+
+        walk_head(sc, vals.at(i), report)
 
 // The scopes of a function's clauses: its parameters, then its local functions, its `where`
 // values, and its guards and bodies.

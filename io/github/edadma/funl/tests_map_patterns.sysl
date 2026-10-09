@@ -1,0 +1,220 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Map patterns (`language.md` § "Map patterns"): partial by default, `..rest` for the other entries,
+// `{}` only the empty map; keys written as in a literal, `(e)` evaluated; both map kinds; every
+// place a pattern goes, each with its own rule for a mismatch; relation heads unified, building the
+// map for an unbound argument; and `~` unifying immutable maps by content.
+
+@test
+MAP_PATTERN_VAL_MATCHES_PARTIALLY_AND_BINDS_THE_REST()
+    val text = "val person = {name: \"ann\", age: 30, town: \"york\"}\n" +
+        "val {name: n, age: a} = person\n" +
+        "write( n, a )\n" +
+        "val {name: m, ..others} = person\n" +
+        "write( m, others )\n"
+
+    assert_eq(ran_funl(text), "ann, 30\nann, {\"age\": 30, \"town\": \"york\"}\nsucceeded")
+
+@test
+MAP_PATTERN_VAL_MISMATCH_FAILS_THE_STATEMENT_AND_LEAVES_THE_NAME_UNASSIGNED()
+    // A missing key, a value pattern that fails, `{}` against a map with entries, and a value that
+    // is not a map.
+    val text = "val {zip: z} = {name: \"ann\"}\nwrite( z )\n" +
+        "val {a: 1, b: w} = {a: 2, b: 3}\nwrite( w )\n" +
+        "val {} = {a: 1}\nwrite( \"after\" )\n" +
+        "val {a: q} = 5\nwrite( q )\n"
+
+    assert_eq(ran_funl(text), "undefined\nundefined\nafter\nundefined\nsucceeded")
+
+@test
+MAP_PATTERN_EMPTY_BRACES_MATCH_ONLY_THE_EMPTY_MAP_AND_DOTS_ANY_MAP()
+    val text = "def kind( {} ) = \"empty\"\n" +
+        "def kind( {..} ) = \"a map\"\n" +
+        "def kind( _ ) = \"not a map\"\n" +
+        "write( kind({}), kind({a: 1}), kind(map({})), kind(map({b: 2})) )\n" +
+        "write( kind({1, 2}), kind(5), kind((1, 2)), kind(undefined) )\n" +
+        "val {..all} = {a: 1, b: 2}\nwrite( all )\n" +
+        "val {a: x, .._} = {a: 7, b: 8}\nwrite( x )\n"
+
+    assert_eq(ran_funl(text), "empty, a map, empty, a map\nnot a map, not a map, not a map, not a map\n{\"a\": 1, \"b\": 2}\n7\nsucceeded")
+
+@test
+MAP_PATTERN_KEYS_ARE_WRITTEN_AS_IN_A_LITERAL_AND_A_PARENTHESIZED_KEY_IS_EVALUATED()
+    val text = "val k = \"b\"\nval n = 3\n" +
+        "val m = {a: 1, b: 2, 3: \"three\", #c: \"atom\", true: \"yes\"}\n" +
+        "val {(k): x} = m\nwrite( x )\n" +
+        "val {3: t, #c: c, true: y} = m\nwrite( t, c, y )\n" +
+        "def lookup( key, {(key): v} ) = v\n" +
+        "def lookup( _, _ ) = \"missing\"\n" +
+        "write( lookup(\"a\", m), lookup(\"z\", m) )\n"
+
+    assert_eq(ran_funl(text), "2\nthree, atom, yes\n1, missing\nsucceeded")
+
+@test
+MAP_PATTERN_A_KEY_THAT_FAILS_OR_TWO_EQUAL_KEYS_ARE_A_MISMATCH_AND_A_FAULTING_KEY_FAULTS()
+    val text = "val n = 3\n" +
+        "val {(n): u, (n + 0): v} = {3: 1}\nwrite( u, v )\n" +
+        "val m = {a: 1}\nval {(m(\"zz\")): w} = m\nwrite( w )\n"
+
+    assert_eq(ran_funl(text), "undefined, undefined\nundefined\nsucceeded")
+
+    val said = ran_funl("val {(1 / 0): v} = {a: 1}\n")
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains("divides by zero"), said)
+
+@test
+MAP_LITERAL_A_PARENTHESIZED_KEY_IS_THE_EXPRESSION_AND_A_BARE_NAME_THE_STRING()
+    val text = "val k = \"b\"\nval n = 3\n" +
+        "write( {k: 1}, {(k): 1}, {\"$k\": 1} )\n" +
+        "write( {(n): 1}, {(n + 1): 2} )\n"
+
+    assert_eq(ran_funl(text), "{\"k\": 1}, {\"b\": 1}, {\"b\": 1}\n{3: 1}, {4: 2}\nsucceeded")
+
+@test
+MAP_PATTERN_FUNCTION_PARAMETERS_TRY_THE_NEXT_CLAUSE_AND_FAULT_WHEN_NONE_IS_LEFT()
+    val defs = "def greet( {name: n, title: t} ) = t + \" \" + n\n" +
+        "def greet( {name: n} ) = \"hello \" + n\n"
+
+    assert_eq(ran_funl(defs + "write( greet({name: \"ann\", title: \"dr\"}), greet({name: \"bob\", age: 4}) )\n"),
+        "dr ann, hello bob\nsucceeded")
+
+    val said = ran_funl(defs + "write( greet({title: \"x\"}) )\n")
+
+    assert(said.contains("argument match not found: no clause of 'greet' matches ({\"title\": \"x\"})"), said)
+
+    val unbound = ran_funl("free z\n" + defs + "write( greet(z) )\n")
+
+    assert(unbound.contains("instantiation error: `greet` was given an unbound variable as argument 1"), unbound)
+
+@test
+MAP_PATTERN_PARTIAL_FUNCTION_LITERAL_ARMS_ARE_TRIED_IN_ORDER()
+    val text = "val area =\n" +
+        "  {kind: #square, side: s} -> s * s\n" +
+        "  {kind: #rect, w: w, h: h} -> w * h\n" +
+        "write( area({kind: #square, side: 3}), area({kind: #rect, w: 2, h: 5, colour: \"red\"}) )\n"
+
+    assert_eq(ran_funl(text), "9, 10\nsucceeded")
+
+    val said = ran_funl(text + "write( area({kind: #circle}) )\n")
+
+    assert(said.contains("argument match not found"), said)
+
+@test
+MAP_PATTERN_A_DRAWN_VALUE_IT_DOES_NOT_MATCH_IS_PASSED_OVER()
+    val text = "val people = [{name: \"ann\", age: 30}, {name: \"bob\"}, \"carl\", {name: \"dee\", age: 41}]\n" +
+        "write( [n | {name: n, age: _} <- people] )\n" +
+        "for {name: n, ..rest} <- people do write( n, rest )\n"
+
+    assert_eq(ran_funl(text), "[\"ann\", \"dee\"]\nann, {\"age\": 30}\nbob, {}\ndee, {\"age\": 41}\nsucceeded")
+
+@test
+MAP_PATTERN_A_LAMBDA_TAKES_ONE_AND_A_SET_HOLDS_SUCH_A_LAMBDA()
+    val text = "val first = {a: x} -> x\nwrite( first({a: 9, b: 0}) )\n" +
+        "val s = { {a: x} -> x }\nwrite( s )\n"
+
+    assert_eq(ran_funl(text), "9\n{<function lambda>}\nsucceeded")
+
+@test
+MAP_PATTERN_A_MUTABLE_MAP_MATCHES_BY_ITS_ENTRIES_NOT_ITS_DEFAULT()
+    val text = "val d = map({}, 0)\nd(\"q\") = 5\nwrite( d(\"missing\") )\n" +
+        "write( [v | {missing: v} <- [d]], [v | {q: v} <- [d]] )\n" +
+        "val {q: x, ..r} = d\nwrite( x, r )\n"
+
+    assert_eq(ran_funl(text), "0\n[], [5]\n5, {}\nsucceeded")
+
+@test
+MAP_PATTERN_A_RELATION_HEAD_UNIFIES_WITH_A_MAP_AND_BUILDS_ONE_FOR_AN_UNBOUND_ARGUMENT()
+    val text = "def age( {name: n, age: a}, n, a )\n" +
+        "free a, p\n" +
+        "if age({name: \"ann\", age: 30, town: \"york\"}, \"ann\", a) then write( a )\n" +
+        "if age(p, \"bob\", 40) then write( p )\n" +
+        "write( age({name: \"ann\", age: 30}, \"bob\", 30) )\n" +
+        "write( age(\"ann\", \"ann\", 30) )\n" +
+        "write( \"done\" )\n"
+
+    assert_eq(ran_funl(text), "30\n{\"name\": \"bob\", \"age\": 40}\ndone\nsucceeded")
+
+@test
+MAP_PATTERN_A_RELATION_HEAD_REST_IS_THE_OTHER_ENTRIES_OR_EMPTY_WHEN_BUILT()
+    val text = "def split( {name: n, ..r}, n, r )\n" +
+        "free n, r, q, s\n" +
+        "if split({name: \"cy\", a: 1, b: 2}, n, r) then write( n, r )\n" +
+        "if split(q, \"di\", s) then write( q, s )\n" +
+        "def none( {} )\n" +
+        "free e\n" +
+        "write( none({}) )\n" +
+        "write( none({a: 1}) )\n" +
+        "if none(e) then write( e )\n"
+
+    assert_eq(ran_funl(text), "cy, {\"a\": 1, \"b\": 2}\n{\"name\": \"di\"}, {}\n()\n{}\nsucceeded")
+
+@test
+MAP_PATTERN_A_RELATION_HEAD_KEY_BOUND_BY_AN_EARLIER_ARGUMENT_AND_AN_UNBOUND_ONE_FAULTS()
+    val defs = "def field( k, {(k): v}, v )\nfree v, w, k\n"
+
+    assert_eq(ran_funl(defs + "if field(\"b\", {a: 1, b: 2}, v) then write( v )\n" +
+        "if field(#c, map({#c: 3}), w) then write( w )\n"), "2\n3\nsucceeded")
+
+    val said = ran_funl(defs + "write( field(k, {a: 1}, 0) )\n")
+
+    assert(said.contains("instantiation error: a map pattern's key is an unbound variable"), said)
+
+@test
+MAP_UNIFY_IMMUTABLE_MAPS_UNIFY_BY_CONTENT_AND_MUTABLE_ONES_BY_IDENTITY()
+    val text = "free x, y, m\n" +
+        "write( {a: x, b: [y]} ~ {b: [2], a: 1} )\nwrite( x, y )\n" +
+        "write( {a: 1} ~ {a: 1, b: 2} )\n" +
+        "write( {a: 1} ~ {b: 1} )\n" +
+        "write( {a: 1} ~ {a: 2} )\n" +
+        "write( map({a: 1}) ~ map({a: 1}) )\n" +
+        "write( {a: 1} ~ map({a: 1}) )\n" +
+        "val mm = map({a: 1})\nwrite( mm ~ mm )\n" +
+        "m ~ {k: x}\nwrite( m )\n" +
+        "write( {} ~ {} )\n"
+
+    assert_eq(ran_funl(text), "{\"b\": [2], \"a\": 1}\n1, 2\nMutableMap(\"a\": 1)\n{\"k\": 1}\n{}\nsucceeded")
+
+@test
+MAP_PATTERN_REFUSALS_NAME_WHAT_A_MAP_PATTERN_IS()
+    assert_map_refused("val {a: x, \"a\": y} = {a: 1}\n", "this key is already in the map pattern")
+    assert_map_refused("def p( {a: 1, a: v} )\n", "this key is already in the map pattern")
+    assert_map_refused("val {x, y} = {1, 2}\n", "a set is not a pattern")
+    assert_map_refused("val {..r, a: x} = {a: 1}\n", "`..` is the last item of a map pattern")
+    assert_map_refused("val {a: x, ..[r]} = {a: 1}\n", "a map pattern's `..` is followed by a name, `_` or nothing")
+    assert_map_refused("def p( {a: x, ..[r]} )\n", "a map pattern's `..` is followed by a name, `_` or nothing")
+    assert_map_refused("val {1, ..r} = {a: 1}\n", "`..` belongs to a map pattern, and these braces are a set")
+    assert_map_refused("def p( {(1 + 1): v}, v )\n", "a key in a head is a constant or a variable in parentheses")
+
+    val note = rendered("for x + 1 <- [1] do write( 1 )\n")
+
+    assert(note.contains("a map `{k: p}`"), note)
+
+@test
+MAP_SPREAD_IN_AN_EXPRESSION_IS_REFUSED_NAMING_THE_PATTERN()
+    assert_map_refused("val m = {a: 1}\nwrite( {b: 2, ..m} )\n", "`..` does not build a map: it belongs to a map pattern")
+    assert_map_refused("val m = {a: 1}\nwrite( {..m, b: 2} )\n", "`..` is the last item of a map pattern")
+
+    val said = rendered("val m = {a: 1}\nwrite( {b: 2, ..m} )\n")
+
+    assert(said.contains("val {a: x, ..rest} = m"), said)
+
+@test
+MAP_LITERAL_A_LAMBDA_SPLIT_AT_ITS_KEY_NOTES_HOW_A_SET_HOLDS_ONE()
+    val said = rendered("write( {x:xs -> x} )\n")
+
+    assert(said.contains("`x` is not defined"), said)
+    assert(said.contains("a set holding a lambda over a cons is `{(x:rest -> e)}`"), said)
+
+    // An undefined name that is not the entry's key keeps its own note.
+    val other = rendered("write( {x:xs -> y} )\n")
+
+    assert(!other.contains("a set holding a lambda"), other)
+
+private assert_map_refused(text: string, want: string)
+    val said = complaints(text)
+
+    assert(said.contains(want), said)

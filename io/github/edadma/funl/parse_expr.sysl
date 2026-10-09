@@ -187,6 +187,24 @@ private list(p: *Parser, open: Span) -> &Expr
 private braces(p: *Parser, open: Span) -> &Expr
     if p.accept(RBrace) then return expr(MapE(buf(), buf()), open.to(p.toks.previous()))
 
+    var keys: Buf[&Expr] = buf()
+    var vals: Buf[&Expr] = buf()
+    var rest: Option[&Expr] = None
+    var bad = false
+
+    if p.at_tok(DotDot)
+        rest = Some(map_rest(p))
+
+        if !rest_is_last(p) then bad = true
+
+        if !p.expect(RBrace, "`}`") then p.skip_line()
+
+        val at = open.to(p.toks.previous())
+
+        if bad then return expr(BadE, at)
+
+        return expr(MapRestE(keys, vals, rest.unwrap()), at)
+
     val first = parse_expr(p, 0)
 
     comprehension_head(p, first) match
@@ -194,10 +212,7 @@ private braces(p: *Parser, open: Span) -> &Expr
         None -> ()
 
     val is_map = map_entry(first).is_some()
-    var keys: Buf[&Expr] = buf()
-    var vals: Buf[&Expr] = buf()
     var items: Buf[&Expr] = buf()
-    var bad = false
     var item = first
 
     loop
@@ -224,6 +239,18 @@ private braces(p: *Parser, open: Span) -> &Expr
 
         if p.at_tok(RBrace) then break
 
+        if p.at_tok(DotDot)
+            val r = map_rest(p)
+
+            if !is_map
+                p.report.add(error(r.span, "`..` belongs to a map pattern, and these braces are a set"))
+                bad = true
+
+            if !rest_is_last(p) then bad = true
+
+            rest = Some(r)
+            break
+
         item = parse_expr(p, 0)
 
     if !p.expect(RBrace, "`,` or `}`") then p.skip_line()
@@ -232,8 +259,55 @@ private braces(p: *Parser, open: Span) -> &Expr
 
     if bad then return expr(BadE, at)
 
+    rest match
+        Some(r) -> return expr(MapRestE(keys, vals, r), at)
+        None -> ()
+
     if is_map then expr(MapE(keys, vals), at) else expr(SetE(items), at)
 end braces
+
+// A map pattern's last item, at its `..`: `..`, `.._` or `..name` -- read as `..` and an operand, so
+// that anything else written there is refused where the pattern is resolved. A bare `..` is `_`.
+private map_rest(p: *Parser) -> &Expr
+    val dots = p.toks.here()
+
+    p.toks.advance()
+
+    if p.at_tok(RBrace) || p.at_tok(Comma) then return expr(Anon, dots)
+
+    val e = parse_expr(p, NegPower)
+
+    expr(e.kind, dots.to(e.span))
+
+// Whether the braces end after a `..` item, with or without a trailing comma; a refusal otherwise.
+private rest_is_last(p: *Parser) -> bool
+    if p.accept(Comma) && p.at_tok(RBrace) then return true
+
+    if p.at_tok(RBrace) then return true
+
+    p.report.add(error(p.toks.here(), "`..` is the last item of a map pattern")
+        .with_note("`..` is only in a map pattern, `{k: p, ..rest}`, which names some keys and binds `rest` to a map of the others; it does not build a map"))
+
+    // The rest of the braces, through the `}` the caller expects next.
+    var depth: usize = 0
+
+    loop
+        val t = p.peek_tok() match
+            Some(t) -> t
+            None -> return false
+
+        t match
+            LBrace -> depth += 1
+            RBrace ->
+                if depth == 0 then return false
+
+                depth -= 1
+            Newline -> return false
+            _ -> ()
+
+        p.toks.advance()
+
+    false
 
 private struct KeyValue
     key: &Expr
@@ -274,8 +348,10 @@ private map_entry(e: &Expr) -> Option[KeyValue] = e.kind match
             _ -> None
     _ -> None
 
+// **Only a bare name is a string**: a name in parentheses, `(k)`, is the expression, so its span is
+// wider than the name.
 private map_key(k: &Expr) -> &Expr = k.kind match
-    Ref(n) -> expr(StrE(n), k.span)
+    Ref(n) -> if k.span.len() == n.len then expr(StrE(n), k.span) else k
     _ -> k
 
 // The element and first pattern of a comprehension, `e | p` read as one alternation with `<-` next:

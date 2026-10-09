@@ -194,9 +194,14 @@ private step(x: Value, y: Value, check: bool) -> bool
         Handle(_) -> false
         Promise(_) -> false
 
-        // A map, a mutable set, an array, a buffer and a constructor are opaque to unification: each
+        // **An immutable map unifies by content**: it cannot change, so it is a term -- the same keys,
+        // compared as `==` compares them, then each pair of values unified.
+        Map(p) -> y match
+            Map(q) -> unify_maps(p, q)
+            _ -> false
+
+        // A mutable set and map, an array, a buffer and a constructor are opaque to unification: each
         // unifies only with itself, which `identical` has already tested.
-        Map(_) -> false
         MutSet(_) -> false
         MutMap(_) -> false
         Array(_) -> false
@@ -233,6 +238,9 @@ private occurs_in(x: Value, t: Value) -> bool
             Tuple(p) ->
                 for a in p.items.view()
                     work.push(a)
+            Map(p) ->
+                for a in p.vals.view()
+                    work.push(a)
             _ -> ()
 
         pushed(&w, work.len() - before, d, work.len())
@@ -251,6 +259,29 @@ private unify_args(p: *CompoundObj, q: *CompoundObj) -> bool
     while i > 0
         i -= 1
         unify_later(p.args.at(i), q.args.at(i))
+
+    true
+
+// Two immutable maps: the same number of keys, each of `p`'s found in `q`, and the values under them
+// pushed to be unified, in `p`'s order. A key that cannot be compared -- one holding an unbound
+// variable -- is not found.
+private unify_maps(p: *MapObj, q: *MapObj) -> bool
+    if p.keys.len() != q.keys.len() then return false
+
+    var at: Buf[usize] = buf()
+
+    for k in p.keys.view()
+        val i = map_find(q, k) match
+            Ok(Some(i)) -> i
+            _ -> return false
+
+        at.push(i)
+
+    var i = p.keys.len()
+
+    while i > 0
+        i -= 1
+        unify_later(p.vals.at(i), q.vals.at(at.at(i)))
 
     true
 
@@ -283,7 +314,9 @@ private is_tuple_functor(functor: u32, n: usize) -> bool = n > 0 && atom_name(fu
 
 // -- head unification ----------------------------------------------------------------------------
 
-// The value a head instruction reads.
+// The value a head instruction reads; `head_source` for one in another file.
+head_source(v: *Vm, src: Src) -> Result[Value, string] = source(v, src)
+
 private source(v: *Vm, src: Src) -> Result[Value, string]
     src match
         Arg(i) ->

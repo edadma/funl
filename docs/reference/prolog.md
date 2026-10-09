@@ -536,8 +536,10 @@ The kinds only FunL has are these to Prolog:
 
 - **a tuple** `(a, b)` is the compound `tuple(a, b)`, in a goal, in a clause head, and in a FunL
   tuple pattern that a Prolog caller passes `tuple(...)` to;
-- **a map, an array, a buffer and a function** are opaque: each unifies only with itself and
-  is written as `<map>`, `<function>` and so on;
+- **a mutable map, an array, a buffer and a function** are opaque: each unifies only with itself
+  and is written as `<map>`, `<function>` and so on;
+- **an immutable map** is written as `<map>` too, but unifies with another immutable map that has
+  the same keys, its values unified pair by pair;
 - **`()` and `undefined`** are constants that unify only with themselves; neither is `[]` or an atom.
 
 The FunL definitions in [`prolog/shapes.funl`](prolog/shapes.funl) are:
@@ -581,7 +583,7 @@ point(1,2) 1/2
 tuple(3,6) 3+6
 1r4 3r2
 <map>
-different
+same
 ()
 not_nil
 undefined

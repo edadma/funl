@@ -181,6 +181,10 @@ enum ExprKind
     // written as a bare name is that name as a string, so `{a: 1}` is `{"a": 1}`.
     MapE(keys: Buf[&Expr], vals: Buf[&Expr])
 
+    // `{k: p, ..rest}`: braces whose last item is `..`, `.._` or `..name`, which only a map pattern
+    // may be -- the entries it names, and `rest` for the others (`Anon` for a bare `..`).
+    MapRestE(keys: Buf[&Expr], vals: Buf[&Expr], rest: &Expr)
+
     // `{a, b, ...}`: a set of the items' values.
     SetE(items: Buf[&Expr])
 

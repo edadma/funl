@@ -136,6 +136,13 @@ enum Op
     // then pushed, the first on top, for the instructions that unify them with `Src.Popped`.
     GetCompound(functor: u32, n: usize, src: Src)
 
+    // A map pattern in the head, its `n` keys on the stack above anything `Popped` reads (the last
+    // key on top). An unbound argument is bound to a new immutable map of the keys, each under a
+    // fresh variable; a map must hold every key. The values are then pushed, the first on top --
+    // under them, when `rest`, a map of the other entries (`{}` for a map just built). `exact` is
+    // `{}`, which only the empty map matches (`map_pattern.sysl`).
+    GetMap(n: usize, rest: bool, exact: bool, src: Src)
+
     // -- FunL's own values ------------------------------------------------------------------------
 
     PushUnit
@@ -193,6 +200,11 @@ enum Op
 
     // Pop a value; when it is a `functor/n` term push its arguments, the first on top, or fail.
     MatchCompound(functor: u32, n: usize)
+
+    // Pop `n` keys, the last on top, and the value under them; when it is a map holding every key,
+    // push the values, the first on top, and under them, when `rest`, an immutable map of the other
+    // entries -- or fail. `exact` is `{}`, which only the empty map matches (`map_pattern.sysl`).
+    MatchMap(n: usize, rest: bool, exact: bool)
 
     // No clause of the running function matched its arguments: an error naming the function and
     // what it was given.

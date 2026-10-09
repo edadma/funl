@@ -66,7 +66,7 @@ Each is argued where it arises; this is the list.
 | How is an atom written? | `#name`; nullary `data` constructors are atoms too | [logic](logic.md#atoms) |
 | How does FunL code declare a logic variable? | `free x`, Curry's word | [logic](logic.md#logic-variables-in-ordinary-code) |
 | Is there a cut in FunL relations? | no `!` (it is the generator operator); `once` and `->` cover it | [logic](logic.md#cut-in-a-relation) |
-| What do tuples, maps and closures look like as Prolog terms? | tuples are `tuple(...)` compounds; the rest are opaque and unify by identity | [prolog](prolog.md#the-term-mapping) |
+| What do tuples, maps and closures look like as Prolog terms? | tuples are `tuple(...)` compounds; the rest are opaque and unify by identity, except an immutable map, which unifies by content (M5) | [prolog](prolog.md#the-term-mapping) |
 | What is the module path? | `io.github.edadma.funl`, the repository `github.com/edadma/funl` reversed | [implementation](implementation.md#the-repository) |
 | Does juxtaposition multiply? | only a number literal touching a name or `(`: `2n`, `3(x + 1)` | [implementation](implementation.md#the-front-end) |
 | How strict is the regex conformance oracle? | exact on match and span, exact on captures outside a named exclusion list | [implementation](implementation.md#regex-the-att-data-and-tests-worked-by-hand) |
@@ -127,17 +127,16 @@ Each is argued where it arises; this is the list.
 | May a package carry Prolog files? | yes: `main` and `modules` may name a `.pl` file, imported whole as `import "file.pl"` is (user, 2026-10-09) | [packages](packages.md#decided) |
 | A `funl` floor key in the manifest? | yes, optional, `funl: "0.0.5"`, refused naming the package and both versions (user, 2026-10-09) | [packages](packages.md#decided) |
 | Which package commands? | `add`, `fetch`, `vendor`, `deps` now; `bundle`, `brew`, `scripts` when shipping is wanted; no `install` alias (user, 2026-10-09) | [packages](packages.md#decided) |
+| M1 Map patterns: exact, or partial by default? | partial: `{a: x}` matches any map with the key `a`, a missing key is a mismatch; `..rest` binds the other entries as an immutable map; `{}` matches only the empty map; exact is `..r` and a guard (user, 2026-10-09, revised) | [language](language.md#map-patterns) |
+| M2 A map pattern's keys | a bare name is the string, a constant itself, `(e)` an expression evaluated when tried — in literals too, so `{(k): 1}` uses `k`'s value; never bound; equal constant keys refused (user, 2026-10-09) | [language](language.md#map-patterns) |
+| M3 What a map pattern matches, and what a mismatch is | both map kinds, a mutable one by its entries (no default); any other value a mismatch, not a fault; the place's own rule for a mismatch (user, 2026-10-09) | [language](language.md#map-patterns) |
+| M4 A map pattern in a relation head | unified against a map; against an unbound argument (or by `~`) it builds a map of exactly the keys it names, `..rest` then `{}` — no `instantiation_error` (user, 2026-10-09, revised) | [language](language.md#map-patterns) |
+| M5 Does `~` unify two immutable maps by content? | yes, same keys then values unified; a mutable map stays opaque (user, 2026-10-09) | [language](language.md#map-patterns) |
+| M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
+| M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
 
 ## Open questions
 
 Each has a recommendation in its chapter; the user decides them before the milestone that needs them.
 
-| question | recommendation | where |
-|---|---|---|
-| M1 Map patterns: exact, or partial by default? | exact unless the pattern ends in `..`; `..rest` binds the other entries as an immutable map | [language](language.md#map-patterns) |
-| M2 A map pattern's keys | a bare name is the string, a constant itself, `(e)` an expression evaluated when tried — in literals too (`{(k): 1}` is `{"k": 1}` today); never bound; equal constant keys refused | [language](language.md#map-patterns) |
-| M3 What a map pattern matches, and what a mismatch is | both map kinds, a mutable one by its entries (no default); any other value a mismatch, not a fault; the place's own rule for a mismatch | [language](language.md#map-patterns) |
-| M4 A map pattern in a relation head | unified against a map; an exact pattern builds the map for an unbound argument; an open one there is an `instantiation_error` | [language](language.md#map-patterns) |
-| M5 Does `~` unify two immutable maps by content? | yes, same keys then values unified; a mutable map stays opaque | [language](language.md#map-patterns) |
-| M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning | [language](language.md#map-patterns) |
-| M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form; its own question if wanted | [language](language.md#map-patterns) |
+None is open.

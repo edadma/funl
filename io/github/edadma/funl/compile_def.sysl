@@ -375,10 +375,50 @@ private head_arg(e: *Emit, sc: *Scope, p: &Expr, src: Src, seen: *Buf[bool]) -> 
             e.op(GetCons(src))
             head_arg(e, sc, h, Popped, seen)?
             head_arg(e, sc, t, Popped, seen)?
+        MapE(keys, vals) -> head_map(e, sc, keys, vals, None, src, seen)?
+        MapRestE(keys, vals, rest) -> head_map(e, sc, keys, vals, Some(rest), src, seen)?
         _ -> return Err("a head argument the resolver refused reached the compiler")
 
     Ok(())
 end head_arg
+
+// A map pattern in a head: its keys pushed, `GetMap`, then each value's head argument and the rest's.
+// A key variable no earlier argument has bound is a fresh variable here, which `GetMap` refuses as
+// an unbound key.
+private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest: Option[&Expr], src: Src, seen: *Buf[bool]) -> Result[unit, string]
+    for k in keys.view()
+        k.kind match
+            Ref(n) ->
+                val s = sc.slot(n).unwrap()
+
+                if !seen.at(s)
+                    seen.set(s, true)
+                    e.op(NewVar(s))
+
+                e.op(LoadSlot(0, s))
+            AtomE(n) -> e.op(PushConst(e.constant(atom(n))))
+            IntE(n) -> e.op(PushConst(e.constant(Int(n))))
+            NumE(text) -> e.op(PushConst(e.constant(literal_value(text)?)))
+            StrE(s) -> e.op(PushConst(e.constant(new_str(s)?)))
+            BoolE(b) -> e.op(PushConst(e.constant(boolean(b))))
+            _ -> return Err("a head key the resolver refused reached the compiler")
+
+    val named: Option[&Expr] = rest match
+        Some(r) -> r.kind match
+            Anon -> None
+            _ -> Some(r)
+        None -> None
+
+    e.op(GetMap(keys.len(), named.is_some(), rest.is_none() && keys.len() == 0, src))
+
+    for x in vals.view()
+        head_arg(e, sc, x, Popped, seen)?
+
+    named match
+        Some(r) -> head_arg(e, sc, r, Popped, seen)?
+        None -> ()
+
+    Ok(())
 
 // A body in tail position: every path through it ends in `Return`.
 private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
