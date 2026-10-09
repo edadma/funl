@@ -179,7 +179,7 @@ op_label(op: Op) -> string = op match
     Op.GetValue(_, _) -> "GetValue"
     Op.GetConst(_, _) -> "GetConst"
     Op.GetCompound(_, _, _) -> "GetCompound"
-    Op.GetMap(_, _, _, _) -> "GetMap"
+    Op.GetMap(_, _, _, _, _) -> "GetMap"
     Op.PushUnit -> "PushUnit"
     Op.MakeTuple(_) -> "MakeTuple"
     Op.Arith(_) -> "Arith"
