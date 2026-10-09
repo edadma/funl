@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
-import sysl.env.get
+import sysl.env.{get, vars}
 import sysl.fs.{IoError, NotFound, PermissionDenied}
 import sysl.process.{Exited, Output, Signalled, TimedOut, Var, capture}
 
@@ -31,7 +31,7 @@ private const OutputKind: string = "process output"
 install_process(v: *Vm)
     register_handle_kind(v, OutputKind, (h) -> ())
     register_constant(v, "process.args", do_args)
-    register_generator(v, "process.env", 1, do_env)
+    optional_past(v, register_generator(v, "process.env", 1, do_env), 0)
     register(v, "process.exit", 1, do_exit)
     optional_past(v, register_generator(v, "process.run", 3, do_run), 1)
     optional_past(v, register_stepping(v, "process.run_lines", 3, start_run_lines, step_run_lines), 1)
@@ -52,8 +52,16 @@ private do_args(base: usize, argc: usize) -> Result[Value, Fault]
     string_list(&pieces)
 
 // `env(name)`: what the variable `name` is set to, failing where it is unset (or its value is not
-// UTF-8 text).
+// UTF-8 text). `env()` is a map of every variable to what it is set to.
 private do_env(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    if argc == 0
+        val all = new_map()?
+
+        for kv in vars().view()
+            map_put(all, new_str(kv.0)?, new_str(kv.1)?)?
+
+        return Ok(Gives(Map(all)))
+
     val name = word_arg(base, 0, "env", "a variable's name")?
 
     get(name) match
@@ -81,6 +89,7 @@ struct Asked
     args: Buf[string]
     dir: string
     env: Buf[Var]
+    inherit_env: bool
     timeout: int
 
 // `run(program)`, `run(program, args)`, `run(program, args, options)`: start `program` -- found on
@@ -91,7 +100,7 @@ struct Asked
 // is there, so `r.signal` fails for a child that exited.
 //
 // The options are a map: `cwd`, the directory it runs in; `env`, a map of variables added to this
-// program's environment for it; `timeout`, how many milliseconds it may run before it is stopped.
+// program's environment for it, or all of it where `inherit_env` is `false`; `timeout`, how many milliseconds it may run before it is stopped.
 private do_run(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val a = asked(base, argc, "run")?
 
@@ -158,7 +167,7 @@ private output_kind() -> u32
 // Run what `a` asks for and wait for it, both of its streams captured: `None` where there is no such
 // program.
 private ran(a: Asked, name: string) -> Result[Option[Output], Fault]
-    capture(a.program, a.args.view(), a.dir, a.env.view(), true, a.timeout) match
+    capture(a.program, a.args.view(), a.dir, a.env.view(), true, a.timeout, a.inherit_env) match
         Ok(o) -> Ok(Some(o))
         Err(e) -> if e == NotFound then Ok(None) else Err(start_fault(e, name, a.program))
 
@@ -179,7 +188,7 @@ private asked(base: usize, argc: usize, name: string) -> Result[Asked, Fault]
         return Err(wrong_count(name, argc, s"'$name' takes 1 to 3 arguments, and was given $argc"))
 
     val program = word_arg(base, 0, name, "a program")?
-    var a = Asked(program, buf(), "", buf(), 0)
+    var a = Asked(program, buf(), "", buf(), true, 0)
 
     if argc >= 2 then a.args = string_args(arg(base, 1), name)?
 
@@ -230,8 +239,20 @@ private options(x: Value, name: string, a: *Asked) -> Result[unit, Fault]
 
             for j in 0..<e.keys.len()
                 a.env.push(Var(word_of(e.keys.at(j), name, "a variable's name")?, word_of(e.vals.at(j), name, "a variable's value")?))
+        elif k == "inherit_env"
+            opt match
+                Atom(id) ->
+                    val b = atom_name(id)
+
+                    if b == "true"
+                        a.inherit_env = true
+                    elif b == "false"
+                        a.inherit_env = false
+                    else
+                        return Err(kind_error(opt, "boolean", s"'$name' wants its `inherit_env` as true or false, and was given ${described(opt)}"))
+                _ -> return Err(kind_error(opt, "boolean", s"'$name' wants its `inherit_env` as true or false, and was given ${described(opt)}"))
         else
-            return Err(domain_error("process_option", m.keys.at(i), s"'$name' has no option `$k`: its options are `cwd`, `env` and `timeout`"))
+            return Err(domain_error("process_option", m.keys.at(i), s"'$name' has no option `$k`: its options are `cwd`, `env`, `inherit_env` and `timeout`"))
 
     Ok(())
 

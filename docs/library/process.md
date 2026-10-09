@@ -111,6 +111,36 @@ path_is_set
 
 A value that is not UTF-8 text fails the same way.
 
+`env()` with no argument is a map of every variable to what it is set to; a variable whose name or
+value is not UTF-8 text is left out of it.
+
+```funl
+import { env } from funl:process
+
+e = env()
+if e("PATH") == env("PATH") then write( #agrees )
+```
+
+```output
+agrees
+```
+
+`run` and `run_lines` give a program the variables of `env` in addition to these by default; the
+`inherit_env` option, `false`, gives it only those. `/usr/bin/env` writes the environment it was given:
+
+```funl
+import { run } from funl:process
+
+write( run("/usr/bin/env", [], {env: {A: "1"}, inherit_env: false}).out )
+write( run("/usr/bin/env", [], {inherit_env: false}).out )
+```
+
+```output
+A=1
+
+
+```
+
 ## Ending the program
 
 `exit(status)` ends the program at once, with `status` — 0 to 255 — as its exit status. What it
@@ -199,6 +229,7 @@ true
 |---|---|
 | `cwd` | the directory the program runs in |
 | `env` | a map of variables added to this program's environment for it |
+| `inherit_env` | `true`, the default, adds `env` to this program's environment; `false` gives the program exactly the variables of `env` and no others |
 | `timeout` | how many milliseconds it may run before it is stopped; 0, the default, is no limit |
 
 ```funl
@@ -291,7 +322,7 @@ write( run("/bin/echo", [], {colour: "red"}) catch e -> e )
 
 ```output
 error(permission_error(execute, source_sink, "docs/library/process/notes.txt"), context(_G2, "'run' cannot start `docs/library/process/notes.txt`: permission denied"))
-error(domain_error(process_option, "colour"), context(_G5, "'run' has no option `colour`: its options are `cwd`, `env` and `timeout`"))
+error(domain_error(process_option, "colour"), context(_G5, "'run' has no option `colour`: its options are `cwd`, `env`, `inherit_env` and `timeout`"))
 ```
 
 ## From Prolog
@@ -325,6 +356,7 @@ permission_error(execute,source_sink,docs/library/process/notes.txt)
 |---|---|
 | `args` | the list of the program's arguments |
 | `env(name)` | what variable `name` is set to; fails where it is unset |
+| `env()` | a map of every variable to its value |
 | `exit(status)` | ends the program with `status` |
 | `run(program, args, options)` | runs a program and waits for it: a map of `out`, `err`, and `status`, `signal` or `timed_out` |
 | `run_lines(program, args, options)` | runs a program and generates each line of its output |

@@ -55,6 +55,30 @@ ENV_READS_A_VARIABLE_AND_AN_UNSET_ONE_FAILS()
         "set\nunset\nabsent\nsucceeded")
 
 @test
+ENV_WITH_NO_ARGUMENT_IS_A_MAP_OF_EVERY_VARIABLE()
+    assert_eq(with_process("e = env()\nif e(\"PATH\") == env(\"PATH\") then write( #agrees )\n" +
+        "write( e(\"FUNL_SURELY_UNSET_VARIABLE\") | \"unset\" )\n"),
+        "agrees\nunset\nsucceeded")
+
+@test
+INHERIT_ENV_FALSE_GIVES_A_CHILD_EXACTLY_THE_ENV_OPTION()
+    assert_eq(with_process("write( run(\"/usr/bin/env\", [], {env: {A: \"1\"}, inherit_env: false}).out )\n" +
+        "write( run(\"/usr/bin/env\", [], {inherit_env: false}).out )\n" +
+        "write( [l | l <- run_lines(\"/usr/bin/env\", [], {env: {B: \"2\"}, inherit_env: false})] )\n" +
+        "r = run(\"/bin/sh\", [\"-c\", 'echo \"$HOME $FUNL_ADDED\"'], {env: {FUNL_ADDED: \"x\"}, inherit_env: true})\n" +
+        "if r.out == env(\"HOME\") + \" x\\n\" then write( #inherited )\n"),
+        "A=1\n\n\n[\"B=2\"]\ninherited\nsucceeded")
+
+@test
+INHERIT_ENV_MUST_BE_A_BOOLEAN()
+    val out = with_process("write( run(\"/bin/echo\", [], {inherit_env: 1}) catch e -> e )\n" +
+        "write( run(\"/bin/echo\", [], {inherit_env: #maybe}) catch e -> e )\n")
+
+    assert(out.contains("type_error(boolean, 1)"), out)
+    assert(out.contains("wants its `inherit_env` as true or false, and was given the integer 1"), out)
+    assert(out.contains("type_error(boolean, maybe)"), out)
+
+@test
 RUN_GIVES_THE_OUTPUT_THE_ERRORS_AND_THE_STATUS()
     assert_eq(with_process("r = run( \"/bin/echo\", [\"hi\", \"there\"] )\nwrite( r )\n" +
         "r2 = run( \"/bin/sh\", [\"-c\", \"echo oops >&2; exit 3\"] )\nwrite( r2.status, r2.out, r2.err )\n" +
@@ -108,7 +132,7 @@ A_MISTAKE_IN_THE_CALL_IS_A_FAULT_THE_PROGRAM_CAN_CATCH()
     assert_eq(with_process(text),
         "error(type_error(list, \"x\"), context(_G2, \"'run' wants a list and reached the string 'x'\"))\n" +
         "error(type_error(string, 1), context(_G5, \"'run' wants an argument as a string, and was given the integer 1\"))\n" +
-        "error(domain_error(process_option, \"bogus\"), context(_G8, \"'run' has no option `bogus`: its options are `cwd`, `env` and `timeout`\"))\n" +
+        "error(domain_error(process_option, \"bogus\"), context(_G8, \"'run' has no option `bogus`: its options are `cwd`, `env`, `inherit_env` and `timeout`\"))\n" +
         "error(type_error(integer, \"x\"), context(_G11, \"'run' wants its `timeout` in whole milliseconds, and was given the string 'x'\"))\n" +
         "error(type_error(map, [1]), context(_G14, \"'run' wants its options as a map, and was given the list [1]\"))\n" +
         "error(type_error(string, 3), context(_G17, \"'env' wants a variable's name as a string, and was given the integer 3\"))\n" +
