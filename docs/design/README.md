@@ -97,6 +97,7 @@ Each is argued where it arises; this is the list.
 | Prelude `map` against the builtin `map`? | one `map/2`: a function as first argument maps, anything else is the constructor (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Which prelude names are core natives? | `reverse`, `sort`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, `zip`, `zip3`, and `sortBy`, `zipWith`, `zipWith3` calling their function back as bounded calls (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Builtins as values? | a builtin named without a call is a function value (a variadic one passes on however many arguments it is given), and `import * as` a module of FunL's own names the map of them (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| A trailing comma in a map, set or list literal? | yes, language-wide, so a manifest stays ordinary FunL; a tuple, an argument list or a parameter list does not take one (user, 2026-10-09) | [packages](packages.md#open-questions) |
 
 ## Open questions
 
@@ -109,7 +110,6 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | Constructors unique across packages too? | keep the rule; the refusal names both packages; revisit on a real collision | [packages](packages.md#open-questions) |
 | How does Prolog name a package? | an atom is a package (`:- import(tabular/pivot).`), a string a file | [packages](packages.md#open-questions) |
 | May a package carry Prolog files? | yes, imported whole as `import "file.pl"` is | [packages](packages.md#open-questions) |
-| A trailing comma in a map, set or list literal? | yes, language-wide, so a manifest stays ordinary FunL | [packages](packages.md#open-questions) |
 | A `funl` floor key in the manifest? | yes, optional, because the grammar is still moving | [packages](packages.md#open-questions) |
 | Which package commands? | `add`, `fetch`, `vendor`, `deps` now; `bundle`, `brew`, `scripts` when shipping is wanted | [packages](packages.md#open-questions) |
 | P3.1 Is P3 (a generator of tuples cannot be destructured by `<-`) closed by drawing tuples whole? | yes: `(a, b) <- zip(xs, ys)`, `(k, v) <- !m` and generated tuples already destructure; the rule is option A | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
