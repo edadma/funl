@@ -160,14 +160,16 @@ private drawn(c: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
             out.push(x)
             Ok(())
 
-// Refuses a string, a tuple or a map where a list function wants a list: each is one value to `<-`,
-// and answering a one-element pairing or a one-element result for it would hide the mistake.
+// Refuses anything but a list, a range, a set, an array, a buffer or a byte string where a list
+// function wants a list: a string, a tuple, a map or a scalar is one value to `<-`, and answering a
+// one-element pairing or a one-element result for it would hide the mistake. An unbound variable is
+// left for the function's own instantiation error.
 list_guard(c: Value, what: string) -> Result[unit, Fault]
     val x = deref(c)
 
     x match
-        Str(_) | Tuple(_) | Map(_) | MutMap(_) -> Err(type_error("list", x, s"$what wants a list and reached ${described(x)}"))
-        _ -> Ok(())
+        Nil | Cons(_) | Range(_) | Unit | Set(_) | MutSet(_) | Array(_) | Buffer(_) | Bytes(_) | Var(_) -> Ok(())
+        _ -> Err(type_error("list", x, s"$what wants a list and reached ${described(x)}"))
 
 // `drawn` for a list function's own list argument: a string, a tuple or a map is refused.
 private listed(c: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
@@ -335,6 +337,8 @@ private do_replicate(base: usize, argc: usize) -> Result[Value, Fault]
 // `elem(x, xs)`: `x`, when `xs` holds it as `x in xs` finds it, and otherwise failure.
 private do_elem(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val x = arg(base, 0)
+
+    list_guard(arg(base, 1), "'elem'")?
 
     Ok(if member(x, arg(base, 1))? then Gives(x) else Refuses)
 

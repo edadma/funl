@@ -157,6 +157,13 @@ def solve( c )
 > refuse a string, tuple or map argument with `'f' wants a list and reached the string 'ab'`, and answer
 > no one-element pairing (P3.5). `every` takes no pattern: `for (a, b) <- e` is the destructuring form
 > (P3.6). Tests: `tests_drawn_patterns.sysl` and `tests_prelude.sysl`.
+>
+> **Extended (user, 2026-10-09): every list function refuses every non-list.** The refusal is not
+> limited to a string, tuple or map: a number, an atom, a boolean or any other scalar is refused the
+> same way, so `take(2, 5)` is a fault, not `[5]`. `elem`, `sum` and `join` refuse a tuple or a map as
+> the rest do (`elem(x, xs)` is `x in xs` for a list, range, set, array or buffer only; the `in`
+> operator itself still looks in a tuple or a map's keys). A list, range, set, array, buffer and byte
+> string are the accepted arguments. Test: `PRELUDE_LIST_FUNCTIONS_REFUSE_EVERY_NON_LIST`.
 
 > **Open question P3, revisited (2026-10-08) — what does a pattern on the left of `<-` see?** The
 > question was raised when `<-` iterated every collection it drew, tuples included: `[a | (a, b) <-

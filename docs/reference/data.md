@@ -176,7 +176,7 @@ write( [k | (k, v) <- !m if v > 1] )
 
 ## `sum`
 
-`sum(c)` adds the elements of a list, range, tuple, set, array or buffer with `+`, so rationals stay
+`sum(c)` adds the elements of a list, range, set, array or buffer with `+`, so rationals stay
 exact and the kinds mix as they do in `+`. The sum of nothing is `0`.
 
 ```funl
@@ -215,6 +215,16 @@ write( sum(5) )
 
 ```error
 'sum' wants a list and reached the integer 5
+```
+
+A tuple is not a list of numbers either:
+
+```funl
+write( sum((1, 2)) )
+```
+
+```error
+'sum' wants a list and reached the tuple (1, 2)
 ```
 
 ## Reaching an element
