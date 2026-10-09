@@ -16,6 +16,7 @@ import sysl.buf.{Buf, buf}
 //     if c then t else e     Mark(no); c; FailIfFalse; Unmark; t; Branch(end); no: e; end:
 //     every g do b           g; Pop; MarkThrough; b; Unmark; Fail
 //     a statement            Mark(next); e; Unmark; next:
+//     one that settles       e; Pop                    -- `settled.sysl`
 //     !c                     c; GenStart(false); GenNext
 //     i to j by k            i; j; k; PushInt(0); GenRange(true)
 //     |e                     top: MarkThrough; e; ChangeMark(top)
@@ -650,8 +651,10 @@ end block
 
 // A statement: `free` makes its variables, `val` matches its pattern against the first value of
 // its expression, a local `def` emits nothing -- its function is called directly -- and an
-// expression runs bounded and is dropped.
+// expression runs bounded and is dropped. A statement that settles (`settled.sysl`) runs unbounded.
 compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
+    if stmt_settles(c, s) then return settled_stmt(e, c, s)
+
     s match
         FreeS(names) ->
             for named in names.view()
@@ -696,6 +699,32 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
 
         // A constructor's name is resolved to the constructor wherever it is read; nothing is stored.
         DataS(_, _) -> ()
+
+    Ok(())
+
+// A statement that settles, with no mark: it leaves the operand stack as it found it, an
+// expression's value dropped -- an assignment's never pushed.
+private settled_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
+    s match
+        ExprS(x) ->
+            x.kind match
+                AssignE(n, a) ->
+                    compile_value(e, c, a)?
+                    e.op(store_to(c, n, x.span.end)?)
+                _ ->
+                    compile_value(e, c, x)?
+                    thrown_away(e, x)
+                    e.op(Pop)
+        ValS(pat, x, _) ->
+            compile_value(e, c, x)?
+            match_fresh(e, c, pat)?
+        VarS(n, _, x) ->
+            x match
+                Some(v) -> compile_value(e, c, v)?
+                None -> e.op(PushConst(e.constant(Undefined)))
+
+            e.op(StoreSlot(slot_of_name(c, n)?))
+        _ -> return Err("a statement that does not settle was compiled as one")
 
     Ok(())
 
