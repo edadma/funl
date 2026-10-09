@@ -84,8 +84,23 @@ write( manifest )
 {"name": "tabular", "tags": ["csv", "tables"]}
 ```
 
-A comma must still follow an element, so `[,]` and `[1,,2]` are refused. A tuple, an argument list
-and a parameter list take no trailing comma:
+A tuple, an argument list and a parameter list take one too, so a call or a definition can be written
+one argument or parameter per line:
+
+```funl
+def area(
+  width,
+  height,
+) = width * height
+
+write( area(3, 4,), (1, 2,) )
+```
+
+```output
+12, (1, 2)
+```
+
+A comma must still follow an element, so `[,]`, `[1,,2]` and `max(,)` are refused:
 
 ```funl
 write( [1,,2] )
@@ -96,11 +111,22 @@ expected an expression
 ```
 
 ```funl
-write( (1,) )
+write( max(,) )
 ```
 
 ```error
 expected an expression
+```
+
+There is no tuple of one element, so a comma after a lone element is refused, and a trailing comma in
+a tuple needs two elements before it:
+
+```funl
+write( (1,) )
+```
+
+```error
+a tuple has at least two elements
 ```
 
 ### `()`, the tuple of nothing

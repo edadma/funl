@@ -660,10 +660,22 @@ private paren(p: *Parser, open: Span) -> &Expr
 
         items.push(first)
 
+        var lone = false
+
         while p.accept(Comma)
+            if p.at_tok(RParen)
+                if items.len() == 1 && !is_bad(first)
+                    p.report.add(error(open.to(p.toks.previous()), "a tuple has at least two elements, so a one-element `(x,)` is not a tuple")
+                        .with_note("a trailing comma needs two or more elements before it; write `x` for the value itself"))
+                    lone = true
+
+                break
+
             items.push(delimited(p))
 
         if !p.expect(RParen, "`,` or `)`") then p.skip_to_close()
+
+        if lone then return expr(BadE, open.to(p.toks.previous()))
 
         return expr(TupleE(items), open.to(p.toks.previous()))
 
@@ -683,6 +695,10 @@ private sequence(p: *Parser, open: Span, first: Stmt) -> &Expr
     if !p.expect(RParen, "`;` or `)`") then p.skip_to_close()
 
     expr(BlockE(p.node_id(), stmts), open.to(p.toks.previous()))
+
+private is_bad(e: &Expr) -> bool = e.kind match
+    BadE -> true
+    _ -> false
 
 private is_minus(t: Tok) -> bool = t match
     Minus -> true
@@ -797,7 +813,10 @@ arguments(p: *Parser) -> Buf[&Expr]
     loop
         args.push(delimited(p))
 
-        if p.accept(Comma) then continue
+        if p.accept(Comma)
+            if p.accept(RParen) then break
+
+            continue
 
         if !p.expect(RParen, "`,` or `)`") then p.skip_to_close()
 

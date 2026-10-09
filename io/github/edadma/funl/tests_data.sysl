@@ -393,10 +393,22 @@ A_COMMA_THAT_ENDS_NOTHING_IS_STILL_REFUSED()
     assert_eq(complaints("write( {1,,2} )\n"), "error 1:11 expected an expression\n")
 
 @test
-A_TUPLE_OR_ARGUMENT_LIST_DOES_NOT_TAKE_A_TRAILING_COMMA()
-    assert_eq(complaints("write( (1,) )\n"), "error 1:11 expected an expression\n")
-    assert_eq(complaints("write( (1, 2,) )\n"), "error 1:14 expected an expression\n")
-    assert_eq(complaints("write( max(1, 2,) )\n"), "error 1:17 expected an expression\n")
+A_TUPLE_ARGUMENT_LIST_OR_PARAMETER_LIST_MAY_END_WITH_A_COMMA()
+    assert_eq(ran_funl("write( (1, 2,), (1, 2, 3,) )\n"), "(1, 2), (1, 2, 3)\nsucceeded")
+    assert_eq(ran_funl("write( max(1, 2,), max(3,) )\n"), "2, 3\nsucceeded")
+    assert_eq(ran_funl("def add(a, b,) = a + b\nwrite( add(1, 2,) )\n"), "3\nsucceeded")
+    assert_eq(ran_funl("def one(a,) = a\nwrite( one(7,) )\n"), "7\nsucceeded")
+    assert_eq(ran_funl("write( ((a, b,) -> a * b)(3, 4,) )\n"), "12\nsucceeded")
+    assert_eq(ran_funl("val (x, y,) = (5, 6,)\nwrite( x, y )\n"), "5, 6\nsucceeded")
+    assert_eq(ran_funl("write( (\n  1,\n  2,\n) )\n"), "(1, 2)\nsucceeded")
+
+@test
+A_ONE_ELEMENT_TUPLE_OR_A_COMMA_THAT_ENDS_NOTHING_IS_REFUSED()
+    assert_eq(complaints("write( (1,) )\n"), "error 1:8 a tuple has at least two elements, so a one-element `(x,)` is not a tuple\n")
+    assert_eq(complaints("write( (,) )\n"), "error 1:9 expected an expression\n")
+    assert_eq(complaints("write( max(,) )\n"), "error 1:12 expected an expression\n")
+    assert_eq(complaints("write( (1,,) )\n"), "error 1:11 expected an expression\n")
+    assert_eq(complaints("write( max(1,,) )\n"), "error 1:14 expected an expression\n")
 
 // -- interpolation -------------------------------------------------------------------------------------
 
