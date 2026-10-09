@@ -601,16 +601,15 @@ private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
         Ref(g) -> w.report.add(not_exported(w.res, g, name, at))
         _ -> ()
 
-// What a call of `n` written at `at` with `argc` arguments reaches, `n` meaning `m` there; for a
-// name of several arities, decided here -- where it is known whether the call is in a goal -- and
-// kept for the compiler.
+// What a call of `n` written at `at` with `argc` arguments reaches, `n` meaning `m` there: decided
+// here, where it is known whether the call is in a goal, and kept for the compiler.
 private picked_call(w: *Walk, n: string, m: Meaning, at: Span, argc: usize) -> Meaning
     val p = w.res.called_in(n, m, argc, w.goal)
 
-    m match
-        Family(_, _) -> w.res.picks.put(at.start, p)
-        _ -> ()
-
+    // Kept for every call, not only a family's: by the time the compiler reads the call, the
+    // program's own definitions are Prolog predicates too, and the name would mean more than it
+    // did here.
+    w.res.picks.put(at.start, p)
     p
 
 // A call of `n`, which means `m`, with as many arguments as it takes.

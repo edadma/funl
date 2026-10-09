@@ -166,6 +166,18 @@ push_family(e: *Emit, res: *Resolved, ms: Buf[Meaning], name: string) -> Result[
 
     if members.len() == 0 then return Err(s"'$name' was resolved and is not a value")
 
+    // One function among relations and predicates is that function's own value.
+    if members.len() == 1
+        members.at(0) match
+            FnMember(chunk, _, _) ->
+                for x in ms.view()
+                    x match
+                        Function(_, u) ->
+                            e.op(MakeClosure(chunk, u))
+                            return Ok(())
+                        _ -> ()
+            _ -> ()
+
     e.op(MakeClosure(family_chunk(name, members)?, up))
     Ok(())
 

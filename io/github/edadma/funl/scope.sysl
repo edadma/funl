@@ -275,8 +275,9 @@ struct Resolved
     // The code being resolved, which positions are read in.
     src: Source
 
-    // What each call of a name of several arities reaches, by the offset of the name, as the
-    // resolver decided it knowing whether the call is in a goal (`called_in`).
+    // What each call of a name reaches, by the offset of the name, as the resolver decided it --
+    // knowing whether the call is in a goal (`called_in`), and before the program's own definitions
+    // became Prolog predicates.
     picks: Map[usize, Meaning]
 
     // What each name an `import { ... }` declares means, and each `import * as` alias its map
