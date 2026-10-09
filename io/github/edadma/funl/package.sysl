@@ -182,15 +182,22 @@ package_graph(importer: string) -> PackageGraph
 // The graph of the project in `root`: its own dependencies and dev dependencies, then everything
 // their manifests reach, read breadth-first in the order written.
 resolve_graph(root: string) -> PackageGraph
+    if root == "" then return PackageGraph(root, buf(), buf(), buf(), buf(), buf())
+
+    read_manifest(s"$root/$ManifestFile") match
+        Ok(m) -> resolve_graph_of(root, m)
+        Err(_) ->
+            var g = PackageGraph(root, buf(), buf(), buf(), buf(), buf())
+
+            g.sums = read_sums(root)
+            g
+
+// The graph of project `root` whose manifest is `m` -- read from the file, or, for `funl add`, the
+// manifest it is about to write.
+resolve_graph_of(root: string, m: Manifest) -> PackageGraph
     var g = PackageGraph(root, buf(), buf(), buf(), buf(), buf())
 
-    if root == "" then return g
-
     g.sums = read_sums(root)
-
-    val m = read_manifest(s"$root/$ManifestFile") match
-        Ok(m) -> m
-        Err(_) -> return g
 
     var pending: Buf[Dependency] = buf()
 
@@ -218,7 +225,7 @@ resolve_graph(root: string) -> PackageGraph
                 Err(_) -> ()
 
     g
-end resolve_graph
+end resolve_graph_of
 
 // Record one wanted package, answering whether its manifest is still to be read.
 private take_package(g: *PackageGraph, want: Dependency) -> bool
@@ -325,11 +332,10 @@ resolve_package(importer: string, spec: string, at: Span, report: *Report) -> Op
             unreadable(g, s"${p.dir}/$ManifestFile", why, at, report)
             return None
 
-    pm.floor match
-        Some(f) ->
-            if newer_version(f, FunlVersion)
-                report.add(error(at, s"`$name` ${p.version} needs FunL $f or newer, and this is FunL $FunlVersion"))
-                return None
+    floor_refusal(name, p.version, pm) match
+        Some(why) ->
+            report.add(error(at, why))
+            return None
         None -> ()
 
     val rel = listed_as match
@@ -414,12 +420,37 @@ private summed(g: PackageGraph, p: Package, at: Span, report: *Report) -> bool
         val now = tree_hash(p.dir).unwrap_or("nothing that can be read")
 
         if now != e.hash
-            report.add(error(at, s"$key does not match $SumFile: it was recorded as ${e.hash} and is now $now")
-                .with_note("either the version's tag was moved after it was first fetched, or the copy on this machine has been edited"))
+            report.add(error(at, sum_mismatch(p.git, p.version, e.hash, now)).with_note(SumMismatchNote))
             return false
 
     g.hashed.push(key)
     true
+
+// That version `version` of `git` hashes to `now` where `funl.sum` recorded `want`.
+sum_mismatch(git: string, version: string, want: string, now: string) -> string =
+    s"$git v$version does not match $SumFile: it was recorded as $want and is now $now"
+
+// What a mismatch with `funl.sum` means.
+const SumMismatchNote: string = "either the version's tag was moved after it was first fetched, or the copy on this machine has been edited"
+
+// The refusal of a manifest `m`, of the package or project a reader calls `name` at `version`, whose
+// `funl` floor is newer than this FunL; `None` where it has none or this FunL is new enough.
+floor_refusal(name: string, version: string, m: Manifest) -> Option[string] = m.floor match
+    Some(f) -> if newer_version(f, FunlVersion) then Some(s"`$name` $version needs FunL $f or newer, and this is FunL $FunlVersion") else None
+    None -> None
+
+// The refusal of a program in `file` whose own project's manifest asks for a newer FunL than this
+// one, the floor holding for the project's own files as for a package's. A manifest that cannot be
+// read is not refused here: a program that imports no package does not need its project's manifest,
+// and one that does is told what is wrong with it at the import.
+project_floor_refusal(file: string) -> Option[string]
+    val root = project_of(file)
+
+    if root == "" then return None
+
+    read_manifest(s"$root/$ManifestFile") match
+        Ok(m) -> floor_refusal(m.name, m.version, m)
+        Err(_) -> None
 
 // The package whose directory holds `file`, as a reader names it -- "package `tabular` 0.2.0" -- or
 // `None` for a file of no package.

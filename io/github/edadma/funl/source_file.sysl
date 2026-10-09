@@ -29,6 +29,12 @@ compile_file(file: string) -> Compiled
 // Compile `text` as the contents of a file named `file`, exactly as `compile_file` would once it had
 // read it: the name alone decides how the text is read, and names the file in every diagnostic.
 compile_text(file: string, text: string) -> Compiled
+    // A project whose manifest needs a newer FunL is refused before its files are read, as a package
+    // would be, rather than failing with parse errors that blame the program.
+    project_floor_refusal(file) match
+        Some(why) -> return Refused(s"error: $why\n")
+        None -> ()
+
     val doc = source_of(file, text)
 
     val src = funl_source(doc) match

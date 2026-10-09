@@ -462,11 +462,18 @@ over a library.
    `scripts` come when a FunL program first wants shipping, each as slate has it. There is no
    `install` alias, `add` being the word the modules chapter already chose.
 
-**Built** (stage 1): the manifest reader, finding the project by walking up from the entry file,
-`funl.sum` and the tree hash, the cache and `vendor/`, and resolving `import ... from tabular` and
-`tabular/pivot` (and Prolog's atoms) against what is already on the machine. **To build** (stage 2):
-the four commands and the `git` transport, which fill the cache and `vendor/` laid out as stage 1
-reads them, and write `funl.sum`. A run never touches the network.
+**Built**: the manifest reader, finding the project by walking up from the entry file, `funl.sum`
+and the tree hash, the cache and `vendor/`, and resolving `import ... from tabular` and
+`tabular/pivot` (and Prolog's atoms) against what is already on the machine; the project's own
+`funl` floor, held against every program of the project as a package's is against its importers;
+and the four commands over the `git` transport (`package_commands.sysl`, the surgical rewrite in
+`manifest_edit.sysl`). A run never touches the network. Two details the sections above leave open
+are settled in the building: `funl add` asked for a name already in the *other* section is refused
+(one package is in one section or the other), and `funl deps` prints the graph as a tree — each
+package under the first package that asked for it, at the version the graph chose — followed by
+the version-conflict sentences as `warning:` lines. The tests fetch from repositories made with
+`git init` in a scratch directory, through a process-wide `set_git_source` that maps a repository
+to `file://<dir>/<host>/<owner>/<repo>`; nothing a user writes reaches it.
 
 Write it so the language-neutral half — tree hash, sum file, cache layout, vendor copy — reads as
 slate's and sysl's do line for line; if a third language wants it, that half is the part to lift

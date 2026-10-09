@@ -1,0 +1,434 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{copy_dir_all, current_dir, is_dir, make_dir_all, pending_name, publish_dir, read_text, remove_dir_all, write_text}
+import sysl.path.parent
+import sysl.process.capture
+import sysl.text.{Search, parse_long, split, str_builder}
+
+// The package commands (`packages.md` § "The commands"): `funl add`, `funl fetch`, `funl vendor` and
+// `funl deps`. These, and nothing that runs a program, reach the network.
+//
+// **The transport is `git`, as the sysl compiler's is.** A package version is the tag `v<version>` of
+// the repository its `git` names, fetched with `git clone --quiet --depth 1 --branch v<version>` into
+// a directory beside its place in the cache, `.git` removed, hashed, checked against `funl.sum`, and
+// renamed into place -- so nothing ever reads half a package, and a version whose tag was moved is
+// refused before it lands. The newest version is asked of `git ls-remote --tags`, which works for any
+// host the user's git can reach, with the user's own credentials.
+//
+// **`funl.sum` is append-only.** A command records the hash of every package version the graph
+// reaches that it does not record yet, and refuses one that hashes to something other than what it
+// does record; it never removes a line.
+
+// The words that are commands rather than programs: `funl add` is the command, and a program file
+// called `add` is run as `funl ./add`.
+is_package_command(word: string) -> bool = word == "add" || word == "fetch" || word == "vendor" || word == "deps"
+
+// process-wide: where repositories are cloned from instead of their hosts -- a directory holding
+// `<host>/<owner>/<repo>` repositories -- which is how a test fetches without a network. Set by the
+// test that wants it, and put back by the same test.
+private var git_source: string = ""
+
+// Clone from repositories under `dir` rather than from their hosts; `""` puts it back.
+set_git_source(dir: string)
+    git_source = dir
+
+// The URL repository `git` is cloned from.
+clone_url(git: string) -> string = if git_source != "" then s"file://$git_source/$git" else s"https://$git"
+
+// A machine's worth of heap for reading manifests, which are small.
+private const CommandHeap: usize = 4194304
+
+// Run package command `word` with `args` (what follows the word) from directory `dir`: progress and
+// answers to `say`, refusals to `complain`. The status is 0 for a command that did what it was asked,
+// 1 for one that was refused, and 2 for one that was not asked properly.
+package_command(word: string, args: []const string, dir: string, say: &Fn(string) -> unit, complain: &Fn(string) -> unit) -> int
+    var v = new_vm(CommandHeap, CommandHeap, 2)
+    val was = enter(&v)
+
+    val done = command(word, args, dir, say)
+
+    dispose_vm(&v)
+    leave(was)
+
+    done match
+        Ok(_) -> 0
+        Err(Declined(why)) ->
+            complain(s"funl $word: $why\n")
+            1
+        Err(Misused(why)) ->
+            complain(s"funl $word: $why\n$CommandUsage")
+            2
+end package_command
+
+// The four commands, for a reader who wrote one wrongly.
+const CommandUsage: string = "usage: funl add <host>/<owner>/<repo>[@<version>] [--dev]\n       funl fetch\n       funl vendor\n       funl deps\n"
+
+// Why a command did not do what it was asked.
+private enum Stopped
+    // The command was refused; the sentence says why.
+    Declined(why: string)
+
+    // It was not asked properly.
+    Misused(why: string)
+
+private command(word: string, args: []const string, dir: string, say: &Fn(string) -> unit) -> Result[unit, Stopped]
+    if word == "add" then return add_command(args, dir, say)
+
+    if args.len > 0 then return Err(Misused(s"`funl $word` takes no arguments"))
+
+    if word == "fetch" then return fetch_command(dir, say)
+
+    if word == "vendor" then return vendor_command(dir, say)
+
+    if word == "deps" then return deps_command(dir, say)
+
+    Err(Misused(s"`$word` is not a package command"))
+
+// The project directory `dir` is in, and its manifest -- refused where there is none, where it cannot
+// be read, or where it needs a newer FunL than this one.
+private project_here(dir: string) -> Result[(string, Manifest), Stopped]
+    val root = project_of(s"$dir/$ManifestFile")
+
+    if root == "" then return Err(Declined(s"there is no $ManifestFile in $dir or above it -- a project is a directory holding one"))
+
+    val m = read_manifest(s"$root/$ManifestFile") match
+        Ok(m) -> m
+        Err(why) -> return Err(Declined(s"$root/$ManifestFile cannot be used:\n$why"))
+
+    floor_refusal(m.name, m.version, m) match
+        Some(why) -> Err(Declined(why))
+        None -> Ok((root, m))
+
+// -- funl fetch ------------------------------------------------------------------------------------
+
+private fetch_command(dir: string, say: &Fn(string) -> unit) -> Result[unit, Stopped]
+    val (root, m) = project_here(dir)?
+
+    fetch_all(root, m, say).map_err((why) -> Declined(why))?
+
+    Ok(())
+
+// Every package project `root`'s manifest `m` reaches, fetched into the cache where neither `vendor/`
+// nor the cache has it, then all of them checked against `funl.sum` and the ones it does not record
+// recorded. The graph is resolved again after each round of fetching, a fetched package's manifest
+// being what names the packages it reaches.
+fetch_all(root: string, m: Manifest, say: &Fn(string) -> unit) -> Result[PackageGraph, string]
+    // Each round fetches at least one package or ends, and a graph has finitely many.
+    for _ in 0..<1024
+        val g = resolve_graph_of(root, m)
+        var more = false
+
+        for p in g.found.view()
+            if is_dir(p.dir) then continue
+
+            fetch_package(p.git, p.version, g.sums, say)?
+            more = true
+
+        if !more
+            record_sums(g)?
+            return Ok(g)
+
+    Err("the packages kept naming packages that were not there yet, past a thousand rounds of fetching")
+end fetch_all
+
+// Fetch version `version` of `git` into the cache: cloned beside its place, `.git` removed, hashed,
+// held to `sums`, and renamed into place.
+fetch_package(git: string, version: string, sums: Buf[SumEntry], say: &Fn(string) -> unit) -> Result[unit, string]
+    val dir = cache_dir_of(git, version)
+    val partial = pending_name(dir)
+    val url = clone_url(git)
+    val tag = s"v$version"
+
+    make_dir_all(parent(dir).unwrap_or(".")) match
+        Ok(_) -> ()
+        Err(e) -> return Err(s"cannot fetch $git $tag: the cache cannot be made at ${parent(dir).unwrap_or(".")}: $e")
+
+    say(s"fetching $git $tag\n")
+
+    val answer = capture("git", ["-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1", "--branch", tag, url, partial], "", [], true) match
+        Ok(got) -> got
+        Err(_) ->
+            remove_dir_all(partial).unwrap_or(())
+            return Err(s"cannot fetch $git $tag: git is not on this machine")
+
+    if !answer.status.ok()
+        remove_dir_all(partial).unwrap_or(())
+        return Err(s"cannot fetch $git $tag from $url:\n${answer.err.unwrap_or("").trim()}")
+
+    remove_dir_all(s"$partial/.git").unwrap_or(())
+
+    val hash = tree_hash(partial) match
+        Some(h) -> h
+        None ->
+            remove_dir_all(partial).unwrap_or(())
+            return Err(s"cannot fetch $git $tag: what was cloned cannot be read")
+
+    for e in sums.view()
+        if e.git == git && e.version == version && e.hash != hash
+            remove_dir_all(partial).unwrap_or(())
+            return Err(s"${sum_mismatch(git, version, e.hash, hash)}\n  $SumMismatchNote")
+
+    publish_dir(partial, dir) match
+        Ok(_) -> Ok(())
+        Err(_) -> Err(s"cannot fetch $git $tag: what was cloned could not be moved into $dir")
+end fetch_package
+
+// Hold every package of graph `g` to `funl.sum`, and append a line for each one it does not record
+// yet. Refused where one is not on the machine or hashes to something else than the file records.
+record_sums(g: PackageGraph) -> Result[unit, string]
+    var added = str_builder()
+    var any = false
+
+    for p in g.found.view()
+        if !is_dir(p.dir) then return Err(s"${p.name} ${p.version} is not in ${cache_dir_of(p.git, p.version)} -- run `funl fetch`")
+
+        val now = tree_hash(p.dir) match
+            Some(h) -> h
+            None -> return Err(s"${p.dir} cannot be read")
+
+        var recorded = false
+
+        for e in g.sums.view()
+            if e.git != p.git || e.version != p.version then continue
+
+            if e.hash != now then return Err(s"${sum_mismatch(p.git, p.version, e.hash, now)}\n  $SumMismatchNote")
+
+            recorded = true
+
+        if !recorded
+            added.push(sum_line(SumEntry(p.git, p.version, now)) + "\n")
+            any = true
+
+    if !any then return Ok(())
+
+    val file = s"${g.root}/$SumFile"
+    val was = read_text(file).unwrap_or("")
+    val sep = if was == "" || was.ends_with("\n") then "" else "\n"
+
+    write_text(file, was + sep + added.finish()).map_err((e) -> s"$file cannot be written: $e")
+end record_sums
+
+// -- funl vendor -----------------------------------------------------------------------------------
+
+// Copy every package of the project's graph from the cache into its `vendor/`, the cache's layout
+// inside the project; a package already there is left as it is. Everything copied is held to
+// `funl.sum`, recorded where the file does not record it.
+private vendor_command(dir: string, say: &Fn(string) -> unit) -> Result[unit, Stopped]
+    val (root, m) = project_here(dir)?
+    val g = resolve_graph_of(root, m)
+
+    for p in g.found.view()
+        val into = vendor_dir_of(root, p.git, p.version)
+
+        if is_dir(into) then continue
+
+        val from = cache_dir_of(p.git, p.version)
+
+        if !is_dir(from) then return Err(Declined(s"${p.name} ${p.version} is not in $from -- run `funl fetch`"))
+
+        val now = tree_hash(from).unwrap_or("nothing that can be read")
+
+        for e in g.sums.view()
+            if e.git == p.git && e.version == p.version && e.hash != now
+                return Err(Declined(s"${sum_mismatch(p.git, p.version, e.hash, now)}\n  $SumMismatchNote"))
+
+        val pending = pending_name(into)
+
+        make_dir_all(parent(into).unwrap_or(".")).map_err((e) -> Declined(s"$into cannot be made: $e"))?
+
+        copy_dir_all(from, pending) match
+            Ok(_) -> ()
+            Err(e) ->
+                remove_dir_all(pending).unwrap_or(())
+                return Err(Declined(s"${p.name} ${p.version} cannot be copied into $into: $e"))
+
+        publish_dir(pending, into).map_err((e) -> Declined(s"${p.name} ${p.version} cannot be moved into $into: $e"))?
+        say(s"vendored ${p.name} ${p.version}\n")
+
+    // The graph again, now reading every package out of `vendor/`.
+    record_sums(resolve_graph_of(root, m)).map_err((why) -> Declined(why))
+end vendor_command
+
+// -- funl deps -------------------------------------------------------------------------------------
+
+// Print the project's graph as a tree: the project, then each package under the one that asked for it,
+// at the version the graph chose -- a dev dependency marked `-- dev` and one not on the machine `-- not
+// fetched` -- and then what the choice between two versions of one package was.
+private deps_command(dir: string, say: &Fn(string) -> unit) -> Result[unit, Stopped]
+    val (root, m) = project_here(dir)?
+    val g = resolve_graph_of(root, m)
+    var shown: Buf[string] = buf()
+
+    say(s"${m.name} ${m.version}\n")
+
+    for d in m.dependencies.view()
+        deps_line(g, d, "  ", "", &shown, say)
+
+    for d in m.dev.view()
+        deps_line(g, d, "  ", " -- dev", &shown, say)
+
+    for n in g.notes.view()
+        say(s"warning: $n\n")
+
+    Ok(())
+
+// The line for dependency `d`, at `indent`, and then the packages it reaches under it -- each package
+// only under the first that reached it, so the tree ends however the manifests loop.
+private deps_line(g: PackageGraph, d: Dependency, indent: string, mark: string, shown: *Buf[string], say: &Fn(string) -> unit)
+    val p = g.chosen(d.git) match
+        Some(p) -> p
+        None -> Package(d.name, d.git, d.version, package_home(g.root, d.git, d.version))
+
+    val here = is_dir(p.dir)
+    val missing = if here then "" else " -- not fetched"
+
+    say(s"$indent${d.name} ${p.version} ${p.git}$mark$missing\n")
+
+    for s in shown.view()
+        if s == p.git then return
+
+    shown.push(p.git)
+
+    if !here then return
+
+    read_manifest(s"${p.dir}/$ManifestFile") match
+        Ok(pm) ->
+            for c in pm.dependencies.view()
+                deps_line(g, c, indent + "  ", "", shown, say)
+        Err(_) -> ()
+
+// -- funl add --------------------------------------------------------------------------------------
+
+// `funl add <host>/<owner>/<repo>[@<version>] [--dev]`: the version named, or the newest tag; the
+// manifest rewritten in memory and read back; everything it then reaches fetched and recorded in
+// `funl.sum`; and only then the manifest written, so a version that does not exist never reaches it.
+private add_command(args: []const string, dir: string, say: &Fn(string) -> unit) -> Result[unit, Stopped]
+    var dev = false
+    var spec: Option[string] = None
+
+    for a in args
+        if a == "--dev"
+            dev = true
+        elif a.starts_with("-")
+            return Err(Misused(s"`$a` is not an option of `funl add`"))
+        elif spec.is_some()
+            return Err(Misused("`funl add` adds one package at a time"))
+        else
+            spec = Some(a)
+
+    val asked = spec match
+        Some(s) -> s
+        None -> return Err(Misused("`funl add` names the package to add"))
+
+    val (git, given) = read_add_spec(asked).map_err((why) -> Declined(why))?
+    val (root, _) = project_here(dir)?
+
+    val version = given match
+        Some(v) -> v
+        None -> newest_version(git).map_err((why) -> Declined(why))?
+
+    val name = import_name(git)
+    val file = s"$root/$ManifestFile"
+    val text = read_text(file).map_err((e) -> Declined(s"$file cannot be read: $e"))?
+    val edited = with_dependency(file, text, name, git, version, dev).map_err((why) -> Declined(why))?
+
+    val m = manifest_from_text(file, edited) match
+        Ok(m) -> m
+        Err(why) -> return Err(Declined(s"adding `$name` would have made $ManifestFile unreadable, so nothing was written:\n$why"))
+
+    fetch_all(root, m, say).map_err((why) -> Declined(why))?
+
+    if edited != text
+        write_text(file, edited).map_err((e) -> Declined(s"$file cannot be written: $e"))?
+
+    say(s"added $name $version\n")
+    Ok(())
+end add_command
+
+// What `funl add` was asked for: the repository and the version, if one was named -- `@0.2.0` and
+// `@v0.2.0` alike.
+read_add_spec(spec: string) -> Result[(string, Option[string]), string]
+    if spec.index_of("://").is_some()
+        return Err(s"`$spec` is a URL -- a package is named by where it lives, `<host>/<owner>/<repo>`, as `github.com/example/tabular`")
+
+    val (git, version) = spec.index_of("@") match
+        Some(i) -> (spec.slice(0, i), Some(spec.slice(i + 1, spec.bytes.len)))
+        None -> (spec, None)
+
+    val parts = split(git, "/")
+    var whole = parts.len >= 3 && parts[0].index_of(".").is_some()
+
+    for part in parts
+        if part == "" then whole = false
+
+    if !whole then return Err(s"`$git` is not a repository -- a package is named `<host>/<owner>/<repo>`, as `github.com/example/tabular`")
+
+    version match
+        None -> Ok((git, None))
+        Some(v) ->
+            val bare = if v.starts_with("v") then v.slice(1, v.bytes.len) else v
+
+            if !is_version(bare) then return Err(s"`$v` is not a version -- a version is numbers between dots, as `0.2.0`")
+
+            Ok((git, Some(bare)))
+end read_add_spec
+
+// Whether `s` is numbers between dots.
+private is_version(s: string) -> bool
+    if s == "" then return false
+
+    for part in split(s, ".")
+        if part == "" || parse_long(part).is_err() then return false
+
+    true
+
+// The name `funl add` writes for repository `git`: its last part, with anything not legal in a name
+// turned to `_`, because an import writes it bare -- `csv-kit` is `csv_kit`.
+import_name(git: string) -> string
+    val parts = split(git, "/")
+    val repo = parts[parts.len - 1]
+    var out = str_builder()
+    val b = repo.bytes
+
+    for i in 0..<b.len
+        val c = b[i]
+        val letter = (c >= u8('a') && c <= u8('z')) || (c >= u8('A') && c <= u8('Z')) || c == u8('_')
+        val digit = c >= u8('0') && c <= u8('9')
+
+        out.push(if letter || (digit && i > 0) then repo.slice(i, i + 1) else "_")
+
+    out.finish()
+
+// The newest version repository `git` has, asked of `git ls-remote --tags`: the newest tag that is `v`
+// and a version. A tag that is not one -- `latest`, `nightly`, `v1.0-rc1` -- is passed over.
+newest_version(git: string) -> Result[string, string]
+    val url = clone_url(git)
+
+    val answer = capture("git", ["ls-remote", "--tags", "--refs", url], "", [], true) match
+        Ok(got) -> got
+        Err(_) -> return Err(s"cannot ask $url what versions it has: git is not on this machine")
+
+    if !answer.status.ok() then return Err(s"cannot ask $url what versions it has:\n${answer.err.unwrap_or("").trim()}")
+
+    var best: Option[string] = None
+
+    for line in split(answer.text, "\n")
+        line.index_of("refs/tags/v") match
+            None -> ()
+            Some(at) ->
+                val v = line.slice(at + 11, line.bytes.len).trim()
+
+                if !is_version(v) then continue
+
+                best match
+                    Some(b) -> if newer_version(v, b) then best = Some(v)
+                    None -> best = Some(v)
+
+    best match
+        Some(v) -> Ok(v)
+        None -> Err(s"$git has no version tag, so there is nothing to add -- a package version is a tag `v<version>`, as `v0.2.0`")
+end newest_version
+
+// The current directory, for the driver.
+working_dir() -> string = current_dir().unwrap_or(".")

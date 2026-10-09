@@ -14,6 +14,10 @@ Two executables are built from this repository:
 
 - `funl` runs FunL programs: `funl file.funl`, or a literate program, `funl file.lfunl`. Given a
   Prolog file, `funl file.pl` loads it (it may import FunL code) and starts the Prolog top level.
+  It also manages a project's packages: `funl add github.com/owner/repo` adds one to the project's
+  `package.funl` and fetches it with `git`, `funl fetch` fetches what the project uses, `funl vendor`
+  copies it into the project, and `funl deps` lists it. A program file named like one of those
+  words is run by its path, `funl ./add`.
 - `prolog` is a standalone standard-Prolog REPL.
 
 FunL source files end in `.funl`; literate FunL, Markdown whose indented blocks are the program,
@@ -109,6 +113,9 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
 - A builtin named without calling it is a function value, variadic ones included, and a generating
   builtin still generates when called through the value.
 - A binding `x <- e` draws a string, a tuple or a map whole; `!` draws their parts.
+- Packages: `import { rows } from tabular` reaches a package named in the project's `package.funl`,
+  read from the project's `vendor/` or the cache and never fetched while a program runs; versions
+  are exact and `funl.sum` records what each one hashed to (`docs/reference/packages.md`).
 - Prolog reads and writes `1.0Inf` and `1.5NaN`, has SWI's `float_overflow`, `float_zero_div` and
   `float_undefined` flags, and reads integers in any radix.
 
@@ -120,6 +127,6 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
 - [`docs/reference/`](docs/reference/README.md) is the manual. Every program in it is run by the
   test suite. Its pages cover success and failure, generators, assignment and scope, data,
   functions, numbers, relations, string scanning, string functions, source files, regular
-  expressions, and Prolog.
+  expressions, modules, packages, and Prolog.
 - [`docs/design/`](docs/design/README.md) is the design: the language, the machine, logic
   programming, and Prolog on the same machine.

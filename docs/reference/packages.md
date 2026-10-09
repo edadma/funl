@@ -199,6 +199,115 @@ The whole message names the version and the directory it would be in:
 `tabular 0.9.0 is not in ~/.funl/pkg/github.com/example/tabular/@v0.9.0`, with the cache's real path,
 and then the command.
 
+## The package commands
+
+Four commands put packages on the machine and say what a project uses. Each works on the project
+the current directory is in — the nearest `package.funl` at or above it — and they are the only part
+of FunL that reaches the network. They fetch with `git`, so a package can live on any host the
+machine's `git` can clone from, with the user's own credentials; a machine without `git` can still
+run a project whose packages are in its cache or its `vendor/`.
+
+| command | what it does |
+|---|---|
+| `funl add <host>/<owner>/<repo>[@<version>] [--dev]` | adds the package to `package.funl` (to `devDependencies` with `--dev`), fetches it and everything it reaches, and records them in `funl.sum` |
+| `funl fetch` | fetches every package the project reaches that is not on the machine, and checks and records `funl.sum` |
+| `funl vendor` | copies every package the project uses from the cache into its `vendor/` |
+| `funl deps` | prints the packages the project uses |
+
+A word that is one of these is the command, so a program in a file called `add` is run by a path to
+it: `funl ./add`.
+
+### `funl add`
+
+```
+$ funl add github.com/example/tabular
+fetching github.com/example/tabular v0.2.0
+fetching github.com/example/csv-kit v0.2.0
+added tabular 0.2.0
+```
+
+With no version, it takes the repository's newest tag that is `v` and a version — `v0.2.0`, never
+`latest` or `v1.0-rc1` — comparing the numbers, so `v0.10.0` is newer than `v0.9.0`. `@0.2.0` (or
+`@v0.2.0`) names one. The name it writes is the repository's, with anything an import cannot write
+bare turned to `_`: `github.com/example/csv-kit` is added as `csv_kit`.
+
+It changes as little of `package.funl` as it can. The new entry goes after the last one of its
+section, with the same indent and the same trailing comma, or on the same line where the section is
+written on one line; a section the file does not have yet becomes its last entry; comments stay
+where they are. A project whose manifest is
+
+```
+{
+  name: "report",
+  version: "0.1.0", ;; first release
+}
+```
+
+has, after `funl add github.com/example/tabular`,
+
+```
+{
+  name: "report",
+  version: "0.1.0", ;; first release
+  dependencies: {
+    tabular: { git: "github.com/example/tabular", version: "0.2.0" }
+  },
+}
+```
+
+A package already there at another version is moved to the one asked for: only its `version`
+changes. The manifest is written last, after everything was fetched, so a version that does not
+exist never reaches it. `funl add` is refused, and writes nothing, where:
+
+- the repository has no version tag, or not the one asked for;
+- the name is already in the manifest for another repository;
+- the name is in the other section — a package is a dependency or a dev dependency, not both;
+- what was named is a URL (`https://...`) rather than `<host>/<owner>/<repo>`.
+
+### `funl fetch`
+
+```
+$ funl fetch
+fetching github.com/example/tabular v0.2.0
+fetching github.com/example/csv-kit v0.2.0
+```
+
+A package is fetched as its tag, `v<version>`, into its directory in the cache, and the packages its
+own manifest names after it. A package version already in `vendor/` or the cache is not fetched
+again, so on a machine that has everything `funl fetch` says nothing. Each package's files are then
+held to `funl.sum`, and the versions it does not record yet are recorded. A tag that was moved after
+it was first fetched is refused before anything reaches the cache.
+
+### `funl vendor`
+
+```
+$ funl vendor
+vendored tabular 0.2.0
+vendored csv_kit 0.2.0
+```
+
+copies each package the project uses from the cache into `vendor/`, laid out as the cache is, so the
+project then runs with no cache at all — on a machine with no network, or from a copy of the
+project's directory. A package not in the cache is refused, naming `funl fetch`. One already in
+`vendor/` is left as it is.
+
+### `funl deps`
+
+```
+$ funl deps
+report 0.1.0
+  csv_kit 0.2.0 github.com/example/csv-kit
+  tabular 0.2.0 github.com/example/tabular
+    csv_kit 0.2.0 github.com/example/csv-kit
+  check 0.1.0 github.com/example/check -- dev -- not fetched
+warning: `csv_kit` is wanted at 0.1.0 and at 0.2.0 -- 0.2.0, the newer, is used, and what asked for 0.1.0 has never been run against it
+```
+
+prints the project, then each package under the one that asked for it, at the version used (see
+[Versions](#versions)); a dev dependency is marked `-- dev` and a package not on the machine
+`-- not fetched`. Where two manifests ask for different versions of one package, a `warning:` line
+says which was used.
+
 ## `funl.sum`
 
 `funl.sum`, beside a project's `package.funl`, records what each package version's files hashed to
@@ -258,6 +367,17 @@ import { hello } from tiny
 
 ```error
 `tiny` 0.1.0 needs FunL 99.0.0 or newer
+```
+
+The floor in a project's own manifest holds for its own programs too. The project
+[`packages/future/`](packages/future/package.funl) asks for FunL 99.0.0, so nothing in it runs:
+
+```funl packages/future/main.funl
+write( "hello" )
+```
+
+```error
+`future` 0.1.0 needs FunL 99.0.0 or newer
 ```
 
 ## A manifest is data

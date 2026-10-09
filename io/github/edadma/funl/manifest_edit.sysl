@@ -1,0 +1,197 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.text.Search
+
+// `funl add`'s rewrite of `package.funl` (`packages.md` § "The commands").
+//
+// **It changes the smallest run of bytes that has to change.** A version already there is replaced
+// where it is written, and nothing else moves; a new entry is put after the last one of its section,
+// on a line of its own with its siblings' indent and their trailing comma, or after them on the same
+// line where the section is written on one; a section that is not there yet becomes the manifest's
+// last entry, the same way. A `;;` comment stays where it was, because nothing is ever inserted in
+// front of one on its line. The caller reads the result back through the manifest reader before it
+// is written, so a rewrite that broke the file is a refusal and never a broken manifest.
+
+// The text of manifest `file`, `text`, with `name` depending on version `version` of repository
+// `git` -- in `devDependencies` where `dev` is set -- or why it cannot: the name is already there for
+// another repository, or in the other section.
+with_dependency(file: string, text: string, name: string, git: string, version: string, dev: bool) -> Result[string, string]
+    val src = source_of(file, text)
+    var r = full_report()
+    val prog = parse(src, &r)
+
+    if r.has_errors() then return Err(r.render(src))
+
+    var top: Option[&Expr] = None
+
+    for s in prog.stmts.view()
+        s match
+            ExprS(e) -> if top.is_none() then top = Some(e)
+            _ -> ()
+
+    val map = top match
+        Some(e) -> e
+        None -> return Err(s"`$file` is not a map, so there is nowhere to add `$name`")
+
+    val (keys, vals) = map.kind match
+        MapE(ks, vs) -> (ks, vs)
+        _ -> return Err(s"`$file` is not a map, so there is nowhere to add `$name`")
+
+    val section = if dev then "devDependencies" else "dependencies"
+    val other = if dev then "dependencies" else "devDependencies"
+
+    entry_of(keys, vals, other) match
+        Some(v) ->
+            if entry_of_map(v, name).is_some()
+                return Err(s"`$name` is already in `$other`, and a package is in one section or the other")
+        None -> ()
+
+    val entry = s"{ git: \"$git\", version: \"$version\" }"
+
+    entry_of(keys, vals, section) match
+        None ->
+            // The section itself is new: the manifest's last entry, a map of one, written on lines of its
+            // own where the manifest is.
+            val value = indent_of_entries(text, map, keys) match
+                Some(ind) -> s"{\n$ind$ind$name: $entry\n$ind}"
+                None -> s"{ $name: $entry }"
+
+            Ok(inserted(text, map, keys, vals, s"$section: $value"))
+        Some(sv) ->
+            val (sks, svs) = sv.kind match
+                MapE(ks, vs) -> (ks, vs)
+                _ -> return Err(s"`$section` in `$file` is not a map, so there is nowhere to add `$name`")
+
+            entry_of_map(sv, name) match
+                None -> Ok(inserted(text, sv, sks, svs, s"$name: $entry"))
+                Some(have) -> moved(text, file, name, git, version, have)
+end with_dependency
+
+// The text with dependency `name`'s entry, `have`, moved to `version` -- its `version` string replaced
+// where it is written -- or refused where the entry names another repository.
+private moved(text: string, file: string, name: string, git: string, version: string, have: &Expr) -> Result[string, string]
+    entry_of_map(have, "git") match
+        Some(g) ->
+            g.kind match
+                StrE(was) ->
+                    if was != git then return Err(s"`$name` in `$file` is already $was, so $git cannot be added under that name")
+                _ -> ()
+        None -> ()
+
+    entry_of_map(have, "version") match
+        Some(v) -> Ok(text.slice(0, v.span.start) + s"\"$version\"" + text.slice(v.span.end, text.bytes.len))
+        None -> Err(s"`$name` in `$file` names no `version` to move")
+
+// The value of key `key` in map `m`, if it is a map and has one.
+private entry_of_map(m: &Expr, key: string) -> Option[&Expr] = m.kind match
+    MapE(ks, vs) -> entry_of(ks, vs, key)
+    _ -> None
+
+// The value written beside key `key`.
+private entry_of(keys: Buf[&Expr], vals: Buf[&Expr], key: string) -> Option[&Expr]
+    for i in 0..<keys.len()
+        keys.at(i).kind match
+            StrE(k) -> if k == key then return Some(vals.at(i))
+            _ -> ()
+
+    None
+
+// `text` with `entry` added to the map `map`, whose entries are `keys` and `vals`.
+private inserted(text: string, map: &Expr, keys: Buf[&Expr], vals: Buf[&Expr], entry: string) -> string
+    // An empty map is written whole: `{ entry }`.
+    if keys.len() == 0 then return text.slice(0, map.span.start) + s"{ $entry }" + text.slice(map.span.end, text.bytes.len)
+
+    val last = vals.at(vals.len() - 1).span.end
+    val comma = comma_after(text, last)
+    val close = map.span.end - 1
+
+    indent_of_entries(text, map, keys) match
+        None ->
+            // On one line: after the last entry, with its comma.
+            comma match
+                Some(c) -> splice(text, c + 1, s" $entry,")
+                None -> splice(text, last, s", $entry")
+        Some(ind) ->
+            // A line of its own, at the end of the last entry's line (after its comma and any comment
+            // there), never past the map's `}`.
+            val from = comma match
+                Some(c) -> c + 1
+                None -> last
+            val mark = if comma.is_some() then "," else ""
+            val eol = line_end_before(text, from, close)
+
+            // A `}` on the last entry's line goes to a line of its own after the new entry, the blanks
+            // before it with it.
+            val at = if eol == close then blanks_before(text, eol, from) else eol
+            val tail = if eol == close then "\n" else ""
+            val added = text.slice(0, at) + s"\n$ind$entry$mark$tail" + text.slice(eol, text.bytes.len)
+
+            if comma.is_some() then added else splice(added, last, ",")
+end inserted
+
+// Where the blanks that end at `at` start, going back no further than `floor`.
+private blanks_before(text: string, at: usize, floor: usize) -> usize
+    var i = at
+
+    while i > floor && (text.bytes[i - 1] == u8(' ') || text.bytes[i - 1] == u8('\t'))
+        i -= 1
+
+    i
+
+// `text` with `part` put in at byte `at`.
+private splice(text: string, at: usize, part: string) -> string = text.slice(0, at) + part + text.slice(at, text.bytes.len)
+
+// Where the `,` after a map's last value is, if it has one: past blanks and `;;` comments, before
+// anything else.
+private comma_after(text: string, from: usize) -> Option[usize]
+    val b = text.bytes
+    var i = from
+
+    while i < b.len
+        val c = b[i]
+
+        if c == u8(',') then return Some(i)
+
+        if c == u8(' ') || c == u8('\t') || c == u8('\n') || c == u8('\r')
+            i += 1
+        elif c == u8(';') && i + 1 < b.len && b[i + 1] == u8(';')
+            while i < b.len && b[i] != u8('\n')
+                i += 1
+        else
+            return None
+
+    None
+
+// The end of the line `from` is on, or `close` where that comes first.
+private line_end_before(text: string, from: usize, close: usize) -> usize
+    val b = text.bytes
+    var i = from
+
+    while i < b.len && i < close && b[i] != u8('\n')
+        i += 1
+
+    i
+
+// The indent a map's entries are written at, where they are written on lines of their own: the blanks
+// that begin the last key's line, which is a line the map's `{` is not on. `None` for a map written on
+// one line.
+private indent_of_entries(text: string, map: &Expr, keys: Buf[&Expr]) -> Option[string]
+    if keys.len() == 0 then return None
+
+    val key = keys.at(keys.len() - 1).span.start
+    val b = text.bytes
+    var start = key
+
+    while start > map.span.start && b[start - 1] != u8('\n')
+        start -= 1
+
+    if start <= map.span.start then return None
+
+    var stop = start
+
+    while stop < key && (b[stop] == u8(' ') || b[stop] == u8('\t'))
+        stop += 1
+
+    Some(text.slice(start, stop))

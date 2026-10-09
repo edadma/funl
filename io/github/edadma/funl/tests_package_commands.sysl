@@ -1,0 +1,439 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{is_dir, is_file, make_dir_all, read_text, remove_dir_all, write_text}
+import sysl.path.parent
+import sysl.process.capture
+import sysl.text.{Search, str_builder}
+
+// The package commands (`packages.md` § "The commands"): `funl add`, `funl fetch`, `funl vendor` and
+// `funl deps`.
+//
+// **Nothing here touches the network.** Every test makes its repositories with `git init` in a scratch
+// directory and points `set_git_source` at it, so a repository `github.com/example/tiny` is cloned from
+// `file://<scratch>/git/github.com/example/tiny`; the cache is the scratch directory's own through
+// `set_package_cache`. Both are put back by the test that set them.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+private const TinyGit: string = "github.com/example/tiny"
+private const KitGit: string = "github.com/example/csv-kit"
+private const TabularGit: string = "github.com/example/tabular"
+
+// Write `text` to `rel` under `dir`, making the directories on the way.
+private put_file(dir: string, rel: string, text: string) -> string
+    val file = s"$dir/$rel"
+
+    make_dir_all(parent(file).unwrap()).unwrap()
+    write_text(file, text).unwrap()
+    file
+
+// Run git in `dir`, as a test's own committer, requiring that it succeeded.
+private git(dir: string, args: []const string)
+    var all: Buf[string] = buf()
+
+    for a in ["-c", "user.name=funl", "-c", "user.email=funl@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"]
+        all.push(a)
+
+    for a in args
+        all.push(a)
+
+    val got = capture("git", all.view(), dir, [], true).unwrap()
+
+    assert(got.status.ok(), s"git failed in $dir: ${got.err.unwrap_or("")}")
+
+// Release version `version` of repository `repo` (under `d/git`): a package `name` whose `main`,
+// `name.funl`, has `hello()` saying which version it is -- or, with `uses` naming a package, `hello()`
+// answering that package's -- committed and tagged `v<version>`. `deps` is the manifest's
+// `dependencies` entries.
+private release(d: string, repo: string, name: string, version: string, uses: string, deps: string)
+    val dir = s"$d/git/$repo"
+
+    make_dir_all(dir).unwrap()
+
+    if !is_dir(s"$dir/.git") then git(dir, ["init", "-q"])
+
+    val section = if deps == "" then "" else s",\n  dependencies: { $deps }"
+
+    put_file(dir, "package.funl", s"{\n  name: \"$name\",\n  version: \"$version\",\n  main: \"$name.funl\"$section\n}\n")
+
+    val body = if uses == "" then s"export def hello() = \"$name $version\"\n"
+    else s"import { hello as theirs } from $uses\nexport def hello() = theirs()\n"
+
+    put_file(dir, s"$name.funl", body)
+    git(dir, ["add", "-A"])
+    git(dir, ["commit", "-q", "--allow-empty", "-m", s"$name $version"])
+    git(dir, ["tag", s"v$version"])
+
+// A dependency entry, as a manifest writes one.
+private dep(name: string, repo: string, version: string) -> string = s"$name: { git: \"$repo\", version: \"$version\" }"
+
+// A scratch directory with the cache and the git source pointed into it; the project is `d/app`.
+private set_up(d: string)
+    set_package_cache(s"$d/cache")
+    set_git_source(s"$d/git")
+
+private put_back()
+    set_package_cache("")
+    set_git_source("")
+
+// What package command `word` said and its status: `out` what it said to standard output, `err` the
+// rest.
+private struct Told
+    status: int
+    out: string
+    err: string
+
+private command_in(dir: string, word: string, args: []const string) -> Told
+    var out: Buf[string] = buf()
+    var err: Buf[string] = buf()
+    val status = package_command(word, args, dir, (t) -> out.push(t), (t) -> err.push(t))
+
+    Told(status, joined(out), joined(err))
+
+private joined(parts: Buf[string]) -> string
+    var b = str_builder()
+
+    for p in parts.view()
+        b.push(p)
+
+    b.finish()
+
+// What the program `file` printed, or what it was refused with, and its status.
+private ran_program(file: string) -> string
+    var out: Buf[string] = buf()
+    val status = run_file(file, (_) -> None, (t) -> out.push(t + "\n"), (t) -> out.push(t))
+
+    s"${joined(out)}status $status"
+
+// A project in `d/app` named `app`, whose manifest is `text`.
+private put_app(d: string, text: string) -> string
+    put_file(d, "app/package.funl", text)
+    s"$d/app"
+
+@test
+ADD_WRITES_THE_NEWEST_VERSION_FETCHES_IT_AND_RECORDS_WHAT_IT_HASHED_TO()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+    release(d, TinyGit, "tiny", "0.1.0", "", "")
+    release(d, TinyGit, "tiny", "0.10.0", "", "")
+    release(d, TinyGit, "tiny", "0.9.0", "", "")
+    git(s"$d/git/$TinyGit", ["tag", "latest"])
+    git(s"$d/git/$TinyGit", ["tag", "v2.0-rc1"])
+
+    val app = put_app(d, ";; the project\n{\n  name: \"app\",\n  version: \"0.1.0\", ;; ours\n}\n")
+    val got = command_in(app, "add", [TinyGit])
+
+    // The newest `v` tag that is a version, compared as numbers: 0.10.0, not 0.9.0, and not `latest`
+    // or a release candidate.
+    assert_eq(got.err, "")
+    assert_eq(got.out, s"fetching $TinyGit v0.10.0\nadded tiny 0.10.0\n")
+    assert_eq(got.status, 0)
+
+    // The new section takes the manifest's indent and its trailing comma; the comments stay put.
+    assert_eq(read_text(s"$app/package.funl").unwrap(),
+        ";; the project\n{\n  name: \"app\",\n  version: \"0.1.0\", ;; ours\n" +
+        "  dependencies: {\n    tiny: { git: \"github.com/example/tiny\", version: \"0.10.0\" }\n  },\n}\n")
+
+    // In the cache, `.git` gone, and recorded in `funl.sum` at what its tree hashes to.
+    val home = s"$d/cache/$TinyGit/@v0.10.0"
+
+    assert(is_file(s"$home/tiny.funl"))
+    assert(!is_dir(s"$home/.git"))
+    assert_eq(read_text(s"$app/funl.sum").unwrap(), sum_line(SumEntry(TinyGit, "0.10.0", tree_hash(home).unwrap())) + "\n")
+
+    // And a program of the project runs against it.
+    val main = put_file(app, "main.funl", "import { hello } from tiny\nwrite( hello() )\n")
+
+    assert_eq(ran_program(main), "tiny 0.10.0\nstatus 0")
+
+@test
+ADD_AT_A_VERSION_MOVES_ONE_ALREADY_THERE_AND_DEV_ADDS_TO_DEV_DEPENDENCIES()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+    release(d, TinyGit, "tiny", "0.1.0", "", "")
+    release(d, TinyGit, "tiny", "0.2.0", "", "")
+    release(d, KitGit, "csv_kit", "0.3.0", "", "")
+
+    val app = put_app(d, "{ name: \"app\", version: \"0.1.0\", dependencies: { tiny: { git: \"github.com/example/tiny\", version: \"0.2.0\" } } }\n")
+
+    // `@v0.1.0` and `@0.1.0` alike; only the version's own string changes.
+    assert_eq(command_in(app, "add", [s"$TinyGit@v0.1.0"]).out, s"fetching $TinyGit v0.1.0\nadded tiny 0.1.0\n")
+    assert_eq(read_text(s"$app/package.funl").unwrap(),
+        "{ name: \"app\", version: \"0.1.0\", dependencies: { tiny: { git: \"github.com/example/tiny\", version: \"0.1.0\" } } }\n")
+
+    // `--dev` writes `devDependencies`, on the manifest's one line; the repository's name is made a
+    // name an import can write.
+    assert_eq(command_in(app, "add", ["--dev", KitGit]).status, 0)
+    assert_eq(read_text(s"$app/package.funl").unwrap(),
+        "{ name: \"app\", version: \"0.1.0\", dependencies: { tiny: { git: \"github.com/example/tiny\", version: \"0.1.0\" } }, " +
+        "devDependencies: { csv_kit: { git: \"github.com/example/csv-kit\", version: \"0.3.0\" } } }\n")
+
+    // Asked for again at the version it is at, nothing is fetched and the manifest is the same.
+    assert_eq(command_in(app, "add", [s"$TinyGit@0.1.0"]).out, "added tiny 0.1.0\n")
+
+    // Every version the project has used stays in `funl.sum`.
+    val sums = read_text(s"$app/funl.sum").unwrap()
+
+    assert(has(sums, s"$TinyGit v0.1.0 sha256:"))
+    assert(has(sums, s"$KitGit v0.3.0 sha256:"))
+
+@test
+ADD_REFUSES_WHAT_IT_CANNOT_ADD_AND_WRITES_NOTHING()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+    release(d, TinyGit, "tiny", "0.1.0", "", "")
+    release(d, KitGit, "csv_kit", "0.1.0", "", "")
+    put_file(d, "git/github.com/other/tiny/README", "")
+    git(s"$d/git/github.com/other/tiny", ["init", "-q"])
+    git(s"$d/git/github.com/other/tiny", ["add", "-A"])
+    git(s"$d/git/github.com/other/tiny", ["commit", "-q", "-m", "no tags"])
+
+    val manifest = "{\n  name: \"app\",\n  version: \"0.1.0\",\n  dependencies: {\n    tiny: { git: \"github.com/example/tiny\", version: \"0.1.0\" }\n  },\n" +
+        "  devDependencies: {\n    csv_kit: { git: \"github.com/example/csv-kit\", version: \"0.1.0\" }\n  }\n}\n"
+    val app = put_app(d, manifest)
+
+    // A tag that is not there: refused after the clone failed, and the manifest never written.
+    val missing = command_in(app, "add", [s"$TinyGit@0.9.0"])
+
+    assert_eq(missing.status, 1)
+    assert(has(missing.err, s"funl add: cannot fetch $TinyGit v0.9.0 from file://"))
+    assert(!is_dir(s"$d/cache/$TinyGit/@v0.9.0"))
+
+    // A repository with no version tag; a name already taken by another repository; a name in the
+    // other section.
+    assert(has(command_in(app, "add", ["github.com/other/tiny"]).err, "github.com/other/tiny has no version tag, so there is nothing to add"))
+    release(d, "github.com/other/tiny", "tiny", "0.5.0", "", "")
+    assert(has(command_in(app, "add", ["github.com/other/tiny"]).err, "`tiny` in `") )
+    assert(has(command_in(app, "add", ["github.com/other/tiny"]).err, "is already github.com/example/tiny, so github.com/other/tiny cannot be added under that name"))
+    assert(has(command_in(app, "add", [s"$KitGit@0.1.0"]).err, "`csv_kit` is already in `devDependencies`, and a package is in one section or the other"))
+    assert(has(command_in(app, "add", ["--dev", s"$TinyGit@0.1.0"]).err, "`tiny` is already in `dependencies`"))
+
+    // What is not a package at all.
+    assert(has(command_in(app, "add", ["https://github.com/example/tiny"]).err, "is a URL"))
+    assert(has(command_in(app, "add", ["example/tiny"]).err, "`example/tiny` is not a repository"))
+    assert(has(command_in(app, "add", ["github.com//tiny"]).err, "is not a repository"))
+    assert(has(command_in(app, "add", [s"$TinyGit@latest"]).err, "`latest` is not a version"))
+
+    // Not asked properly: the usage, and status 2.
+    val bare = command_in(app, "add", [])
+
+    assert_eq(bare.status, 2)
+    assert(has(bare.err, "`funl add` names the package to add\nusage: funl add"))
+    assert_eq(command_in(app, "add", [TinyGit, KitGit]).status, 2)
+    assert(has(command_in(app, "add", ["--force", TinyGit]).err, "`--force` is not an option of `funl add`"))
+
+    // Nothing above reached the manifest or `funl.sum`.
+    assert_eq(read_text(s"$app/package.funl").unwrap(), manifest)
+    assert(!is_file(s"$app/funl.sum"))
+
+    // Outside any project.
+    make_dir_all(s"$d/nowhere").unwrap()
+    assert(has(command_in(s"$d/nowhere", "add", [TinyGit]).err, "there is no package.funl in"))
+
+@test
+FETCH_FILLS_THE_CACHE_FOR_THE_WHOLE_GRAPH_AND_HOLDS_IT_TO_FUNL_SUM()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+    release(d, KitGit, "csv_kit", "0.2.0", "", "")
+    release(d, TabularGit, "tabular", "0.2.0", "csv_kit", dep("csv_kit", KitGit, "0.2.0"))
+
+    val app = put_app(d, s"{\n  name: \"app\",\n  version: \"0.1.0\",\n  dependencies: { ${dep("tabular", TabularGit, "0.2.0")} }\n}\n")
+
+    // The package and the one it reaches through its own manifest, each recorded.
+    val got = command_in(app, "fetch", [])
+
+    assert_eq(got.out, s"fetching $TabularGit v0.2.0\nfetching $KitGit v0.2.0\n")
+    assert_eq(got.status, 0)
+
+    val sums = read_text(s"$app/funl.sum").unwrap()
+
+    assert(has(sums, s"$TabularGit v0.2.0 sha256:"))
+    assert(has(sums, s"$KitGit v0.2.0 sha256:"))
+
+    val main = put_file(app, "main.funl", "import { hello } from tabular\nwrite( hello() )\n")
+
+    assert_eq(ran_program(main), "csv_kit 0.2.0\nstatus 0")
+
+    // Again: nothing to fetch, nothing to say, `funl.sum` the same.
+    assert_eq(command_in(app, "fetch", []).out, "")
+    assert_eq(read_text(s"$app/funl.sum").unwrap(), sums)
+
+    // A copy edited in the cache is refused.
+    put_file(d, s"cache/$KitGit/@v0.2.0/csv_kit.funl", "export def hello() = \"edited\"\n")
+
+    val edited = command_in(app, "fetch", [])
+
+    assert_eq(edited.status, 1)
+    assert(has(edited.err, s"$KitGit v0.2.0 does not match funl.sum: it was recorded as sha256:"))
+    assert(has(edited.err, "either the version's tag was moved"))
+
+    // So is a tag moved after it was first fetched -- before it reaches the cache.
+    remove_dir_all(s"$d/cache/$KitGit").unwrap()
+    put_file(d, s"git/$KitGit/csv_kit.funl", "export def hello() = \"moved\"\n")
+    git(s"$d/git/$KitGit", ["commit", "-q", "-am", "moved"])
+    git(s"$d/git/$KitGit", ["tag", "-f", "v0.2.0"])
+
+    val moved = command_in(app, "fetch", [])
+
+    assert_eq(moved.status, 1)
+    assert(has(moved.err, s"$KitGit v0.2.0 does not match funl.sum"))
+    assert(!is_dir(s"$d/cache/$KitGit/@v0.2.0"))
+    assert_eq(read_text(s"$app/funl.sum").unwrap(), sums)
+
+    // Asked properly, or not at all.
+    assert_eq(command_in(app, "fetch", ["tabular"]).status, 2)
+
+@test
+VENDOR_COPIES_THE_GRAPH_INTO_THE_PROJECT_AND_A_RUN_NEEDS_NO_CACHE()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+    release(d, TinyGit, "tiny", "0.1.0", "", "")
+
+    val app = put_app(d, s"{\n  name: \"app\",\n  version: \"0.1.0\",\n  dependencies: { ${dep("tiny", TinyGit, "0.1.0")} }\n}\n")
+
+    // Not fetched yet: the command that fetches it is named.
+    val early = command_in(app, "vendor", [])
+
+    assert_eq(early.status, 1)
+    assert(has(early.err, "tiny 0.1.0 is not in "))
+    assert(has(early.err, "-- run `funl fetch`"))
+
+    assert_eq(command_in(app, "fetch", []).status, 0)
+    assert_eq(command_in(app, "vendor", []).out, "vendored tiny 0.1.0\n")
+    assert(is_file(s"$app/vendor/$TinyGit/@v0.1.0/tiny.funl"))
+
+    // The vendored copy hashes as the cached one did, and serves a run with the cache gone.
+    val sums = read_text(s"$app/funl.sum").unwrap()
+
+    remove_dir_all(s"$d/cache").unwrap()
+    assert_eq(command_in(app, "vendor", []).out, "")
+    assert_eq(read_text(s"$app/funl.sum").unwrap(), sums)
+
+    val main = put_file(app, "main.funl", "import { hello } from tiny\nwrite( hello() )\n")
+
+    assert_eq(ran_program(main), "tiny 0.1.0\nstatus 0")
+
+@test
+DEPS_PRINTS_THE_GRAPH_MARKS_DEV_AND_UNFETCHED_AND_SAYS_WHICH_VERSION_WON()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+    release(d, KitGit, "csv_kit", "0.1.0", "", "")
+    release(d, KitGit, "csv_kit", "0.2.0", "", "")
+    release(d, TabularGit, "tabular", "0.2.0", "csv_kit", dep("csv_kit", KitGit, "0.2.0"))
+
+    val deps = s"  dependencies: { ${dep("csv_kit", KitGit, "0.1.0")}, ${dep("tabular", TabularGit, "0.2.0")} }"
+    val app = put_app(d, s"{\n  name: \"app\",\n  version: \"0.1.0\",\n$deps\n}\n")
+
+    assert_eq(command_in(app, "fetch", []).status, 0)
+
+    put_app(d, s"{\n  name: \"app\",\n  version: \"0.1.0\",\n$deps,\n  devDependencies: { ${dep("check", "github.com/example/check", "0.1.0")} }\n}\n")
+
+    val got = command_in(app, "deps", [])
+
+    assert_eq(got.status, 0)
+    assert_eq(got.out, "app 0.1.0\n" +
+        "  csv_kit 0.2.0 github.com/example/csv-kit\n" +
+        "  tabular 0.2.0 github.com/example/tabular\n" +
+        "    csv_kit 0.2.0 github.com/example/csv-kit\n" +
+        "  check 0.1.0 github.com/example/check -- dev -- not fetched\n" +
+        "warning: `csv_kit` is wanted at 0.1.0 and at 0.2.0 -- 0.2.0, the newer, is used, and what asked for 0.1.0 has never been run against it\n")
+
+    // A broken manifest is refused with its own diagnostics.
+    put_app(d, "{ name: app, version: \"0.1.0\" }\n")
+
+    val broken = command_in(app, "deps", [])
+
+    assert_eq(broken.status, 1)
+    assert(has(broken.err, "package.funl cannot be used:"))
+    assert(has(broken.err, "a manifest is data, and the name `app` is not"))
+
+@test
+A_PROJECTS_OWN_FUNL_FLOOR_REFUSES_ITS_PROGRAMS_AND_ITS_COMMANDS()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+
+    val app = put_app(d, "{ name: \"app\", version: \"0.3.0\", funl: \"99.0.0\" }\n")
+    val main = put_file(app, "main.funl", "write( 1 )\n")
+
+    assert_eq(ran_program(main), s"error: `app` 0.3.0 needs FunL 99.0.0 or newer, and this is FunL $FunlVersion\nstatus 1")
+    assert(has(command_in(app, "fetch", []).err, "`app` 0.3.0 needs FunL 99.0.0 or newer"))
+    assert_eq(command_in(app, "deps", []).status, 1)
+
+    // A floor this FunL meets is no refusal.
+    put_app(d, s"{ name: \"app\", version: \"0.3.0\", funl: \"$FunlVersion\" }\n")
+    assert_eq(ran_program(main), "1\nstatus 0")
+    assert_eq(command_in(app, "deps", []).out, "app 0.3.0\n")
+
+@test
+A_NEW_ENTRY_IS_WRITTEN_IN_THE_MANIFESTS_OWN_STYLE()
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    defer leave(was)
+    defer dispose_vm(&v)
+
+    val e = "{ git: \"g.h/o/k\", version: \"1.0.0\" }"
+    val add = (text: string) -> with_dependency("package.funl", text, "k", "g.h/o/k", "1.0.0", false).unwrap()
+
+    // No trailing comma: none on the new entry either, and the comma it needs after its sibling.
+    assert_eq(add("{\n  name: \"a\",\n  version: \"1\",\n  dependencies: {\n    j: { git: \"g.h/o/j\", version: \"2\" } ;; j\n  }\n}\n"),
+        s"{\n  name: \"a\",\n  version: \"1\",\n  dependencies: {\n    j: { git: \"g.h/o/j\", version: \"2\" }, ;; j\n    k: $e\n  }\n}\n")
+
+    // Four-space indent and trailing commas.
+    assert_eq(add("{\n    name: \"a\",\n    version: \"1\",\n    dependencies: {\n        j: { git: \"g.h/o/j\", version: \"2\" },\n    },\n}\n"),
+        s"{\n    name: \"a\",\n    version: \"1\",\n    dependencies: {\n        j: { git: \"g.h/o/j\", version: \"2\" },\n        k: $e,\n    },\n}\n")
+
+    // An empty section, and a `}` on the last entry's line.
+    assert_eq(add("{\n  name: \"a\",\n  version: \"1\",\n  dependencies: {}\n}\n"), s"{\n  name: \"a\",\n  version: \"1\",\n  dependencies: { k: $e }\n}\n")
+    assert_eq(add("{\n  name: \"a\",\n  version: \"1\" }\n"), s"{\n  name: \"a\",\n  version: \"1\",\n  dependencies: {\n    k: $e\n  }\n}\n")
+
+    // One line with a trailing comma.
+    assert_eq(add("{ name: \"a\", version: \"1\", }"), s"{ name: \"a\", version: \"1\", dependencies: { k: $e }, }")
+
+    // What cannot be rewritten.
+    assert(with_dependency("package.funl", "{ name: ", "k", "g.h/o/k", "1", false).is_err())
+    assert(has(with_dependency("package.funl", "[1]", "k", "g.h/o/k", "1", false).unwrap_err(), "is not a map"))
+    assert(has(with_dependency("package.funl", "{ name: \"a\", version: \"1\", dependencies: 3 }", "k", "g.h/o/k", "1", false).unwrap_err(),
+        "`dependencies` in `package.funl` is not a map"))
+
+@test
+A_COMMAND_WORD_IS_TOLD_FROM_A_PROGRAM_AND_A_REPOSITORY_GIVES_ITS_NAME()
+    for w in ["add", "fetch", "vendor", "deps"]
+        assert(is_package_command(w))
+
+    // A program called `add` is run as `funl ./add`, or by any other path to it.
+    assert(!is_package_command("./add"))
+    assert(!is_package_command("add.funl"))
+    assert(!is_package_command("install"))
+
+    assert_eq(import_name("github.com/example/csv-kit"), "csv_kit")
+    assert_eq(import_name("github.com/example/9lives.js"), "_lives_js")
+    assert_eq(read_add_spec("codeberg.org/e/t@v1.2.3").unwrap(), ("codeberg.org/e/t", Some("1.2.3")))
+    assert_eq(read_add_spec("codeberg.org/e/t").unwrap(), ("codeberg.org/e/t", None))
+    assert(read_add_spec("codeberg.org/e/t@1..2").is_err())
+    assert(read_add_spec("localhost/e/t").is_err())
+
+    // Unknown to the dispatcher.
+    assert_eq(command_in(".", "install", []).status, 2)

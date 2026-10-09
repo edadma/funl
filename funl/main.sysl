@@ -7,7 +7,8 @@ import sysl.text.Search
 // loaded, its directives and `initialization/1` goals run, and a file with no `initialization/1` goal
 // then starts the ISO top level, whose lines are read through linenoise as the `prolog` executable
 // reads them. Whatever follows the program's name is the program's own, read with `funl:process`'s
-// `args`.
+// `args`. `funl add`, `funl fetch`, `funl vendor` and `funl deps` are the package commands instead
+// (`package_commands.sysl`).
 //
 // **It sits at the project root, outside the module**, so the package can be a dependency too: the
 // `prolog` executable (`prolog/`) is a second program over the same module, and a program has one
@@ -23,8 +24,12 @@ main(args: []string)
         return
 
     if args.len < 2
-        eprints("usage: funl <program.funl | program.lfunl | program.pl> [argument ...]\n")
+        eprints(s"usage: funl <program.funl | program.lfunl | program.pl> [argument ...]\n$CommandUsage")
         exit(2)
+
+    // A package command is one of its words; a program file called `add` is run as `funl ./add`.
+    if is_package_command(args[1])
+        exit(package_command(args[1], args[2..<args.len], working_dir(), (text) -> prints(text), (text) -> eprints(text)))
 
     history_set_max_len(500)
     exit(run_file(args[1], (prompt) -> line(prompt), (text) -> print(text), (text) -> eprints(text), args[2..<args.len]))
