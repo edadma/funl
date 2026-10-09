@@ -69,6 +69,36 @@ INHERIT_ENV_FALSE_GIVES_A_CHILD_EXACTLY_THE_ENV_OPTION()
         "if r.out == env(\"HOME\") + \" x\\n\" then write( #inherited )\n"),
         "A=1\n\n\n[\"B=2\"]\ninherited\nsucceeded")
 
+// A bare program name is looked for on the child's `PATH`: the `env` option's, else this program's
+// where `inherit_env` is true, else the system's default path. `funl_probe` is only in the scratch dir.
+@test
+A_BARE_PROGRAM_NAME_IS_FOUND_ON_THE_CHILDS_PATH()
+    val d = scratch()
+    defer scrap(d)
+
+    val probe = put(d, "funl_probe", "#!/bin/sh\necho probed\n")
+    set_permissions(probe, 0o755).unwrap()
+
+    // (a) inherited environment, no env option: this program's PATH, so `ls` but not `funl_probe`.
+    assert_eq(with_process("write( run(\"ls\", [\"/\"]).status )\n" +
+        "write( run(\"funl_probe\", []).out | #notfound )\n"),
+        "0\nnotfound\nsucceeded")
+
+    // (b) inherited, env sets PATH: that one decides.
+    assert_eq(with_process(s"write( run(\"funl_probe\", [], {env: {PATH: \"$d\"}}).out )\n" +
+        s"write( run(\"ls\", [\"/\"], {env: {PATH: \"$d\"}}).status | #notfound )\n"),
+        "probed\n\nnotfound\nsucceeded")
+
+    // (c) nothing inherited, no PATH: the system default path.
+    assert_eq(with_process("write( run(\"ls\", [\"/\"], {inherit_env: false}).status )\n" +
+        "write( run(\"funl_probe\", [], {inherit_env: false}).out | #notfound )\n"),
+        "0\nnotfound\nsucceeded")
+
+    // (d) nothing inherited, PATH given: that one decides.
+    assert_eq(with_process(s"write( run(\"funl_probe\", [], {inherit_env: false, env: {PATH: \"$d\"}}).out )\n" +
+        s"write( run(\"ls\", [\"/\"], {inherit_env: false, env: {PATH: \"$d\"}}).status | #notfound )\n"),
+        "probed\n\nnotfound\nsucceeded")
+
 @test
 INHERIT_ENV_MUST_BE_A_BOOLEAN()
     val out = with_process("write( run(\"/bin/echo\", [], {inherit_env: 1}) catch e -> e )\n" +

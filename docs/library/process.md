@@ -165,6 +165,12 @@ Without `exit`, a program that ran ends with 0, and one that was refused or faul
 `run(program, args)` starts `program` with the list of strings `args`, waits for it to end, and gives
 a map. `program` is found on `PATH` when it names no directory, and `args` may be left out.
 
+**Which `PATH` that is** follows the child's environment: the `PATH` in the `env` option if there is
+one, else this program's own where `inherit_env` is `true`. With `inherit_env: false` and no `PATH` in
+`env`, the child has none and a bare name is looked for on the system's default path
+(`/usr/bin:/bin:/usr/sbin:/sbin` on macOS, `/bin:/usr/bin` on Linux), never on this program's. A name
+not found anywhere fails. `funl:async`'s `run` finds a program the same way.
+
 - `out` is what the program wrote to its standard output, and `err` what it wrote to its standard
   error, both captured whole.
 - `status` is its exit status, where it exited.

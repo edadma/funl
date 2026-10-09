@@ -125,6 +125,32 @@ RUN_WITH_INHERIT_ENV_TRUE_ADDS_ENV_TO_THE_PARENTS_AND_FINDS_A_BARE_NAME_ON_ITS_P
         "write( (await run( \"printenv\", [\"FUNL_A\"], {env: {FUNL_A: \"2\"}} )).out )\n"),
         "1\nhas path\n\n2\n\nsucceeded")
 
+// A bare program name is found on the same `PATH` as the blocking `run` finds it on, in all four
+// cases: inherited with no env, inherited with a `PATH` in env, replaced with none, replaced with one.
+@test
+RUN_FINDS_A_BARE_PROGRAM_NAME_ON_THE_CHILDS_PATH_AS_THE_BLOCKING_RUN_DOES()
+    val d = scratch()
+    defer scrap(d)
+
+    val probe = put(d, "funl_probe", "#!/bin/sh\necho probed\n")
+    set_permissions(probe, 0o755).unwrap()
+
+    assert_eq(with_io("write( (await run( \"ls\", [\"/\"] )).status )\n" +
+        "write( (await run( \"funl_probe\", [] )).out | #notfound )\n"),
+        "0\nnotfound\nsucceeded")
+
+    assert_eq(with_io(s"write( (await run( \"funl_probe\", [], {env: {PATH: \"$d\"}} )).out )\n" +
+        s"write( (await run( \"ls\", [\"/\"], {env: {PATH: \"$d\"}} )).status | #notfound )\n"),
+        "probed\n\nnotfound\nsucceeded")
+
+    assert_eq(with_io("write( (await run( \"ls\", [\"/\"], {inherit_env: false} )).status )\n" +
+        "write( (await run( \"funl_probe\", [], {inherit_env: false} )).out | #notfound )\n"),
+        "0\nnotfound\nsucceeded")
+
+    assert_eq(with_io(s"write( (await run( \"funl_probe\", [], {inherit_env: false, env: {PATH: \"$d\"}} )).out )\n" +
+        s"write( (await run( \"ls\", [\"/\"], {inherit_env: false, env: {PATH: \"$d\"}} )).status | #notfound )\n"),
+        "probed\n\nnotfound\nsucceeded")
+
 // The machine goes on while the loop waits: a child, a file and a timer are all in flight at once,
 // and each task resumes as its own answer arrives -- the file first, then the child after about 100
 // milliseconds, then the timer at 400 -- while the top level has long since written its line.

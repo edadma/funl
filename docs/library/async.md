@@ -352,7 +352,9 @@ p = read_file( 42 )
 file is being read or a child is running, whether or not anything awaits its promise.
 
 `run`'s `inherit_env: false` gives the child only the variables `env` names, and none at all where
-`env` is left out, as the blocking `run` does.
+`env` is left out, as the blocking `run` does. **A bare program name is found on the same `PATH` as the
+blocking `run` finds it on**: the `PATH` in `env`, else this program's own where `inherit_env` is
+`true`, else the system's default path.
 
 These four are behind the `async` feature, which is on unless a build turns it off; `fetch` is
 behind `http` as well. A build without them still has `sleep` and the promise makers, and answers an
