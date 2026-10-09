@@ -111,6 +111,20 @@ ann, new
 MutableMap("a": 1)
 ```
 
+A key that is an unbound variable cannot be compared with another, so a map holding one unifies with
+no map at all. Unification never raises an error for it; it fails:
+
+```funl
+free k
+write( {(k): 1} ~ {a: 1} )
+write( {(k): 1} ~ {(k): 1} )
+write( 'done' )
+```
+
+```output
+done
+```
+
 ## Atoms
 
 An **atom** is a bare name, written `#` and the name: `#don`. Two atoms unify when they are the same
@@ -369,7 +383,8 @@ if age(p, 'bob', 40) then write( p )
 {"name": "bob", "age": 40}
 ```
 
-`..rest` is unified with a map of the other entries, and with `{}` when the map is built:
+`..rest` is unified with a map of the other entries, and with `{}` when the map is built and `rest`
+is still unbound:
 
 ```funl
 def named( {name: n, ..others}, n, others )
@@ -382,6 +397,25 @@ if named(p, 'di', q) then write( p, q )
 ```output
 cy, {"a": 1, "b": 2}
 {"name": "di"}, {}
+```
+
+When an earlier argument has bound `rest` to a map, the map built holds the keys the pattern names
+and the entries of `rest` as well. A `rest` bound to anything that is not an immutable map, or
+holding a key the pattern also names, fails the clause:
+
+```funl
+def named_too( others, {name: n, ..others}, n )
+
+free p, q, r
+if named_too({age: 30}, p, 'ann') then write( p )
+write( named_too(5, q, 'bo') )
+write( named_too({name: 'x'}, r, 'cy') )
+write( 'done' )
+```
+
+```output
+{"name": "ann", "age": 30}
+done
 ```
 
 A key in a head is a constant, or a variable in parentheses that an earlier argument binds. A key

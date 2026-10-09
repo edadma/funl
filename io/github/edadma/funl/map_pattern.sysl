@@ -25,15 +25,34 @@ match_map(v: *Vm, n: usize, rest: bool, exact: bool) -> Result[bool, Fault]
         Var(_) -> Err(instantiation_error("instantiation error: a map pattern was given an unbound variable"))
         _ -> Ok(false)
 
-// `GetMap`: pop the keys, then read the argument. **An unbound argument is bound to the map the
-// pattern names**, each key under a fresh variable, and its rest is the empty map; a map is taken
-// apart as `MatchMap` takes it; anything else fails.
-get_map(v: *Vm, n: usize, rest: bool, exact: bool, src: Src) -> Result[bool, Fault]
+// `GetMap`: pop the keys, and under them, when `given`, the value an earlier argument bound the rest
+// name to; then read the argument. **An unbound argument is bound to the map the pattern names**,
+// each key under a fresh variable: with a rest bound to a map, that map's entries too, and the rest
+// is that map; with a rest still unbound, the rest is the empty map. A rest bound to anything else,
+// or holding a key the pattern names, fails. A map argument is taken apart as `MatchMap` takes it;
+// anything else fails.
+get_map(v: *Vm, n: usize, rest: bool, given: bool, exact: bool, src: Src) -> Result[bool, Fault]
     val keys = popped_keys(v, n)?
+
+    val bound: Value = if given
+        v.stack.pop() match
+            Some(r) -> deref(r)
+            None -> return Err(Broken("a map pattern's rest found the operand stack empty"))
+    else
+        Unit
+
     val x = deref(head_source(v, src)?)
 
     x match
         Var(p) ->
+            var extra: Option[*MapObj] = None
+
+            if given
+                bound match
+                    Var(_) -> ()
+                    Map(r) -> extra = Some(r)
+                    _ -> return Ok(false)
+
             val m = new_map()?
 
             for k in keys.view()
@@ -42,11 +61,23 @@ get_map(v: *Vm, n: usize, rest: bool, exact: bool, src: Src) -> Result[bool, Fau
                 m.keys.push(k)
                 m.vals.push(Var(new_var()?))
 
-            current().allocated += 2 * keys.len() * sizeof(Value)
+            extra match
+                Some(r) ->
+                    for i in 0..<r.keys.len()
+                        if map_find(m, r.keys.at(i))?.is_some() then return Ok(false)
+
+                        m.keys.push(r.keys.at(i))
+                        m.vals.push(r.vals.at(i))
+                None -> ()
+
+            current().allocated += 2 * m.keys.len() * sizeof(Value)
 
             if !bind(p, Map(m)) then return Ok(false)
 
-            if rest then v.stack.push(Map(new_map()?))
+            if rest
+                extra match
+                    Some(r) -> v.stack.push(Map(r))
+                    None -> v.stack.push(Map(new_map()?))
 
             push_values(v, m, all_of(keys.len()))
             Ok(true)

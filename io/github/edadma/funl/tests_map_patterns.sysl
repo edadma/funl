@@ -164,6 +164,48 @@ MAP_PATTERN_A_RELATION_HEAD_KEY_BOUND_BY_AN_EARLIER_ARGUMENT_AND_AN_UNBOUND_ONE_
     assert(said.contains("instantiation error: a map pattern's key is an unbound variable"), said)
 
 @test
+MAP_PATTERN_A_RELATION_HEAD_BUILDS_THE_NAMED_KEYS_PLUS_A_REST_AN_EARLIER_ARGUMENT_BOUND()
+    // An unbound argument with the rest bound to a map builds the named keys and the rest's entries;
+    // a rest still unbound is `{}`; a map argument is taken apart as before.
+    val defs = "def p( r, {a: v, ..r}, v )\n"
+
+    val text = defs + "free q, u, w, k, x\n" +
+        "if p({b: 2}, q, 1) then write( q )\n" +
+        "if p(u, {a: 1, c: 3}, x) then write( u, x )\n" +
+        "if p(w, k, 7) then write( k, w )\n"
+
+    assert_eq(ran_funl(text), "{\"a\": 1, \"b\": 2}\n{\"c\": 3}, 1\n{\"a\": 7}, {}\nsucceeded")
+
+    // A rest bound to a non-map, a mutable map among them, and one holding a key the pattern names,
+    // fail the clause.
+    val fails = defs + "free s, z, t\n" +
+        "write( p(5, s, 1) )\n" +
+        "write( p(map({b: 2}), z, 1) )\n" +
+        "write( p({a: 9}, t, 1) )\n" +
+        "write( \"done\" )\n"
+
+    assert_eq(ran_funl(fails), "done\nsucceeded")
+
+    // A rest holding an unbound key is a key the head cannot compare: an instantiation error.
+    val said = ran_funl(defs + "free k, y\nwrite( p({(k): 1}, y, 1) )\n")
+
+    assert(said.contains("instantiation error"), said)
+
+@test
+MAP_UNIFY_A_MAP_WITH_AN_UNBOUND_KEY_FAILS()
+    // `~` never raises: a key that is an unbound variable cannot be compared, so the maps do not
+    // unify -- even the same unbound key on both sides.
+    val text = "free k, m\n" +
+        "write( {(k): 1} ~ {a: 1} )\n" +
+        "write( {a: 1} ~ {(k): 1} )\n" +
+        "write( {(k): 1} ~ {(k): 1} )\n" +
+        "m ~ {(k): 1}\n" +
+        "write( m ~ {a: 1} )\n" +
+        "write( \"done\" )\n"
+
+    assert_eq(ran_funl(text), "done\nsucceeded")
+
+@test
 MAP_UNIFY_IMMUTABLE_MAPS_UNIFY_BY_CONTENT_AND_MUTABLE_ONES_BY_IDENTITY()
     val text = "free x, y, m\n" +
         "write( {a: x, b: [y]} ~ {b: [2], a: 1} )\nwrite( x, y )\n" +
