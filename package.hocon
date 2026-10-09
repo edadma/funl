@@ -69,7 +69,7 @@ dependencies {
   // `funl:async`'s `run` starts its child with libuv directly, kairos wrapping no process, and
   // `fetch` waits for libcurl on libuv's thread pool -- so libuv is named here as well as under
   // kairos, behind the same feature.
-  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.8", optional = true }
+  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.9", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`

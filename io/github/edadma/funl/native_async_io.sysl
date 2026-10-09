@@ -161,7 +161,7 @@ private do_run(base: usize, argc: usize) -> Result[Value, Fault]
     stdio.push(libuv.ToPipe(err_pipe, libuv.WRITABLE_PIPE))
 
     val child = libuv.spawn(program, a.args.view(), (status, signal) -> (), stdio.view(), a.dir, env.view(), 0,
-            lp) match
+            lp, inherit_env = false) match
         Ok(c) -> c
         Err(e) ->
             out_pipe.close()
@@ -188,15 +188,14 @@ private do_run(base: usize, argc: usize) -> Result[Value, Fault]
     Ok(Promise(p))
 end do_run
 
-// The environment the child is given, as libuv takes it: `NAME=value` entries, and none at all for
-// this program's own. `env` adds to this program's environment unless `inherit_env` is false, when
-// it is the whole of it.
+// The whole environment the child is given, as `NAME=value` entries: `env` added to this program's
+// environment unless `inherit_env` is false, when it is all of it. **It is always handed to libuv as
+// the complete environment** (`inherit_env: false` there), since libuv's own inheriting replaces the
+// environment with a non-empty list rather than adding to it.
 private child_env(a: Asked) -> Result[Buf[string], Fault]
     var out: Buf[string] = buf()
 
     if a.inherit_env
-        if a.env.is_empty() then return Ok(out)
-
         for kv in vars().view()
             var named = false
 
@@ -207,11 +206,6 @@ private child_env(a: Asked) -> Result[Buf[string], Fault]
 
     for e in a.env.view()
         out.push(s"${e.name}=${e.value}")
-
-    // libuv reads an empty list as "this program's own", so a child with no variables at all cannot
-    // be asked of it.
-    if out.is_empty()
-        return Err(system_error(s"'run' cannot start `${a.program}` with no environment at all: libuv reads an empty one as this program's own"))
 
     Ok(out)
 

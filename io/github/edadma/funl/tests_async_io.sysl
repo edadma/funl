@@ -110,11 +110,20 @@ RUN_WITH_INHERIT_ENV_FALSE_GIVES_THE_CHILD_ONLY_WHAT_ENV_NAMES()
     assert_eq(with_io(s"write( (await run( \"/bin/sh\", [\"$show\"], {env: {FUNL_ONE: \"1\"}, inherit_env: false} )).out )\n"),
         "1\nno home\n\nsucceeded")
 
-    // libuv reads an empty environment as this program's own, so a child with none is refused rather
-    // than handed this program's.
-    assert_eq(with_io("write( run( \"/bin/echo\", [], {inherit_env: false} ) catch e -> e )\n"),
-        "error(system_error, context(_G2, \"'run' cannot start `/bin/echo` with no environment at all: libuv reads an empty one as this program's own\"))\n" +
-        "succeeded")
+    // No `env` at all gives an empty environment, as the blocking `run` does.
+    assert_eq(with_io("write( (await run( \"/usr/bin/env\", [], {inherit_env: false} )).out )\n"),
+        "\nsucceeded")
+
+@test
+RUN_WITH_INHERIT_ENV_TRUE_ADDS_ENV_TO_THE_PARENTS_AND_FINDS_A_BARE_NAME_ON_ITS_PATH()
+    val d = scratch()
+    defer scrap(d)
+
+    val show = put(d, "show.sh", "printenv FUNL_A\nif [ -n \"$PATH\" ]; then echo has path; fi\n")
+
+    assert_eq(with_io(s"write( (await run( \"/bin/sh\", [\"$show\"], {env: {FUNL_A: \"1\"}} )).out )\n" +
+        "write( (await run( \"printenv\", [\"FUNL_A\"], {env: {FUNL_A: \"2\"}} )).out )\n"),
+        "1\nhas path\n\n2\n\nsucceeded")
 
 // The machine goes on while the loop waits: a child, a file and a timer are all in flight at once,
 // and each task resumes as its own answer arrives -- the file first, then the child after about 100

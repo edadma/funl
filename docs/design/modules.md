@@ -523,9 +523,10 @@ the regex captures. A **task** is exactly those fields, in their own `Machine`:
 > `forget_events`**, so an answer arriving after its run ended touches nothing. A build without
 > `async` answers an import of one of the four -- by name or through `import * as` -- with
 > ``read_file` of `funl:async` is not in this build -- it is behind the `async` feature``
-> (`left_out_export`), and `fetch` names `http` too where that is off. **One difference from the
-> blocking `run`**: `inherit_env: false` with no `env` is refused, libuv's `spawn` reading an empty
-> environment as the parent's own.
+> (`left_out_export`), and `fetch` names `http` too where that is off. **The child's environment
+> is built here and handed to libuv whole** (`inherit_env: false` there): `env` added to this
+> program's, or alone where FunL's `inherit_env` is false, an empty one included, as in the
+> blocking `run`.
 
 ## The prelude — the first module written in FunL
 

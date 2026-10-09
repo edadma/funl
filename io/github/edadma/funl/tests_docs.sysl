@@ -520,7 +520,7 @@ private val HttpCensus: string = ""
 // so a build without both does not run the page. Its timers are tested in `tests_events.sysl` in
 // every build.
 #if feature_async && feature_http
-private val AsyncCensus: string = "docs/library/async.md 13 4 0 0\n"
+private val AsyncCensus: string = "docs/library/async.md 13 3 0 0\n"
 #else
 private val AsyncCensus: string = ""
 #endif

@@ -351,18 +351,8 @@ p = read_file( 42 )
 **Anything in flight keeps the program alive**, as a timer does: the program does not end while a
 file is being read or a child is running, whether or not anything awaits its promise.
 
-`run`'s `inherit_env: false` gives the child only the variables `env` names, and at least one has to
-be named: a child with no environment at all cannot be started this way.
-
-```funl
-import { run } from funl:async
-
-write( await run("/usr/bin/env", [], {inherit_env: false}) )
-```
-
-```error
-with no environment at all
-```
+`run`'s `inherit_env: false` gives the child only the variables `env` names, and none at all where
+`env` is left out, as the blocking `run` does.
 
 These four are behind the `async` feature, which is on unless a build turns it off; `fetch` is
 behind `http` as well. A build without them still has `sleep` and the promise makers, and answers an
