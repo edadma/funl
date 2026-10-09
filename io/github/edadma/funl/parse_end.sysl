@@ -1,0 +1,212 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Optional `end` markers: a line `end f` after a long definition, `end if` after an `if` chain,
+// `end while` after a loop, which the parser checks against what it closes and then forgets.
+//
+// **`end` stays a name.** A line is a marker only when it is `end`, one word, and nothing else, so
+// `end( 2 )`, `end - 1` and a line holding `end` alone keep their meanings; no such two-word line
+// was ever a program.
+//
+// **A construct says where it ended, and a marker is judged there.** Each one that may take a
+// marker records itself with `closes` as it finishes, at the token it finished before; the loops
+// that read a block's lines call `take_marker` after each line, and a marker line found at that
+// point is checked against the constructs that ended exactly there. A block ends at its `Dedent`,
+// so a marker at the column of the line that opened the block meets that construct, and one
+// indented into the body meets nothing.
+
+// What a construct that may take a marker is, which says the words that close it.
+enum Closes
+    // A function clause or a rule, by its name.
+    ClosesDef(name: string)
+
+    // A fact, which has no body to close.
+    ClosesFact(name: string)
+
+    // A bare `def` and its block of clauses: `end def`.
+    ClosesGroup
+
+    // A `val` or `var` and its value: the name, or `""` for a pattern.
+    ClosesVal(name: string, is_var: bool)
+
+    // `if`, `while`, `for`, `repeat` or `every`, by its word.
+    ClosesWord(word: string)
+
+// One construct that has ended: where, what it is, and whether it ended with an indented block.
+struct Closer
+    at: usize
+    what: Closes
+    block: bool
+
+// Record that `what` ended at the cursor.
+closes(p: *Parser, what: Closes)
+    val at = p.toks.at
+
+    val block = p.toks.looked_back() match
+        Some(t) ->
+            t.value match
+                Dedent -> true
+                _ -> false
+        None -> false
+
+    // A marker is only ever judged where the cursor is now or later, so nothing that ended earlier
+    // can be named by one any more.
+    while p.closers.len() > 0 && p.closers.at(p.closers.len() - 1).at < at
+        p.closers.pop()
+
+    p.closers.push(Closer(at, what, block))
+
+// `e`, after recording that `what` ended at the cursor.
+closing(p: *Parser, e: &Expr, what: Closes) -> &Expr
+    closes(p, what)
+    e
+
+// Take a marker line if one follows the line just read, and check it against what ended there.
+take_marker(p: *Parser)
+    if !p.at_tok(Newline) then return
+
+    val m = marker_at(p, 1) match
+        Some(m) -> m
+        None -> return
+
+    val at = p.toks.at
+
+    p.take()
+    p.take()
+    p.take()
+    judge(p, m, at)
+
+// Refuse a marker line that begins a block or a file, where nothing has ended for it to close.
+stray_marker(p: *Parser) -> bool
+    val m = marker_at(p, 0) match
+        Some(m) -> m
+        None -> return false
+
+    p.take()
+    p.take()
+    closes_nothing(p, m, "")
+    true
+
+// The marker on the line `k` tokens past the cursor, if the line is one: `end`, then a name or one
+// of the words a construct is closed by, then the end of the line.
+private marker_at(p: *Parser, k: usize) -> Option[Spanned[string]]
+    val first = p.toks.peek_at(k) match
+        Some(t) -> t
+        None -> return None
+
+    first.value match
+        Name(n) -> if n != "end" then return None
+        _ -> return None
+
+    val spec = p.toks.peek_at(k + 1) match
+        Some(t) -> t
+        None -> return None
+
+    val word = spec.value match
+        Name(w) -> w
+        If -> "if"
+        While -> "while"
+        For -> "for"
+        Repeat -> "repeat"
+        Every -> "every"
+        Def -> "def"
+        Val -> "val"
+        VarW -> "var"
+        _ -> return None
+
+    val ends = p.toks.peek_at(k + 2) match
+        Some(t) ->
+            t.value match
+                Newline -> true
+                Dedent -> true
+                _ -> false
+        None -> true
+
+    if !ends then return None
+
+    Some(Spanned(word, first.span.to(spec.span)))
+end marker_at
+
+// Check marker `m` against the constructs that ended at token `at`.
+private judge(p: *Parser, m: Spanned[string], at: usize)
+    var block: Option[Closer] = None
+    var line: Option[Closer] = None
+    var named_line: Option[Closer] = None
+
+    for c in p.closers.view()
+        if c.at != at then continue
+
+        if names(c.what, m.value)
+            if c.block then return
+
+            named_line = Some(c)
+        elif c.block
+            block = Some(c)
+        else
+            line = Some(c)
+
+    named_line match
+        Some(c) ->
+            closes_nothing(p, m, one_line(c.what))
+            return
+        None -> ()
+
+    block match
+        Some(c) ->
+            p.report.add(error(m.span, mismatch(m.value, c.what))
+                .with_note(s"the marker for it is ${marker_for(c.what)}"))
+            return
+        None -> ()
+
+    line match
+        Some(c) -> closes_nothing(p, m, one_line(c.what))
+        None -> closes_nothing(p, m, "")
+end judge
+
+// Refuse `m` as closing nothing, saying `why` when something on one line came just before it.
+private closes_nothing(p: *Parser, m: Spanned[string], why: string)
+    val tail = if why == "" then "" else s": $why"
+
+    p.report.add(error(m.span, s"`end ${m.value}` closes nothing here$tail")
+        .with_note("an end marker follows an indented body, at the column of the line that opened it"))
+
+// Whether `end w` closes `what`.
+private names(what: Closes, w: string) -> bool = what match
+    ClosesDef(n) -> w == n
+    ClosesFact(n) -> w == n
+    ClosesGroup -> w == "def"
+    ClosesVal(n, is_var) -> (n != "" && w == n) || (!is_var && w == "val")
+    ClosesWord(k) -> w == k
+
+// The refusal of `end w` under a block construct it does not name.
+private mismatch(w: string, what: Closes) -> string = what match
+    ClosesDef(n) -> s"`end $w` does not match `$n`, the definition it closes"
+    ClosesFact(n) -> s"`end $w` does not match `$n`, the definition it closes"
+    ClosesGroup -> s"`end $w` does not match the `def` block it closes"
+    ClosesVal(n, is_var) ->
+        val word = if is_var then "var" else "val"
+
+        if n == "" then s"`end $w` does not match the `$word` it closes" else s"`end $w` does not match `$n`, the `$word` it closes"
+    ClosesWord(k) -> s"`end $w` does not match the `$k` it closes"
+
+// The marker or markers that close `what`.
+private marker_for(what: Closes) -> string = what match
+    ClosesDef(n) -> s"`end $n`"
+    ClosesFact(n) -> s"`end $n`"
+    ClosesGroup -> "`end def`"
+    ClosesVal(n, is_var) ->
+        if n == "" then "`end val`" elif is_var then s"`end $n`" else s"`end $n` or `end val`"
+    ClosesWord(k) -> s"`end $k`"
+
+// Why a marker after `what`, written on one line, closes nothing.
+private one_line(what: Closes) -> string = what match
+    ClosesDef(n) -> s"`$n`'s body is on the `def` line"
+    ClosesFact(n) -> s"`$n` is a fact, with no body"
+    ClosesGroup -> "the `def` block is on one line"
+    ClosesVal(n, is_var) ->
+        val word = if is_var then "var" else "val"
+
+        if n == "" then s"the value is on the `$word` line" else s"`$n`'s value is on the `$word` line"
+    ClosesWord(k) -> s"the `$k` is on one line"

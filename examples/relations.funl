@@ -26,6 +26,7 @@ def
 
   path( x, y, [x, y] ) :- edge( x, y )
   path( x, y, x:p ) :- edge( x, z ) & path( z, y, p )
+end def
 
 free p
 write( findall(p, path(#a, #d, p)) )    ;; [[a, b, d], [a, b, c, d]]

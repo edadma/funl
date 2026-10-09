@@ -18,6 +18,7 @@ export def
 
   ;; a rule: fruit is sold by the kilo, everything else by the item
   unit( x, u ) :- if fruit( x ) then u ~ #kilo else u ~ #item
+end def
 
 ;; Plain functions. `euros` answers an exact rational, which Prolog arithmetic takes as a number.
 export def euros( cents ) = cents / 100

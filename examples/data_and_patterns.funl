@@ -36,6 +36,7 @@ def
 
   inorder( leaf ) = []
   inorder( node(l, x, r) ) = inorder( l ) + [x] + inorder( r )
+end def
 
 var t = leaf
 

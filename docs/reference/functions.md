@@ -486,6 +486,7 @@ def pow( x, n ) | n > 0 = pow_( x, n - 1, x )
     even( n ) = odd( n - 1 )
     odd( 0 ) = fail
     odd( n ) = even( n - 1 )
+end pow
 
 def sumsq( a, b ) = s
   where
@@ -518,6 +519,141 @@ write( sum([1, 2, 3, 4]) )
 
 ```output
 10
+```
+
+## `end` markers
+
+A block ends where the indentation goes back. Where a block is long, a line `end` and a name may
+follow it to say what just closed, and FunL checks that name against the construct:
+
+```funl
+def collatz_steps( n )
+  var steps = 0
+
+  while n != 1
+    if 2 div n
+      n = n \ 2
+    else
+      n = 3n + 1
+
+    steps += 1
+  end while
+
+  steps
+end collatz_steps
+
+write( collatz_steps(27) )
+```
+
+```output
+111
+```
+
+A marker stands on a line of its own, at the column of the line that opened the block, and names:
+
+| what it closes | the marker |
+|---|---|
+| a function clause, a rule, an `async def` or `export def`, a clause with its `where` | `end f`, the name |
+| a bare `def` and its block of clauses | `end def` |
+| `val x =` or `var x =` with an indented value | `end x`; `end val` too after a `val`, and only `end val` after a pattern |
+| an `if` with its `elif`s and `else` | one `end if`, after the whole chain |
+| a loop, labelled or not | `end while`, `end for`, `end repeat`, `end every` |
+
+A lambda, a partial function, a `?` scan, a `catch` arm, a `( ; )` sequence and `data` take no marker.
+A marker is optional, and is written only on a block of seven lines or more, counting from the line
+that opens it to the marker; a shorter block reads better without one.
+
+```funl
+def
+  even( 0 ) = true
+  even( n ) = odd( n - 1 )
+  odd( 0 ) = false
+  odd( n ) = even( n - 1 )
+
+  parity( n ) = if even( n ) then 'even' else 'odd'
+end def
+
+val (q, r) =
+  val n = 17
+  (n \ 5, n % 5)
+end val
+
+write( parity(q), r )
+```
+
+```output
+odd, 2
+```
+
+A marker naming something other than what it closes is refused, naming both:
+
+```funl
+def f( x )
+  x + 1
+end g
+```
+
+```error
+`end g` does not match `f`, the definition it closes
+```
+
+```funl
+var i = 0
+
+while i < 2
+  i += 1
+end for
+```
+
+```error
+`end for` does not match the `while` it closes
+```
+
+A marker after a form written on one line closes nothing, since there is no block for it to mark,
+and neither does one indented into the body it meant to close:
+
+```funl
+def f( x ) = x + 1
+end f
+```
+
+```error
+`end f` closes nothing here: `f`'s body is on the `def` line
+```
+
+```funl
+def f( x )
+  x + 1
+  end f
+```
+
+```error
+`end f` closes nothing here
+```
+
+`end` is otherwise an ordinary name. A line is a marker only when it is `end` and one word, so
+`end - start` and `end( 1 )` mean what they always did:
+
+```funl
+val (start, end) = (1, 5)
+write( end - start )
+```
+
+```output
+4
+```
+
+A line holding `end` alone is a read of that name, and where nothing is called `end` it is refused
+as any undefined name is, with a note that a marker names what it closes:
+
+```funl
+def f( x )
+  x + 1
+end
+```
+
+```error
+`end` is not defined
 ```
 
 ## Generator functions
@@ -624,8 +760,12 @@ def
           swap( a(i), a(n - 1) )
         else
           swap( a(0), a(n - 1) )
+      end for
 
       permute_( n - 1, a )
+    end if
+  end permute_
+end def
 
 every write( permute([1, 2, 3]) )
 ```

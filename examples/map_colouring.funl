@@ -14,6 +14,7 @@ def
   colour( blue )
 
   differ( a, b ) :- colour( a ) & colour( b ) & a != b
+end def
 
 ;; Five regions: w borders x and y; x borders y and z; y borders z and v; z borders v.
 def colouring( w, x, y, z, v ) :-
@@ -22,6 +23,7 @@ def colouring( w, x, y, z, v ) :-
   differ( x, y ) & differ( x, z )
   differ( y, z ) & differ( y, v )
   differ( z, v )
+end colouring
 
 free w, x, y, z, v
 

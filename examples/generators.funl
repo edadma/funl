@@ -27,6 +27,7 @@ def collatz( n )
   while n != 1
     n = if 2 div n then n \ 2 else 3n + 1
     yield n
+end collatz
 
 every write( collatz(6) )                        ;; 6, 3, 10, 5, 16, 8, 4, 2, 1
 

@@ -19,9 +19,13 @@ definition(p: *Parser, clauses: *Buf[Clause])
         while p.accept(Newline)
             ()
 
-        if p.accept(Dedent) || p.peek_tok().is_none() then return
+        if p.accept(Dedent) || p.peek_tok().is_none()
+            closes(p, ClosesGroup)
+            return
 
-        clause(p, clauses)
+        if !stray_marker(p) then clause(p, clauses)
+
+        take_marker(p)
 
         if p.at_tok(Newline) || p.at_tok(Dedent) then continue
 
@@ -73,11 +77,16 @@ private clause(p: *Parser, clauses: *Buf[Clause])
 
     if p.accept(Turnstile)
         clauses.push(Clause(name, head, params, Rule(rule_body(p)), false))
+        closes(p, ClosesDef(name))
         return
 
     fn_body(p) match
-        Some(b) -> clauses.push(Clause(name, head, params, FunctionC(b), false))
-        None -> clauses.push(Clause(name, head, params, Fact, false))
+        Some(b) ->
+            clauses.push(Clause(name, head, params, FunctionC(b), false))
+            closes(p, ClosesDef(name))
+        None ->
+            clauses.push(Clause(name, head, params, Fact, false))
+            closes(p, ClosesFact(name))
 end clause
 
 // A function clause's guards and `where`, the head already read; `None` when nothing that makes a
@@ -136,6 +145,8 @@ private guard_block(p: *Parser, guards: *Buf[Guard]) -> Buf[Stmt]
             p.fail_here("a guard, `| condition = body`")
             p.skip_line()
 
+        take_marker(p)
+
         if p.accept(Newline) then continue
 
         if p.accept(Dedent) then break
@@ -166,6 +177,7 @@ private where_part(p: *Parser) -> Buf[Stmt]
         if p.accept(Dedent) || p.peek_tok().is_none() then break
 
         out.push(binding(p))
+        take_marker(p)
 
         if p.at_tok(Newline) || p.at_tok(Dedent) then continue
 
@@ -194,7 +206,9 @@ private binding(p: *Parser) -> Stmt
                 var clauses: Buf[Clause] = buf()
 
                 fn_body(p) match
-                    Some(b) -> clauses.push(Clause(n, head, params, FunctionC(b), false))
+                    Some(b) ->
+                        clauses.push(Clause(n, head, params, FunctionC(b), false))
+                        closes(p, ClosesDef(n))
                     None -> p.fail_here("`=` or a guard")
 
                 return DefS(clauses)
@@ -217,6 +231,8 @@ private rule_body(p: *Parser) -> &Expr
     var body = parse_expr(p, 0)
 
     loop
+        take_marker(p)
+
         if p.accept(Newline)
             val next = parse_expr(p, 0)
 

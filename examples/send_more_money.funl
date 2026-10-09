@@ -17,6 +17,7 @@ def value( ds )
     v = 10v + d
 
   v
+end value
 
 every ((d = digit([])) & (e = digit([d])) &
        (y = digit([d, e])) == (d + e) % 10 &
@@ -29,6 +30,7 @@ every ((d = digit([])) & (e = digit([d])) &
   write( "  ${value([s, e, n, d])}" )
   write( "+ ${value([m, o, r, e])}" )
   write( "= ${value([m, o, n, e, y])}" )
+end every
 
 ;; prints the one solution:
 ;;

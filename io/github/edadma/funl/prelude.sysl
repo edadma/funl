@@ -39,6 +39,7 @@ install_prelude(v: *Vm)
     register(v, "drop", 2, do_drop)
     register(v, "zip", 2, do_zip)
     register(v, "zip3", 3, do_zip3)
+    register(v, "_list", 2, do_list_guard)
 
 // The prelude's index in `Vm.modules`, once it is loaded.
 prelude_index() -> Option[usize]
@@ -159,6 +160,78 @@ private drawn(c: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
             out.push(x)
             Ok(())
 
+// Refuses a string, a tuple or a map where a list function wants a list: each is one value to `<-`,
+// and answering a one-element pairing or a one-element result for it would hide the mistake.
+list_guard(c: Value, what: string) -> Result[unit, Fault]
+    val x = deref(c)
+
+    x match
+        Str(_) | Tuple(_) | Map(_) | MutMap(_) -> Err(type_error("list", x, s"$what wants a list and reached ${described(x)}"))
+        _ -> Ok(())
+
+// `drawn` for a list function's own list argument: a string, a tuple or a map is refused.
+private listed(c: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
+    list_guard(c, what)?
+    drawn(c, what, out)
+
+// `_list(name, xs)`: `xs`, when a list function named `name` may draw from it. The prelude's own
+// FunL calls it before a comprehension would take a string, a tuple or a map for one element.
+private do_list_guard(base: usize, argc: usize) -> Result[Value, Fault]
+    val name = deref(arg(base, 0)) match
+        Str(p) -> s"'${p.s}'"
+        _ -> "a list function"
+
+    list_guard(arg(base, 1), name)?
+    Ok(arg(base, 1))
+
+// The columns `zip`, `zip3`, `zipWith` and `zipWith3` pair, one buffer per argument, and how many
+// places they reach. An endless range is a column as long as the shortest finite one; with no finite
+// argument there is no end to reach, and it is refused.
+private zip_columns(args: *Buf[Value], what: string, cols: *Buf[Buf[Value]]) -> Result[usize, Fault]
+    var len: usize = 0
+    var found = false
+    var first_open: Value = Nil
+    var seen_open = false
+
+    for i in 0..<args.len()
+        var c: Buf[Value] = buf()
+        val x = deref(args.at(i))
+        var open = false
+
+        x match
+            Range(r) -> open = r.endless
+            _ -> ()
+
+        if open
+            if !seen_open
+                first_open = x
+                seen_open = true
+        else
+            listed(x, what, &c)?
+
+            if !found || c.len() < len then len = c.len()
+
+            found = true
+
+        cols.push(c)
+
+    if !found
+        return Err(endless(first_open, s"$what was given only endless ranges, such as ${render(first_open)}, so it has no end"))
+
+    for i in 0..<args.len()
+        deref(args.at(i)) match
+            Range(r) ->
+                if r.endless
+                    var col = cols.at(i)
+                    var k = r.from
+
+                    for _ in 0..<len
+                        col.push(Int(k))
+                        k += r.step
+            _ -> ()
+
+    Ok(len)
+
 // The fault a source definition with no clause for its argument answers: `last([])`.
 private no_clause(name: string, x: Value) -> Fault
     indicator(name, 1) match
@@ -176,6 +249,7 @@ private count_arg(x: Value, name: string) -> Result[long, Fault]
 private do_reverse(base: usize, argc: usize) -> Result[Value, Fault]
     var items: Buf[Value] = buf()
 
+    list_guard(arg(base, 0), "'reverse'")?
     elements(arg(base, 0), "'reverse'", &items)?
 
     var out: Value = Nil
@@ -190,6 +264,7 @@ private do_reverse(base: usize, argc: usize) -> Result[Value, Fault]
 private do_sort(base: usize, argc: usize) -> Result[Value, Fault]
     var a: Buf[Value] = buf()
 
+    list_guard(arg(base, 0), "'sort'")?
     elements(arg(base, 0), "'sort'", &a)?
 
     val n = a.len()
@@ -235,7 +310,7 @@ private do_sort(base: usize, argc: usize) -> Result[Value, Fault]
 private do_concat(base: usize, argc: usize) -> Result[Value, Fault]
     var outer: Buf[Value] = buf()
 
-    drawn(arg(base, 0), "'concat'", &outer)?
+    listed(arg(base, 0), "'concat'", &outer)?
 
     var items: Buf[Value] = buf()
 
@@ -268,6 +343,7 @@ private do_elem(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 private do_last(base: usize, argc: usize) -> Result[Value, Fault]
     var items: Buf[Value] = buf()
 
+    list_guard(arg(base, 0), "'last'")?
     elements(arg(base, 0), "'last'", &items)?
 
     if items.len() == 0 then return Err(no_clause("last", arg(base, 0)))
@@ -278,6 +354,7 @@ private do_last(base: usize, argc: usize) -> Result[Value, Fault]
 private do_init(base: usize, argc: usize) -> Result[Value, Fault]
     var items: Buf[Value] = buf()
 
+    list_guard(arg(base, 0), "'init'")?
     elements(arg(base, 0), "'init'", &items)?
 
     if items.len() == 0 then return Err(no_clause("init", arg(base, 0)))
@@ -290,6 +367,8 @@ private do_init(base: usize, argc: usize) -> Result[Value, Fault]
 private do_drop(base: usize, argc: usize) -> Result[Value, Fault]
     val n = count_arg(arg(base, 0), "drop")?
     val xs = arg(base, 1)
+
+    list_guard(xs, "'drop'")?
 
     if n <= 0 then return Ok(xs)
 
@@ -338,16 +417,12 @@ private do_zip3(base: usize, argc: usize) -> Result[Value, Fault] = zipped(base,
 
 private zipped(base: usize, n: usize) -> Result[Value, Fault]
     var cols: Buf[Buf[Value]] = buf()
-    var len: usize = 0
+    var args: Buf[Value] = buf()
 
     for i in 0..<n
-        var c: Buf[Value] = buf()
+        args.push(arg(base, i))
 
-        drawn(arg(base, i), if n == 2 then "'zip'" else "'zip3'", &c)?
-
-        if i == 0 || c.len() < len then len = c.len()
-
-        cols.push(c)
+    val len = zip_columns(&args, if n == 2 then "'zip'" else "'zip3'", &cols)?
 
     var rows: Buf[Value] = buf()
 
@@ -464,6 +539,7 @@ private sort_by_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
         Begun ->
             var items: Buf[Value] = buf()
 
+            list_guard(f.args.at(1), "'sortBy'")?
             elements(f.args.at(1), "'sortBy'", &items)?
             set_slot(f, SortFrom, held(&items)?)?
             set_slot(f, SortTo, held(&items)?)?
@@ -521,10 +597,17 @@ private zip_with_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
 
     called match
         Begun ->
-            for i in 0..<lists
-                var c: Buf[Value] = buf()
+            var cols: Buf[Buf[Value]] = buf()
+            var args: Buf[Value] = buf()
 
-                drawn(f.args.at(i + 1), what, &c)?
+            for i in 0..<lists
+                args.push(f.args.at(i + 1))
+
+            zip_columns(&args, what, &cols)?
+
+            for i in 0..<lists
+                var c = cols.at(i)
+
                 set_slot(f, i, held(&c)?)?
 
             set_slot(f, ZipOut, Array(new_array(0)?))?
@@ -579,10 +662,10 @@ private prelude_text() -> string = raw"""
       maxBy( f, xs ) = foldl1( (a, b) -> if f(b) > f(a) then b else a, xs )
       minBy( f, xs ) = foldl1( (a, b) -> if f(b) < f(a) then b else a, xs )
 
-      map( f, xs ) = if xs is function then mapDraw( f, xs ) else [f(x) | x <- xs]
-      filter( p, xs ) = if xs is function then filterDraw( p, xs ) else [x | x <- xs if p(x)]
-      take( n, xs ) = if xs is function then takeDraw( n, xs ) else [x | x <- takeDraw( n, () -> xs )]
-      takeWhile( p, xs ) = if xs is function then takeWhileDraw( p, xs ) else [x | x <- takeWhileDraw( p, () -> xs )]
+      map( f, xs ) = if xs is function then mapDraw( f, xs ) else [f(x) | x <- _list( "map", xs )]
+      filter( p, xs ) = if xs is function then filterDraw( p, xs ) else [x | x <- _list( "filter", xs ) if p(x)]
+      take( n, xs ) = if xs is function then takeDraw( n, xs ) else [x | x <- takeDraw( n, () -> _list( "take", xs ) )]
+      takeWhile( p, xs ) = if xs is function then takeWhileDraw( p, xs ) else [x | x <- takeWhileDraw( p, () -> _list( "takeWhile", xs ) )]
 
       dropWhile( p, [] ) = []
       dropWhile( p, x:xs ) = if p(x) then dropWhile( p, xs ) else x:xs
@@ -591,9 +674,9 @@ private prelude_text() -> string = raw"""
       spanNot( p, xs ) = span( x -> not p(x), xs )
       partition( p, xs ) = (filter(p, xs), filter(x -> not p(x), xs))
 
-      concatMap( f, xs ) = [y | x <- xs, y <- f(x)]
+      concatMap( f, xs ) = [y | x <- _list( "concatMap", xs ), y <- f(x)]
 
-      unzip( ps ) = ([a | (a, _) <- ps], [b | (_, b) <- ps])
+      unzip( ps ) = ([a | (a, _) <- _list( "unzip", ps )], [b | (_, b) <- _list( "unzip", ps )])
 
       iterate( f, x )
         yield x
@@ -603,12 +686,12 @@ private prelude_text() -> string = raw"""
         forever( x )
 
       any( p, xs )
-        for x <- xs if p(x)
+        for x <- _list( "any", xs ) if p(x)
           return true
         fail
-      all( p, xs ) = [] == [x | x <- xs if not p(x)]
+      all( p, xs ) = [] == [x | x <- _list( "all", xs ) if not p(x)]
       lookup( k, ps )
-        for (key, v) <- ps if key == k
+        for (key, v) <- _list( "lookup", ps ) if key == k
           return v
         fail
       nub( xs ) = foldl( (acc, x) -> if x in acc then acc else acc + [x], [], xs )
