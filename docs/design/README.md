@@ -109,3 +109,10 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | P3.4 `zip` beside an endless range | accept it when another input is finite, so `zip(0.., xs)` numbers a list | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
 | P3.5 `zip` (and the prelude's list functions) given a string, tuple or map | refuse it as `reverse` does, not answer a one-element pairing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
 | P3.6 Should `every` take a pattern? | no: `for (a, b) <- e` is the destructuring form | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| One name, several arities: adopt name/arity for functions and relations? | yes (Option C): `f(x)` and `f(x, y)` are `f/1` and `f/2`, a call resolved by its count when compiled | [language](language.md#one-name-several-arities) |
+| A bare multi-arity name as a value | one family value that picks the arity by the count of each call, as a variadic builtin's value does | [language](language.md#one-name-several-arities) |
+| Does a nested `def`/`where` of `g` hide every outer `g`? | yes, every arity; only the top level merges per arity, with the builtins and the prelude | [language](language.md#one-name-several-arities) |
+| May a file define `f/2` while importing `f`? | no, as decided for imports; `as` renames | [language](language.md#one-name-several-arities) |
+| Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded | [language](language.md#one-name-several-arities) |
+| Default parameters? | none; two arities are the default. If ever added, sugar for the arities | [language](language.md#one-name-several-arities) |
+| A constructor value over two field counts picks the last silently | the family under C; refused when compiled otherwise | [language](language.md#one-name-several-arities) |
