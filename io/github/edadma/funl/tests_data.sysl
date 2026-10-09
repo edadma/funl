@@ -137,8 +137,9 @@ A_LAMBDA_AFTER_A_KEY_IN_BRACES_IS_A_MAP_ENTRY()
 // `()` is the unit value and the tuple of nothing, one value: a tuple of length 0.
 @test
 UNIT_IS_THE_EMPTY_TUPLE()
-    assert_eq(ran_funl("write( (), () is tuple, () is unit, ().length, (1, 2)(1..<1), ()(0..<0) )\nwrite( [x | x <- ()], sum(()), () == (), not (1 in ()), not ()(0) )\n"),
-        "(), (), (), 0, (), ()\n[], 0, (), (), ()\nsucceeded")
+    assert_eq(ran_funl("write( (), () is tuple, () is unit, ().length, (1, 2)(1..<1), ()(0..<0) )\nwrite( [x | x <- ()], () == (), not (1 in ()), not ()(0) )\n"),
+        "(), (), (), 0, (), ()\n[], (), (), ()\nsucceeded")
+    faults_with("write( sum(()) )\n", "'sum' wants a list and reached ()")
     assert_eq(ran_funl("def k( () ) = 'unit'\ndef k( (a, b) ) = 'pair'\nwrite( k(()), k((1, 2)) )\n"),
         "unit, pair\nsucceeded")
     assert_eq(ran_funl("write( ((1, 2) is unit) | 'no' )\nevery write( !() )\nwrite( 'none' )\n"), "no\nnone\nsucceeded")

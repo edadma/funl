@@ -163,7 +163,12 @@ def solve( c )
 > same way, so `take(2, 5)` is a fault, not `[5]`. `elem`, `sum` and `join` refuse a tuple or a map as
 > the rest do (`elem(x, xs)` is `x in xs` for a list, range, set, array or buffer only; the `in`
 > operator itself still looks in a tuple or a map's keys). A list, range, set, array, buffer and byte
-> string are the accepted arguments. Test: `PRELUDE_LIST_FUNCTIONS_REFUSE_EVERY_NON_LIST`.
+> string are the accepted arguments; `()`, the unit value, is not a list and is refused too (`sum(())` is
+> a fault, not `0`). The functions the prelude defines by clauses (`head`, `tail`, `foldl`, `foldl1`,
+> `foldr`, `foldr1`, `product`, `maximum`, `minimum`, `maxBy`, `minBy`, `dropWhile`, `splitAt`, `span`,
+> `spanNot`, `partition`, `nub`, `group`) give the same refusal rather than "no clause matches", and
+> keep their behaviour on lists, the empty list included. Test:
+> `PRELUDE_LIST_FUNCTIONS_REFUSE_EVERY_NON_LIST`.
 
 > **Open question P3, revisited (2026-10-08) — what does a pattern on the left of `<-` see?** The
 > question was raised when `<-` iterated every collection it drew, tuples included: `[a | (a, b) <-
