@@ -97,6 +97,13 @@ Each is argued where it arises; this is the list.
 | Prelude `map` against the builtin `map`? | one `map/2`: a function as first argument maps, anything else is the constructor (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Which prelude names are core natives? | `reverse`, `sort`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, `zip`, `zip3`, and `sortBy`, `zipWith`, `zipWith3` calling their function back as bounded calls (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Builtins as values? | a builtin named without a call is a function value (a variadic one passes on however many arguments it is given), and `import * as` a module of FunL's own names the map of them (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| E1 Optional, checked `end` markers? | yes, Scala 3's rules (Option A); a marker naming the wrong construct is refused naming both (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E2 Which constructs take `end`? | `def` clauses (`end f`), a bare `def` group (`end def`), block `val`/`var` (`end x`, `end val`), `if` chains, `while`/`for`/`repeat`/`every`; no lambda, scan, `catch`, `where`, sequence, `data` (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E3 A labelled loop: `end for` or `end outer`? | `end for` only (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E4 `end f` after a one-line `def f( x ) = …` | refused, unlike sysl (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E5 One `end if` for a whole `if`/`elif`/`else` chain? | yes (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E6 A line holding only `end` | stays a read of the name; its refusal gains a note about markers (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E7 sysl's seven-line rule for markers in examples and reference pages? | yes (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
 
 ## Open questions
 
@@ -125,10 +132,3 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded | [language](language.md#one-name-several-arities) |
 | Default parameters? | none; two arities are the default. If ever added, sugar for the arities | [language](language.md#one-name-several-arities) |
 | A constructor value over two field counts picks the last silently | the family under C; refused when compiled otherwise | [language](language.md#one-name-several-arities) |
-| E1 Optional, checked `end` markers, Scala 3's rules (Option A)? | yes | [language](language.md#blocks-and-optional-end-markers) |
-| E2 Which constructs take `end`? | `def` clauses (`end f`), a bare `def` group (`end def`), block `val`/`var` (`end x`, `end val`), `if` chains, `while`/`for`/`repeat`/`every`; no lambda, scan, `catch`, `where`, sequence, `data` | [language](language.md#blocks-and-optional-end-markers) |
-| E3 A labelled loop: `end for` or `end outer`? | `end for` only | [language](language.md#blocks-and-optional-end-markers) |
-| E4 `end f` after a one-line `def f( x ) = …` | refused (sysl accepts it) | [language](language.md#blocks-and-optional-end-markers) |
-| E5 One `end if` for a whole `if`/`elif`/`else` chain? | yes | [language](language.md#blocks-and-optional-end-markers) |
-| E6 A line holding only `end` | stays a read of the name; its refusal gains a note about markers | [language](language.md#blocks-and-optional-end-markers) |
-| E7 sysl's seven-line rule for markers in examples and reference pages? | yes | [language](language.md#blocks-and-optional-end-markers) |

@@ -23,6 +23,10 @@ struct Parser
     // How many blocks and loops have been read: the next one's id.
     nodes: usize
 
+    // The constructs that ended at the cursor, for an `end` marker to be checked against
+    // (`parse_end.sysl`).
+    closers: Buf[Closer]
+
     // A fresh lambda id.
     lambda_id(*self) -> usize
         self.lambdas += 1
@@ -230,7 +234,7 @@ end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
 parse(src: Source, report: *Report) -> Program
-    var p = Parser(lex(src, report), report, src, 0, 0, 0)
+    var p = Parser(lex(src, report), report, src, 0, 0, 0, buf())
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
     var imports: Buf[ImportDecl] = buf()
@@ -265,6 +269,8 @@ parse(src: Source, report: *Report) -> Program
             import_line(&p, &imports)
         else
             stmts.push(statement(&p))
+
+        take_marker(&p)
 
         // An indented line under the statement is refused at the top of the loop.
         if p.at_tok(Newline) || p.at_tok(Indent) || p.peek_tok().is_none() then continue
@@ -521,6 +527,8 @@ end import_line
 // `name = e`, `name op= e`, `name <- e`, `\name = e`, `/name = e`, `a, b = e1, e2` -- `pattern = e`,
 // or an expression.
 statement(p: *Parser) -> Stmt
+    if stray_marker(p) then return ExprS(expr(BadE, p.toks.previous()))
+
     if p.accept(Def)
         var clauses: Buf[Clause] = buf()
 
@@ -539,7 +547,14 @@ statement(p: *Parser) -> Stmt
 
         if !p.expect(Equals, "`=`") then return ValS(pat, expr(BadE, pat.span), true)
 
-        return ValS(pat, body_expr(p), true)
+        val value = body_expr(p)
+
+        val name = pat.kind match
+            Ref(n) -> n
+            _ -> ""
+
+        closes(p, ClosesVal(name, false))
+        return ValS(pat, value, true)
 
     if p.accept(VarW) then return var_statement(p)
 
@@ -610,7 +625,10 @@ private var_statement(p: *Parser) -> Stmt
 
     if !p.accept(Equals) then return VarS(n, t.span, None)
 
-    VarS(n, t.span, Some(body_expr(p)))
+    val value = body_expr(p)
+
+    closes(p, ClosesVal(n, true))
+    VarS(n, t.span, Some(value))
 
 // `a, b = e1, e2`, the first target read and a `,` next.
 private multiple_assignment(p: *Parser, first: &Expr) -> &Expr

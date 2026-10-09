@@ -25,6 +25,7 @@ def
   parent(#logan, #rosie)
   parent(#emma, #aiden)
   parent(#logan, #aiden)
+end def
 
 def
   relation(x, y) :- ancestor(a, x) & ancestor(a, y) & x != y
@@ -46,6 +47,7 @@ def
   grandparent(x, y) :- parent(x, p) & parent(p, y)
   grandmother(x, y) :- female(x) & grandparent(x, y)
   grandfather(x, y) :- male(x) & grandparent(x, y)
+end def
 
 free who
 every father(who, _) do write(who)          ;; don don liam liam logan logan

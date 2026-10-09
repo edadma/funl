@@ -401,6 +401,8 @@ def solve( c )
       if count == 1 then write( seq(solution) )
     else
       solve( c + 1 )
+  end every
+end solve
 
 solve( 0 )
 write( count )

@@ -25,6 +25,7 @@ def harmonic( n )
     h += 1/k
 
   h
+end harmonic
 
 write( harmonic(10) )               ;; 7381/2520
 

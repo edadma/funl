@@ -195,6 +195,7 @@ def
     parent(f, a) & parent(f, b)
     parent(m, a) & parent(m, b)
     a != b & f != m
+end def
 
 free s
 every full_siblings(#randy, s) do write( s )
@@ -538,6 +539,7 @@ def
   parent(#logan, #rosie)
   parent(#emma, #aiden)
   parent(#logan, #aiden)
+end def
 
 def
   ancestor(x, y) :- parent(x, y) | parent(x, p) & ancestor(p, y)
@@ -545,6 +547,7 @@ def
   siblings(x, y) :- parent(p, x) & parent(p, y) & x != y
   uncle(u, n) :- male(u) & siblings(u, p) & parent(p, n)
   grandparent(x, y) :- parent(x, p) & parent(p, y)
+end def
 
 free who
 every father(who, _) do write( who )

@@ -1,0 +1,110 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Optional `end` markers: each construct that takes one, each way a marker can be wrong, and `end`
+// staying an ordinary name.
+
+@test
+A_DEFINITION_IS_CLOSED_BY_ITS_NAME()
+    val text = "def hanoi( n )\n  if n > 0\n    hanoi( n - 1 )\n    write( n )\nend hanoi\nhanoi( 2 )\n"
+
+    assert_eq(ran_funl(text), "1\n2\nsucceeded")
+
+@test
+A_RULE_BODY_AND_A_WHERE_ARE_CLOSED_BY_THE_NAME()
+    val text = "def p( x ) :-\n  x ~ 1\nend p\ndef h( x ) = x + w\n  where\n    w = 1\nend h\nif p( 1 ) then write( h( 1 ) )\n"
+
+    assert_eq(ran_funl(text), "2\nsucceeded")
+
+@test
+AN_ASYNC_DEFINITION_IS_CLOSED_BY_ITS_NAME()
+    val text = "async def f( x ) =\n  x + 1\nend f\nwrite( await f( 1 ) )\n"
+
+    assert_eq(ran_funl(text), "2\nsucceeded")
+
+@test
+A_DEF_BLOCK_IS_CLOSED_BY_END_DEF_AND_ITS_CLAUSES_BY_THEIR_NAMES()
+    val text = "def\n  g( 0 ) = 0\n  g( n ) =\n    n + g( n - 1 )\n  end g\nend def\nwrite( g( 3 ) )\n"
+
+    assert_eq(ran_funl(text), "6\nsucceeded")
+
+@test
+A_VAL_OR_VAR_WITH_A_BLOCK_IS_CLOSED_BY_ITS_NAME_OR_END_VAL()
+    val text = "val x =\n  val a = 2\n  a * 3\nend x\nval y =\n  10\nend val\nvar z =\n  5\nend z\nval (a, b) =\n  (1, 2)\nend val\nwrite( x, y, z, a, b )\n"
+
+    assert_eq(ran_funl(text), "6, 10, 5, 1, 2\nsucceeded")
+
+@test
+EVERY_LOOP_IS_CLOSED_BY_ITS_WORD_AND_A_LABELLED_ONE_TOO()
+    val text = "var i = 0\nouter: while i < 2\n  i += 1\nend while\nfor k <- 1..2\n  write( k )\nend for\nrepeat\n  i += 1\n  if i > 3 then break\nend repeat\nevery write( 5 to 6 )\n  i += 1\nend every\nwrite( i )\n"
+
+    assert_eq(ran_funl(text), "1\n2\n5\n6\n6\nsucceeded")
+
+@test
+ONE_END_IF_CLOSES_A_WHOLE_CHAIN()
+    val text = "val i = 2\nif i > 100\n  write( #big )\nelif i > 1\n  write( #mid )\nelse\n  write( #small )\nend if\n"
+
+    assert_eq(ran_funl(text), "mid\nsucceeded")
+
+@test
+A_MARKER_INSIDE_A_BLOCK_CLOSES_WHAT_ENDED_AT_ITS_COLUMN()
+    val text = "def f( x )\n  if x > 0\n    write( x )\n  end if\n  while x > 5\n    x -= 1\n  end while\n  write( #done )\nend f\nf( 1 )\n"
+
+    assert_eq(ran_funl(text), "1\ndone\nsucceeded")
+
+@test
+A_MARKER_NAMING_THE_WRONG_DEFINITION_NAMES_BOTH()
+    assert_eq(complaints("def f( x )\n  x + 1\nend g\n"), "error 3:1 `end g` does not match `f`, the definition it closes\n")
+    assert(rendered("def f( x )\n  x + 1\nend g\n").contains("the marker for it is `end f`"))
+
+@test
+A_MARKER_NAMING_THE_WRONG_KEYWORD_NAMES_BOTH()
+    assert_eq(complaints("var i = 0\nwhile i < 2\n  i += 1\nend for\n"), "error 4:1 `end for` does not match the `while` it closes\n")
+    assert_eq(complaints("if true\n  write( 1 )\nend while\n"), "error 3:1 `end while` does not match the `if` it closes\n")
+
+@test
+A_LABELLED_LOOP_IS_NOT_CLOSED_BY_ITS_LABEL()
+    assert_eq(complaints("outer: for q <- 1..2\n  write( q )\nend outer\n"), "error 3:1 `end outer` does not match the `for` it closes\n")
+
+@test
+A_WRONG_MARKER_AFTER_A_VAL_OR_A_DEF_BLOCK_IS_REFUSED()
+    assert_eq(complaints("val v =\n  3\nend w\n"), "error 3:1 `end w` does not match `v`, the `val` it closes\n")
+    assert_eq(complaints("val (a, b) =\n  (1, 2)\nend a\n"), "error 3:1 `end a` does not match the `val` it closes\n")
+    assert_eq(complaints("var y =\n  1\nend val\n"), "error 3:1 `end val` does not match `y`, the `var` it closes\n")
+    assert_eq(complaints("def\n  m( 0 ) = 0\nend m\n"), "error 3:1 `end m` does not match the `def` block it closes\n")
+
+@test
+A_MARKER_AFTER_A_ONE_LINE_FORM_IS_REFUSED()
+    assert_eq(complaints("def k( x ) = x + 1\nend k\n"), "error 2:1 `end k` closes nothing here: `k`'s body is on the `def` line\n")
+    assert_eq(complaints("if true then write( 1 )\nend if\n"), "error 2:1 `end if` closes nothing here: the `if` is on one line\n")
+    assert_eq(complaints("val x = 1\nend x\n"), "error 2:1 `end x` closes nothing here: `x`'s value is on the `val` line\n")
+    assert_eq(complaints("def fact( #a )\nend fact\n"), "error 2:1 `end fact` closes nothing here: `fact` is a fact, with no body\n")
+    assert(rendered("def k( x ) = x + 1\nend k\n").contains("an end marker follows an indented body, at the column of the line that opened it"))
+
+@test
+A_MARKER_INDENTED_INTO_THE_BODY_CLOSES_NOTHING()
+    assert_eq(complaints("def t( x )\n  x + 1\n  end t\n"), "error 3:3 `end t` closes nothing here\n")
+
+@test
+A_MARKER_SHALLOWER_THAN_ITS_CONSTRUCT_MEETS_THE_ENCLOSING_ONE()
+    assert_eq(complaints("def u( x )\n  if x > 0\n    write( x )\nend if\n"), "error 4:1 `end if` does not match `u`, the definition it closes\n")
+
+@test
+A_MARKER_WITH_NOTHING_BEFORE_IT_CLOSES_NOTHING()
+    assert_eq(complaints("end f\nwrite( 1 )\n"), "error 1:1 `end f` closes nothing here\n")
+    assert_eq(complaints("write( 1 )\nend write\n"), "error 2:1 `end write` closes nothing here\n")
+
+@test
+A_LINE_HOLDING_ONLY_END_IS_A_READ_OF_THE_NAME()
+    val text = "def f( x )\n  x + 1\nend\n"
+
+    assert_eq(complaints(text), "error 3:1 `end` is not defined\n")
+    assert(rendered(text).contains("an end marker names what it closes: `end f` after `def f`"), rendered(text))
+
+@test
+END_IS_STILL_AN_ORDINARY_NAME()
+    assert_eq(ran_funl("val (start, end) = (1, 5)\nwrite( end - start )\n"), "4\nsucceeded")
+    assert_eq(ran_funl("def end( x ) = x + 1\nwrite( end(1) )\n"), "2\nsucceeded")
+    assert_eq(ran_funl("var end = 3\nend = 4\nend += 1\nwrite( end - 1 )\nend\n"), "4\nsucceeded")

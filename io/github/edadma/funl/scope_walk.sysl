@@ -295,6 +295,11 @@ walk(w: *Walk, e: &Expr)
 
                     if w.relation
                         w.sc.note(n, e.span)
+                    elif n == "end"
+                        // `end` is a name, and a line holding it alone is a read of it, but the
+                        // likelier mistake is a marker missing the word that says what it closes.
+                        w.report.add(error(e.span, "`end` is not defined")
+                            .with_note("an end marker names what it closes: `end f` after `def f`, `end if` after an `if`"))
                     elif w.sid == w.res.top
                         w.report.add(error(e.span, s"`$n` is not defined")
                             .with_note(s"a logic variable is declared before it is used: `free $n`"))

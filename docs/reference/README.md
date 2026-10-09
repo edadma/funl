@@ -16,7 +16,7 @@ the language cannot disagree for long.
 | [Generators](generators.md) | expressions with many values, backtracking, `!`, `\|`, `to`, ranges, `&`, searches, bounded expressions, `every`, `for`, `break`/`continue` and labels |
 | [Assignment and scope](assignment.md) | `=`, compound assignment, `++`/`--`, multiple assignment, `val` and `var`, block scope, reversible assignment `<-`, `in` and `not in` |
 | [Data](data.md) | tuples, lists, maps, sets, comprehensions, slices, arrays, buffers, maps with a default, byte strings, handles, records, `undefined`, types and `is` |
-| [Functions](functions.md) | `def`, lambdas, operator sections, builtins as values, clauses and guards, patterns, `where`, generator functions, `yield` and `return`, partial function literals |
+| [Functions](functions.md) | `def`, lambdas, operator sections, builtins as values, clauses and guards, patterns, `where`, `end` markers, generator functions, `yield` and `return`, partial function literals |
 | [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max`; `sqrt`, `exp`, `log`, trigonometry, roundings, `pi` |
 | [Relations](relations.md) | logic variables, unification `~`, atoms, facts and rules, two-way head unification, calling between functions and relations, negation, `findall`/`bagof`/`setof` |
 | [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `?=`, patterns and combinators inside a scan |
