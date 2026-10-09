@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.{Report, Source, full_report, source_of}
 import sysl.buf.{Buf, buf}
-import sysl.text.{Search, from_utf8_unchecked, str_builder}
+import sysl.text.{Search, from_utf8, from_utf8_unchecked, str_builder}
 
 // Reading terms while a program runs: `read/1`, `read_term/2`, `term_to_atom/2`, `term_string/2` and
 // `atom_to_term/3`; and the operator
@@ -63,6 +63,10 @@ private read_term_from_input(t: Value, options: Value, who: string) -> Result[An
         val line = v.input("|: ") match
             Some(l) -> l
             None -> break
+
+        if take_malformed_input()
+            v.pending = ""
+            return Err(malformed_input_error(who))
 
         text = if text.is_empty() then line else text + "\n" + line
 
@@ -272,7 +276,29 @@ stdin_line() -> Option[string]
 
     if !any then return None
 
-    Some(copied(bytes.view()))
+    Some(decoded_line(bytes.view()))
+
+// The text of a line's bytes. Bytes that are not UTF-8 cannot become a string, so the line stands in
+// as empty and the fact travels beside it: the reader that asked for the line takes it with
+// `take_malformed_input` and refuses the read.
+decoded_line(b: []const u8) -> string
+    from_utf8(b) match
+        Ok(_) -> copied(b)
+        Err(_) ->
+            current().malformed_input = true
+            ""
+
+// Whether the last line was malformed input; reading it clears the record.
+take_malformed_input() -> bool
+    val v = current()
+    val was = v.malformed_input
+
+    v.malformed_input = false
+    was
+
+// The error a read of malformed input raises: the text is not a valid UTF-8 stream.
+malformed_input_error(who: string) -> Fault =
+    syntax_error("illegal_character", s"$who: the input is not valid UTF-8")
 
 // Bytes as a string of its own, which outlives the buffer they came from.
 private copied(b: []const u8) -> string
