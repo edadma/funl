@@ -259,6 +259,12 @@ struct Vm
     // A flag for each I/O operation in flight, which `forget_events` lowers so an answer arriving for
     // a run that has ended touches nothing of it.
     flights: Buf[&Flight]
+
+    // -- packages (`package.sysl`) -----------------------------------------------------------------
+
+    // The packages the program's project reaches, worked out at the first import of one and kept
+    // for the rest of the run.
+    graph: Option[PackageGraph]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -290,7 +296,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf(), buf(), buf())
+        buf(), buf(), buf(), None)
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

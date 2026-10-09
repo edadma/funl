@@ -1,0 +1,2 @@
+colour(red).
+colour(green).

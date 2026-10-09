@@ -4,7 +4,7 @@ import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
 import sysl.fs.{canonicalize, read_text}
 import sysl.path.{join, normalize, parent}
-import sysl.text.{Search, str_builder}
+import sysl.text.{Search, split, str_builder}
 
 // Modules (`modules.md`): a file is a module, and what another file can see is what it writes
 // `export` in front of.
@@ -239,12 +239,30 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
                     report.add(error(i.at, s"`$given` is neither a FunL module nor a Prolog file")
                         .with_note("a FunL module is a `.funl` or `.lfunl` file, and a Prolog file a `.pl` file"))
             PackageSpec(name) ->
-                var d = error(i.at, s"unknown module `$name`")
-
                 if is_funl_file(name) || name.ends_with(".pl")
-                    d = d.with_note(s"a file is imported by a quoted path: `\"$name\"`")
+                    report.add(error(i.at, s"unknown module `$name`").with_note(s"a file is imported by a quoted path: `\"$name\"`"))
+                elif name.index_of(".").is_some()
+                    report.add(error(i.at, s"unknown module `$name`")
+                        .with_note(s"a package's other module is written with a slash: `${dots_to_slash(name)}`"))
+                else
+                    resolve_package(src.name, name, i.at, report) match
+                        Some(FunlTarget(file)) ->
+                            load_module(file, i.at, report) match
+                                Ok(l) ->
+                                    if l.fresh then out.loads.push(current().modules.at(l.index).chunk)
 
-                report.add(d)
+                                    bind(&out, l.index, name, i.form, report)
+                                Err(_) -> ()
+                        Some(PlTarget(file)) ->
+                            i.form match
+                                WholeForm ->
+                                    imported_file(file, i.at, report) match
+                                        Some(chunk) -> out.loads.push(chunk)
+                                        None -> ()
+                                _ ->
+                                    report.add(error(i.at, s"`$name` is a Prolog file, which has no exports to choose from")
+                                        .with_note(s"a Prolog file is imported whole, every predicate it defines with it: `import $name`"))
+                        None -> ()
             BuiltinSpec(name) ->
                 if name == "prelude"
                     prelude_index() match
@@ -259,6 +277,15 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
 
     out
 end imports_of
+
+// `tabular.pivot` as it is written: `tabular/pivot`.
+private dots_to_slash(name: string) -> string
+    var out = ""
+
+    for part in split(name, ".")
+        out = if out == "" then part else s"$out/$part"
+
+    out
 
 // Module `funl:name`, from its provider: registered once, and found again after.
 private provided(p: ModuleProvider) -> usize

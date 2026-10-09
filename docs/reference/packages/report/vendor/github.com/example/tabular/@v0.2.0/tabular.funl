@@ -1,0 +1,3 @@
+import { fields } from csv_kit
+
+export def rows( text ) = fields(text)

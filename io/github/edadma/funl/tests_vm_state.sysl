@@ -13,9 +13,9 @@ import sysl.text.{Search, from_utf8_unchecked, split}
 
 private const ModuleDir: string = "io/github/edadma/funl"
 
-// The `gc.Kind` tables in `collector.sysl`, and `funl:sqlite`'s tables of connections and running
-// queries in `native_sqlite.sysl`.
-private const ProcessWide: usize = 18
+// The `gc.Kind` tables in `collector.sysl`, `funl:sqlite`'s tables of connections and running
+// queries in `native_sqlite.sysl`, and the package cache a test points elsewhere in `package.sysl`.
+private const ProcessWide: usize = 19
 
 private struct Census
     the_vm: usize

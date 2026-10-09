@@ -142,7 +142,7 @@ walk_stmt(w: *Walk, s: Stmt)
                 declared_ctor(d.name, d.fields.len()) match
                     Some(first) ->
                         if first.origin != origin
-                            w.report.add(error(d.at, s"the constructor `${d.name}` of ${counted(d.fields.len(), "field")} is already declared at ${first.origin}; two constructors with one name and one number of fields cannot be told apart"))
+                            w.report.add(ctor_twice(d.name, d.fields.len(), d.at, first.origin, origin))
                             continue
                     None -> ()
 
@@ -159,6 +159,31 @@ walk_stmt(w: *Walk, s: Stmt)
                         .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
                 else
                     w.res.own_types.put(typ, declare_data_type(ids))
+
+// The refusal of constructor `name` of `fields` fields at `at`, written at `here`, when one is already
+// declared at `there`. **Constructors are unique across the whole program, packages included**, so a
+// Prolog term known only by its functor names one constructor; where either declaration is a
+// package's, the note names both, since the two cannot be used together.
+private ctor_twice(name: string, fields: usize, at: Span, there: string, here: string) -> Diagnostic
+    val d = error(at, s"the constructor `$name` of ${counted(fields, "field")} is already declared at $there; two constructors with one name and one number of fields cannot be told apart")
+    val a = package_of_file(there)
+    val b = package_of_file(here)
+
+    if a.is_none() && b.is_none() then return d
+
+    d.with_note(s"constructors are unique across the whole program, packages included, so ${a.unwrap_or(s"`${origin_file(there)}`")} and ${b.unwrap_or(s"`${origin_file(here)}`")} cannot be used together")
+
+// The file of a `file:line:column` origin.
+private origin_file(origin: string) -> string
+    var cut = origin.bytes.len
+    var colons = 0
+
+    while cut > 0 && colons < 2
+        cut -= 1
+
+        if origin.bytes[cut] == u8(':') then colons += 1
+
+    if colons == 2 then origin.slice(0, cut) else origin
 
 // The name a statement `name(k) = e` writes through, or "" for any other left side.
 call_name(pat: &Expr) -> string = pat.kind match

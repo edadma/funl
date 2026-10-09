@@ -24,6 +24,7 @@ the language cannot disagree for long.
 | [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |
 | [async and await](async.md) | `async def` and `async` lambdas, promises, `await` in a function and at the top level, the order waiting calls resume in, failure and backtracking across `await`, faults raised where a promise is awaited, faults nothing awaits, logic variables owned by the task that made them |
 | [Modules](modules.md) | a file is a module, `export`, `import { ... } from`, `import * as`, qualified names, imports resolved first and run once, exports as a snapshot, circles of imports, what Prolog sees of a module |
+| [Packages](packages.md) | `package.funl`, importing a package and its modules with `/`, which manifest governs a file, Prolog's atoms, `vendor/` and the cache, running offline, `funl.sum`, exact versions and the newer of two, the `funl` floor, constructors across packages |
 | [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
 | [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader and reading terms, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic, rationals, infinities and NaN, standard order, cyclic terms, grammar rules, `format`, the builtin set |
 
@@ -48,6 +49,10 @@ A program with an `output` block and no `warning` block must compile without a w
 never shows a program whose warning a reader running it would see and the page leaves out. A
 `warning` block does not go with an `error` block: a refused program's warnings are part of what it
 says, and the `error` block quotes them.
+
+A word after `funl` or `prolog` on the opening fence names the file the program is compiled as,
+relative to the page: a block opened with `funl packages/report/main.funl` is compiled as that file,
+so its imports are read from that directory and it belongs to the project there.
 
 A block tagged `lfunl` is a whole literate document, compiled exactly as `funl` compiles a `.lfunl`
 file. The word after `lfunl` is the document's file name (`document.lfunl` if there is none), and an

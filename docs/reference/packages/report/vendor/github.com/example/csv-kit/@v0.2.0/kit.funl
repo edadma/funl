@@ -1,0 +1,1 @@
+export def fields( text ) = split(text)

@@ -130,5 +130,12 @@ A_FUNL_TUPLE_DOES_NOT_UNIFY_WITH_A_TUPLE_OF_ANOTHER_ARITY_OR_ANOTHER_FUNCTOR()
     assert_eq(ran_prolog(text), "no\nno\nno\nexistence_error\nsucceeded")
 
 @test
-AN_IMPORT_NAMES_ITS_FILE_WITH_A_STRING()
-    assert_eq(prolog_complaints(":- import(3).\n"), "error 1:11 import names its file with a string\n")
+AN_IMPORT_NAMES_A_FILE_WITH_A_STRING_AND_A_PACKAGE_WITH_AN_ATOM()
+    val want = "import names a file with a string, or a package with an atom: `tabular`, `tabular/pivot`"
+
+    assert_eq(prolog_complaints(":- import(3).\n"), s"error 1:11 $want\n")
+    assert_eq(prolog_complaints(":- import(a/b/c).\n"), s"error 1:11 $want\n")
+    assert_eq(prolog_complaints(":- import(f(x)).\n"), s"error 1:11 $want\n")
+
+    // An atom is a package now, and a program under no project has none.
+    assert_eq(prolog_complaints(":- import(family).\n"), "error 1:11 unknown module `family`\n")

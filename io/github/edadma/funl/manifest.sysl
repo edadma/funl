@@ -1,0 +1,384 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.text.Search
+
+// `package.funl`, the manifest of a project or a package (`packages.md` § "The manifest").
+//
+// **A manifest is one FunL map literal, parsed by FunL's own parser and never run.** A resolver
+// deciding what to use is reading a file that arrived with the thing it is deciding about, and a
+// manifest that ran would make that a code-execution step. So a pass over the parsed expression
+// accepts a map, a list, a string, a number, `true`, `false` and `()`, and refuses anything else by
+// what it is -- "the name `b`", "a call", "a `+` between two things" -- carrying on, so a manifest with
+// three mistakes reports three. The diagnostics are the program diagnostics, caret and all, because
+// the manifest is FunL source.
+//
+// **The keys are slate's** -- `name`, `version`, `main`, `description`, `homepage`, `license`,
+// `modules`, `dependencies`, `devDependencies` -- and FunL's own `funl`, the oldest FunL the package
+// needs. Nothing else is a key, and a key written twice is refused rather than one of the two being
+// quietly dropped.
+
+// What a project's or a package's manifest is called.
+const ManifestFile: string = "package.funl"
+
+// One entry of `dependencies` or `devDependencies`: the name an import writes, the repository, and
+// the exact version.
+struct Dependency
+    name: string
+    git: string
+    version: string
+
+// One entry of `modules`: the name after the `/` in `tabular/pivot`, and the file it is, relative
+// to the package's directory.
+struct ModuleEntry
+    name: string
+    file: string
+
+// A manifest, read and checked.
+struct Manifest
+    // The manifest's own path.
+    file: string
+
+    name: string
+    version: string
+
+    // What importing the package by its name alone reaches.
+    main: Option[string]
+
+    modules: Buf[ModuleEntry]
+    dependencies: Buf[Dependency]
+    dev: Buf[Dependency]
+
+    // The oldest FunL the package needs, `funl: "0.0.5"`.
+    floor: Option[string]
+
+    // The dependency this manifest names `name`, from `dependencies`, or from `devDependencies` too
+    // where `dev` is set.
+    dependency(self, name: string, dev: bool) -> Option[Dependency]
+        for d in self.dependencies.view()
+            if d.name == name then return Some(d)
+
+        if dev
+            for d in self.dev.view()
+                if d.name == name then return Some(d)
+
+        None
+
+    // The file module `name` is, from `modules`.
+    module_file(self, name: string) -> Option[string]
+        for m in self.modules.view()
+            if m.name == name then return Some(m.file)
+
+        None
+
+// The manifest in `file`, or why it cannot be used: the diagnostics rendered against it, or the
+// sentence saying it cannot be read.
+read_manifest(file: string) -> Result[Manifest, string]
+    val text = read_text(file) match
+        Ok(t) -> t
+        Err(e) -> return Err(s"`$file` cannot be read: $e")
+
+    manifest_from_text(file, text)
+
+// The manifest whose text is `text`, read as though from `file`.
+manifest_from_text(file: string, text: string) -> Result[Manifest, string]
+    val src = source_of(file, text)
+    var r = full_report()
+    val m = manifest_of(src, &r)
+
+    if r.has_errors() then Err(r.render(src)) else Ok(m)
+
+// What the manifest in `src` says, every refusal reported in `r`.
+private manifest_of(src: Source, r: *Report) -> Manifest
+    var m = Manifest(src.name, "", "", None, buf(), buf(), buf(), None)
+    val prog = parse(src, r)
+
+    if r.has_errors() then return m
+
+    for i in prog.imports.view()
+        r.add(error(i.at, "a manifest is data, and imports nothing"))
+
+    for c in prog.clauses.view()
+        r.add(error(c.head, "a manifest is data, and defines nothing"))
+
+    var top: Option[&Expr] = None
+
+    for s in prog.stmts.view()
+        s match
+            ExprS(e) ->
+                if top.is_some()
+                    r.add(error(e.span, "a manifest is one map, and this is a second thing after it"))
+                else
+                    top = Some(e)
+            _ -> r.add(error(point(0), "a manifest is one map, and holds no statements"))
+
+    val e = top match
+        Some(e) -> e
+        None ->
+            if prog.clauses.len() == 0 && prog.imports.len() == 0
+                r.add(error(point(0), "a manifest is one map: `{ name: \"...\", version: \"...\" }`"))
+
+            return m
+
+    only_data(e, r)
+
+    e.kind match
+        MapE(keys, vals) -> read_top(&m, e, keys, vals, r)
+        _ -> if is_data(e) then r.add(error(e.span, "a manifest is one map: `{ name: \"...\", version: \"...\" }`"))
+
+    m
+end manifest_of
+
+// -- the restriction: data and nothing else ------------------------------------------------------
+
+// Whether `e` is one of the things a manifest may hold, whatever is inside it.
+private is_data(e: &Expr) -> bool = e.kind match
+    StrE(_) -> true
+    IntE(_) -> true
+    NumE(_) -> true
+    BoolE(_) -> true
+    ListE(_) -> true
+    MapE(_, _) -> true
+    TupleE(items) -> items.len() == 0
+    MinusE(x) -> is_number(x)
+    _ -> false
+
+private is_number(e: &Expr) -> bool = e.kind match
+    IntE(_) -> true
+    NumE(_) -> true
+    _ -> false
+
+private holds(names: Buf[string], name: string) -> bool
+    for n in names.view()
+        if n == name then return true
+
+    false
+
+// Refuse everything in `e` that is not data, each by what it is, and every key written twice.
+private only_data(e: &Expr, r: *Report)
+    e.kind match
+        ListE(items) ->
+            for x in items.view()
+                only_data(x, r)
+        MapE(keys, vals) ->
+            var seen: Buf[string] = buf()
+
+            for k in keys.view()
+                k.kind match
+                    StrE(name) ->
+                        if holds(seen, name)
+                            r.add(error(k.span, s"the key `$name` is written twice"))
+                        else
+                            seen.push(name)
+                    _ -> r.add(error(k.span, "a manifest's key is a name or a string"))
+
+            for v in vals.view()
+                only_data(v, r)
+        BadE -> ()
+        _ ->
+            if !is_data(e)
+                r.add(error(e.span, s"a manifest is data, and ${what_it_is(e)} is not")
+                    .with_note("a manifest holds maps, lists, strings, numbers, `true`, `false` and `()`, and is never run"))
+
+// What `e` is, for the reader told it is not data.
+private what_it_is(e: &Expr) -> string = e.kind match
+    Ref(n) -> s"the name `$n`"
+    AtomE(n) -> s"the atom `#$n`"
+    CallE(_, _, _) -> "a call"
+    ApplyE(_, _) -> "a call"
+    BinE(op, _, _) -> s"a `${op_text(op)}` between two things"
+    MinusE(_) -> "a negation"
+    TupleE(_) -> "a tuple"
+    SetE(_) -> "a set"
+    InterpE(_) -> "a string with something worked out inside it"
+    LambdaE(_, _) -> "a function"
+    ConsE(_, _) -> "a `:` between two things"
+    FieldE(_, n) -> s"the field `.$n`"
+    IfE(_, _, _) -> "an `if`"
+    BlockE(_, _) -> "a block"
+    _ -> "this expression"
+
+// -- the keys ------------------------------------------------------------------------------------
+
+private const TopKeys: string = "`name`, `version`, `funl`, `main`, `description`, `homepage`, `license`, `modules`, `dependencies` and `devDependencies`"
+
+// The top map's entries into `m`.
+private read_top(m: *Manifest, map: &Expr, keys: Buf[&Expr], vals: Buf[&Expr], r: *Report)
+    var named = false
+    var versioned = false
+
+    for i in 0..<keys.len()
+        val key = keys.at(i)
+        val v = vals.at(i)
+
+        val k = key.kind match
+            StrE(k) -> k
+            _ -> continue
+
+        if k == "name"
+            named = true
+            text_of(k, v, r) match
+                Some(s) -> m.name = s
+                None -> ()
+        elif k == "version"
+            versioned = true
+            text_of(k, v, r) match
+                Some(s) -> m.version = s
+                None -> ()
+        elif k == "main"
+            text_of(k, v, r) match
+                Some(s) ->
+                    if source_kind_ok(s, v.span, "`main`", r) then m.main = Some(s)
+                None -> ()
+        elif k == "funl"
+            m.floor = text_of(k, v, r)
+        elif k == "description" || k == "homepage" || k == "license"
+            text_of(k, v, r)
+        elif k == "modules"
+            read_modules(m, v, r)
+        elif k == "dependencies"
+            read_dependencies(&m.dependencies, k, v, r)
+        elif k == "devDependencies"
+            read_dependencies(&m.dev, k, v, r)
+        else
+            r.add(error(key.span, s"`$k` is not a manifest key").with_note(s"the keys are $TopKeys"))
+
+    if !named then r.add(error(map.span, "a manifest names its `name`"))
+
+    if !versioned then r.add(error(map.span, "a manifest names its `version`"))
+
+    // A name in both sections is refused at the second: one package is one or the other.
+    for d in m.dev.view()
+        for p in m.dependencies.view()
+            if p.name == d.name
+                r.add(error(dev_key_span(keys, vals, d.name), s"`${d.name}` is in both `dependencies` and `devDependencies`, and a package is one or the other"))
+end read_top
+
+// Where `devDependencies` writes key `name`, for the refusal of a name in both sections.
+private dev_key_span(keys: Buf[&Expr], vals: Buf[&Expr], name: string) -> Span
+    for i in 0..<keys.len()
+        keys.at(i).kind match
+            StrE(k) ->
+                if k != "devDependencies" then continue
+
+                vals.at(i).kind match
+                    MapE(ks, _) ->
+                        for x in ks.view()
+                            x.kind match
+                                StrE(n) -> if n == name then return x.span
+                                _ -> ()
+                    _ -> ()
+            _ -> ()
+
+    point(0)
+
+// The string `v`, the value of key `key`, or `None` with the refusal reported.
+private text_of(key: string, v: &Expr, r: *Report) -> Option[string] = v.kind match
+    StrE(s) -> Some(s)
+    _ ->
+        if is_data(v) then r.add(error(v.span, s"`$key` is a string"))
+
+        None
+
+// Whether `file`, named by `what`, is a file a package can be imported as.
+private source_kind_ok(file: string, at: Span, what: string, r: *Report) -> bool
+    if file.ends_with(".funl") || file.ends_with(".lfunl") || file.ends_with(".pl") then return true
+
+    r.add(error(at, s"$what names `$file`, which is neither a FunL module nor a Prolog file")
+        .with_note("a FunL module is a `.funl` or `.lfunl` file, and a Prolog file a `.pl` file"))
+    false
+
+// Whether `s` is a name an import can write bare: a letter or `_`, then letters, digits and `_`.
+is_package_name(s: string) -> bool
+    val b = s.bytes
+
+    if b.len == 0 then return false
+
+    for i in 0..<b.len
+        val c = b[i]
+        val letter = (c >= u8('a') && c <= u8('z')) || (c >= u8('A') && c <= u8('Z')) || c == u8('_')
+        val digit = c >= u8('0') && c <= u8('9')
+
+        if !letter && !(digit && i > 0) then return false
+
+    true
+
+// The key of an entry in `modules` or a dependency section, or `None` with the refusal reported.
+private entry_name(key: &Expr, what: string, r: *Report) -> Option[string]
+    val k = key.kind match
+        StrE(k) -> k
+        _ -> return None
+
+    if is_package_name(k) then return Some(k)
+
+    r.add(error(key.span, s"`$k` cannot be written bare in an import, so it cannot name $what")
+        .with_note("a name is a letter or `_`, then letters, digits and `_`"))
+    None
+
+// `modules: { pivot: "pivot.funl", ... }`.
+private read_modules(m: *Manifest, v: &Expr, r: *Report)
+    v.kind match
+        MapE(keys, vals) ->
+            for i in 0..<keys.len()
+                val name = entry_name(keys.at(i), "a module", r) match
+                    Some(n) -> n
+                    None -> continue
+
+                text_of(name, vals.at(i), r) match
+                    Some(file) ->
+                        if source_kind_ok(file, vals.at(i).span, s"the module `$name`", r) then m.modules.push(ModuleEntry(name, file))
+                    None -> ()
+        _ -> if is_data(v) then r.add(error(v.span, "`modules` is a map of each module's name to its file"))
+
+// A dependency section, `key`, into `into`.
+private read_dependencies(into: *Buf[Dependency], key: string, v: &Expr, r: *Report)
+    val (keys, vals) = v.kind match
+        MapE(ks, vs) -> (ks, vs)
+        _ ->
+            if is_data(v) then r.add(error(v.span, s"`$key` is a map of each package's name to its `git` and `version`"))
+
+            return
+
+    for i in 0..<keys.len()
+        val name = entry_name(keys.at(i), "a package", r) match
+            Some(n) -> n
+            None -> continue
+
+        val entry = vals.at(i)
+
+        val (eks, evs) = entry.kind match
+            MapE(ks, vs) -> (ks, vs)
+            _ ->
+                if is_data(entry) then r.add(error(entry.span, s"the package `$name` is written `{ git: \"...\", version: \"...\" }`"))
+
+                continue
+
+        var git: Option[string] = None
+        var version: Option[string] = None
+        var saw_git = false
+        var saw_version = false
+
+        for j in 0..<eks.len()
+            val ek = eks.at(j)
+
+            val k = ek.kind match
+                StrE(k) -> k
+                _ -> continue
+
+            if k == "git"
+                saw_git = true
+                git = text_of(k, evs.at(j), r)
+            elif k == "version"
+                saw_version = true
+                version = text_of(k, evs.at(j), r)
+            else
+                r.add(error(ek.span, s"`$k` is not a key of a dependency").with_note("a dependency is `{ git: \"...\", version: \"...\" }`"))
+
+        if !saw_git then r.add(error(entry.span, s"the package `$name` names its `git` repository"))
+
+        if !saw_version then r.add(error(entry.span, s"the package `$name` names its exact `version`"))
+
+        if git.is_some() && version.is_some() then into.push(Dependency(name, git.unwrap(), version.unwrap()))
+end read_dependencies

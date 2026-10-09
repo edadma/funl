@@ -1,0 +1,1 @@
+export def hello() = 'hello from tiny'

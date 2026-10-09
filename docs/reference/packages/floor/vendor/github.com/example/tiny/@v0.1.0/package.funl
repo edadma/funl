@@ -1,0 +1,6 @@
+{
+  name: "tiny",
+  version: "0.1.0",
+  funl: "99.0.0",
+  main: "tiny.funl"
+}

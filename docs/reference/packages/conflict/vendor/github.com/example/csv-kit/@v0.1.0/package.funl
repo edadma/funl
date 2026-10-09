@@ -1,0 +1,5 @@
+{
+  name: "csv_kit",
+  version: "0.1.0",
+  main: "kit.funl"
+}

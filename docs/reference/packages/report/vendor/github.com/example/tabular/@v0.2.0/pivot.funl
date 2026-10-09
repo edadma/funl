@@ -1,0 +1,1 @@
+export def pivot( x ) = 2 * x

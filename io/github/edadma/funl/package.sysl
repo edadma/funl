@@ -1,0 +1,528 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.crypto.new_sha256
+import sysl.encoding.hex_string
+import sysl.env
+import sysl.fs.{canonicalize, entries, is_dir, is_file, read_bytes}
+import sysl.path.{normalize, parent}
+import sysl.slices.sort
+import sysl.text.{Search, from_utf8_unchecked, parse_long, split}
+
+// Packages (`packages.md`): what `import { rows } from tabular` and `tabular/pivot` resolve to, worked
+// out before anything runs.
+//
+// **A bare word names a package, and the manifest that governs the importing file says which.** That
+// manifest is the nearest `package.funl` above the file: a file of the program is governed by the
+// project's, a file inside a package by that package's own, so a package's `import ... from csv_kit`
+// reaches its own dependency and never the program's. The word is a key of the governing manifest's
+// `dependencies` (and, for the project itself, `devDependencies`); a package's other modules are
+// exactly the keys of its own `modules` map, never searched for.
+//
+// **Versions are exact and there is nothing to solve.** The graph -- the project's dependencies and
+// everything they reach -- is read out of manifests once, at the first import of a package. The one
+// case exactness does not settle, two packages wanting different versions of one repository, takes
+// the newer and says so.
+//
+// **Running a program never touches the network.** A package is looked for in the project's
+// `vendor/` and then in the cache, `$FUNL_CACHE` or `$HOME/.funl/pkg`, both laid out
+// `<host>/<owner>/<repo>/@v<version>/`; one that is in neither is refused naming `funl fetch`, the
+// command that puts it there. What fills the two is the package commands' business, not this file's.
+//
+// **`funl.sum`, beside the project's manifest, records what each package version hashed to** the
+// first time it was fetched: one line, `<git> v<version> sha256:<hex>`, the hash over the extracted
+// tree. A package that hashes to something else now is refused, the tag having been moved or the copy
+// on this machine edited. One the file does not record is not refused: recording it is the fetch's
+// job.
+
+// The version of FunL this is, which a manifest's `funl` floor is compared against.
+const FunlVersion: string = "0.0.4"
+
+// What a project's sum file is called, beside its `package.funl`.
+const SumFile: string = "funl.sum"
+
+// -- where packages are kept ---------------------------------------------------------------------
+
+// process-wide: the package cache a test points at a scratch directory, as `FUNL_CACHE` points a
+// program's -- set by the test that wants it, and put back by the same test.
+private var cache_setting: string = ""
+
+// Point the package cache at `dir` for this process; `""` puts it back to `FUNL_CACHE` or
+// `$HOME/.funl/pkg`.
+set_package_cache(dir: string)
+    cache_setting = dir
+
+// Where fetched packages are kept: the setting, `FUNL_CACHE`, or `$HOME/.funl/pkg`.
+package_cache() -> string
+    if cache_setting != "" then return cache_setting
+
+    env.get("FUNL_CACHE") match
+        Some(dir) -> if dir != "" then return dir
+        None -> ()
+
+    env.get("HOME") match
+        Some(home) -> s"$home/.funl/pkg"
+        None -> ".funl/pkg"
+
+// The directory version `version` of repository `git` occupies in the cache. The version is in the
+// path, so two projects on two versions share the cache.
+cache_dir_of(git: string, version: string) -> string = s"${package_cache()}/$git/@v$version"
+
+// The directory version `version` of `git` occupies in project `root`'s `vendor/`: the cache's
+// layout inside the project.
+vendor_dir_of(root: string, git: string, version: string) -> string = s"$root/vendor/$git/@v$version"
+
+// Where a package is read from: the project's `vendor/` where it holds the package, and otherwise the
+// cache. Nothing after this knows which it was.
+package_home(root: string, git: string, version: string) -> string
+    if root != ""
+        val vendored = vendor_dir_of(root, git, version)
+
+        if is_dir(vendored) then return real_dir(vendored)
+
+    real_dir(cache_dir_of(git, version))
+
+// A directory by its real path where it exists, so a file inside it is known by the path a module is
+// keyed by.
+private real_dir(dir: string) -> string = canonicalize(dir) match
+    Ok(real) -> real
+    Err(_) -> normalize(dir)
+
+// -- the project a file belongs to ---------------------------------------------------------------
+
+// The directory of the manifest that governs `file`: the nearest one at or above the directory of
+// its real path, so a program works wherever it is run from and a script reached through a symbolic
+// link finds its own project. `""` for a file under no project, which is not an error -- a program
+// that imports no package needs no manifest.
+project_of(file: string) -> string
+    var dir = starting_dir(file)
+
+    if dir == "" then return ""
+
+    for _ in 0..<256
+        if is_file(s"$dir/$ManifestFile") then return dir
+
+        val up = parent(dir) match
+            Some(p) -> p
+            None -> return ""
+
+        if up == dir || up == "" then return ""
+
+        dir = up
+
+    ""
+
+// The real directory `file` is in, or `""` where there is none.
+private starting_dir(file: string) -> string
+    canonicalize(file) match
+        Ok(real) ->
+            parent(real) match
+                Some(dir) -> return dir
+                None -> return ""
+        Err(_) -> ()
+
+    val dir = parent(file).unwrap_or(".")
+
+    canonicalize(if dir == "" then "." else dir) match
+        Ok(real) -> real
+        Err(_) -> ""
+
+// -- the graph ------------------------------------------------------------------------------------
+
+// One package the program uses, at the one version the graph chose.
+struct Package
+    // The name its first asker's manifest gives it.
+    name: string
+    git: string
+    version: string
+
+    // Where it is read from, whether or not anything has put it there.
+    dir: string
+
+// Every package a project reaches, at one version each.
+struct PackageGraph
+    // The project's directory, or `""` for a program under no project.
+    root: string
+
+    found: Buf[Package]
+
+    // What the choice between two versions of one package was, in sentences.
+    notes: Buf[string]
+
+    // What `funl.sum` records, and which packages this run has hashed already.
+    sums: Buf[SumEntry]
+    hashed: Buf[string]
+
+    // The manifests whose refusal this run has already said in full.
+    said: Buf[string]
+
+    // The package version `git` was chosen at.
+    chosen(self, git: string) -> Option[Package]
+        for p in self.found.view()
+            if p.git == git then return Some(p)
+
+        None
+
+// The graph of the project the program is in, worked out at the first import of a package and kept.
+// The program is the first file being compiled; a Prolog program compiling nothing is the importer.
+package_graph(importer: string) -> PackageGraph
+    val v = current()
+
+    v.graph match
+        Some(g) -> return g
+        None -> ()
+
+    val entry = if v.loading.len() > 0 then v.loading.at(0) else importer
+    val g = resolve_graph(project_of(entry))
+
+    v.graph = Some(g)
+    g
+
+// The graph of the project in `root`: its own dependencies and dev dependencies, then everything
+// their manifests reach, read breadth-first in the order written.
+resolve_graph(root: string) -> PackageGraph
+    var g = PackageGraph(root, buf(), buf(), buf(), buf(), buf())
+
+    if root == "" then return g
+
+    g.sums = read_sums(root)
+
+    val m = read_manifest(s"$root/$ManifestFile") match
+        Ok(m) -> m
+        Err(_) -> return g
+
+    var pending: Buf[Dependency] = buf()
+
+    for d in m.dependencies.view()
+        pending.push(d)
+
+    // The project's dev dependencies are its own; a package's are never read.
+    for d in m.dev.view()
+        pending.push(d)
+
+    // A cursor, so the project's own dependencies are taken in the order the manifest writes them;
+    // the bound turns a circle of manifests into an end rather than a hang.
+    var next: usize = 0
+
+    while next < pending.len() && next < 4096
+        val want = pending.at(next)
+
+        next += 1
+
+        if take_package(&g, want)
+            read_manifest(s"${package_home(root, want.git, want.version)}/$ManifestFile") match
+                Ok(pm) ->
+                    for d in pm.dependencies.view()
+                        pending.push(d)
+                Err(_) -> ()
+
+    g
+end resolve_graph
+
+// Record one wanted package, answering whether its manifest is still to be read.
+private take_package(g: *PackageGraph, want: Dependency) -> bool
+    for i in 0..<g.found.len()
+        val have = g.found.at(i)
+
+        if have.git != want.git then continue
+
+        if have.version == want.version then return false
+
+        if newer_version(want.version, have.version)
+            g.notes.push(conflict_note(have.name, have.version, want.version))
+            g.found.set(i, Package(have.name, want.git, want.version, package_home(g.root, want.git, want.version)))
+            return true
+
+        g.notes.push(conflict_note(have.name, want.version, have.version))
+        return false
+
+    g.found.push(Package(want.name, want.git, want.version, package_home(g.root, want.git, want.version)))
+    true
+
+private conflict_note(name: string, older: string, newer: string) -> string =
+    s"`$name` is wanted at $older and at $newer -- $newer, the newer, is used, and what asked for $older has never been run against it"
+
+// Whether version `a` is later than `b`: dot-separated numbers compared as numbers, a missing part
+// counting as zero, so `0.10.0` is later than `0.9.0`; a part that is not a number compared as text.
+newer_version(a: string, b: string) -> bool
+    val x = split(a, ".")
+    val y = split(b, ".")
+    val n = if x.len > y.len then x.len else y.len
+
+    for i in 0..<n
+        val l = if i < x.len then x[i] else "0"
+        val r = if i < y.len then y[i] else "0"
+
+        if l == r then continue
+
+        val ln = parse_long(l)
+        val rn = parse_long(r)
+
+        if ln.is_ok() && rn.is_ok() then return ln.unwrap() > rn.unwrap()
+
+        return l > r
+
+    false
+
+// -- resolving an import --------------------------------------------------------------------------
+
+// What a package specifier reaches: a FunL module, or a Prolog file, imported whole.
+enum PackageTarget
+    FunlTarget(file: string)
+    PlTarget(file: string)
+
+// The file package specifier `spec` -- `tabular` or `tabular/pivot` -- reaches from file `importer`,
+// the import written at `at`; or `None`, with the refusal reported there.
+resolve_package(importer: string, spec: string, at: Span, report: *Report) -> Option[PackageTarget]
+    val slash = spec.index_of("/")
+    val name = slash match
+        Some(i) -> spec.slice(0, i)
+        None -> spec
+    val listed_as = slash match
+        Some(i) -> Some(spec.slice(i + 1, spec.bytes.len))
+        None -> None
+
+    val home = project_of(importer)
+
+    if home == ""
+        report.add(error(at, s"unknown module `$spec`")
+            .with_note(s"a package is named by the `$ManifestFile` that governs the importing file, and none is above it"))
+        return None
+
+    val g = package_graph(importer)
+
+    val governing = read_manifest(s"$home/$ManifestFile") match
+        Ok(m) -> m
+        Err(why) ->
+            unreadable(g, s"$home/$ManifestFile", why, at, report)
+            return None
+
+    // The project's own files may import a dev dependency; a package's files reach only what it
+    // depends on.
+    val dep = governing.dependency(name, home == g.root) match
+        Some(d) -> d
+        None ->
+            report.add(error(at, s"unknown module `$name`").with_note(names_text(governing, home == g.root)))
+            return None
+
+    val p = g.chosen(dep.git) match
+        Some(p) -> p
+        None -> Package(dep.name, dep.git, dep.version, package_home(g.root, dep.git, dep.version))
+
+    if p.version != dep.version
+        report.add(warning(at, s"`${governing.name}` asks for `$name` ${dep.version}, and ${p.version}, the newer, is used -- `${governing.name}` has never been run against it"))
+
+    if !is_dir(p.dir)
+        report.add(error(at, s"$name ${p.version} is not in ${cache_dir_of(p.git, p.version)} -- run `funl fetch`"))
+        return None
+
+    if !summed(g, p, at, report) then return None
+
+    val pm = read_manifest(s"${p.dir}/$ManifestFile") match
+        Ok(m) -> m
+        Err(why) ->
+            unreadable(g, s"${p.dir}/$ManifestFile", why, at, report)
+            return None
+
+    pm.floor match
+        Some(f) ->
+            if newer_version(f, FunlVersion)
+                report.add(error(at, s"`$name` ${p.version} needs FunL $f or newer, and this is FunL $FunlVersion"))
+                return None
+        None -> ()
+
+    val rel = listed_as match
+        None ->
+            pm.main match
+                Some(f) -> f
+                None ->
+                    report.add(error(at, s"`$name` has no `main`, so it is not imported by its name alone").with_note(modules_text(name, pm)))
+                    return None
+        Some(m) ->
+            pm.module_file(m) match
+                Some(f) -> f
+                None ->
+                    report.add(error(at, s"`$name` has no module `$m`").with_note(modules_text(name, pm)))
+                    return None
+
+    val file = normalize(s"${p.dir}/$rel")
+
+    if file.ends_with(".pl") then Some(PlTarget(file)) else Some(FunlTarget(file))
+end resolve_package
+
+// Refuse an import, at `at`, for manifest `file` that cannot be used, `why` being what is wrong with
+// it -- said in full the first time in a run, and named after that, so a broken manifest's
+// diagnostics are not repeated at every import that needed it.
+private unreadable(g: PackageGraph, file: string, why: string, at: Span, report: *Report)
+    for f in g.said.view()
+        if f == file
+            report.add(error(at, s"`$file` could not be read, as said above"))
+            return
+
+    g.said.push(file)
+    report.add(error(at, s"`$file` could not be read").with_note(why))
+
+// What manifest `m` does name as packages, for the reader who wrote another name.
+private names_text(m: Manifest, dev: bool) -> string
+    var names: Buf[string] = buf()
+
+    for d in m.dependencies.view()
+        names.push(d.name)
+
+    if dev
+        for d in m.dev.view()
+            names.push(d.name)
+
+    if names.len() == 0 then return s"`${m.file}` names no packages"
+
+    s"`${m.file}` names ${listed(names, "")}"
+
+// The modules package `name`'s manifest `m` lists, for the reader who asked for another.
+private modules_text(name: string, m: Manifest) -> string
+    if m.modules.len() == 0 then return s"`$name` lists no modules: what can be imported is what its manifest's `modules` names"
+
+    var names: Buf[string] = buf()
+
+    for x in m.modules.view()
+        names.push(x.name)
+
+    s"its modules are ${listed(names, s"$name/")}"
+
+// `a`, `a` and `b`, `a`, `b` and `c`: each name quoted, `prefix` before it.
+private listed(names: Buf[string], prefix: string) -> string
+    var out = ""
+
+    for i in 0..<names.len()
+        if i > 0 then out = out + (if i == names.len() - 1 then " and " else ", ")
+
+        out = out + s"`$prefix${names.at(i)}`"
+
+    out
+
+// Whether package `p`'s contents are what `funl.sum` recorded, hashing each package version once in
+// a run; a mismatch reported at `at`.
+private summed(g: PackageGraph, p: Package, at: Span, report: *Report) -> bool
+    val key = s"${p.git} v${p.version}"
+
+    for h in g.hashed.view()
+        if h == key then return true
+
+    for e in g.sums.view()
+        if e.git != p.git || e.version != p.version then continue
+
+        val now = tree_hash(p.dir).unwrap_or("nothing that can be read")
+
+        if now != e.hash
+            report.add(error(at, s"$key does not match $SumFile: it was recorded as ${e.hash} and is now $now")
+                .with_note("either the version's tag was moved after it was first fetched, or the copy on this machine has been edited"))
+            return false
+
+    g.hashed.push(key)
+    true
+
+// The package whose directory holds `file`, as a reader names it -- "package `tabular` 0.2.0" -- or
+// `None` for a file of no package.
+package_of_file(file: string) -> Option[string]
+    current().graph match
+        Some(g) ->
+            for p in g.found.view()
+                if file.starts_with(s"${p.dir}/") then return Some(s"package `${p.name}` ${p.version}")
+        None -> ()
+
+    None
+
+// -- funl.sum ------------------------------------------------------------------------------------
+
+// What a package version's contents hashed to.
+struct SumEntry
+    git: string
+    version: string
+    hash: string
+
+// The entries of project `root`'s `funl.sum`; a file that is not there is an empty one. A line that is
+// not three fields is passed over rather than refused, so a later FunL's extra column does not break
+// this one.
+read_sums(root: string) -> Buf[SumEntry]
+    var out: Buf[SumEntry] = buf()
+
+    read_bytes(s"$root/$SumFile") match
+        Err(_) -> ()
+        Ok(bytes) ->
+            for line in split(from_utf8_unchecked(bytes), "\n")
+                val parts = split(line, " ")
+
+                if parts.len != 3 then continue
+
+                val tagged = parts[1]
+                val version = if tagged.starts_with("v") then tagged.slice(1, tagged.bytes.len) else tagged
+
+                out.push(SumEntry(parts[0], version, parts[2]))
+
+    out
+
+// One line of `funl.sum`.
+sum_line(e: SumEntry) -> string = s"${e.git} v${e.version} ${e.hash}"
+
+// What the directory `dir` hashes to, `sha256:<hex>`, or `None` where it cannot be read.
+//
+// **The hash is over the extracted tree**: every file's path relative to `dir` and its contents, each
+// length-framed so no two trees can be made to agree by moving bytes across a boundary, in sorted path
+// order so two machines agree, `.git` left out. So it survives a change of transport, and a vendored
+// copy hashes the same as the cached one.
+tree_hash(dir: string) -> Option[string]
+    if !is_dir(dir) then return None
+
+    var files: Buf[string] = buf()
+
+    if !gather_files(dir, "", &files) then return None
+
+    var names = files.view()
+
+    sort(names)
+
+    var h = new_sha256()
+
+    for i in 0..<names.len
+        val rel = names[i]
+
+        read_bytes(s"$dir/$rel") match
+            Err(_) -> return None
+            Ok(body) ->
+                h.update(rel.bytes)
+                h.update(framing)
+                h.update(s"${body.len}".bytes)
+                h.update(framing)
+                h.update(body)
+
+    var out: [32]u8
+
+    h.finish(out[0..<32]) match
+        Err(_) -> None
+        Ok(_) -> Some(s"sha256:${hex_string(out[0..<32])}")
+end tree_hash
+
+// A byte no path and no decimal length holds.
+private val framing: []const u8 = [u8(0)]
+
+// Every file at or under `root/prefix`, named relative to `root`, into `out`; false where a directory
+// cannot be read, a hash over what happened to be readable being a hash of something else.
+private gather_files(root: string, prefix: string, out: *Buf[string]) -> bool
+    val here = if prefix == "" then root else s"$root/$prefix"
+
+    entries(here) match
+        Err(_) -> false
+        Ok(names) ->
+            for name in names.view()
+                if name == "." || name == ".." then continue
+
+                if prefix == "" && name == ".git" then continue
+
+                val rel = if prefix == "" then name else s"$prefix/$name"
+
+                if is_dir(s"$root/$rel")
+                    if !gather_files(root, rel, out) then return false
+                else
+                    out.push(rel)
+
+            true

@@ -1,0 +1,7 @@
+{
+  name: "floor",
+  version: "0.1.0",
+  dependencies: {
+    tiny: { git: "github.com/example/tiny", version: "0.1.0" }
+  }
+}

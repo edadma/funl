@@ -1,0 +1,8 @@
+;; The project the programs on the packages page belong to.
+{
+  name: "report",
+  version: "0.1.0",
+  dependencies: {
+    tabular: { git: "github.com/example/tabular", version: "0.2.0" }
+  }
+}

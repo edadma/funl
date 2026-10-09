@@ -1,0 +1,9 @@
+{
+  name: "tabular",
+  version: "0.2.0",
+  main: "tabular.funl",
+  modules: { pivot: "pivot.funl", rules: "rules.pl" },
+  dependencies: {
+    csv_kit: { git: "github.com/example/csv-kit", version: "0.2.0" }
+  }
+}

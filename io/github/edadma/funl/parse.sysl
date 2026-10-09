@@ -284,7 +284,7 @@ private word_at(p: *Parser, k: usize, word: string) -> bool = p.toks.peek_at(k) 
     None -> false
 
 // An `import` line at the top level: the word is a keyword only there, and only before a string, a
-// `{` or a `*`, so `import` stays a name a program may use for anything else.
+// `{`, a `*` or a package's name, so `import` stays a name a program may use for anything else.
 private at_import(p: *Parser) -> bool
     if !word_at(p, 0, "import") then return false
 
@@ -293,6 +293,7 @@ private at_import(p: *Parser) -> bool
             StrLit(_) -> true
             LBrace -> true
             Star -> true
+            Name(_) -> true
             _ -> false
         None -> false
 
@@ -379,6 +380,11 @@ private import_line(p: *Parser, imports: *Buf[ImportDecl])
             p.take()
             imports.push(ImportDecl(PathSpec(s), first.span, WholeForm))
             return
+
+        // `import tabular/rules`: a package's module imported whole, as a Prolog file is.
+        Name(_) ->
+            import_spec(p, WholeForm, imports)
+            return
         _ -> ()
 
     var form = WholeForm
@@ -459,7 +465,12 @@ private import_line(p: *Parser, imports: *Buf[ImportDecl])
         return
 
     p.take()
+    import_spec(p, form, imports)
+end import_line
 
+// The module an import takes `form` from, the cursor on it: a quoted path, a package -- `tabular`,
+// `tabular/pivot` -- or `funl:name`.
+private import_spec(p: *Parser, form: ImportForm, imports: *Buf[ImportDecl])
     val s = p.toks.peek() match
         Some(s) -> s
         None ->
@@ -513,9 +524,28 @@ private import_line(p: *Parser, imports: *Buf[ImportDecl])
                         at = at.to(part.span)
                     _ -> break
 
+            // `tabular/pivot`: one of the package's other modules, as its manifest's `modules` lists.
+            if p.at_tok(Slash)
+                p.take()
+
+                val m = p.toks.peek() match
+                    Some(m) -> m
+                    None ->
+                        p.fail_here("the name of one of the package's modules")
+                        return
+
+                m.value match
+                    Name(w) ->
+                        p.take()
+                        name = s"$name/$w"
+                        at = at.to(m.span)
+                    _ ->
+                        p.fail_here("the name of one of the package's modules")
+                        return
+
             imports.push(ImportDecl(PackageSpec(name), at, form))
         _ -> p.fail_here("the module to import from: a quoted path, a package name, or `funl:name`")
-end import_line
+end import_spec
 
 // One statement: `free names`, `def`, `val pattern = e`, `var name [= e]`, an assignment --
 // `name = e`, `name op= e`, `name <- e`, `\name = e`, `/name = e`, `a, b = e1, e2` -- `pattern = e`,

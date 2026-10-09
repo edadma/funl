@@ -102,9 +102,13 @@ end compile_funl
 // loaded into the VM; the chunk that runs its directives, or `None` with the reason reported at the
 // import. **A file is loaded once in the program**, known by its real path (`same_file`), however
 // many of the program's files import it, as a FunL module is.
-imported(src: Source, i: Spanned[string], report: *Report) -> Option[usize]
+imported(src: Source, i: Spanned[string], report: *Report) -> Option[usize] =
+    imported_file(module_path(src.name, i.value), i.span, report)
+
+// The Prolog file `file` loaded into the VM, for an import written at `at`: the chunk that runs its
+// directives, or `None` -- loaded already, or refused with the reason reported at `at`.
+imported_file(file: string, at: Span, report: *Report) -> Option[usize]
     val v = current()
-    val file = module_path(src.name, i.value)
 
     for f in v.pl_imports.view()
         if same_file(f, file) then return None
@@ -114,7 +118,7 @@ imported(src: Source, i: Spanned[string], report: *Report) -> Option[usize]
     val text = read_text(file) match
         Ok(t) -> t
         Err(e) ->
-            report.add(error(i.span, s"`$file` cannot be read: $e"))
+            report.add(error(at, s"`$file` cannot be read: $e"))
             return None
 
     val pl = source_of(file, text)
@@ -123,9 +127,9 @@ imported(src: Source, i: Spanned[string], report: *Report) -> Option[usize]
     load_prolog(pl, &inner) match
         Ok(chunk) -> Some(chunk)
         Err(_) ->
-            report.add(error(i.span, s"`$file` could not be loaded").with_note(inner.render(pl)))
+            report.add(error(at, s"`$file` could not be loaded").with_note(inner.render(pl)))
             None
-end imported
+end imported_file
 
 // Make the program's top-level definitions predicates Prolog can call by name and arity: a relation
 // `r` of `n` arguments as `r/n`, a function `f` of `n` parameters as `f/(n+1)`, whose last argument

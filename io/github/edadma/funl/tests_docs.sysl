@@ -3,7 +3,8 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.{full_report, source_of}
 import sysl.buf.{Buf, buf}
-import sysl.fs.{entries, is_dir, read_text}
+import sysl.fs.{entries, is_dir, make_dir_all, read_text}
+import sysl.path.parent
 import sysl.slices.sort_by
 import sysl.text.{Search, replace_all, split, str_builder}
 
@@ -86,11 +87,18 @@ private is_program(lang: string) -> bool = lang == "funl" || lang == "prolog" ||
 // The name a literate block is compiled under when its fence names none.
 private const UnnamedDocument: string = "document.lfunl"
 
-// The name block fence `f` on `page` is compiled under.
+// The name block fence `f` on `page` is compiled under. A literate block is its document's own
+// name. A `funl` or `prolog` block whose fence names a file is that file beside the page -- a page
+// about packages puts its program inside a project of companion files, which is how the program
+// finds its `package.funl` -- and any other block is the page itself.
 private file_of(page: string, f: Fence) -> string
-    if f.lang != "lfunl" then return page
+    if f.lang == "lfunl" then return if f.name == "" then UnnamedDocument else f.name
 
-    if f.name == "" then UnnamedDocument else f.name
+    if f.name == "" then return page
+
+    parent(page) match
+        Some(dir) -> s"$dir/${f.name}"
+        None -> f.name
 
 // -- reading the pages -------------------------------------------------------------------------------
 
@@ -491,6 +499,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/generators.md 24 5 0 0\n" +
     "docs/reference/modules.md 17 20 0 0\n" +
     "docs/reference/numbers.md 19 18 0 0\n" +
+    "docs/reference/packages.md 4 9 0 1\n" +
     "docs/reference/prolog.md 42 6 0 0\n" +
     "docs/reference/regex.md 21 8 0 0\n" +
     "docs/reference/relations.md 18 6 0 1\n" +
@@ -705,3 +714,31 @@ A_WARNING_BLOCK_BELONGS_TO_THE_PROGRAM_BEFORE_IT()
 
     assert_eq(census_line("page.md", blocks), "page.md 0 0 1 1")
     assert_eq(complaints_about(text), "")
+
+@test
+A_PROGRAM_BLOCK_WHOSE_FENCE_NAMES_A_FILE_IS_COMPILED_AS_THAT_FILE_BESIDE_THE_PAGE()
+    val d = scratch()
+    defer scrap(d)
+
+    // The block's relative import is read from the named file's directory, not the page's.
+    put_at_dir(s"$d/proj", "lib.funl", "export def answer() = 42\n")
+
+    val page = put(d, "page.md", "```funl proj/main.funl\nimport { answer } from \"lib.funl\"\nwrite( answer() )\n```\n\n```output\n42\n```\n" +
+        "```prolog proj/p.pl\n:- write(hi), nl.\n```\n\n```output\nhi\n```\n")
+
+    assert_eq(check_page(page), "")
+
+    val blocks = blocks_of(page)
+
+    assert_eq(blocks.at(0).file, s"$d/proj/main.funl")
+    assert_eq(blocks.at(1).file, s"$d/proj/p.pl")
+
+    // Without the name the import would be read beside the page, where there is no `lib.funl`.
+    val plain = put(d, "plain.md", "```funl\nimport { answer } from \"lib.funl\"\nwrite( answer() )\n```\n\n```output\n42\n```\n")
+
+    assert(check_page(plain).index_of("cannot be read").is_some())
+
+// Write `text` to `name` in directory `dir`, making it first.
+private put_at_dir(dir: string, name: string, text: string) -> string
+    make_dir_all(dir).unwrap()
+    put(dir, name, text)

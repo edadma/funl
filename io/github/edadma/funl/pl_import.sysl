@@ -21,19 +21,39 @@ import sysl.text.Search
 
 // Carry out `:- import(File)` in Prolog file `src`, its top level a step of `goals`; answers why the
 // load is refused, given `why` so far.
+//
+// **A string is a file and an atom is a package**, as FunL's quoted path and bare word are:
+// `:- import(tabular).` reaches the package's `main`, and `:- import(tabular/pivot).` -- the compound
+// `/(tabular, pivot)`, standard Prolog's own module notation -- one of its listed modules. A package's
+// Prolog file is loaded whole, its directives run where the directive stands.
 import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadStep], why: Refusal) -> Refusal
-    val given = named.kind match
+    val spec = named.kind match
         TStr(s) -> s
-        TAtom(id) -> atom_name(id)
+        TAtom(id) ->
+            val a = atom_name(id)
+
+            if a.starts_with("funl:") then a else return package_directive(src, report, named, a, goals, why)
+        TComp(f, args) ->
+            val (pkg, m) = if atom_name(f) == "/" && args.len() == 2 then (args.at(0).kind, args.at(1).kind) else (TNil, TNil)
+
+            (pkg, m) match
+                (TAtom(a), TAtom(b)) -> return package_directive(src, report, named, s"${atom_name(a)}/${atom_name(b)}", goals, why)
+                _ ->
+                    report.add(error(named.span, "import names a file with a string, or a package with an atom: `tabular`, `tabular/pivot`"))
+                    return why
         _ ->
-            report.add(error(named.span, "import names its file with a string"))
+            report.add(error(named.span, "import names a file with a string, or a package with an atom: `tabular`, `tabular/pivot`"))
             return why
 
-    if given == "funl:prelude" then return prolog_prelude(named.span, report, goals, why)
+    if spec == "funl:prelude" then return prolog_prelude(named.span, report, goals, why)
 
-    if given.starts_with("funl:") then return prolog_builtin_module(given.slice(5, given.len), named.span, report, why)
+    if spec.starts_with("funl:") then return prolog_builtin_module(spec.slice(5, spec.len), named.span, report, why)
 
-    val file = module_path(src.name, given)
+    funl_import(module_path(src.name, spec), named, report, goals, why)
+end import_directive
+
+// The FunL module in `file` loaded for the directive naming it, its exports made predicates.
+private funl_import(file: string, named: &Term, report: *Report, goals: *Buf[LoadStep], why: Refusal) -> Refusal
     val had = report.has_errors()
 
     load_module(file, named.span, report) match
@@ -42,4 +62,18 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
 
             prolog_exports(l.index, named.span, report, why)
         Err(r) -> if had then why else r
-end import_directive
+
+// `:- import(tabular)` and `:- import(tabular/pivot)`: package specifier `spec`, resolved as FunL's
+// bare word is.
+private package_directive(src: Source, report: *Report, named: &Term, spec: string, goals: *Buf[LoadStep], why: Refusal) -> Refusal
+    val had = report.has_errors()
+
+    resolve_package(src.name, spec, named.span, report) match
+        Some(FunlTarget(file)) -> funl_import(file, named, report, goals, why)
+        Some(PlTarget(file)) ->
+            imported_file(file, named.span, report) match
+                Some(chunk) -> goals.push(RunChunk(chunk))
+                None -> ()
+
+            if had || !report.has_errors() then why else Unreadable
+        None -> if had then why else Unreadable

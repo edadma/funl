@@ -1,0 +1,8 @@
+{
+  name: "conflict",
+  version: "0.1.0",
+  dependencies: {
+    csv_kit: { git: "github.com/example/csv-kit", version: "0.1.0" },
+    tiny: { git: "github.com/example/tiny", version: "0.2.0" }
+  }
+}

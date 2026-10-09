@@ -1,0 +1,3 @@
+import { version } from csv_kit
+
+export def hello() = 'tiny, over csv_kit ' + version()

@@ -1,0 +1,8 @@
+{
+  name: "garden",
+  version: "0.1.0",
+  dependencies: {
+    trees: { git: "github.com/example/trees", version: "0.1.0" },
+    bushes: { git: "github.com/example/bushes", version: "0.3.0" }
+  }
+}

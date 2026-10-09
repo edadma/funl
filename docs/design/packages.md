@@ -40,7 +40,10 @@ command that fetches it, a place it is kept, a rule for what `tabular` and `tabu
 to, a record that the code compiled today is the code compiled yesterday, and a way to run all of it
 on a machine with no network.
 
-## What FunL does today
+## What FunL did before packages
+
+This section is the starting point the design was written against; [the decided block](#decided)
+says what is built, and the [reference page](../reference/packages.md) what FunL does now.
 
 **The module system is built; packages are not.** A quoted path is a file, read relative to the
 importing file, and a module is known by its real path:
@@ -228,10 +231,10 @@ A project or a package is a directory holding a **`package.funl`**, which is one
 ```
 
 - **The keys are slate's**: `name`, `version`, `main`, `description`, `homepage`, `license`,
-  `modules`, `dependencies`, `devDependencies`, and nothing else — an unknown key is named. `name`
-  and `version` are required; a dependency takes `git` and `version`, both required. A name may be
-  in one section or the other, never both. (slate's `scripts` is left out until asked for; see the
-  open questions.)
+  `modules`, `dependencies`, `devDependencies`, and FunL's own `funl` floor ([decided](#decided)
+  7), and nothing else — an unknown key is named. `name` and `version` are required; a dependency
+  takes `git` and `version`, both required. A name may be in one section or the other, never both.
+  (slate's `scripts` is left out until a program wants shipping; [decided](#decided) 8.)
 - **It is parsed by FunL's own parser and never run**: a restriction pass over the parsed
   expression accepts a map, a list, a string, a number, `true`, `false` and `()`, and refuses
   anything else by what it is — "the name `b`", "a call", "a `+` between two things" — carrying on
@@ -331,12 +334,12 @@ is the command, and a program file called `add` is run as `funl ./add`.
 
 A FunL file's exports are what Prolog's `:- import` sees (decided in
 [modules](modules.md#questions-decided)), and a package's modules are FunL files, so Prolog reaches
-them the same way; how it names one is open question 4. **The standalone `prolog` executable has no
+them the same way, naming a package with an atom ([decided](#decided) 4). **The standalone `prolog` executable has no
 FunL front end** and so no packages, as it has no `funl:` modules.
 
 ### What a package can and cannot bring
 
-**A package is FunL source and nothing else** — `.funl` and `.lfunl` modules, and (open question 5)
+**A package is FunL source and nothing else** — `.funl` and `.lfunl` modules, and ([decided](#decided) 5)
 Prolog files — plus whatever data files its own code reads relative to itself.
 
 **It cannot bring a native.** A native is sysl code compiled into the `funl` binary, registered in
@@ -358,15 +361,15 @@ it). That is slate's line exactly, and slate's `pg` package is the case that sho
    all: it runs `git clone --quiet --depth 1 --branch v<version>` through `sysl.process` and asks
    `git ls-remote --tags` for the newest version. Options A and B below differ exactly here.
 2. **Constructors are unique program-wide**, so two packages each declaring `node/3` cannot be used
-   together (the probe above). slate's classes are per-module values and never collide. This is
-   open question 3.
+   together (the probe above). slate's classes are per-module values and never collide. Kept, the
+   refusal naming both packages ([decided](#decided) 3).
 3. **The manifest's syntax is FunL's map literal**, which refuses a trailing comma today. Open
    question 6.
 4. **Prolog has one flat namespace and its own `:- import`**, which slate has no counterpart for.
-   Open question 4.
+   An atom names a package ([decided](#decided) 4).
 5. **FunL's grammar is not final** (releases stay 0.0.x until it is), so a package written against a
    newer FunL fails here with parse errors that blame the package rather than the version. slate's
-   manifest has no floor key. Open question 7.
+   manifest has no floor key; FunL's has `funl` ([decided](#decided) 7).
 
 ## Options
 
@@ -433,55 +436,55 @@ over a library.
   the decided "a package cannot carry a native, as in slate", so it would need that decision
   reopened in slate's terms first.
 
-## Recommendation
+## Decided
 
-**Option B.** Its user-visible shape is slate's in every particular, which is what "as slate does"
-asks; it is the smallest build; it fetches in every build of `funl` rather than only the ones with
-libcurl; and it adds no dependency to the core link line. A is the same design paying ~400 lines, a
-new core dependency and a feature gate for a transport FunL has no other use for. C is a different product and contradicts a
-decided rule.
+**Decided (user, 2026-10-09, questions 1–5, 7 and 8 "as recommended"):**
 
-Built into milestone 9 as its last bullet, after `funl:process` (which B's fetch stands beside).
+1. **The transport is `git` (option B).** A fetch is `git clone --quiet --depth 1 --branch
+   v<version> <url> <dir>.partial` through `sysl.process`, `.git` removed, the tree hashed, then
+   renamed into place; a version-less `funl add` asks `git ls-remote --tags <url>`. It fetches in every
+   build, the `--no-default-features` one included. Rejected: HTTPS tarballs (option A), which would
+   cost a new core dependency and a feature gate for a transport FunL has no other use for; and
+   packages carrying natives (option C), which contradicts the decided "a package cannot carry a
+   native".
+2. **A package's other module is `tabular/pivot`**, as slate writes it. A `.` already means field
+   selection on an imported module map, and a `/` cannot be mistaken for it. A dotted bare word stays
+   refused, its note naming the slash form. Rejected: `tabular.pivot`.
+3. **Constructors stay unique across the whole program, packages included**, because that is what
+   lets a term Prolog made, known only by functor and arity, name one constructor. The refusal names
+   both packages and their versions. Revisit it only when a real pair of packages collides; the
+   alternative (constructors scoped to their module, a Prolog-made term resolved by the importer's
+   scope) is a change to the term mapping in [prolog](prolog.md#the-term-mapping), not to packages.
+4. **In Prolog an atom is a package and a string is a file**, mirroring FunL's bare word against
+   quoted path: `:- import(tabular).` and `:- import(tabular/pivot).` (the compound
+   `/(tabular, pivot)`, standard Prolog's own module notation) reach the package, and
+   `:- import("family.pl").` stays a file. Rejected: an atom read as a file path, which is what it
+   meant before and which no test or page relied on.
+5. **A package may carry Prolog files**: `main` and `modules` may name a `.pl` file, imported whole
+   as `import "file.pl"` is (`import tabular/rules` with no braces, every predicate entering the
+   shared namespace). `.lfunl` is allowed everywhere `.funl` is.
+7. **A manifest may carry `funl: "0.0.5"`**, optional, the oldest FunL the package needs. It is
+   checked when the package is resolved and refused naming the package and both versions, because
+   FunL's grammar is still moving and a package written for a newer one would otherwise fail with
+   parse errors that point into the package. It is a floor, moved only when the package needs a
+   newer FunL. Rejected: no floor key, as slate's manifest has none.
+8. **The commands are `add`, `fetch`, `vendor` and `deps`**; `bundle`, `brew` and manifest
+   `scripts` come when a FunL program first wants shipping, each as slate has it. There is no
+   `install` alias, `add` being the word the modules chapter already chose.
+
+**Built** (stage 1): the manifest reader, finding the project by walking up from the entry file,
+`funl.sum` and the tree hash, the cache and `vendor/`, and resolving `import ... from tabular` and
+`tabular/pivot` (and Prolog's atoms) against what is already on the machine. **To build** (stage 2):
+the four commands and the `git` transport, which fill the cache and `vendor/` laid out as stage 1
+reads them, and write `funl.sum`. A run never touches the network.
+
 Write it so the language-neutral half — tree hash, sum file, cache layout, vendor copy — reads as
 slate's and sysl's do line for line; if a third language wants it, that half is the part to lift
 into an org package, with three implementations in view rather than one.
 
 ## Open questions
 
-1. **Transport: `git` (option B) or HTTPS tarballs (option A)?** Recommended: **`git`**, for the
-   reasons above.
-2. **A package's other module: `tabular/pivot` as slate writes it, or `tabular.pivot`, the dotted
-   bare word FunL's parser reads today?** Recommended: **`tabular/pivot`**, as slate does — a `.`
-   already means field selection on the imported module map (`tabular.rows(...)` through `import *
-   as`), and a `/` cannot be mistaken for it. A dotted bare word stays refused, its note naming the
-   slash form.
-3. **Constructors unique across the program, packages included?** The decided rule (language
-   chapter, and [modules](modules.md#a-file-is-a-module)) makes two packages that each declare
-   `node/3` unusable together. Recommended: **keep the rule for now**, because it is what lets a term
-   Prolog made, known only by functor and arity, name one constructor; make the refusal name both
-   packages and versions; and revisit it only when a real pair of packages collides. The
-   alternative — constructors scoped to their module, a Prolog-made term resolved by the importer's
-   scope — is a change to the term mapping in [prolog](prolog.md#the-term-mapping), not to packages.
-4. **How does Prolog name a package?** Recommended: **an atom is a package and a string is a file**,
-   mirroring FunL's bare word against quoted path: `:- import(tabular).` and
-   `:- import(tabular/pivot).` (the compound `/(tabular, pivot)` — standard Prolog's own module
-   notation) reach the package, `:- import("family.pl").` stays a file. This changes what an atom
-   means — today `:- import(family)` reads a file called `family` — which no test or page relies on.
-5. **May a package carry Prolog files?** Recommended: **yes**: `main` and `modules` may name a `.pl`
-   file, imported whole as `import "file.pl"` is (`import tabular/rules` with no braces, every
-   predicate entering the shared namespace) — the decided rule for a Prolog file, reached by a
-   package name instead of a path. `.lfunl` is allowed everywhere `.funl` is.
 6. **May a map or list literal end with a trailing comma?** `funl add` writes entries in the file's
    own style, and slate's manifests end every entry with one. Recommended: **yes, in every multi-line
    map, set and list literal, language-wide** — a small change to the literal parsers — rather than a
    manifest-only dialect, so a manifest stays ordinary FunL.
-7. **A `funl` key in the manifest — the oldest FunL a package needs?** slate's manifest has none.
-   Recommended: **yes, optional, `funl: "0.0.5"`**, checked at resolution and refused naming the
-   package and both versions — because FunL's grammar is still moving and a package written for a
-   newer one would otherwise fail with parse errors pointing into the package. It is a floor, moved
-   only when the package needs a newer FunL, never to track the newest.
-8. **Which of slate's other package commands?** slate also has `install` (with `add` its alias),
-   `bundle` (a program and its packages as one runnable file), `brew` (a Homebrew formula for a
-   bundle) and manifest `scripts`. Recommended: **`add`, `fetch`, `vendor` and `deps` now**; `bundle`,
-   `brew` and `scripts` when a FunL program first wants shipping, each as slate has it; no `install`
-   alias, `add` being the word the modules chapter already chose.
