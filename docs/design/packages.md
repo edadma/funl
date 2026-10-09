@@ -492,4 +492,7 @@ into an org package, with three implementations in view rather than one.
    refused: `[,]`, `{,}`, `[1,,2]`, `{a: 1,,}`. **Decided (user, 2026-10-09, again): a tuple, an argument list and
    a parameter list take one too**, as the literals do — a tuple needs at least two elements before
    it, an argument or parameter list at least one. FunL has no one-tuple, so `(x,)` is refused with
-   a diagnostic saying so; `(,)` and `f(,)` are refused as a comma that ends nothing.
+   a diagnostic saying so; `(,)` and `f(,)` are refused as a comma that ends nothing. **Decided
+   (user, 2026-10-09, once more): a `data` constructor's field list takes one too**, for the type's
+   own constructor and for each variant's — `data point(x, y,)`, `data shape = circle(r,) |
+   rect(w, h,)` — with at least one field before it; `data point(,)` is refused like `f(,)`.
