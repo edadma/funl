@@ -298,6 +298,82 @@ FETCH_FILLS_THE_CACHE_FOR_THE_WHOLE_GRAPH_AND_HOLDS_IT_TO_FUNL_SUM()
     assert_eq(command_in(app, "fetch", ["tabular"]).status, 2)
 
 @test
+FETCH_NEVER_NEEDS_A_VERSION_THAT_A_NEWER_ONE_DEEPER_DOWN_SUPERSEDES()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+
+    // `csv_kit` 0.1.0 was released and its tag deleted; `tabular` asks for 0.2.0, which wins.
+    release(d, KitGit, "csv_kit", "0.1.0", "", "")
+    git(s"$d/git/$KitGit", ["tag", "-d", "v0.1.0"])
+    release(d, KitGit, "csv_kit", "0.2.0", "", "")
+    release(d, TabularGit, "tabular", "0.2.0", "csv_kit", dep("csv_kit", KitGit, "0.2.0"))
+
+    // Asked for before the package that supersedes it: tried, set aside, and not refused.
+    val first = put_app(d, s"{\n  name: \"app\",\n  version: \"0.1.0\",\n  dependencies: { ${dep("csv_kit", KitGit, "0.1.0")}, ${dep("tabular", TabularGit, "0.2.0")} }\n}\n")
+    val got = command_in(first, "fetch", [])
+
+    assert_eq(got.err, "")
+    assert_eq(got.status, 0)
+    assert_eq(got.out, s"fetching $KitGit v0.1.0\nfetching $TabularGit v0.2.0\nfetching $KitGit v0.2.0\n")
+    assert(!is_dir(s"$d/cache/$KitGit/@v0.1.0"))
+    assert(is_dir(s"$d/cache/$KitGit/@v0.2.0"))
+
+    val sums = read_text(s"$first/funl.sum").unwrap()
+
+    assert(has(sums, s"$KitGit v0.2.0 sha256:"))
+    assert(!has(sums, s"$KitGit v0.1.0"))
+    assert_eq(ran_program(put_file(first, "main.funl", "import { hello } from tabular\nwrite( hello() )\n")), "csv_kit 0.2.0\nstatus 0")
+
+    // Asked for after it: once `tabular` is fetched, 0.1.0 is not even tried.
+    remove_dir_all(s"$d/cache").unwrap()
+    put_file(d, "second/package.funl", s"{\n  name: \"app\",\n  version: \"0.1.0\",\n  dependencies: { ${dep("tabular", TabularGit, "0.2.0")}, ${dep("csv_kit", KitGit, "0.1.0")} }\n}\n")
+    val again = command_in(s"$d/second", "fetch", [])
+
+    assert_eq(again.err, "")
+    assert_eq(again.status, 0)
+    assert_eq(again.out, s"fetching $TabularGit v0.2.0\nfetching $KitGit v0.2.0\n")
+    assert(!is_dir(s"$d/cache/$KitGit/@v0.1.0"))
+
+@test
+FETCH_SUPERSEDES_THROUGH_A_CHAIN_AND_STILL_REFUSES_A_SELECTED_VERSION_THAT_IS_NOT_THERE()
+    val d = scratch()
+    defer scrap(d)
+    defer put_back()
+
+    set_up(d)
+
+    // Two levels: the project asks for `tiny` 0.1.0, which has no tag, and `csv_kit` 0.1.0; `csv_kit`
+    // asks for `tabular` 0.2.0, and `tabular` for `tiny` 0.2.0, which wins.
+    release(d, TinyGit, "tiny", "0.2.0", "", "")
+    release(d, TabularGit, "tabular", "0.2.0", "tiny", dep("tiny", TinyGit, "0.2.0"))
+    release(d, KitGit, "csv_kit", "0.1.0", "tabular", dep("tabular", TabularGit, "0.2.0"))
+
+    val deps = s"${dep("tiny", TinyGit, "0.1.0")}, ${dep("csv_kit", KitGit, "0.1.0")}"
+    val app = put_app(d, s"{\n  name: \"app\",\n  version: \"0.1.0\",\n  dependencies: { $deps }\n}\n")
+    val got = command_in(app, "fetch", [])
+
+    assert_eq(got.err, "")
+    assert_eq(got.status, 0)
+    assert_eq(got.out, s"fetching $TinyGit v0.1.0\nfetching $KitGit v0.1.0\nfetching $TabularGit v0.2.0\nfetching $TinyGit v0.2.0\n")
+    assert(!is_dir(s"$d/cache/$TinyGit/@v0.1.0"))
+    assert(is_dir(s"$d/cache/$TinyGit/@v0.2.0"))
+    assert_eq(ran_program(put_file(app, "main.funl", "import { hello } from csv_kit\nwrite( hello() )\n")), "tiny 0.2.0\nstatus 0")
+
+    // The version that IS selected -- the project's 0.3.0, newer than `tabular`'s -- has no tag:
+    // refused, with the clone's own refusal, and nothing recorded for it.
+    put_app(d, s"{\n  name: \"app\",\n  version: \"0.1.0\",\n  dependencies: { ${dep("tiny", TinyGit, "0.3.0")}, ${dep("csv_kit", KitGit, "0.1.0")} }\n}\n")
+
+    val missing = command_in(app, "fetch", [])
+
+    assert_eq(missing.status, 1)
+    assert(has(missing.err, s"funl fetch: cannot fetch $TinyGit v0.3.0 from file://"))
+    assert(!is_dir(s"$d/cache/$TinyGit/@v0.3.0"))
+    assert(!has(read_text(s"$app/funl.sum").unwrap(), "v0.3.0"))
+
+@test
 VENDOR_COPIES_THE_GRAPH_INTO_THE_PROJECT_AND_A_RUN_NEEDS_NO_CACHE()
     val d = scratch()
     defer scrap(d)

@@ -467,11 +467,15 @@ and the tree hash, the cache and `vendor/`, and resolving `import ... from tabul
 `tabular/pivot` (and Prolog's atoms) against what is already on the machine; the project's own
 `funl` floor, held against every program of the project as a package's is against its importers;
 and the four commands over the `git` transport (`package_commands.sysl`, the surgical rewrite in
-`manifest_edit.sysl`). A run never touches the network. Two details the sections above leave open
+`manifest_edit.sysl`). A run never touches the network. Three details the sections above leave open
 are settled in the building: `funl add` asked for a name already in the *other* section is refused
-(one package is in one section or the other), and `funl deps` prints the graph as a tree — each
+(one package is in one section or the other); `funl deps` prints the graph as a tree — each
 package under the first package that asked for it, at the version the graph chose — followed by
-the version-conflict sentences as `warning:` lines. The tests fetch from repositories made with
+the version-conflict sentences as `warning:` lines; and a fetch goes one package at a time, the graph
+resolved again after each, since a package's own dependencies are known only once it is fetched:
+only a version the graph still selects is fetched, and one that cannot be (its tag missing) is set
+aside and refused only if, with everything else fetched, the graph still selects it -- so a version
+a newer one deeper down supersedes never has to exist. The tests fetch from repositories made with
 `git init` in a scratch directory, through a process-wide `set_git_source` that maps a repository
 to `file://<dir>/<host>/<owner>/<repo>`; nothing a user writes reaches it.
 

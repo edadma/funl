@@ -273,7 +273,10 @@ fetching github.com/example/csv-kit v0.2.0
 ```
 
 A package is fetched as its tag, `v<version>`, into its directory in the cache, and the packages its
-own manifest names after it. A package version already in `vendor/` or the cache is not fetched
+own manifest names after it. Only the version the graph uses is fetched: where a package fetched
+later asks for a newer version of one the project also names, the older version is not needed, and
+its tag need not exist. A version the graph does use and whose tag is not there is refused with what
+`git` said. A package version already in `vendor/` or the cache is not fetched
 again, so on a machine that has everything `funl fetch` says nothing. Each package's files are then
 held to `funl.sum`, and the versions it does not record yet are recorded. A tag that was moved after
 it was first fetched is refused before anything reaches the cache.

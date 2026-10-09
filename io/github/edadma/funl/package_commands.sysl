@@ -4,6 +4,7 @@ import sysl.buf.{Buf, buf}
 import sysl.fs.{copy_dir_all, current_dir, is_dir, make_dir_all, pending_name, publish_dir, read_text, remove_dir_all, write_text}
 import sysl.path.parent
 import sysl.process.capture
+import sysl.slices.{contains, index_of}
 import sysl.text.{Search, parse_long, split, str_builder}
 
 // The package commands (`packages.md` § "The commands"): `funl add`, `funl fetch`, `funl vendor` and
@@ -111,21 +112,44 @@ private fetch_command(dir: string, say: &Fn(string) -> unit) -> Result[unit, Sto
 
 // Every package project `root`'s manifest `m` reaches, fetched into the cache where neither `vendor/`
 // nor the cache has it, then all of them checked against `funl.sum` and the ones it does not record
-// recorded. The graph is resolved again after each round of fetching, a fetched package's manifest
-// being what names the packages it reaches.
+// recorded.
+//
+// A package's own dependencies are known only once it is fetched, so the graph is resolved again
+// after every package fetched, and only a version the graph still selects is fetched: one that a
+// newer version asked for deeper down supersedes is not cloned once that is known. Before it is
+// known, a version that cannot be fetched -- its tag missing or deleted -- is set aside rather than
+// refused, and refused only if, with everything else fetched, the graph still selects it.
 fetch_all(root: string, m: Manifest, say: &Fn(string) -> unit) -> Result[PackageGraph, string]
-    // Each round fetches at least one package or ends, and a graph has finitely many.
+    var failed: Buf[string] = buf()
+    var why: Buf[string] = buf()
+
+    // Each round fetches one package or ends, and a graph has finitely many.
     for _ in 0..<1024
         val g = resolve_graph_of(root, m)
-        var more = false
+        var fetched = false
 
         for p in g.found.view()
+            if fetched then break
             if is_dir(p.dir) then continue
 
-            fetch_package(p.git, p.version, g.sums, say)?
-            more = true
+            val key = s"${p.git} ${p.version}"
 
-        if !more
+            if contains(failed.view(), key) then continue
+
+            fetch_package(p.git, p.version, g.sums, say) match
+                Ok(_) -> fetched = true
+                Err(e) ->
+                    failed.push(key)
+                    why.push(e)
+
+        if !fetched
+            for p in g.found.view()
+                if is_dir(p.dir) then continue
+
+                val at = index_of(failed.view(), s"${p.git} ${p.version}")
+
+                if at.is_some() then return Err(why[at.unwrap()])
+
             record_sums(g)?
             return Ok(g)
 
