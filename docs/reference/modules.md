@@ -212,6 +212,42 @@ def f( geometry.area(x) ) = x
 `geometry.area` is not a constructor, so a pattern cannot match it
 ```
 
+## A name of several arities
+
+A name defined at several arities ([Functions](functions.md#one-name-several-arities)) is exported
+and imported whole: `export` on its clauses exports every arity, an import brings every arity, and
+the module's map holds the one value that picks among them. `modules/measure.funl` exports
+`scaled` of one parameter and of two:
+
+```funl
+import { scaled } from "modules/measure.funl"
+import * as measure from "modules/measure.funl"
+
+write( scaled(2), scaled(2, 3) )
+write( measure.scaled(4), measure.scaled(4, 5) )
+write( map(measure.scaled, [1, 2]) )
+write( measure )
+```
+
+```output
+20, 6
+40, 20
+[10, 20]
+{"scaled": <function scaled>}
+```
+
+A file that imports a name cannot also define it, at any arity; `as` renames the import instead:
+
+```funl
+import { scaled } from "modules/measure.funl"
+
+def scaled( x, y, z ) = x
+```
+
+```error
+`scaled` is imported from `docs/reference/modules/measure.funl`, and this file cannot also define it
+```
+
 ## Types and constructors
 
 A `data` type's name and its constructors belong to the file that declares them. Another file uses

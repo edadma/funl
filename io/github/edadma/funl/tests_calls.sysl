@@ -90,7 +90,7 @@ THE_RELATION_VIEW_GIVEN_AN_UNBOUND_ARGUMENT_THE_FUNCTION_LOOKS_INSIDE_NAMES_THE_
 
 // -- findall, bagof, setof ---------------------------------------------------------------------------
 
-private const Family: string = "def\n" +
+private const Parents: string = "def\n" +
     "  parent(#don, #randy)\n" +
     "  parent(#don, #anne)\n" +
     "  parent(#rosie, #randy)\n" +
@@ -99,7 +99,7 @@ private const Family: string = "def\n" +
 
 @test
 FINDALL_COLLECTS_EVERY_SOLUTION_OF_A_RELATION_IN_ORDER()
-    val text = Family +
+    val text = Parents +
         "free c, p\n" +
         "write( findall(c, parent(#don, c)) )\n" +
         "write( findall(p, parent(p, #randy)) )\n" +
@@ -123,7 +123,7 @@ FINDALL_COLLECTS_EVERY_VALUE_OF_A_FUNL_GENERATOR()
 
 @test
 FINDALL_IN_A_RULE_BODY_COLLECTS_WITH_THE_CLAUSE_S_OWN_VARIABLES()
-    val text = Family +
+    val text = Parents +
         "def upto(n) = 1 to n\n" +
         "def children(p, l) :- l ~ findall(c, parent(p, c))\n" +
         "def big(l) :- l ~ findall(x, upto(10, x) & x > 7)\n" +

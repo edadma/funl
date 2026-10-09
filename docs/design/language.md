@@ -146,6 +146,18 @@ def solve( c )
 
 ### Taking drawn values apart with a pattern
 
+> **Decided (user, 2026-10-09), P3.1–P3.6, all as recommended.** A tuple is drawn whole, so `(a, b) <-
+> zip(xs, ys)` and `(k, v) <- !m` destructure (P3.1). A drawn value the pattern does not match is passed
+> over, as a failing `if` filter is (P3.2). A list or cons pattern over a generator of lists meets the
+> elements; `[e]` keeps each list whole, and drawing is not directed by the pattern's shape (P3.3).
+> `zip`, `zip3`, `zipWith` and `zipWith3` accept an endless range when another input is finite, taking
+> as many places as the shortest finite input, so `zip(0.., xs)` numbers a list; all inputs endless is a
+> fault (P3.4). `zip` and the prelude's list functions (`map`, `filter`, `take`, `takeWhile`, `drop`,
+> `concat`, `concatMap`, `unzip`, `any`, `all`, `lookup`, `reverse`, `sort`, `sortBy`, `last`, `init`)
+> refuse a string, tuple or map argument with `'f' wants a list and reached the string 'ab'`, and answer
+> no one-element pairing (P3.5). `every` takes no pattern: `for (a, b) <- e` is the destructuring form
+> (P3.6). Tests: `tests_drawn_patterns.sysl` and `tests_prelude.sysl`.
+
 > **Open question P3, revisited (2026-10-08) — what does a pattern on the left of `<-` see?** The
 > question was raised when `<-` iterated every collection it drew, tuples included: `[a | (a, b) <-
 > pairs()]` over a generator yielding `(1, "a")` drew `1` and `"a"`, matched neither, and answered
@@ -307,7 +319,9 @@ and a statement that fails is harmless.
 
 ### Blocks, and optional `end` markers
 
-*Open — the questions at the end of this section are the user's. Nothing here is built.*
+*Decided (user, 2026-10-09) and built: Option A, every question answered as recommended — see the
+Decided block at the end of this section. The reference is
+[functions](../reference/functions.md#end-markers).*
 
 **The problem.** A FunL block ends where the indentation goes back, and that is all that marks it.
 Short blocks need nothing more. A long one does: once a body runs past a screen, or holds blank
@@ -338,7 +352,7 @@ def solve( board, col )
 end solve
 ```
 
-**What FunL does today.** There is no `end`. A line `end hanoi` under a function is refused, and so
+**What FunL did before markers.** There was no `end`. A line `end hanoi` under a function was refused, and so
 is `end if` under an `if` and `end while` under a `while`:
 
 ```
@@ -487,33 +501,40 @@ claims a block exists where none does.
 is the whole value of a marker; it takes `end` away as a name (a lone `end` line is a variable read
 today); and neither Scala 3 nor sysl has it.
 
-> **Recommendation: Option A.** It is Scala 3's design, which is what sysl's flexible syntax is
-> modelled on, and it differs from sysl only where sysl is weaker than its own model: the marker
-> after a `val` block and the keyword for every loop (Scala's rule applied to FunL's loops), a named
-> mismatch for a wrong keyword, and no marker after a one-line form. FunL needs no required marker —
-> it has no fieldless struct, and `data` declares no body. The style rule is sysl's: **a marker only on
-> a block of seven lines or more, head to marker inclusive**, so short code reads exactly as it does
-> today.
-
-**Open questions.**
-
-1. **Adopt Option A — Scala 3's end markers, optional and checked?** *Recommended: yes.*
-2. **Which constructs take one?** *Recommended: the table above — `def` clauses (name), the bare `def`
-   group (`end def`), block-bodied `val`/`var` (name, or `end val` after a pattern), `if` chains, and
-   `while`, `for`, `repeat`, `every`; no marker for a lambda, partial function, `?` scan, `catch` arm,
-   lone `where`, sequence or `data`.*
-3. **A labelled loop: `end for`, or `end outer` by its label?** *Recommended: `end for` only — the
-   label is not the loop's name in Scala's sense, and one spelling per construct keeps the check
-   simple.*
-4. **A marker after a one-line form (`def f( x ) = x + 1` then `end f`): refused, or accepted as sysl
-   accepts it?** *Recommended: refused — there is no block whose extent it marks, and accepted it reads
-   as if one existed.*
-5. **One `end if` for a whole `if`/`elif`/`else` chain, never one per branch?** *Recommended: yes, as
-   in Scala 3 and sysl.*
-6. **A line holding only `end`: still a read of the name `end`?** *Recommended: yes, as in Scala 3 and
-   sysl; where it names nothing, the refusal gains a note — `an end marker names what it closes: end f`.*
-7. **sysl's style rule — a marker only on a block of seven lines or more — for FunL's examples and
-   reference pages?** *Recommended: yes, the same line as sysl's, so the two languages read alike.*
+> **Decided (user, 2026-10-09) — Option A: Scala 3's end markers, optional and checked.** It is
+> Scala 3's design, which is what sysl's flexible syntax is modelled on, and it differs from sysl
+> only where sysl is weaker than its own model: the marker after a `val` block and the keyword for
+> every loop, a named mismatch for a wrong keyword, and no marker after a one-line form. FunL needs
+> no required marker — it has no fieldless struct, and `data` declares no body.
+>
+> - **E1.** Markers are optional and checked: `end` and one word make up the whole line, and the
+>   word must name the construct that ended at that line's column.
+> - **E2.** The constructs are the table above: a `def` clause by its name (`async def`, `export def`,
+>   a rule body and a `where` included), a bare `def` group by `end def`, a block-bodied `val x =` by
+>   `end x` or `end val` (`end val` only, after a pattern), a block-bodied `var x =` by `end x`, an `if`
+>   chain by `end if`, and the loops by `end while`, `end for`, `end repeat`, `end every`. A lambda,
+>   a partial function, a `?` scan, a `catch` arm, a lone `where`, a `( ; )` sequence and `data` take
+>   none.
+> - **E3.** A labelled loop is closed by its word, `end for`, never by its label.
+> - **E4.** A marker after a one-line form is refused: `` `end f` closes nothing here: `f`'s body is on
+>   the `def` line ``. So is a marker indented into the body it meant to close, and one with nothing
+>   ending before it (`` `end f` closes nothing here ``). A marker naming the wrong construct names both:
+>   `` `end g` does not match `f`, the definition it closes ``, `` `end for` does not match the `while`
+>   it closes ``.
+> - **E5.** One `end if` closes a whole `if`/`elif`/`else` chain.
+> - **E6.** A line holding only `end` is still a read of the name `end`; where nothing is called that,
+>   `` `end` is not defined `` carries the note *an end marker names what it closes: `end f` after
+>   `def f`, `end if` after an `if`*.
+> - **E7.** sysl's style rule binds FunL's examples and reference pages: **a marker only on a block of
+>   seven lines or more, head to marker inclusive**, so short code reads as it did before markers.
+>   Blocks whose subject is the marker itself (the reference section on markers) are exempt.
+>
+> **How it is built** (`parse_end.sysl`): the lexer is untouched and `end` stays a `Name`. Each
+> construct that may take a marker records, as it finishes, the token it finished before and whether
+> it ended with an indented block; every loop that reads a block's lines takes a marker line after
+> each line and judges it against the constructs that ended exactly there. A block ends at its
+> `Dedent`, so a marker at the opener's column meets the opener, one indented deeper meets nothing,
+> and one at an enclosing block's column meets that block's construct — no alignment rule of its own.
 
 ## Functions
 
@@ -655,7 +676,8 @@ choice, and never to nothing.
 
 ### One name, several arities
 
-*Open — the questions at the end of this section are the user's. Nothing here is built.*
+*Decided (user, 2026-10-09): Option C, every question as recommended — see the Decided block at
+the end of this section. Built; "What FunL did before the decision" records where it started.*
 
 **The problem.** A function wants a short form and a long one, and FunL has no default parameters;
 a relation wants the arities Prolog would give it:
@@ -671,9 +693,9 @@ def parent( #tom, #bob )         ;; parent/2: tom is bob's parent
 The design already speaks of **one namespace keyed by name and arity** ([prolog](prolog.md#calling-funl-from-prolog)),
 of `any(c)` and `any(p, xs)` being kept apart by it ([prelude](modules.md#the-prelude--the-first-module-written-in-funl)),
 and of `sides` being "a relation of two arguments and a function of one at once"
-([modules](modules.md#questions-decided)). What FunL *does* is narrower.
+([modules](modules.md#questions-decided), since reworded). What FunL *did* was narrower.
 
-**What FunL does today.** Within one file, a name is one definition of one arity:
+**What FunL did before the decision.** Within one file, a name was one definition of one arity:
 
 ```
 def f( x ) = x + 1
@@ -808,7 +830,31 @@ What follows for each neighbour:
 > program's name of several arities is the same thing, and a module's map entry needs exactly one
 > value per name.
 
-**Open questions.**
+> **Decided (user, 2026-10-09): Option C, with every question below answered as recommended.**
+>
+> 1. **A definition is keyed by name and arity**, function or relation. A call is resolved by its
+>    count when it is compiled; a count no arity takes is refused there: `` `f` takes 1 or 2
+>    arguments, and this call gives 3 ``.
+> 2. **A bare name of several arities is one family value** that picks the member by the count of
+>    each call made through it, as a variadic builtin's value does; a count none takes faults,
+>    `'f' takes 1 or 2 arguments and was given 3`. A relation is no value, so a name's family holds
+>    its function arities (and a builtin's, at the top level); a name with none is still "called
+>    rather than used as a value".
+> 3. **A nested `def` or `where` group hides every outer arity of its name.** Only the top level
+>    merges per arity, with the builtins, the prelude and the Prolog predicates the program loaded:
+>    a program's `def any( x )` leaves `any(p, xs)` to the prelude.
+> 4. **A file may not define `f` at any arity while importing `f`**; `as` renames. An import, and
+>    an `export`, carries every arity of the name, and a module's map holds the family.
+> 5. **Function `f/n` and relation `f/(n+1)` are refused at the second definition**, naming both
+>    and the Prolog key they share; the `sides` example in [modules](modules.md#questions-decided)
+>    is reworded.
+> 6. **No default parameters**: two arities are how FunL writes a default. If they are ever added,
+>    `def f( x, y = 1 )` is sugar for `f/1` and `f/2`.
+> 7. **A constructor name over several field counts is the family of them as a value**: `g = pt`
+>    over `pt(x) | pt(x, y)` answers `g(3)` and `g(3, 4)`. A name that also has a constructor of
+>    no fields is that constructor's atom, as it is in a pattern.
+
+The questions as they were put:
 
 1. **Adopt Option C — name/arity for functions and relations alike?** *Recommended: yes.*
 2. **What is a bare multi-arity name as a value?** The dispatching family above, or refused (*`f` has

@@ -824,7 +824,8 @@ language. All eleven were decided by the user on 2026-10-08, each as the recomme
 
 > **Decided (user, 2026-10-08) — exporting and importing relations.** A relation is many `def` clauses, and
 > FunL's name/arity namespace means `sides` may be a relation of two arguments and a function of
-> one at once.
+> two at once — `sides(#square, n)` asks, `sides(#square, 1)` measures — but not a function of one,
+> which is `sides/2` to Prolog too and is refused ([language](language.md#one-name-several-arities)).
 > **Decision:** **`export` on any clause exports the whole procedure** — every clause of that
 > name and arity, wherever written — and a `def` block written under `export def` exports every
 > procedure in it. **An import names a name, and brings every arity of it.** A qualified call

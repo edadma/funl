@@ -83,7 +83,7 @@ interpolated(p: *Parser, t: Spanned[Tok]) -> &Expr
 // parser's, ids being unique in the program.
 private hole(p: *Parser, at: Span) -> &Expr
     val sub = hole_source(p.src, at)
-    var inner = Parser(lex(sub, p.report), p.report, sub, p.depth, p.lambdas, p.nodes)
+    var inner = Parser(lex(sub, p.report), p.report, sub, p.depth, p.lambdas, p.nodes, buf())
 
     // The text blanked before the hole is indentation to the layout pass, which opens a block there.
     inner.accept(Indent)

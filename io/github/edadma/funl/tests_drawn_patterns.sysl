@@ -1,0 +1,52 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// A pattern on the left of `<-`: it sees each drawn value whole, a value it does not match is passed
+// over, a list or cons pattern over a generator of lists meets the elements unless `[e]` keeps each
+// list whole, and `every` takes no pattern.
+
+@test
+DRAWN_PATTERN_A_TUPLE_IS_DRAWN_WHOLE_AND_TAKEN_APART()
+    val text = "def pairs() = (1, \"a\") | (2, \"b\")\nval m = {x: 1, y: 2}\n" +
+        "write( [b | (a, b) <- zip([1, 2, 3], [\"a\", \"b\"])] )\n" +
+        "for (a, b) <- pairs() do write( b )\n" +
+        "write( [a | (a, b) <- pairs()] )\n" +
+        "for (k, v) <- !m do write( k, v )\n"
+
+    assert_eq(ran_funl(text), "[\"a\", \"b\"]\na\nb\n[1, 2]\nx, 1\ny, 2\nsucceeded")
+
+@test
+DRAWN_PATTERN_A_VALUE_THE_PATTERN_DOES_NOT_MATCH_IS_PASSED_OVER()
+    val text = "write( [a | (a, b) <- [(1, \"a\"), 5, (2, \"b\", 3), (3, \"c\")]] )\n" +
+        "write( [a | (a, b) <- [[1, 2], [3, 4]]], [y | [x, y] <- [(1, 2)]] )\n" +
+        "write( [a | (a, b) <- ()] )\n"
+
+    assert_eq(ran_funl(text), "[1, 3]\n[], []\n[]\nsucceeded")
+
+    // A function's clauses are committed choice, so the same mismatch there is a fault.
+    drawn_fault("def f( (a, b) ) = a\nwrite( f([1, 2]) )\n", "argument match not found: no clause of 'f' matches ([1, 2])")
+
+@test
+DRAWN_PATTERN_A_LIST_PATTERN_MEETS_THE_ELEMENTS_UNLESS_E_KEEPS_EACH_LIST_WHOLE()
+    val text = "def lists() = [1, 2] | [3, 4]\n" +
+        "write( [x | [x, y] <- [[1, 2], [3, 4]]], [x | x:_ <- [[1, 2], [3, 4]]] )\n" +
+        "write( [x | [x, y] <- lists()], [x | x:_ <- lists()], [x | x <- lists()] )\n" +
+        "write( [x | [x, y] <- [lists()]], [x | x:_ <- [lists()]] )\n" +
+        "write( [x | [x, y] <- ![[1, 2], [3, 4]]] )\n"
+
+    assert_eq(ran_funl(text), "[1, 3], [1, 3]\n[], [], [1, 2, 3, 4]\n[1, 3], [1, 3]\n[]\nsucceeded")
+
+@test
+DRAWN_PATTERN_EVERY_TAKES_NO_PATTERN()
+    assert_eq(drawn_has(complaints("every (a, b) = !zip([1], [2])\n"), "this cannot be matched against anything"), true)
+    assert_eq(ran_funl("every x = !zip([1], [2]) do write( x(0) )\n"), "1\nsucceeded")
+
+private drawn_fault(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+private drawn_has(text: string, want: string) -> bool = text.index_of(want).is_some()

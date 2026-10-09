@@ -97,6 +97,27 @@ Each is argued where it arises; this is the list.
 | Prelude `map` against the builtin `map`? | one `map/2`: a function as first argument maps, anything else is the constructor (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Which prelude names are core natives? | `reverse`, `sort`, `concat`, `replicate`, `elem`, `last`, `init`, `drop`, `zip`, `zip3`, and `sortBy`, `zipWith`, `zipWith3` calling their function back as bounded calls (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
 | Builtins as values? | a builtin named without a call is a function value (a variadic one passes on however many arguments it is given), and `import * as` a module of FunL's own names the map of them (user, 2026-10-08) | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| One name, several arities: adopt name/arity for functions and relations? | yes (Option C): `f(x)` and `f(x, y)` are `f/1` and `f/2`, a call resolved by its count when compiled (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| A bare multi-arity name as a value | one family value that picks the arity by the count of each call, as a variadic builtin's value does (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| Does a nested `def`/`where` of `g` hide every outer `g`? | yes, every arity; only the top level merges per arity, with the builtins and the prelude (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| May a file define `f/2` while importing `f`? | no, as decided for imports; `as` renames (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| Default parameters? | none; two arities are the default. If ever added, sugar for the arities (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| A constructor value over two field counts picks the last silently | the family of them as a value (user, 2026-10-09) | [language](language.md#one-name-several-arities) |
+| E1 Optional, checked `end` markers? | yes, Scala 3's rules (Option A); a marker naming the wrong construct is refused naming both (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E2 Which constructs take `end`? | `def` clauses (`end f`), a bare `def` group (`end def`), block `val`/`var` (`end x`, `end val`), `if` chains, `while`/`for`/`repeat`/`every`; no lambda, scan, `catch`, `where`, sequence, `data` (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E3 A labelled loop: `end for` or `end outer`? | `end for` only (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E4 `end f` after a one-line `def f( x ) = …` | refused, unlike sysl (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E5 One `end if` for a whole `if`/`elif`/`else` chain? | yes (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E6 A line holding only `end` | stays a read of the name; its refusal gains a note about markers (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| E7 sysl's seven-line rule for markers in examples and reference pages? | yes (user, 2026-10-09) | [language](language.md#blocks-and-optional-end-markers) |
+| P3.1 Is P3 (a generator of tuples cannot be destructured by `<-`) closed by drawing tuples whole? | yes: `(a, b) <- zip(xs, ys)`, `(k, v) <- !m` and generated tuples already destructure (user, 2026-10-09) | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.2 A drawn value the pattern does not match: passed over or a fault? | passed over, as a failing `if` filter is (user, 2026-10-09) | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.3 A list or cons pattern over a generator of lists | keep `[e]` to keep each list whole; no shape-directed drawing (user, 2026-10-09) | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.4 `zip` beside an endless range | accepted when another input is finite, so `zip(0.., xs)` numbers a list; all inputs endless is refused (user, 2026-10-09) | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.5 `zip` (and the prelude's list functions) given a string, tuple or map | refused as `reverse` refuses it, not answered as one element (user, 2026-10-09) | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.6 Should `every` take a pattern? | no: `for (a, b) <- e` is the destructuring form (user, 2026-10-09) | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| A trailing comma in a map, set or list literal? | yes, language-wide, so a manifest stays ordinary FunL; a tuple, an argument list or a parameter list does not take one (user, 2026-10-09) | [packages](packages.md#decided) |
 | How does a package fetch: `git` or HTTPS tarballs? | `git clone --depth 1 --branch v<version>` and `git ls-remote --tags`, as the sysl compiler does; works in every build (user, 2026-10-09) | [packages](packages.md#decided) |
 | A package's other module: `tabular/pivot` or `tabular.pivot`? | `tabular/pivot`, as slate does; a dotted bare word stays refused, its note naming the slash form (user, 2026-10-09) | [packages](packages.md#decided) |
 | Constructors unique across packages too? | yes, the rule is kept; the refusal names both packages; revisit on a real collision (user, 2026-10-09) | [packages](packages.md#decided) |
@@ -109,26 +130,4 @@ Each is argued where it arises; this is the list.
 
 Each has a recommendation in its chapter; the user decides them before the milestone that needs them.
 
-| question | recommendation | where |
-|---|---|---|
-| A trailing comma in a map, set or list literal? | yes, language-wide, so a manifest stays ordinary FunL | [packages](packages.md#open-questions) |
-| P3.1 Is P3 (a generator of tuples cannot be destructured by `<-`) closed by drawing tuples whole? | yes: `(a, b) <- zip(xs, ys)`, `(k, v) <- !m` and generated tuples already destructure; the rule is option A | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
-| P3.2 A drawn value the pattern does not match: passed over or a fault? | passed over, as a failing `if` filter is | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
-| P3.3 A list or cons pattern over a generator of lists | keep `[e]` to keep each list whole; no shape-directed drawing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
-| P3.4 `zip` beside an endless range | accept it when another input is finite, so `zip(0.., xs)` numbers a list | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
-| P3.5 `zip` (and the prelude's list functions) given a string, tuple or map | refuse it as `reverse` does, not answer a one-element pairing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
-| P3.6 Should `every` take a pattern? | no: `for (a, b) <- e` is the destructuring form | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
-| One name, several arities: adopt name/arity for functions and relations? | yes (Option C): `f(x)` and `f(x, y)` are `f/1` and `f/2`, a call resolved by its count when compiled | [language](language.md#one-name-several-arities) |
-| A bare multi-arity name as a value | one family value that picks the arity by the count of each call, as a variadic builtin's value does | [language](language.md#one-name-several-arities) |
-| Does a nested `def`/`where` of `g` hide every outer `g`? | yes, every arity; only the top level merges per arity, with the builtins and the prelude | [language](language.md#one-name-several-arities) |
-| May a file define `f/2` while importing `f`? | no, as decided for imports; `as` renames | [language](language.md#one-name-several-arities) |
-| Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded | [language](language.md#one-name-several-arities) |
-| Default parameters? | none; two arities are the default. If ever added, sugar for the arities | [language](language.md#one-name-several-arities) |
-| A constructor value over two field counts picks the last silently | the family under C; refused when compiled otherwise | [language](language.md#one-name-several-arities) |
-| E1 Optional, checked `end` markers, Scala 3's rules (Option A)? | yes | [language](language.md#blocks-and-optional-end-markers) |
-| E2 Which constructs take `end`? | `def` clauses (`end f`), a bare `def` group (`end def`), block `val`/`var` (`end x`, `end val`), `if` chains, `while`/`for`/`repeat`/`every`; no lambda, scan, `catch`, `where`, sequence, `data` | [language](language.md#blocks-and-optional-end-markers) |
-| E3 A labelled loop: `end for` or `end outer`? | `end for` only | [language](language.md#blocks-and-optional-end-markers) |
-| E4 `end f` after a one-line `def f( x ) = …` | refused (sysl accepts it) | [language](language.md#blocks-and-optional-end-markers) |
-| E5 One `end if` for a whole `if`/`elif`/`else` chain? | yes | [language](language.md#blocks-and-optional-end-markers) |
-| E6 A line holding only `end` | stays a read of the name; its refusal gains a note about markers | [language](language.md#blocks-and-optional-end-markers) |
-| E7 sysl's seven-line rule for markers in examples and reference pages? | yes | [language](language.md#blocks-and-optional-end-markers) |
+None is open now.

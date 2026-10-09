@@ -18,6 +18,7 @@ async def work( name, turns ) =
     await ()
     i += 1
   name + " finished"
+end work
 
 async def main() =
   a = work( "a", 3 )
@@ -25,6 +26,7 @@ async def main() =
   write( "started both" )
   write( await a )
   write( await b )
+end main
 
 main()
 write( "main returned" )
@@ -229,6 +231,7 @@ async def main() =
 
   write( await ask( 5 ) == 6 | "not six" )
   write( "$asked asks" )
+end main
 
 main()
 ```
@@ -364,6 +367,7 @@ async def grab( n ) =
   free mine
   mine ~ shared
   write( "mine is shared now" )
+end grab
 
 async def fresh() =
   free x

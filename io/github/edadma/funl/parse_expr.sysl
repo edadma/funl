@@ -94,11 +94,11 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             val e = parse_expr(p, NotPower)
 
             expr(Neg(e), t.span.to(e.span))
-        If -> if_expr(p, t.span)
-        Every -> every_expr(p, t.span, None)
-        While -> while_expr(p, t.span, None)
-        Repeat -> repeat_expr(p, t.span, None)
-        For -> for_expr(p, t.span, None)
+        If -> closing(p, if_expr(p, t.span), ClosesWord("if"))
+        Every -> closing(p, every_expr(p, t.span, None), ClosesWord("every"))
+        While -> closing(p, while_expr(p, t.span, None), ClosesWord("while"))
+        Repeat -> closing(p, repeat_expr(p, t.span, None), ClosesWord("repeat"))
+        For -> closing(p, for_expr(p, t.span, None), ClosesWord("for"))
         Break ->
             val label = loop_label(p)
 
@@ -167,7 +167,10 @@ private list(p: *Parser, open: Span) -> &Expr
 
             items.push(item)
 
-            if p.accept(Comma) then continue
+            if p.accept(Comma)
+                if p.at_tok(RBracket) then p.accept(RBracket) else continue
+
+                break
 
             if !p.expect(RBracket, "`,` or `]`") then p.skip_line()
 
@@ -218,6 +221,8 @@ private braces(p: *Parser, open: Span) -> &Expr
                     items.push(item)
 
         if !p.accept(Comma) then break
+
+        if p.at_tok(RBrace) then break
 
         item = parse_expr(p, 0)
 
@@ -843,6 +848,7 @@ branch(p: *Parser) -> &Expr
 
     loop
         stmts.push(statement(p))
+        take_marker(p)
 
         if p.accept(Newline) then continue
 

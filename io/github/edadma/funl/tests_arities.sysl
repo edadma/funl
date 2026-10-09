@@ -1,0 +1,146 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// One name, several arities (`language.md` § "One name, several arities"): a definition is keyed by
+// its name and arity, a call is resolved by its count when it is compiled, and the name as a value
+// is one family value that picks the arity by the count of each call made through it.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+private const Two: string = "def f( x )    = x + 1\ndef f( x, y ) = x * y\n"
+
+@test
+TWO_ARITIES_OF_ONE_NAME_ARE_TWO_FUNCTIONS_A_CALL_REACHES_BY_ITS_COUNT()
+    assert_eq(ran_funl(Two + "write( f(10), f(3, 4) )\n"), "11, 12\nsucceeded")
+
+    // The short form defaults the long one, which is how FunL writes a default parameter.
+    assert_eq(ran_funl("def upto2( n ) = upto2( 0, n )\ndef upto2( a, b ) = a..<b\nwrite( upto2(3), upto2(2, 4) )\n"),
+        "0..<3, 2..<4\nsucceeded")
+
+@test
+A_CALL_NO_ARITY_TAKES_IS_REFUSED_NAMING_EVERY_COUNT()
+    assert_eq(complaints(Two + "write( f(1, 2, 3) )\n"), "error 3:8 `f` takes 1 or 2 arguments, and this call gives 3\n")
+    assert_eq(complaints("def g( a ) = a\ndef g( a, b ) = a\ndef g( a, b, c, d ) = a\nwrite( g() )\n"),
+        "error 4:8 `g` takes 1, 2 or 4 arguments, and this call gives 0\n")
+
+@test
+A_BARE_NAME_OF_SEVERAL_ARITIES_IS_ONE_VALUE_PICKING_BY_EACH_CALL_S_COUNT()
+    assert_eq(ran_funl(Two + "write( map(f, [1, 2, 3]) )\nwrite( foldl(f, 1, [2, 3, 4]) )\ng = f\nwrite( g(5), g(5, 6) )\n"),
+        "[2, 3, 4]\n24\n6, 30\nsucceeded")
+
+@test
+A_FAMILY_VALUE_CALLED_WITH_A_COUNT_NO_ARITY_TAKES_FAULTS()
+    assert_eq(unplaced(ran_funl(Two + "g = f\nwrite( g(1, 2, 3) )\n")), "fault: f: 'f' takes 1 or 2 arguments and was given 3")
+
+@test
+A_PROGRAM_S_DEFINITION_TAKES_ONLY_ITS_OWN_ARITY_FROM_THE_PRELUDE()
+    val text = "def any( x ) = x * 100\nwrite( any(3) )\nwrite( any(odd, [2, 3]) )\nh = any\nwrite( h(4) )\nwrite( h(odd, [1]) )\n"
+
+    assert_eq(ran_funl(text), "300\ntrue\n400\ntrue\nsucceeded")
+
+@test
+A_PROGRAM_S_DEFINITION_TAKES_ONLY_ITS_OWN_ARITY_FROM_A_BUILTIN()
+    assert_eq(ran_funl("def abs( x, y ) = x - y\nwrite( abs(-3), abs(5, 2) )\n"), "3, 3\nsucceeded")
+
+    // At the builtin's own arity the program's definition is the one called.
+    assert_eq(ran_funl("def abs( x ) = 0\nwrite( abs(-3) )\n"), "0\nsucceeded")
+
+@test
+IN_A_GOAL_A_FUNCTION_IS_THE_RELATION_OF_ONE_MORE_ARGUMENT_BEFORE_A_BUILTIN_OF_THAT_COUNT()
+    // `upto` is also a builtin of two arguments, which the program's `upto/1` -- `upto/2` to
+    // Prolog -- comes before in a goal.
+    assert_eq(ran_funl("def upto( n ) = 1 to n\nfree x\nwrite( findall(x, upto(3, x)) )\n"), "[1, 2, 3]\nsucceeded")
+
+    // An exact arity comes before the relation view of a shorter one.
+    assert_eq(ran_funl("def f( x ) = x + 1\ndef f( x, y, z ) = x + y + z\nfree r\nwrite( findall(r, f(3, r)) )\nwrite( f(1, 2, 3) )\n"),
+        "[4]\n6\nsucceeded")
+
+@test
+A_NESTED_DEFINITION_HIDES_EVERY_OUTER_ARITY_OF_ITS_NAME()
+    val text = "def f( x ) = x\ndef f( x, y ) = x + y\ndef g( n ) = f( n, 1 )\n  where\n    f( a ) = a * 10\nwrite( g(2) )\n"
+
+    assert_eq(complaints(text), "error 3:14 `f` takes 1 argument, and this call gives 2\n")
+
+@test
+A_NESTED_NAME_OF_SEVERAL_ARITIES_IS_CALLED_AND_IS_A_VALUE_OVER_ITS_OWN_FRAME()
+    val text = "def outer( n ) = inner( n ) + inner( n, 1 )\n  where\n    inner( a ) = a\n    inner( a, b ) = a + b\n" +
+        "def mk( n )\n  def add( a ) = a + n\n  def add( a, b ) = a + b + n\n  add\n" +
+        "write( outer(5) )\nk = mk( 100 )\nwrite( k(1), k(1, 2) )\n"
+
+    assert_eq(ran_funl(text), "11\n101, 103\nsucceeded")
+    assert_eq(complaints("def h( n ) = inner( n, 1, 2 )\n  where\n    inner( a ) = a\n    inner( a, b ) = a + b\n"),
+        "error 1:14 `inner` takes 1 or 2 arguments, and this call gives 3\n")
+
+@test
+A_FUNCTION_AND_A_RELATION_OF_ONE_PROLOG_KEY_ARE_REFUSED_AT_THE_SECOND()
+    assert_eq(complaints("def sides( s ) = 4\ndef sides( #square, 4 )\n"),
+        "error 2:5 `sides` is a relation of 2 arguments here and a function of 1 parameter already, and both are `sides/2` to Prolog\n" +
+        "note 1:5 `sides` is a function of 1 parameter here\n")
+    assert_eq(complaints("def p( #a, #b )\ndef p( x ) = x\n"),
+        "error 2:5 `p` is a function of 1 parameter here and a relation of 2 arguments already, and both are `p/2` to Prolog\n" +
+        "note 1:5 `p` is a relation of 2 arguments here\n")
+
+    // Keys that differ are two definitions; one name and arity is still one kind.
+    assert_eq(ran_funl("def p( x ) = x\ndef p( #a, #b, #c )\nfree u\nwrite( p(7) )\nevery p( u, _, _ ) do write( u )\n"), "7\na\nsucceeded")
+    assert(has(complaints("def p( #a )\ndef p( x ) = x\n"), "`p` mixes a function clause with relation clauses"), "mixed")
+
+@test
+A_FUNL_RELATION_DOES_NOT_HIDE_AN_IMPORTED_PROLOG_PREDICATE_OF_ANOTHER_ARITY()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "q.pl", "q(b, c).\n")
+
+    assert_eq(ran_funl(s"import \"$pl\"\ndef q( #a )\nfree x, y\nevery q( x ) do write( x )\nevery q( x, y ) do write( (x, y) )\n"),
+        "a\n(b, c)\nsucceeded")
+    assert_eq(complaints(s"import \"$pl\"\ndef q( #a )\nfree x\nevery q( x, x, x ) do write( x )\n"),
+        "error 4:7 `q` takes 1 argument, and this call gives 3\n")
+
+@test
+A_CONSTRUCTOR_NAME_OVER_SEVERAL_FIELD_COUNTS_IS_THE_FAMILY_OF_THEM_AS_A_VALUE()
+    val text = "data point = pt( x ) | pt( x, y )\nmake = pt\nwrite( make(3), make(3, 4) )\nwrite( map(pt, [1, 2]) )\n"
+
+    assert_eq(ran_funl(text), "pt(3), pt(3, 4)\n[pt(1), pt(2)]\nsucceeded")
+    assert_eq(unplaced(ran_funl("data point = pt( x ) | pt( x, y )\nmake = pt\nwrite( make() )\n")),
+        "fault: pt: 'pt' takes 1 or 2 arguments and was given 0")
+
+    // With a constructor of no fields, the bare name is that constructor's atom, as in a pattern.
+    assert_eq(ran_funl("data mark = pt | pt( x )\nwrite( pt, pt(1) )\n"), "pt, pt(1)\nsucceeded")
+
+@test
+THERE_ARE_NO_DEFAULT_PARAMETERS()
+    assert(has(complaints("def f( x, y = 1 ) = x + y\n"), "this cannot be matched against anything"), "default")
+
+@test
+AN_EXPORT_AND_AN_IMPORT_CARRY_EVERY_ARITY_OF_A_NAME()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "measure.funl", "export def scaled( x ) = x * 10\nexport def scaled( x, k ) = x * k\nexport data box = bx( a ) | bx( a, b )\n")
+
+    val text = s"import { scaled, bx } from \"$m\"\nimport * as measure from \"$m\"\n" +
+        "write( scaled(2), scaled(2, 3) )\n" +
+        "write( measure.scaled(4), measure.scaled(4, 5) )\n" +
+        "write( map(measure.scaled, [1, 2]) )\n" +
+        "s = scaled\nwrite( s(1), s(1, 1) )\n" +
+        "b = bx\nwrite( b(1), b(1, 2) )\n" +
+        "write( measure(\"scaled\")(3, 3) )\n"
+
+    assert_eq(ran_funl(text), "20, 6\n40, 20\n[10, 20]\n10, 1\nbx(1), bx(1, 2)\n9\nsucceeded")
+
+    // A qualified call no arity takes is refused as an unqualified one is.
+    assert_eq(complaints(s"import * as measure from \"$m\"\nwrite( measure.scaled(1, 2, 3) )\n"),
+        "error 2:8 `measure.scaled` takes 1 or 2 arguments, and this call gives 3\n")
+
+@test
+A_FILE_IMPORTING_A_NAME_CANNOT_DEFINE_IT_AT_ANOTHER_ARITY()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "measure.funl", "export def scaled( x ) = x * 10\nexport def scaled( x, k ) = x * k\n")
+
+    assert(has(complaints(s"import { scaled } from \"$m\"\ndef scaled( x, y, z ) = x\n"), "and this file cannot also define it"), "defined")
+    assert_eq(ran_funl(s"import { scaled as sc } from \"$m\"\ndef scaled( x, y, z ) = x\nwrite( sc(1), sc(1, 2), scaled(7, 8, 9) )\n"),
+        "10, 2, 7\nsucceeded")

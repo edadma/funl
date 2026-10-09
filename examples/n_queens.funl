@@ -23,6 +23,8 @@ def solve( c )
       write( seq(solution) )
     else
       solve( c + 1 )
+  end every
+end solve
 
 solve( 0 )
 write( "$count solutions" )

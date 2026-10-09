@@ -14,11 +14,12 @@ import sysl.buf.{Buf, buf}
 labelled(p: *Parser, at: Span, label: Option[string]) -> &Expr
     val word = p.take().unwrap()
 
+    // A labelled loop is closed by its word, as an unlabelled one is: `end for`, never the label.
     word.value match
-        Every -> every_expr(p, at, label)
-        While -> while_expr(p, at, label)
-        Repeat -> repeat_expr(p, at, label)
-        _ -> for_expr(p, at, label)
+        Every -> closing(p, every_expr(p, at, label), ClosesWord("every"))
+        While -> closing(p, while_expr(p, at, label), ClosesWord("while"))
+        Repeat -> closing(p, repeat_expr(p, at, label), ClosesWord("repeat"))
+        _ -> closing(p, for_expr(p, at, label), ClosesWord("for"))
 
 // Whether the token `k` places past the cursor begins a loop, so a name and `:` before it are a label.
 loop_word(p: *Parser, k: usize) -> bool

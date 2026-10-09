@@ -89,6 +89,7 @@ private resolved(e: Emit, o: Op) -> Result[Op, string]
         Case(k, l) -> Ok(Case(k, target(e, l)?))
         PushCatch(l) -> Ok(PushCatch(target(e, l)?))
         PushTrap(l) -> Ok(PushTrap(target(e, l)?))
+        ArgsIn(least, most, l) -> Ok(ArgsIn(least, most, target(e, l)?))
         _ -> Ok(o)
 
 private target(e: Emit, l: usize) -> Result[usize, string]

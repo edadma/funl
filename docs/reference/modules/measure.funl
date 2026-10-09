@@ -1,0 +1,4 @@
+;; A module that exports one name at two arities.
+
+export def scaled( x ) = x * 10
+export def scaled( x, k ) = x * k

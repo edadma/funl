@@ -239,6 +239,130 @@ write( 'never printed' )
 argument match not found: no clause of 'only_zero' matches (1)
 ```
 
+## One name, several arities
+
+A definition is known by its name and its number of parameters, so one name may be defined at
+several arities: `f/1` and `f/2` below are two functions. A call is resolved by its count when the
+program is compiled. Named without a call, `f` is one function value holding every arity, which
+picks the one each call through it needs:
+
+```funl
+def f( x )    = x + 1
+def f( x, y ) = x * y
+
+write( f(10), f(3, 4) )
+write( map(f, [1, 2, 3]) )
+write( foldl(f, 1, [2, 3, 4]) )
+
+g = f
+write( g(5), g(5, 6) )
+```
+
+```output
+11, 12
+[2, 3, 4]
+24
+6, 30
+```
+
+There are no default parameters; a second arity is how a default is written:
+
+```funl
+def f( x, y = 1 ) = x + y
+```
+
+```error
+this cannot be matched against anything
+```
+
+A call with a count no arity takes is refused when the program is compiled:
+
+```funl
+def f( x )    = x + 1
+def f( x, y ) = x * y
+
+write( f(1, 2, 3) )
+```
+
+```error
+`f` takes 1 or 2 arguments, and this call gives 3
+```
+
+A call through the value is checked when it is made:
+
+```funl
+def f( x )    = x + 1
+def f( x, y ) = x * y
+
+g = f
+write( g(1, 2, 3) )
+```
+
+```error
+'f' takes 1 or 2 arguments and was given 3
+```
+
+At the top level a program's definitions take only their own arities from the builtins and the
+prelude. Defining `any` of one parameter leaves the prelude's `any` of two:
+
+```funl
+def any( x ) = x * 100
+
+write( any(3) )
+write( any(odd, [2, 3]) )
+```
+
+```output
+300
+true
+```
+
+A function defined inside another, by `def` or `where`, hides **every** arity of its name, so all
+the clauses a call can reach are in one place:
+
+```funl
+def f( x ) = x
+def f( x, y ) = x + y
+
+def g( n ) = f( n, 1 )
+  where
+    f( a ) = a * 10
+
+write( g(2) )
+```
+
+```error
+`f` takes 1 argument, and this call gives 2
+```
+
+A function of `n` parameters is the Prolog predicate of `n + 1` arguments, its value the last
+([Calling FunL from Prolog](prolog.md)). A function and a relation that Prolog would see as one
+predicate are refused at the second:
+
+```funl
+def sides( s ) = 4
+def sides( #square, 4 )
+```
+
+```error
+`sides` is a relation of 2 arguments here and a function of 1 parameter already, and both are `sides/2` to Prolog
+```
+
+A constructor name with several field counts is the same kind of value:
+
+```funl
+data point = pt( x ) | pt( x, y )
+
+make = pt
+write( make(3), make(3, 4) )
+write( map(pt, [1, 2]) )
+```
+
+```output
+pt(3), pt(3, 4)
+[pt(1), pt(2)]
+```
+
 ## Patterns
 
 Every parameter is a pattern. A pattern may be a literal, a variable, `_` (which matches anything
@@ -362,6 +486,7 @@ def pow( x, n ) | n > 0 = pow_( x, n - 1, x )
     even( n ) = odd( n - 1 )
     odd( 0 ) = fail
     odd( n ) = even( n - 1 )
+end pow
 
 def sumsq( a, b ) = s
   where
@@ -394,6 +519,141 @@ write( sum([1, 2, 3, 4]) )
 
 ```output
 10
+```
+
+## `end` markers
+
+A block ends where the indentation goes back. Where a block is long, a line `end` and a name may
+follow it to say what just closed, and FunL checks that name against the construct:
+
+```funl
+def collatz_steps( n )
+  var steps = 0
+
+  while n != 1
+    if 2 div n
+      n = n \ 2
+    else
+      n = 3n + 1
+
+    steps += 1
+  end while
+
+  steps
+end collatz_steps
+
+write( collatz_steps(27) )
+```
+
+```output
+111
+```
+
+A marker stands on a line of its own, at the column of the line that opened the block, and names:
+
+| what it closes | the marker |
+|---|---|
+| a function clause, a rule, an `async def` or `export def`, a clause with its `where` | `end f`, the name |
+| a bare `def` and its block of clauses | `end def` |
+| `val x =` or `var x =` with an indented value | `end x`; `end val` too after a `val`, and only `end val` after a pattern |
+| an `if` with its `elif`s and `else` | one `end if`, after the whole chain |
+| a loop, labelled or not | `end while`, `end for`, `end repeat`, `end every` |
+
+A lambda, a partial function, a `?` scan, a `catch` arm, a `( ; )` sequence and `data` take no marker.
+A marker is optional, and is written only on a block of seven lines or more, counting from the line
+that opens it to the marker; a shorter block reads better without one.
+
+```funl
+def
+  even( 0 ) = true
+  even( n ) = odd( n - 1 )
+  odd( 0 ) = false
+  odd( n ) = even( n - 1 )
+
+  parity( n ) = if even( n ) then 'even' else 'odd'
+end def
+
+val (q, r) =
+  val n = 17
+  (n \ 5, n % 5)
+end val
+
+write( parity(q), r )
+```
+
+```output
+odd, 2
+```
+
+A marker naming something other than what it closes is refused, naming both:
+
+```funl
+def f( x )
+  x + 1
+end g
+```
+
+```error
+`end g` does not match `f`, the definition it closes
+```
+
+```funl
+var i = 0
+
+while i < 2
+  i += 1
+end for
+```
+
+```error
+`end for` does not match the `while` it closes
+```
+
+A marker after a form written on one line closes nothing, since there is no block for it to mark,
+and neither does one indented into the body it meant to close:
+
+```funl
+def f( x ) = x + 1
+end f
+```
+
+```error
+`end f` closes nothing here: `f`'s body is on the `def` line
+```
+
+```funl
+def f( x )
+  x + 1
+  end f
+```
+
+```error
+`end f` closes nothing here
+```
+
+`end` is otherwise an ordinary name. A line is a marker only when it is `end` and one word, so
+`end - start` and `end( 1 )` mean what they always did:
+
+```funl
+val (start, end) = (1, 5)
+write( end - start )
+```
+
+```output
+4
+```
+
+A line holding `end` alone is a read of that name, and where nothing is called `end` it is refused
+as any undefined name is, with a note that a marker names what it closes:
+
+```funl
+def f( x )
+  x + 1
+end
+```
+
+```error
+`end` is not defined
 ```
 
 ## Generator functions
@@ -500,8 +760,12 @@ def
           swap( a(i), a(n - 1) )
         else
           swap( a(0), a(n - 1) )
+      end for
 
       permute_( n - 1, a )
+    end if
+  end permute_
+end def
 
 every write( permute([1, 2, 3]) )
 ```

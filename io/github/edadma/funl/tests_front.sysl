@@ -121,8 +121,9 @@ A_DEFINITION_MIXING_A_FUNCTION_CLAUSE_WITH_RELATION_CLAUSES_IS_REFUSED_NAMING_BO
         "note 1:5 `p` is first defined here, by a fact\n")
 
 @test
-CLAUSES_OF_ONE_DEFINITION_MUST_AGREE_ON_ARITY()
-    assert_eq(complaints("def p(#a)\ndef p(#a, #b)\n"), "error 2:5 `p` was defined with 1 argument, and this clause has 2\n")
+CLAUSES_OF_ANOTHER_ARITY_ARE_ANOTHER_DEFINITION()
+    assert_eq(complaints("def p(#a)\ndef p(#a, #b)\n"), "")
+    assert_eq(ran_funl("def p(#a)\ndef p(#b, #c)\nfree x, y\nevery p(x) do write(x)\nevery p(x, y) do write((x, y))\n"), "a\n(b, c)\nsucceeded")
 
 @test
 A_CALL_WITH_THE_WRONG_NUMBER_OF_ARGUMENTS_IS_REFUSED()

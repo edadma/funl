@@ -147,11 +147,7 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal
     for i in 0..<res.rels.len()
         val r = res.rels.at(i)
 
-        val top = res.by_name.get(r.name) match
-            Some(j) -> j == i
-            None -> false
-
-        if !top then continue
+        if !is_top_rel(res, i) then continue
 
         val key = if r.function then pred_key(r.name, r.arity + 1) else pred_key(r.name, r.arity)
 
@@ -246,7 +242,9 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
 
     var n: usize = 0
 
-    for x in out.exports.view()
+    for i in 0..<out.exports.len()
+        val x = out.exports.at(i)
+
         val value = x.kind match
             ExFunction(_, _) -> true
             ExValue(_) -> true
@@ -255,15 +253,34 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
 
         if !value then continue
 
+        // A name exported at several arities is one entry, the family of them, made at its first.
+        var arities: Buf[Member] = buf()
+        var earlier = false
+
+        for k in 0..<out.exports.len()
+            val y = out.exports.at(k)
+
+            if y.name != x.name then continue
+
+            y.kind match
+                ExFunction(chunk, arity) ->
+                    if k < i then earlier = true
+
+                    arities.push(FnMember(chunk, arity, res.top_up))
+                _ -> ()
+
+        if earlier then continue
+
         e.op(PushConst(e.constant(new_str(x.name)?)))
 
         x.kind match
-            ExFunction(chunk, _) -> e.op(MakeClosure(chunk, res.top_up))
+            ExFunction(chunk, _) ->
+                if arities.len() > 1
+                    e.op(MakeClosure(family_chunk(x.name, arities)?, res.top_up))
+                else
+                    e.op(MakeClosure(chunk, res.top_up))
             ExValue(slot) -> e.op(LoadSlot(0, slot))
-            ExCtor(id, _) ->
-                val d = current().ctors.at(id)
-
-                e.op(PushConst(e.constant(if d.fields.len() == 0 then Atom(d.functor) else Ctor(u32(id)))))
+            ExCtor(id, kin) -> push_ctor_value(e, id, Some(kin))?
             _ -> ()
 
         n += 1
@@ -367,7 +384,7 @@ end head_arg
 private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
         CallE(n, at, args) ->
-            c.meaning(n, at.start) match
+            c.res.picked(at.start, n, c.meaning(n, at.start), args.len()) match
                 Relation(_) -> call_named(e, c, n, at.start, args, true)?
                 Predicate(_) -> call_named(e, c, n, at.start, args, true)?
                 _ -> returning(e, c, x)?

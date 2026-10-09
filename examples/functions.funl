@@ -13,6 +13,7 @@ def pow( x, n ) | n > 0 = go( x, n - 1, x )
     even( k ) = odd( k - 1 )
     odd( 0 ) = fail
     odd( k ) = even( k - 1 )
+end pow
 
 write( pow(3, 13) )                     ;; 1594323
 write( pow(2/3, 5) )                    ;; 32/243 -- the same code on rationals
@@ -34,6 +35,7 @@ def
 
   map( _, [] ) = []
   map( f, x:xs ) = f( x ) : map( f, xs )
+end def
 
 write( foldl((+), 0, [1, 2, 3, 4]) )    ;; 10
 write( foldl((*), 1, [1, 2, 3, 4]) )    ;; 24

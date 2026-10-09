@@ -485,6 +485,15 @@ enum Op
     // The value on top, left where it is, is a call's answer about to be thrown away: a promise is
     // marked as one nothing can await, and one already faulted ends the run (`task.sysl`).
     Orphan
+
+    // The first instruction of each member of a family value (`family.sysl`): unless the running
+    // frame was called with between `least` and `most` arguments (`most` being `AnyArity` for no
+    // limit), go on at `to`, where the next member's begins.
+    ArgsIn(least: usize, most: usize, to: usize)
+
+    // The end of a family value: no member takes the count it was called with, a fault naming the
+    // counts the family's `ArgsIn`s do take.
+    NoArity
 end Op
 
 // What a first argument is keyed by in a relation's index. A head argument of any other kind, and
