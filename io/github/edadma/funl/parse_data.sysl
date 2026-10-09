@@ -191,6 +191,8 @@ private constructor(p: *Parser) -> Option[CtorDecl]
 
         if !p.accept(Comma) then break
 
+        if p.accept(RParen) then return Some(CtorDecl(n, t.span, fields))
+
     if !p.expect(RParen, "`,` or `)`") then p.skip_to_close()
 
     Some(CtorDecl(n, t.span, fields))

@@ -410,6 +410,19 @@ A_ONE_ELEMENT_TUPLE_OR_A_COMMA_THAT_ENDS_NOTHING_IS_REFUSED()
     assert_eq(complaints("write( (1,,) )\n"), "error 1:11 expected an expression\n")
     assert_eq(complaints("write( max(1,,) )\n"), "error 1:14 expected an expression\n")
 
+@test
+A_CONSTRUCTOR_S_FIELD_LIST_MAY_END_WITH_A_COMMA()
+    assert_eq(ran_funl("data point(x, y,)\nwrite( point(1, 2) )\n"), "point(1, 2)\nsucceeded")
+    assert_eq(ran_funl("data one(a,)\nwrite( one(7) )\n"), "one(7)\nsucceeded")
+    assert_eq(ran_funl("data shape = circle(r,) | rect(w, h,)\nwrite( circle(1), rect(2, 3) )\n"), "circle(1), rect(2, 3)\nsucceeded")
+    assert_eq(ran_funl("data point(\n  x,\n  y,\n)\nval point(a, b,) = point(4, 5)\nwrite( a + b )\n"), "9\nsucceeded")
+
+@test
+A_CONSTRUCTOR_S_COMMA_THAT_ENDS_NOTHING_IS_REFUSED()
+    assert_eq(complaints("data point(,)\n"), "error 1:12 expected a field's name\n")
+    assert_eq(complaints("data point(x,,)\n"), "error 1:14 expected a field's name\n")
+    assert_eq(complaints("data shape = circle(,) | square(s)\n"), "error 1:21 expected a field's name\n")
+
 // -- interpolation -------------------------------------------------------------------------------------
 
 @test

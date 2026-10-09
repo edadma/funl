@@ -497,7 +497,7 @@ EVERY_PAGE_CARRIES_THE_BLOCKS_IT_IS_EXPECTED_TO()
 private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/assignment.md 11 6 0 0\n" +
     "docs/reference/async.md 11 5 0 0\n" +
-    "docs/reference/data.md 35 18 0 0\n" +
+    "docs/reference/data.md 36 19 0 0\n" +
     "docs/reference/functions.md 26 18 0 0\n" +
     "docs/reference/generators.md 24 5 0 0\n" +
     "docs/reference/modules.md 18 21 0 0\n" +
