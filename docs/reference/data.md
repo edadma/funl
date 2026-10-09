@@ -100,7 +100,23 @@ write( area(3, 4,), (1, 2,) )
 12, (1, 2)
 ```
 
-A comma must still follow an element, so `[,]`, `[1,,2]` and `max(,)` are refused:
+So does a `data` declaration's field list, for the type's own constructor or for each variant's:
+
+```funl
+data point(
+  x,
+  y,
+)
+data shape = circle(r,) | rect(w, h,)
+
+write( point(1, 2), circle(3), rect(4, 5) )
+```
+
+```output
+point(1, 2), circle(3), rect(4, 5)
+```
+
+A comma must still follow an element, so `[,]`, `[1,,2]`, `max(,)` and `data point(,)` are refused:
 
 ```funl
 write( [1,,2] )
@@ -116,6 +132,14 @@ write( max(,) )
 
 ```error
 expected an expression
+```
+
+```funl
+data point(,)
+```
+
+```error
+expected a field's name
 ```
 
 There is no tuple of one element, so a comma after a lone element is refused, and a trailing comma in
@@ -202,7 +226,7 @@ write( [k | (k, v) <- !m if v > 1] )
 
 ## `sum`
 
-`sum(c)` adds the elements of a list, range, tuple, set, array or buffer with `+`, so rationals stay
+`sum(c)` adds the elements of a list, range, set, array or buffer with `+`, so rationals stay
 exact and the kinds mix as they do in `+`. The sum of nothing is `0`.
 
 ```funl
@@ -241,6 +265,16 @@ write( sum(5) )
 
 ```error
 'sum' wants a list and reached the integer 5
+```
+
+A tuple is not a list of numbers either:
+
+```funl
+write( sum((1, 2)) )
+```
+
+```error
+'sum' wants a list and reached the tuple (1, 2)
 ```
 
 ## Reaching an element

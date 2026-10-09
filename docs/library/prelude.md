@@ -251,8 +251,26 @@ write( zip(0.., 1..) )
 ```
 
 **The list functions take lists.** A string, a tuple and a map are each one value, not a list of
-parts, so `zip`, `zipWith`, `map`, `filter`, `take`, `drop`, `concat`, `reverse`, `sort` and the rest
-refuse one rather than answer for a single element:
+parts, and so is a number, an atom or `()`, so `zip`, `zipWith`, `map`, `filter`, `take`, `drop`,
+`concat`, `reverse`, `sort`, `elem`, `sum`, `join`, `head`, `tail`, `foldl`, `product`, `maximum`,
+`dropWhile`, `nub`, `group` and the rest refuse one rather than answer for a single element. A list,
+a range, a set, an array and a buffer are accepted:
+
+```funl
+write( take(2, 5) )
+```
+
+```error
+'take' wants a list and reached the integer 5
+```
+
+```funl
+write( elem(1, (1, 2)) )
+```
+
+```error
+'elem' wants a list and reached the tuple (1, 2)
+```
 
 ```funl
 write( zip("ab", [1, 2]) )
@@ -276,6 +294,30 @@ write( take(1, {a: 1}) )
 
 ```error
 'take' wants a list and reached {"a": 1}
+```
+
+```funl
+write( sum(()) )
+```
+
+```error
+'sum' wants a list and reached ()
+```
+
+```funl
+write( head(5) )
+```
+
+```error
+'head' wants a list and reached the integer 5
+```
+
+```funl
+write( foldl((a, b) -> a + b, 0, ()) )
+```
+
+```error
+'foldl' wants a list and reached ()
 ```
 
 ## Producing, and endless inputs
@@ -305,7 +347,7 @@ write( [x | x <- takeWhile(x -> x < 50, () -> map(x -> x * x, () -> 1..))] )
 ## Asking
 
 `any` and `all` succeed or fail, as a comparison does, so they are tested with `if`. `elem(x, xs)`
-is `x in xs`, and `lookup(k, pairs)` answers the value paired with `k`, or fails when there is none,
+is `x in xs` for a list, range, set, array or buffer (it refuses a tuple or a map, which `in` accepts), and `lookup(k, pairs)` answers the value paired with `k`, or fails when there is none,
 so `|` supplies a default:
 
 ```funl

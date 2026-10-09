@@ -91,7 +91,7 @@ write( split('abc', '') )
 ## `join`
 
 `join(c, sep)` puts the elements of `c` one after another with the string `sep` between each two.
-`c` is a list, a range, a tuple, a set, an array or a buffer. `join(c)` puts nothing between them. An
+`c` is a list, a range, a set, an array or a buffer; a tuple, a map, a string or a number is refused. `join(c)` puts nothing between them. An
 element that is not a string is written as `write` would write it.
 
 ```funl
@@ -116,6 +116,16 @@ write( join(['a', 'b'], 0) )
 
 ```error
 'join' wants a string and was given the integer 0
+```
+
+What is joined must be a collection of elements, not a single value:
+
+```funl
+write( join((1, 2)) )
+```
+
+```error
+'join' wants a list and reached the tuple (1, 2)
 ```
 
 ## `trim`, `trim_start` and `trim_end`

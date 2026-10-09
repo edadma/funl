@@ -81,6 +81,7 @@ private parity(name: string, base: usize, want: long) -> Result[Answer, Fault]
 private do_sum(base: usize, argc: usize) -> Result[Value, Fault]
     var items: Buf[Value] = buf()
 
+    list_guard(arg(base, 0), "'sum'")?
     elements(arg(base, 0), "'sum'", &items)?
 
     var total: Value = Int(0)

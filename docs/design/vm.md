@@ -143,6 +143,17 @@ body runs again, until every generator in `e` is exhausted and the failure lands
 mark — which passes it on, so `every` fails, or jumps to its `else`. `while` ends the same way: when
 its condition fails the loop fails, which the enclosing statement absorbs.
 
+> **Decided — a statement that settles runs without a mark** (user, 2026-10-09). A statement's mark
+> has three jobs: absorb its failure, cut off what it left resumable, and make its reversible
+> assignments permanent. A statement that provably cannot fail, generate or trail gives it none, so
+> it compiles to `s; Pop` (an assignment to `e; Store`). The test is local and conservative
+> (`settled.sysl`): literals, reads of locals, arithmetic that faults rather than fails (not the
+> orderings or `div`), tuples and lists of these, ordinary assignment, compound assignment and steps
+> of locals, `val`/`var` of a plain name, and calls of an explicit allow-list of builtins that answer
+> one value. A fault unwinds to its `catch` past every mark, so dropping one changes nothing there;
+> `break` and `continue` record their loop's mark position when they run, so they still reach it. A
+> call of a user function keeps its mark: whether it can fail is not decided interprocedurally.
+
 ### Leaving several marks at once
 
 **`break`, `continue` and `return` have to discard every mark between them and their target.** Counting

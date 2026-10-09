@@ -1,0 +1,104 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+
+// Which statements need no mark around them.
+//
+// A statement runs bounded (`Mark(next); e; Unmark; next:`) so that its failure moves on to the next
+// statement and its `Unmark` cuts off whatever it left resumable and makes its reversible assignments
+// permanent. A statement that **cannot fail, cannot leave a choice point and makes no reversible
+// change** has nothing for that mark to do, and runs without one.
+//
+// The test is local and conservative: it answers true only for expressions built entirely from the
+// forms below, each of which either completes with exactly one value or faults. A fault is a throw,
+// which unwinds to the nearest `catch` past every mark whether one is there or not.
+//
+// - a literal, and a read of a local variable;
+// - arithmetic (`+ - * / \ // % mod ^`) and prefix `-`, which fault on a bad operand rather than
+//   fail; the orderings and `div` fail, and are not here;
+// - a tuple, list or cons of such values;
+// - an ordinary assignment, compound assignment or step of a local (`x = e`, `x += e`, `x++`), which
+//   stores without trailing;
+// - a call of one of the builtins in `settling_builtins`, each answering one value and touching no
+//   trailed state, with such arguments.
+//
+// Anything else -- a comparison, unification, a pattern, a call of a function or relation, a
+// generator, alternation, scanning, a regex, a logic variable, `<-` -- may fail, generate or trail,
+// and keeps its mark.
+
+// Builtins that answer exactly one value or fault, and change nothing failure would undo.
+private settling_builtins(n: string) -> bool =
+    n == "write" || n == "abs" || n == "min" || n == "max" || n == "sum" || n == "upper" ||
+        n == "lower" || n == "trim" || n == "join" || n == "reverse"
+
+// Whether arithmetic operator `o` always answers a value (or faults), never failing.
+private faults_only(o: BinOp) -> bool = o match
+    Add -> true
+    Sub -> true
+    Mul -> true
+    Quo -> true
+    IntQuo -> true
+    FloorQuo -> true
+    Rem -> true
+    Modulo -> true
+    Pow -> true
+    _ -> false
+
+// Whether every one of `xs` settles.
+private all_settle(c: Ctx, xs: Buf[&Expr]) -> bool
+    for a in xs.view()
+        if !settles(c, a) then return false
+
+    true
+
+// Whether builtin `id`, named `n`, is one a settling call may call: on the allow-list, and run
+// directly as one value.
+private settling_builtin(id: usize, n: string) -> bool
+    if !settling_builtins(n) || current().natives.at(id).name != n then return false
+
+    current().natives.at(id).how match
+        Plain(_) -> true
+        _ -> false
+
+// Whether `x`, compiled with `compile_value`, completes with exactly one value or faults: never
+// fails, never leaves a choice point, and makes no reversible change.
+settles(c: Ctx, x: &Expr) -> bool
+    x.kind match
+        IntE(_) -> true
+        NumE(_) -> true
+        StrE(_) -> true
+        BoolE(_) -> true
+        AtomE(_) -> true
+        UndefE -> true
+        Ref(n) -> c.meaning(n, x.span.start) match
+            Local(_, _, _) -> true
+            _ -> false
+        BinE(o, a, b) -> faults_only(o) && settles(c, a) && settles(c, b)
+        MinusE(a) -> settles(c, a)
+        TupleE(items) -> all_settle(c, items)
+        ListE(items) -> all_settle(c, items)
+        ConsE(h, t) -> settles(c, h) && settles(c, t)
+        AssignE(n, a) -> is_local(c, n, x.span.end) && settles(c, a)
+        CompoundE(n, o, a) -> faults_only(o) && is_local(c, n, x.span.start) && settles(c, a)
+        StepE(n, _, _) -> is_local(c, n, x.span.start)
+        CallE(n, at, args) -> c.res.picked(at.start, n, c.meaning(n, at.start), args.len()) match
+            Builtin(id) -> settling_builtin(id, n) && all_settle(c, args)
+            _ -> false
+        _ -> false
+
+private is_local(c: Ctx, n: string, pos: usize) -> bool = c.meaning(n, pos) match
+    Local(_, _, _) -> true
+    _ -> false
+
+// Whether statement `s` settles: an expression that does, a `val` binding a plain fresh name to one,
+// or a `var` initialised with one or with nothing.
+stmt_settles(c: Ctx, s: Stmt) -> bool
+    s match
+        ExprS(x) -> settles(c, x)
+        ValS(pat, x, _) -> pat.kind match
+            Ref(n) -> nullary(c.meaning(n, pat.span.start)).is_none() && settles(c, x)
+            _ -> false
+        VarS(_, _, x) -> x match
+            Some(v) -> settles(c, v)
+            None -> true
+        _ -> false
