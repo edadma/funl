@@ -305,6 +305,216 @@ reach only the loops of the function they are written in.
 **`every` failing at the end is Icon's rule and FunL keeps it**: `every` exists for its side effects,
 and a statement that fails is harmless.
 
+### Blocks, and optional `end` markers
+
+*Open — the questions at the end of this section are the user's. Nothing here is built.*
+
+**The problem.** A FunL block ends where the indentation goes back, and that is all that marks it.
+Short blocks need nothing more. A long one does: once a body runs past a screen, or holds blank
+lines, or ends four levels deep, a reader at the dedent cannot see which construct just closed:
+
+```
+def solve( board, col )
+  if col > 8
+    write( board )
+  else
+    for row <- 1..8 do
+      if safe( board, row, col )
+        place( board, row, col )
+
+        ;; ... twenty more lines ...
+
+        solve( board, col + 1 )
+write( 'done' )
+```
+
+sysl, the language FunL is written in, has the answer in its *flexible* syntax, which comes from Scala
+3: indentation stays the structure, and **an optional `end` marker naming what it closes** may follow
+any long block. The compiler checks the name, so it cannot drift from the thing it claims to close:
+
+```
+def solve( board, col )
+  ...
+end solve
+```
+
+**What FunL does today.** There is no `end`. A line `end hanoi` under a function is refused, and so
+is `end if` under an `if` and `end while` under a `while`:
+
+```
+def hanoi( n )
+  if n > 0
+    write( n )
+    hanoi( n - 1 )
+end hanoi
+```
+```
+error: expected the end of the line
+ --> p2.funl:5:5
+  |
+5 | end hanoi
+  |     ^^^^^ found `hanoi`
+```
+
+The `if` and `while` forms print the same refusal, ending `` found `if` `` and `` found `while` ``.
+**`end` is an ordinary name**, and nothing in the repository's FunL uses it (no example, no test
+program, no reference page; the Prolog tests' `end` atoms are Prolog's). As a variable,
+`val (start, end) = (1, 5)` then `write( end - start )` prints `4`; as a function, `def end( x ) = x + 1`
+then `write( end(1) )` prints `2`. A line holding only `end` is a read of that name, so under a
+function it says `` `end` is not defined ``. The `.pl` front end has its own lexer and never sees any of this.
+
+**FunL's layout is already stricter than sysl's**, which matters for where a marker may stand. A line
+indented to a column between two open levels is refused —
+`` this line lines up with no block that is open ``, *indented to a column between two levels* —
+where sysl accepts such a line as a dedent (sysl's own reference lists ragged dedent as an open hole).
+
+#### What Scala 3 and sysl do
+
+Scala 3's rules (its reference, *Optional Braces* § *End Markers*; read there, not run, as no Scala
+compiler is on this machine):
+
+- **`end` and one specifier token make up the whole line.** The specifier is an identifier or one of
+  `if while for match try new this val given extension`.
+- **The specifier must match the statement just before the marker**: a definition's own name
+  (`end solve`); the statement's keyword for `if`, `while`, `for`, `match` and `try`; `val` after a
+  pattern `val`; `given`, `extension` or `new` after an anonymous one, which has no name to give.
+- **The marker sits at the indentation of the statement it closes.**
+- **`end` is a soft keyword**: everywhere else it is an ordinary identifier.
+- **Optional, and for long regions only.** The reference suggests one where a block holds blank lines,
+  runs past about fifteen lines, or ends four or more levels deep.
+
+sysl (its reference pages `declarations.md` § *end markers* and `statements.md` § *if*, and the
+parser's `accept_end_marker` and `accept_end_name`) is that design, cut down in four places. Every
+claim below is a run of the prerelease alpha.5 compiler:
+
+| | Scala 3 | sysl |
+|---|---|---|
+| a definition | `end name` | `end name`, checked: `'end g' does not match 'f'` |
+| control | `if while for match try` | `end if`, `end while`, `end for`, `end loop`; **no `end match`** (a function ending `end match` is refused `indent expected` on the next line) |
+| a block-bodied `val` | `end x`, `end val` | **none**: `end x` after `val x =` and its block is refused `newline expected` |
+| a wrong keyword | refused as a mismatch | **refused, but poorly**: `end for` under a `while` says only `newline expected`, pointing at `for` |
+| alignment | at the statement's indentation | **not checked**: `end f` two columns in from `f`'s line is accepted, by the ragged dedent |
+| after a one-line form | — | **accepted**: `f(n: int) -> int = n + 1` then `end f` compiles, and so does `end if` under a one-line `if … then …` |
+| a bare `end` | an identifier | an identifier: `undefined name 'end'` |
+| required anywhere | no | **yes, once**: a struct with no fields must say `end Name` |
+
+sysl also has a style rule on top: **a block of six lines or fewer, head to marker, carries no
+marker** (`~/dev/sysl-lang/CLAUDE.md`).
+
+#### Which FunL constructs would take a marker
+
+FunL's constructs, mapped by Scala 3's rule — a named construct takes its name, an unnamed one its
+keyword — with sysl's answer beside each:
+
+| FunL construct | the marker | Scala 3 | sysl |
+|---|---|---|---|
+| a `def` clause whose body is indented — a block, guard lines, a `where` block, a `:-` rule body | `end f`, after the last line of the clause (its `where` included) | `end f` | `end f` |
+| the same under `async def`, `export def` | `end f` | `end f` | `end f` |
+| a bare `def` opening a block of clauses for several names | `end def` | the keyword, as for an anonymous `given` | none |
+| `val x =`, `var x =` with an indented value | `end x`; `end val` after a pattern | `end x`, `end val` | none |
+| `if` … `elif` … `else` | `end if`, **once**, after the whole chain | `end if` | `end if` |
+| `while`, `for`, `repeat`, `every` (labelled or not) | `end while`, `end for`, `end repeat`, `end every` | `end while`, `end for` | `end while`, `end for`, `end loop` |
+| a lambda's block, a partial function, a `?` scanning block, a `catch` arm, a `where` block on its own, a `( ; )` sequence, `data` | **none** | none: no specifier names them | none |
+
+A lambda, a scan and a `catch` arm are expressions that usually sit inside a call's brackets, where
+a line of its own for the marker would split the bracket; Scala 3 gives a lambda no specifier for the
+same reason. `data` has no indented body. A `where` block belongs to its clause, so `end f` closes both.
+
+#### Options
+
+**A — Scala 3's rules, as sysl intends them, with FunL's two strictnesses.** Every row of the table
+above. `end` stays a name: a line is a marker only when it is `end` and one word and nothing else, so
+`end( 2 )`, `end - 1` and `end = 3` keep their meaning, and no program FunL accepts today changes
+meaning, since every `end word` line is refused today. Checked, with a diagnostic for each way to be
+wrong:
+
+```
+def f( x )
+  x + 1
+end g
+```
+```
+error: `end g` does not match `f`, the definition it closes
+```
+
+```
+while i < 2
+  i += 1
+end for
+```
+```
+error: `end for` does not match the `while` it closes
+```
+
+and a marker in a block that has nothing for it to close — under a one-line form, or indented into
+the body it meant to close — is refused where it stands:
+
+```
+def f( x ) = x + 1
+end f
+```
+```
+error: `end f` closes nothing here: `f`'s body is on the `def` line
+ = note: an end marker follows an indented body, at the column of the line that opened it
+```
+
+Alignment needs no rule of its own: FunL's layout already refuses a column between two levels, so a
+marker is either at the opener's column (it closes), deeper (it is a stray line of the body), or
+shallower (a stray line of an enclosing block) — and a stray marker is the refusal above.
+
+- **Cost:** the lexer is untouched (`end` stays a `Name`). The parser gains one recogniser — `end`, a
+  name or keyword, then the end of the line — and a check of it against what the construct expected,
+  called after a clause's body (`parse_def.sysl`'s `clause` and `definition`, for the bare `def`
+  group), after the outermost `if` of a chain (`parse_expr.sysl`'s `if_expr`, which recurses for
+  `elif` and so must take the marker only at the top), after each loop (`parse_loop.sysl`), and after
+  a block-bodied `val`/`var` (`parse.sysl`'s `statement`); `statement` refuses a marker no construct
+  took. About 150 lines and ~25 tests: each marker accepted, each mismatch, a stray marker deeper and
+  shallower, a marker after a one-line form, `end` still a variable, a function and a call, a `:-` rule
+  body and a `where` closed by `end f`. The functions reference page gains a section; nothing in the
+  compiler or the VM sees a marker.
+- **Binds:** nothing. Prolog is untouched (its own lexer), `.lfunl` is untouched (a marker is a program
+  line like any other), atoms `#end` are untouched.
+
+**B — sysl's rules verbatim.** `end f`, `end if`, `end while`, `end for`, and `end repeat` in the
+place of `end loop`; no marker for a `val`, no `end def`, no `end every`; a marker accepted after a
+one-line form; a wrong keyword left to the generic refusal. The cost is a little less (no `val` case,
+no one-line check, one diagnostic fewer). What it buys is that a sysl programmer meets nothing new;
+what it costs is sysl's three weak spots carried into a language that has no reason for them —
+`expected the end of the line` for `end for` under a `while`, and a marker on a one-liner that
+claims a block exists where none does.
+
+**C — a bare `end`, with no specifier**, as Ruby and Lua write it. Rejected: it checks nothing, which
+is the whole value of a marker; it takes `end` away as a name (a lone `end` line is a variable read
+today); and neither Scala 3 nor sysl has it.
+
+> **Recommendation: Option A.** It is Scala 3's design, which is what sysl's flexible syntax is
+> modelled on, and it differs from sysl only where sysl is weaker than its own model: the marker
+> after a `val` block and the keyword for every loop (Scala's rule applied to FunL's loops), a named
+> mismatch for a wrong keyword, and no marker after a one-line form. FunL needs no required marker —
+> it has no fieldless struct, and `data` declares no body. The style rule is sysl's: **a marker only on
+> a block of seven lines or more, head to marker inclusive**, so short code reads exactly as it does
+> today.
+
+**Open questions.**
+
+1. **Adopt Option A — Scala 3's end markers, optional and checked?** *Recommended: yes.*
+2. **Which constructs take one?** *Recommended: the table above — `def` clauses (name), the bare `def`
+   group (`end def`), block-bodied `val`/`var` (name, or `end val` after a pattern), `if` chains, and
+   `while`, `for`, `repeat`, `every`; no marker for a lambda, partial function, `?` scan, `catch` arm,
+   lone `where`, sequence or `data`.*
+3. **A labelled loop: `end for`, or `end outer` by its label?** *Recommended: `end for` only — the
+   label is not the loop's name in Scala's sense, and one spelling per construct keeps the check
+   simple.*
+4. **A marker after a one-line form (`def f( x ) = x + 1` then `end f`): refused, or accepted as sysl
+   accepts it?** *Recommended: refused — there is no block whose extent it marks, and accepted it reads
+   as if one existed.*
+5. **One `end if` for a whole `if`/`elif`/`else` chain, never one per branch?** *Recommended: yes, as
+   in Scala 3 and sysl.*
+6. **A line holding only `end`: still a read of the name `end`?** *Recommended: yes, as in Scala 3 and
+   sysl; where it names nothing, the refusal gains a note — `an end marker names what it closes: end f`.*
+7. **sysl's style rule — a marker only on a block of seven lines or more — for FunL's examples and
+   reference pages?** *Recommended: yes, the same line as sysl's, so the two languages read alike.*
+
 ## Functions
 
 ```

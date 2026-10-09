@@ -125,3 +125,10 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | Function `f/n` and relation `f/(n+1)` share a Prolog key | refused always, at the second definition; the `sides` example is reworded | [language](language.md#one-name-several-arities) |
 | Default parameters? | none; two arities are the default. If ever added, sugar for the arities | [language](language.md#one-name-several-arities) |
 | A constructor value over two field counts picks the last silently | the family under C; refused when compiled otherwise | [language](language.md#one-name-several-arities) |
+| E1 Optional, checked `end` markers, Scala 3's rules (Option A)? | yes | [language](language.md#blocks-and-optional-end-markers) |
+| E2 Which constructs take `end`? | `def` clauses (`end f`), a bare `def` group (`end def`), block `val`/`var` (`end x`, `end val`), `if` chains, `while`/`for`/`repeat`/`every`; no lambda, scan, `catch`, `where`, sequence, `data` | [language](language.md#blocks-and-optional-end-markers) |
+| E3 A labelled loop: `end for` or `end outer`? | `end for` only | [language](language.md#blocks-and-optional-end-markers) |
+| E4 `end f` after a one-line `def f( x ) = …` | refused (sysl accepts it) | [language](language.md#blocks-and-optional-end-markers) |
+| E5 One `end if` for a whole `if`/`elif`/`else` chain? | yes | [language](language.md#blocks-and-optional-end-markers) |
+| E6 A line holding only `end` | stays a read of the name; its refusal gains a note about markers | [language](language.md#blocks-and-optional-end-markers) |
+| E7 sysl's seven-line rule for markers in examples and reference pages? | yes | [language](language.md#blocks-and-optional-end-markers) |
