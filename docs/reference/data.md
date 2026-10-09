@@ -61,6 +61,48 @@ write( {1, f: (x) -> x} )
 a lambda whose parameter is a cons goes in a set in parentheses
 ```
 
+### A trailing comma
+
+A list, a set or a map may end with a comma, on one line or across several, which lets a literal
+grow one entry at a time:
+
+```funl
+write( [1, 2,], {1, 2,}, {a: 1,} )
+
+val manifest = {
+  name: "tabular",
+  tags: [
+    "csv",
+    "tables",
+  ],
+}
+write( manifest )
+```
+
+```output
+[1, 2], {1, 2}, {"a": 1}
+{"name": "tabular", "tags": ["csv", "tables"]}
+```
+
+A comma must still follow an element, so `[,]` and `[1,,2]` are refused. A tuple, an argument list
+and a parameter list take no trailing comma:
+
+```funl
+write( [1,,2] )
+```
+
+```error
+expected an expression
+```
+
+```funl
+write( (1,) )
+```
+
+```error
+expected an expression
+```
+
 ### `()`, the tuple of nothing
 
 `()` is the empty tuple: a tuple of length 0, which is also the value an expression produces when it

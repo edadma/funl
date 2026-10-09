@@ -148,7 +148,7 @@ funl: cannot read add: no such file or directory
 }
 ```
 
-but a trailing comma, which slate's manifests write and `slate install` preserves, is refused:
+and so does one with a trailing comma, which slate's manifests write and `slate install` preserves:
 
 ```
 write( {
@@ -158,17 +158,7 @@ write( {
 } )
 ```
 ```
-error: expected an expression
- --> m2.funl:5:1
-  |
-5 | } )
-  | ^ found `}`
-
-error: a map's entries are each written `key: value`
- --> m2.funl:5:1
-  |
-5 | } )
-  | ^
+{"name": "tabular", "version": "0.1.0", "modules": {"rows": "rows.funl"}}
 ```
 
 **Constructors are unique across the whole program**, which two packages make bite:
@@ -360,8 +350,8 @@ it). That is slate's line exactly, and slate's `pg` package is the case that sho
 2. **Constructors are unique program-wide**, so two packages each declaring `node/3` cannot be used
    together (the probe above). slate's classes are per-module values and never collide. This is
    open question 3.
-3. **The manifest's syntax is FunL's map literal**, which refuses a trailing comma today. Open
-   question 6.
+3. **The manifest's syntax is FunL's map literal**, which took no trailing comma until it was
+   decided (open question 6) that every list, set and map literal does.
 4. **Prolog has one flat namespace and its own `:- import`**, which slate has no counterpart for.
    Open question 4.
 5. **FunL's grammar is not final** (releases stay 0.0.x until it is), so a package written against a
@@ -472,9 +462,12 @@ into an org package, with three implementations in view rather than one.
    predicate entering the shared namespace) — the decided rule for a Prolog file, reached by a
    package name instead of a path. `.lfunl` is allowed everywhere `.funl` is.
 6. **May a map or list literal end with a trailing comma?** `funl add` writes entries in the file's
-   own style, and slate's manifests end every entry with one. Recommended: **yes, in every multi-line
-   map, set and list literal, language-wide** — a small change to the literal parsers — rather than a
-   manifest-only dialect, so a manifest stays ordinary FunL.
+   own style, and slate's manifests end every entry with one. **Decided (user, 2026-10-09): yes, in
+   every map, set and list literal, language-wide** — one line or several — rather than a
+   manifest-only dialect, so a manifest stays ordinary FunL. A comma that ends nothing is still
+   refused: `[,]`, `{,}`, `[1,,2]`, `{a: 1,,}`. A tuple, an argument list and a parameter list do not
+   take one: neither this chapter nor the language chapter says they should, and `(x,)` is refused
+   today, as it stays.
 7. **A `funl` key in the manifest — the oldest FunL a package needs?** slate's manifest has none.
    Recommended: **yes, optional, `funl: "0.0.5"`**, checked at resolution and refused naming the
    package and both versions — because FunL's grammar is still moving and a package written for a

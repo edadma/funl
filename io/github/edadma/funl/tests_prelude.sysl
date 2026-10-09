@@ -72,7 +72,7 @@ PRELUDE_FILTER_TAKE_AND_TAKE_WHILE_OVER_A_COLLECTION_AND_A_THUNK()
 
 @test
 PRELUDE_SLICING()
-    val text = "write( drop(2, [1, 2, 3]), drop(0, [1]), drop(-2, [1]), drop(5, [1, 2]), drop(1, []), drop(1, 1..4), drop(2, (7, 8, 9)) )\n" +
+    val text = "write( drop(2, [1, 2, 3]), drop(0, [1]), drop(-2, [1]), drop(5, [1, 2]), drop(1, []), drop(1, 1..4), drop(2, {7, 8, 9}) )\n" +
         "write( dropWhile(x -> x < 3, [1, 2, 3, 1]), dropWhile(x -> x < 3, []), dropWhile(x -> x < 9, [1]) )\n" +
         "write( splitAt(1, [1, 2, 3]), splitAt(0, []), span(x -> x < 2, [1, 2, 3]), spanNot(x -> x > 1, [1, 2, 3]) )\n" +
         "write( partition(odd, [1, 2, 3, 4]), partition(odd, []) )\n"
@@ -97,8 +97,50 @@ PRELUDE_COMBINING()
 
 @test
 PRELUDE_CONCAT_AND_ZIP_REFUSE_AN_ENDLESS_RANGE()
-    prelude_fault("write( zip(0.., [1]) )\n", "the endless range 0..")
+    prelude_fault("write( zip(0.., 1..) )\n", "'zip' was given only endless ranges, such as 0..")
+    prelude_fault("write( zip3(0.., 1.., 2..) )\n", "'zip3' was given only endless ranges")
     prelude_fault("write( concat([1..]) )\n", "the endless range 1..")
+
+// An endless range beside a finite input is as long as the finite one (P3.4).
+@test
+PRELUDE_ZIP_FAMILY_ACCEPTS_AN_ENDLESS_RANGE_BESIDE_A_FINITE_INPUT()
+    val text = "write( zip(0.., [#a, #b]) )\n" +
+        "write( zip([#a, #b, #c], 10.. by 5) )\n" +
+        "write( zip3(0.., 10.., [1, 2, 3]), zip(0.., []) )\n" +
+        "write( zipWith((a, b) -> a * b, 1.., [5, 6, 7]), zipWith3((a, b, c) -> a + b + c, 0.., [1, 1], 5..) )\n"
+
+    assert_eq(ran_funl(text), "[(0, a), (1, b)]\n[(a, 10), (b, 15), (c, 20)]\n[(0, 10, 1), (1, 11, 2), (2, 12, 3)], []\n[5, 12, 21], [6, 8]\nsucceeded")
+
+// A string, a tuple or a map is not a list, so the list functions refuse it as `reverse` does,
+// instead of answering for one element (P3.5).
+@test
+PRELUDE_LIST_FUNCTIONS_REFUSE_A_STRING_A_TUPLE_OR_A_MAP()
+    prelude_fault("write( zip(\"ab\", [1]) )\n", "'zip' wants a list and reached the string 'ab'")
+    prelude_fault("write( zip([1], (1, 2)) )\n", "'zip' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( zip3([1], [2], {a: 1}) )\n", "'zip3' wants a list and reached {\"a\": 1}")
+    prelude_fault("write( zipWith((a, b) -> a, [1], \"ab\") )\n", "'zipWith' wants a list and reached the string 'ab'")
+    prelude_fault("write( zipWith3((a, b, c) -> a, [1], [1], (1, 2)) )\n", "'zipWith3' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( take(1, \"ab\") )\n", "'take' wants a list and reached the string 'ab'")
+    prelude_fault("write( takeWhile(x -> true, (1, 2)) )\n", "'takeWhile' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( drop(1, {a: 1}) )\n", "'drop' wants a list and reached {\"a\": 1}")
+    prelude_fault("write( drop(0, \"ab\") )\n", "'drop' wants a list and reached the string 'ab'")
+    prelude_fault("write( map(x -> x, \"ab\") )\n", "'map' wants a list and reached the string 'ab'")
+    prelude_fault("write( filter(x -> true, (1, 2)) )\n", "'filter' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( concatMap(x -> [x], \"ab\") )\n", "'concatMap' wants a list and reached the string 'ab'")
+    prelude_fault("write( concat(\"ab\") )\n", "'concat' wants a list and reached the string 'ab'")
+    prelude_fault("write( unzip((1, 2)) )\n", "'unzip' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( any(x -> true, \"ab\") )\n", "'any' wants a list and reached the string 'ab'")
+    prelude_fault("write( all(x -> true, {a: 1}) )\n", "'all' wants a list and reached {\"a\": 1}")
+    prelude_fault("write( lookup(1, (1, 2)) )\n", "'lookup' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( reverse(\"ab\") )\n", "'reverse' wants a list and reached the string 'ab'")
+    prelude_fault("write( reverse((1, 2)) )\n", "'reverse' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( sort((2, 1)) )\n", "'sort' wants a list and reached the tuple (2, 1)")
+    prelude_fault("write( sortBy((a, b) -> a < b, \"ba\") )\n", "'sortBy' wants a list and reached the string 'ba'")
+    prelude_fault("write( last((1, 2)) )\n", "'last' wants a list and reached the tuple (1, 2)")
+    prelude_fault("write( init(\"ab\") )\n", "'init' wants a list and reached the string 'ab'")
+
+    // A list, a range, a set and an array are still lists.
+    assert_eq(ran_funl("write( map(x -> x, {1, 2}), take(1, array(2)), reverse(1..3), zip(1..2, {5, 6}) )\n"), "[1, 2], [undefined], [3, 2, 1], [(1, 5), (2, 6)]\nsucceeded")
 
 @test
 PRELUDE_PRODUCING()
@@ -165,7 +207,7 @@ PRELUDE_A_CALLBACK_FAULT_IS_CATCHABLE()
     assert_eq(ran_funl(text), "2 / 0 divides by zero\n[2, 1]\n[number, x]\nthe integer 5 is not a function, and cannot be called\n[1], []\nsucceeded")
     prelude_fault("write( sortBy((a, b) -> a < b, [1, #a]) )\n", "'<' cannot compare the atom a with the integer 1")
     prelude_fault("write( sortBy((a, b) -> a < b, 5) )\n", "'sortBy' wants a list and reached the integer 5")
-    prelude_fault("write( zipWith((a, b) -> a, [1], 0..) )\n", "the endless range 0..")
+    prelude_fault("write( zipWith((a, b) -> a, 0.., 1..) )\n", "'zipWith' was given only endless ranges, such as 0..")
     prelude_fault("def\n  two( a, b ) = a\nwrite( zipWith3(two, [1], [2], [3]) )\n", "'two' takes 2 arguments and was given 3")
 
 // A merge sort is O(n log n) whatever the order: sorted and reversed input of 10,000 elements takes
@@ -222,7 +264,7 @@ PRELUDE_THE_NATIVES_AGREE_WITH_THEIR_SOURCE()
         "write( [same(drop(n, xs), sDrop(n, xs)) | xs <- lists + [[]], n <- -1..6] )\n" +
         "write( [same(replicate(n, #a), sReplicate(n, #a)) | n <- -1..3] )\n" +
         "write( same(concat(lists), sConcat(lists)), same(concat([\"ab\", (1, 2), []]), sConcat([\"ab\", (1, 2), []])) )\n" +
-        "write( same(zip([1, 2, 3], \"ab\"), sZip([1, 2, 3], \"ab\")), same(zip3(1..3, [4], [5, 6]), sZip3(1..3, [4], [5, 6])) )\n" +
+        "write( same(zip([1, 2, 3], [\"a\", \"b\"]), sZip([1, 2, 3], [\"a\", \"b\"])), same(zip3(1..3, [4], [5, 6]), sZip3(1..3, [4], [5, 6])) )\n" +
         "write( [same(if elem(x, [1, 2]) then #y else #n, if x in [1, 2] then #y else #n) | x <- 0..3] )\n"
 
     assert_eq(ran_funl(text), "[same, same, same, same, same]\n[same, same, same, same, same]\n[same, same, same, same, same, same]\n[same, same, same, same, same, same]\n" +

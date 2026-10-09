@@ -167,7 +167,10 @@ private list(p: *Parser, open: Span) -> &Expr
 
             items.push(item)
 
-            if p.accept(Comma) then continue
+            if p.accept(Comma)
+                if p.at_tok(RBracket) then p.accept(RBracket) else continue
+
+                break
 
             if !p.expect(RBracket, "`,` or `]`") then p.skip_line()
 
@@ -218,6 +221,8 @@ private braces(p: *Parser, open: Span) -> &Expr
                     items.push(item)
 
         if !p.accept(Comma) then break
+
+        if p.at_tok(RBrace) then break
 
         item = parse_expr(p, 0)
 

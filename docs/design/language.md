@@ -146,6 +146,18 @@ def solve( c )
 
 ### Taking drawn values apart with a pattern
 
+> **Decided (user, 2026-10-09), P3.1–P3.6, all as recommended.** A tuple is drawn whole, so `(a, b) <-
+> zip(xs, ys)` and `(k, v) <- !m` destructure (P3.1). A drawn value the pattern does not match is passed
+> over, as a failing `if` filter is (P3.2). A list or cons pattern over a generator of lists meets the
+> elements; `[e]` keeps each list whole, and drawing is not directed by the pattern's shape (P3.3).
+> `zip`, `zip3`, `zipWith` and `zipWith3` accept an endless range when another input is finite, taking
+> as many places as the shortest finite input, so `zip(0.., xs)` numbers a list; all inputs endless is a
+> fault (P3.4). `zip` and the prelude's list functions (`map`, `filter`, `take`, `takeWhile`, `drop`,
+> `concat`, `concatMap`, `unzip`, `any`, `all`, `lookup`, `reverse`, `sort`, `sortBy`, `last`, `init`)
+> refuse a string, tuple or map argument with `'f' wants a list and reached the string 'ab'`, and answer
+> no one-element pairing (P3.5). `every` takes no pattern: `for (a, b) <- e` is the destructuring form
+> (P3.6). Tests: `tests_drawn_patterns.sysl` and `tests_prelude.sysl`.
+
 > **Open question P3, revisited (2026-10-08) — what does a pattern on the left of `<-` see?** The
 > question was raised when `<-` iterated every collection it drew, tuples included: `[a | (a, b) <-
 > pairs()]` over a generator yielding `(1, "a")` drew `1` and `"a"`, matched neither, and answered
