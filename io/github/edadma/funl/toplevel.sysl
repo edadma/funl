@@ -62,7 +62,7 @@ answer_queries(v: *Vm, line: &Fn(string) -> Option[string], say: &Fn(string) -> 
     v.input = line
 
     loop
-        val text = read_query(line) match
+        val text = read_query(line, say) match
             Some(t) -> t
             None -> return 0
 
@@ -75,7 +75,7 @@ end answer_queries
 
 // One query's text: lines read until one ends in `.`, the first under `?- ` and the rest under a
 // continuation prompt. `None` at the end of input.
-private read_query(line: &Fn(string) -> Option[string]) -> Option[string]
+private read_query(line: &Fn(string) -> Option[string], say: &Fn(string) -> unit) -> Option[string]
     var text = ""
     var prompt = QueryPrompt
 
@@ -83,6 +83,10 @@ private read_query(line: &Fn(string) -> Option[string]) -> Option[string]
         val got = line(prompt) match
             Some(l) -> l
             None -> return None
+
+        if take_malformed_input()
+            say("error: the input is not valid UTF-8")
+            return Some("")
 
         text = if text.is_empty() then got else text + "\n" + got
 
@@ -185,6 +189,10 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
                 val reply = line("") match
                     Some(l) -> l.trim()
                     None -> break
+
+                if take_malformed_input()
+                    say("error: the input is not valid UTF-8")
+                    break
 
                 if reply != ";" then break
 

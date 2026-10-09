@@ -42,6 +42,10 @@ private next_line(s: &Session, prompt: string) -> Option[string]
 
     s.at += 1
     s.said.push(prompt + l)
+
+    // A script line of `<non-utf8>` arrives as the bytes `f`, 0xff, `.`.
+    if l == "<non-utf8>" then return Some(decoded_line([u8('f'), 255, u8('.')]))
+
     Some(l)
 
 @test
@@ -234,6 +238,16 @@ READ_TAKES_THE_NEXT_TERM_FROM_THE_LINES_AFTER_THE_QUERY()
 READ_GOES_ON_OVER_LINES_AND_LEAVES_WHAT_FOLLOWS_A_TERM_FOR_THE_NEXT_READ()
     assert_eq(session([], ["read(A), read(B), read(C).", "a. b(", "  1). c."]),
         "?- read(A), read(B), read(C).\n|: a. b(\n|:   1). c.\nA = a,\nB = b(1),\nC = c.\nstatus: 0")
+
+@test
+READ_OF_INPUT_THAT_IS_NOT_UTF8_RAISES_A_SYNTAX_ERROR_AND_THE_NEXT_READ_IS_CLEAN()
+    assert_eq(session([], ["catch(read(X), error(E, _), true).", "<non-utf8>", "read(Y).", "ok."]),
+        "?- catch(read(X), error(E, _), true).\n|: <non-utf8>\nE = syntax_error(illegal_character).\n?- read(Y).\n|: ok.\nY = ok.\nstatus: 0")
+
+@test
+A_QUERY_LINE_THAT_IS_NOT_UTF8_IS_REFUSED_AND_THE_SESSION_GOES_ON()
+    assert_eq(session([], ["<non-utf8>", "X = 1."]),
+        "?- <non-utf8>\nerror: the input is not valid UTF-8\n?- X = 1.\nX = 1.\nstatus: 0")
 
 @test
 READ_AT_THE_END_OF_THE_INPUT_IS_END_OF_FILE()
