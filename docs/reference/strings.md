@@ -143,8 +143,8 @@ write( '[' + trim('\t\n line \r\n') + ']' )
 `upper(s)` is `s` with every letter in upper case, and `lower(s)` in lower case. The mapping is
 Unicode's **simple** case mapping: every character becomes exactly one character, so the result has
 as many characters as `s`. That covers accented letters and the other scripts that have case, but it
-leaves out the few mappings that change a string's length: `ß` upper-cases to `ẞ`, the capital sharp
-s, never to `SS`.
+leaves out the few mappings that change a string's length: `ß` has no single-character upper case,
+so `upper` leaves it as it is, never making it `SS`.
 
 ```funl
 write( upper('héllo wörld') )
@@ -155,7 +155,7 @@ write( upper('straße'), upper('жук') )
 ```output
 HÉLLO WÖRLD
 àéî abc 123
-STRAẞE, ЖУК
+STRAßE, ЖУК
 ```
 
 ## `replace`

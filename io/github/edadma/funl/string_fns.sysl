@@ -96,7 +96,7 @@ split_text(s: string, sep: CharTest, pad: CharTest) -> Buf[string]
 end split_text
 
 // `s` with every character in upper case, or in lower: Unicode's simple case mapping, one character
-// for one, so `ß` becomes `ẞ` and never `SS`.
+// for one, so `ß`, which has no one-character upper case, stays `ß` and never becomes `SS`.
 cased(s: string, upper: bool) -> string
     var out = str_builder()
 

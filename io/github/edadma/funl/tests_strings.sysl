@@ -54,7 +54,7 @@ TRIM_TAKES_SPACES_OFF_THE_ENDS_ASKED_FOR()
 @test
 UPPER_AND_LOWER_MAP_EVERY_CHARACTER_ONE_FOR_ONE()
     assert_eq(ran_funl("write(upper('héllo straße 1'))\nwrite(lower('ÀÉÎ ЖУК ABC'))\n"),
-        "HÉLLO STRAẞE 1\nàéî жук abc\nsucceeded")
+        "HÉLLO STRAßE 1\nàéî жук abc\nsucceeded")
     faults_with("write(upper(#a))\n", "'upper' wants a string and was given the atom a")
     faults_with("write(lower(3))\n", "'lower' wants a string and was given the integer 3")
 

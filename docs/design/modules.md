@@ -236,6 +236,12 @@ if read_file( "missing.txt" ) then write( #there ) else write( #absent )
 `lines` and `read_dir` are generators (the second decided question); a missing file is failure (the
 third).
 
+> **Built — a name that is not UTF-8.** A file's text that is not UTF-8 fails `read_file` and
+> `lines`, as `decode` does. A directory holding a *name* that is not UTF-8 is a fault instead,
+> `system_error` with sysl's "not UTF-8 at byte N": `read_dir` cannot give the name as a string,
+> and failing would say the directory is not there. No byte-string form of `read_dir` is offered;
+> the design names none.
+
 ### `funl:json` — core, over `sh.sysl.json`
 
 ```

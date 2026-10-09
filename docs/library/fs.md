@@ -92,7 +92,9 @@ absent
 **Anything else that goes wrong is a fault**: a permission refused raises
 `permission_error(Action, source_sink, Path)` — `Action` being `open` for reading and writing a file,
 `access` for reading a directory, `create` for `mkdir` and `modify` for `remove` and `rename` — and
-any other error raises `system_error`, each inside the usual `error(Formal, Context)` term. Nothing
+any other error raises `system_error`, each inside the usual `error(Formal, Context)` term. A
+directory holding a name that is not UTF-8 is one of those: `read_dir` raises `system_error`, its
+message saying at which byte of the name, since it cannot give that name as a string. Nothing
 caught, the fault stops the program:
 
 ```funl

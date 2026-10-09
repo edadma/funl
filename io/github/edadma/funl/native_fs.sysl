@@ -18,7 +18,9 @@ import sysl.text.from_utf8
 // (`modules.md`, failure or fault): a missing file or directory fails, so `read_file(p) | ""` and
 // `if exists(p)` are the tests a program writes; text that is not UTF-8 fails as `decode` does. A
 // permission refused faults with `permission_error(Action, source_sink, Path)` and every other error
-// with `system_error`, each catchable with `catch` or Prolog's `catch/3`.
+// with `system_error`, each catchable with `catch` or Prolog's `catch/3`. A directory holding a name
+// that is not UTF-8 is one of those errors: `read_dir` cannot give the name as a string, and failing
+// would read as the directory not being there.
 //
 // **`lines` and `read_dir` are generators**: each call reads the file or the directory afresh and
 // backtracking takes the next line or name, the names in sorted order.

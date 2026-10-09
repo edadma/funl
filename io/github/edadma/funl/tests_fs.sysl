@@ -1,8 +1,9 @@
 module io.github.edadma.funl
 @tests
 
-import sysl.fs.set_permissions
-import sysl.text.Search
+import sysl.fs.{IoError, set_permissions, write_bytes}
+import sysl.path.join as join_path
+import sysl.text.{Search, from_utf8_unchecked}
 
 // `funl:fs` (`docs/library/fs.md`): whole files, bytes, lines and directory names as generators,
 // questions about a path, changing the filesystem, and paths. A thing that is not there fails; a
@@ -267,3 +268,38 @@ A_PROLOG_IMPORT_OF_A_MODULE_FUNL_DOES_NOT_HAVE_IS_REFUSED()
     val pl = put(d, "bad.pl", ":- import(\"funl:nothing\").\n")
 
     assert(has(ran_funl(s"import \"$pl\"\n"), "unknown module `funl:nothing`"))
+
+// The file `name` in `dir` holding exactly `bytes`, which need not be UTF-8.
+private put_bytes(dir: string, name: string, bytes: []const u8) -> string
+    val f = join_path(dir, name)
+
+    write_bytes(f, bytes).unwrap()
+    f
+
+@test
+A_DIRECTORY_HOLDING_A_NAME_THAT_IS_NOT_UTF8_FAULTS_WITH_SYSTEM_ERROR()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad: [3]u8 = [u8('q'), 255, u8('r')]
+
+    // APFS refuses to make such a name at all; where the filesystem stores one, listing it faults.
+    write_bytes(join_path(d, from_utf8_unchecked(bad)), [u8('x')]) match
+        Err(e) -> assert_eq(e.code(), IoError.InvalidUtf8(0).code())
+        Ok(_) ->
+            assert_eq(in_dir(d, "write( read_dir(d) catch e -> e )\nwrite( [n | n <- read_dir(d)] catch e -> #refused )\n"),
+                s"error(system_error, context(_G2, \"'read_dir' cannot read `$d`: not UTF-8 at byte 1\"))\nrefused\nsucceeded")
+
+@test
+SOURCE_THAT_IS_NOT_UTF8_IS_REPORTED_WHERE_IT_IS_LOADED()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad: [6]u8 = [u8('x'), u8(' '), u8('='), u8(' '), 255, 10]
+    val m = put_bytes(d, "bad.funl", bad)
+    val pl = put_bytes(d, "bad.pl", bad)
+    val loader = put(d, "loader.pl", s":- catch(consult(\"$pl\"), error(E, _), (write(E), nl)).\n")
+
+    assert_eq(complaints(s"import { x } from \"$m\"\n"),
+        s"error 1:19 `$m` cannot be read: not UTF-8 at byte 4\n")
+    assert_eq(ran_funl(s"import \"$loader\"\n"), s"existence_error(source_sink,$pl)\nsucceeded")
