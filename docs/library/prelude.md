@@ -228,14 +228,54 @@ write( unzip([(1, "a"), (2, "b")]) )
 ([1, 2], ["a", "b"])
 ```
 
-These need every element of their lists, so an endless range is refused:
+An endless range beside a finite list is as long as the list, so `zip(0.., xs)` numbers it:
 
 ```funl
-write( zip(0.., [1, 2]) )
+write( zip(0.., [#a, #b]), zip3(0.., 10.., [1, 2, 3]) )
+write( zipWith((a, b) -> a * b, 1.., [5, 6, 7]) )
+```
+
+```output
+[(0, a), (1, b)], [(0, 10, 1), (1, 11, 2), (2, 12, 3)]
+[5, 12, 21]
+```
+
+With no finite input there is no end to stop at, so the call is refused:
+
+```funl
+write( zip(0.., 1..) )
 ```
 
 ```error
-the endless range 0..
+'zip' was given only endless ranges, such as 0..
+```
+
+**The list functions take lists.** A string, a tuple and a map are each one value, not a list of
+parts, so `zip`, `zipWith`, `map`, `filter`, `take`, `drop`, `concat`, `reverse`, `sort` and the rest
+refuse one rather than answer for a single element:
+
+```funl
+write( zip("ab", [1, 2]) )
+```
+
+```error
+'zip' wants a list and reached the string 'ab'
+```
+
+```funl
+write( map(x -> x, (1, 2)) )
+```
+
+```error
+'map' wants a list and reached the tuple (1, 2)
+```
+
+```funl
+write( take(1, {a: 1}) )
+```
+
+```error
+'take' wants a list and reached {"a": 1}
 ```
 
 ## Producing, and endless inputs
