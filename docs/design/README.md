@@ -103,4 +103,9 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| A generator of tuples cannot be destructured by `<-` | a tuple pattern matches a generated tuple whole; until then `zip` answers lists | [modules](modules.md#the-prelude--the-first-module-written-in-funl) |
+| P3.1 Is P3 (a generator of tuples cannot be destructured by `<-`) closed by drawing tuples whole? | yes: `(a, b) <- zip(xs, ys)`, `(k, v) <- !m` and generated tuples already destructure; the rule is option A | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.2 A drawn value the pattern does not match: passed over or a fault? | passed over, as a failing `if` filter is | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.3 A list or cons pattern over a generator of lists | keep `[e]` to keep each list whole; no shape-directed drawing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.4 `zip` beside an endless range | accept it when another input is finite, so `zip(0.., xs)` numbers a list | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.5 `zip` (and the prelude's list functions) given a string, tuple or map | refuse it as `reverse` does, not answer a one-element pairing | [language](language.md#taking-drawn-values-apart-with-a-pattern) |
+| P3.6 Should `every` take a pattern? | no: `for (a, b) <- e` is the destructuring form | [language](language.md#taking-drawn-values-apart-with-a-pattern) |

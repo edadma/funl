@@ -144,6 +144,140 @@ def solve( c )
       solve( c + 1 )
 ```
 
+### Taking drawn values apart with a pattern
+
+> **Open question P3, revisited (2026-10-08) — what does a pattern on the left of `<-` see?** The
+> question was raised when `<-` iterated every collection it drew, tuples included: `[a | (a, b) <-
+> pairs()]` over a generator yielding `(1, "a")` drew `1` and `"a"`, matched neither, and answered
+> `[]`. The three Decided blocks above have since made a tuple, a string and a map whole to `<-`,
+> and `zip` has become a native that answers a list of tuples. This section re-asks P3 in that light.
+
+**The problem, as first stated, is gone.** Run today (dev `63fa7ac`), with
+`def pairs() = (1, "a") | (2, "b")` and `val m = {x: 1, y: 2}`:
+
+| program | prints |
+|---|---|
+| `write( zip([1, 2, 3], ["a", "b"]) )` | `[(1, "a"), (2, "b")]` |
+| `write( zip3([1, 2, 3], ["a", "b"], [true, false]) )` | `[(1, "a", true), (2, "b", false)]` |
+| `write( [b \| (a, b) <- zip([1, 2, 3], ["a", "b"])] )` | `["a", "b"]` |
+| `for (a, b) <- pairs() do write( b )` | `a` then `b` |
+| `write( [a \| (a, b) <- pairs()] )` | `[1, 2]` |
+| `write( [p \| p <- pairs()] )` | `[(1, "a"), (2, "b")]` — no longer flattened |
+| `write( [a \| (a, b) <- (1, "a")] )` | `[1]` — one tuple, drawn whole |
+| `for (k, v) <- !m do write( k, v )` | `x, 1` then `y, 2` (a mutable map alike) |
+| `write( [p \| p <- !m] )` | `[("x", 1), ("y", 2)]` |
+| `write( [0 \| () <- [(), (1, 2), ()]] )` | `[0, 0]` — `()` is the empty tuple |
+
+So `(a, b) <- zip(xs, ys)` and `(k, v) <- !m` both work, because each drawn value is one tuple
+and the pattern meets it whole. Nothing in the language needs to change for the case P3 named.
+
+**What the rest of the pattern language does on the left of `<-` today:**
+
+| program | prints | reading |
+|---|---|---|
+| `[a \| (a, b) <- [(1, "a"), 5, (2, "b", 3), (3, "c")]]` | `[1, 3]` | a value the pattern does not match is passed over |
+| `[a \| (a, b) <- [[1, 2], [3, 4]]]` | `[]` | a tuple pattern does not match a list |
+| `[y \| [x, y] <- [(1, 2)]]` | `[]` | nor a list pattern a tuple |
+| `[x \| [x, y] <- [[1, 2], [3, 4]]]` | `[1, 3]` | a list pattern over a list of lists |
+| `[x \| x:_ <- [[1, 2], [3, 4]]]` | `[1, 3]` | a cons pattern likewise |
+| `[a + c \| ((a, b), c) <- [((1, 2), 3), ((4, 5), 6)]]` | `[4, 10]` | nested patterns |
+| `[p \| p@(a, _) <- [(1, 2), (3, 4)]]` | `[(1, 2), (3, 4)]` | a named pattern |
+| `[x \| (x, 0 \| 1) <- [(1, 0), (2, 5), (3, 1)]]` | `[1, 3]` | an alternation inside a tuple |
+| `[x + y \| point(x, y) <- [point(1, 2), 7, point(3, 4)]]` | `[3, 7]` | a record pattern (`data point(x, y)`) |
+| `[x + y \| point(x, y) <- pts()]`, `pts()` yielding records | `[3, 7]` | a record is not a collection, so drawn whole |
+| `[r \| circle(r) <- [circle(1), square(2), circle(3)]]` | `[1, 3]` | selecting one constructor of a `data` type |
+| `[n \| (n, _) <- ()]` | `[]` | `()` produces nothing |
+
+**The one shape that still does not reach its values is a list or cons pattern over a generator of
+lists**, because a drawn list is a collection and is iterated before the pattern sees it. With
+`def lists() = [1, 2] | [3, 4]`:
+
+| program | prints |
+|---|---|
+| `[x \| [x, y] <- lists()]` | `[]` — the pattern meets `1`, `2`, `3`, `4` |
+| `[x \| x:_ <- lists()]` | `[]` |
+| `[x \| x <- lists()]` | `[1, 2, 3, 4]` — the Decided flattening |
+| `[x \| [x, y] <- [lists()]]` | `[1, 3]` — `[e]` keeps each list whole |
+| `[x \| [x, y] <- ![[1, 2], [3, 4]]]` | `[]` — `!` generates the lists, `<-` then iterates each |
+
+This is the Decided rule working as written ("a generator of collections is flattened; keeping each
+value whole is `x <- [e]`"), not a defect, and no prelude function generates lists.
+
+**How the other binding places treat the same patterns, today:**
+
+| place | a value the pattern does not match | example, and what it prints |
+|---|---|---|
+| `x <- e` in a comprehension or `for` | passed over; the next value is drawn | `[a \| (a, b) <- [(1, 2), 5]]` → `[1]` |
+| a function parameter | a fault, since clauses are committed choice | `def f( (a, b) ) = a` then `f([1, 2])` → `argument match not found: no clause of 'f' matches ([1, 2])` |
+| `val (c, d) = e` | the statement fails and the names stay unassigned | `val (c, d) = [3, 4]` then `write( c + d )` → `'+' wants numbers and was given undefined` |
+| `every` | takes no pattern: `(a, b) = e` is a statement, not an expression | `every (a, b) = !zip(...)` → `this cannot be matched against anything` (read as a pattern `every(a, b)`); `every x = !zip(...) do write( x(0) )` works |
+
+The `<-` reading is the goal-directed one: a mismatch is a failure, and a failure inside a `for`
+head or a comprehension backtracks into the generator for its next value, exactly as a failing
+`if` filter does. A function's clauses fault because a call that no clause accepts has nowhere left
+to go. The two rules are consistent with each other; they differ where the failure lands.
+
+#### Options
+
+**A — close P3: the current rule is the rule.** A pattern on the left of `<-` meets each drawn
+value; a tuple, string, map or record arrives whole, a list, array, set or range is iterated first,
+and a value the pattern does not match is passed over. A generator of lists is taken apart through
+`[e]`. *Cost:* documentation only — this section becomes a Decided block, the `modules.md` P3 block
+is replaced by a pointer here, and the comprehensions reference page shows the tables above as
+runnable blocks. *Binds:* nothing that runs today changes.
+
+**B — a pattern's shape decides whether a drawn collection is iterated.** A list or cons pattern
+would meet a drawn list whole, so `[x | [x, y] <- lists()]` is `[1, 3]`. *Breaks:* the same rule
+applies to the one value `[[1, 2], [3, 4]]`, which is a list whose shape is `[x, y]`, so
+`[x | [x, y] <- [[1, 2], [3, 4]]]` would become `[[1, 2]]` instead of `[1, 3]`. One value cannot
+say whether it came from a generator (the Decided block's own reason for rejecting that test), so
+the only way out is "try whole, then iterate", which answers both — two different results from one
+pattern over one value. *Cost:* the `<-` drawing code in the compiler and its tests; every list
+comprehension in the prelude source (`concat`, `concatMap`, `unzip`) re-read under the new rule.
+Rejected in the recommendation for that ambiguity.
+
+**C — a value the pattern does not match is a fault, as a parameter's is.** `[a | (a, b) <- [(1,
+2), 5]]` would fault on `5`. *Breaks:* selecting by constructor (`circle(r) <- shapes`) and by
+literal (`(x, 0) <- pairs`), both of which read naturally and both of which Haskell's list
+comprehensions also treat as a filter; and it makes a failure that FunL handles everywhere else by
+backtracking into a fault in this one place. *Cost:* small (one branch in the drawing code), plus a
+`|` filter in every program that relies on selection.
+
+**Recommendation: A.** Making tuples, strings and maps whole has already answered P3: zipped lists,
+map entries and generators of tuples all destructure, nested, with constructors and alternations.
+What remains — a list pattern over a generator of lists — is the Decided flattening rule doing what
+it says, and `[e]` is its documented escape; B cannot change it without making one pattern mean two
+things over one value. The mismatch rule stays a filter because a mismatch is a failure and `<-`
+is where failure means "try the next value".
+
+#### Open questions
+
+1. **Is P3 closed by the whole-drawing decisions, with the rule as stated in option A?**
+   *Recommended:* yes.
+2. **A drawn value the pattern does not match — passed over (today) or a fault?** *Recommended:*
+   passed over, as a filter, matching a failing `if` in the same head.
+3. **A list or cons pattern over a generator of lists — `[e]` (today) or shape-directed drawing?**
+   *Recommended:* `[e]`; no prelude function generates lists, so it arises only in a program's own
+   generator, which can as easily `yield` a tuple.
+4. **`zip` beside an endless range.** Today `zip([1, 2], 0..)` faults with `'zip' was given the
+   endless range 0.., which has no last element`, as `docs/library/prelude.md` shows. The natives
+   pair as many places as the shortest input has, so they can stop at a finite input's end and need
+   never reach an endless range's last element. *Recommended:* accept an endless range when at least
+   one other input is finite, so `zip(0.., xs)` numbers a list (`[(0, "a"), (1, "b")]`); fault only
+   when every input is endless. *Cost:* the zip family's natives in `prelude.sysl` (which convert each input through
+   `seq.sysl`, where the refusal is raised) and their tests, and
+   the prelude page's refusal example.
+5. **`zip` given a string, tuple or map.** Today the natives draw their inputs as `<-` does, so
+   `zip("ab", [1, 2, 3])` is `[("ab", 1)]`, `zip({a: 1}, [1])` is `[({"a": 1}, 1)]` and
+   `zip((1, 2), [3, 4])` is `[((1, 2), 3)]`, while `reverse("abc")` faults with `'reverse' wants a
+   list and reached the string 'abc'`; the source-carried ones follow `<-` too (`take(2, "abc")` is
+   `["abc"]`, `map(c -> c + c, "ab")` is `["abab"]`). *Recommended:* the prelude's list functions
+   refuse a string, tuple or map as `reverse` does, naming the explicit form in the message
+   (`[c | c <- !s]`), since a one-element answer is never what such a call meant.
+6. **Should `every` take a pattern, `every (a, b) = !zip(xs, ys) do …`?** Today it cannot: a pattern
+   assignment is a statement, and `every (a, b) = …` reads as the term `every(a, b)`. *Recommended:*
+   no — `for (a, b) <- e do …` is the destructuring form, and `every` keeps an expression.
+
 ### Control structures, and which of them are bounded
 
 **A bounded expression is one whose generators are discarded once it has produced its first
