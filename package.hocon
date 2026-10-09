@@ -54,7 +54,7 @@ dependencies {
   dal     { git = "github.com/sysl-lang/dal", version = "0.1.1" }
   gc      { git = "github.com/sysl-lang/gc", version = "0.2.7" }
   json    { git = "github.com/sysl-lang/json", version = "0.2.0" }
-  parsing { git = "github.com/sysl-lang/parsing", version = "0.12.1" }
+  parsing { git = "github.com/sysl-lang/parsing", version = "0.13.0" }
 
   // `funl:sqlite`. Not a feature: SQLite is the system's own library on macOS and a standard
   // package elsewhere, so every `funl` carries it.
