@@ -489,6 +489,7 @@ into an org package, with three implementations in view rather than one.
    own style, and slate's manifests end every entry with one. **Decided (user, 2026-10-09): yes, in
    every map, set and list literal, language-wide** — one line or several — rather than a
    manifest-only dialect, so a manifest stays ordinary FunL. A comma that ends nothing is still
-   refused: `[,]`, `{,}`, `[1,,2]`, `{a: 1,,}`. A tuple, an argument list and a parameter list do not
-   take one: neither this chapter nor the language chapter says they should, and `(x,)` is refused
-   today, as it stays.
+   refused: `[,]`, `{,}`, `[1,,2]`, `{a: 1,,}`. **Decided (user, 2026-10-09, again): a tuple, an argument list and
+   a parameter list take one too**, as the literals do — a tuple needs at least two elements before
+   it, an argument or parameter list at least one. FunL has no one-tuple, so `(x,)` is refused with
+   a diagnostic saying so; `(,)` and `f(,)` are refused as a comma that ends nothing.
