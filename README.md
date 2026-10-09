@@ -116,6 +116,10 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
 - Packages: `import { rows } from tabular` reaches a package named in the project's `package.funl`,
   read from the project's `vendor/` or the cache and never fetched while a program runs; versions
   are exact and `funl.sum` records what each one hashed to (`docs/reference/packages.md`).
+- One name can be defined at several arities (`f/1` and `f/2` are two functions), a block may close
+  with an optional, checked `end` marker, and list, set and map literals take a trailing comma.
+- `zip` and its family take an endless range beside a finite input, and the list functions refuse a
+  string, tuple or map rather than guess.
 - Prolog reads and writes `1.0Inf` and `1.5NaN`, has SWI's `float_overflow`, `float_zero_div` and
   `float_undefined` flags, and reads integers in any radix.
 

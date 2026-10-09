@@ -3,7 +3,7 @@
 
 package {
   name    = "prolog"
-  version = "0.0.4"
+  version = "0.0.5"
   sysl    = "0.1.0-alpha.5"
 }
 

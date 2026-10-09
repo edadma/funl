@@ -37,7 +37,7 @@ import sysl.text.{Search, from_utf8_unchecked, parse_long, split}
 // job.
 
 // The version of FunL this is, which a manifest's `funl` floor is compared against.
-const FunlVersion: string = "0.0.4"
+const FunlVersion: string = "0.0.5"
 
 // What a project's sum file is called, beside its `package.funl`.
 const SumFile: string = "funl.sum"
