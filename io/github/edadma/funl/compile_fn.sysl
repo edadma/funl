@@ -14,6 +14,14 @@ import sysl.buf.{Buf, buf}
 //     c2:   ...
 //           NoMatch
 //
+// **A clean clause needs no mark** (`clean_head`): one whose head only tests and stores. Its `Frame`
+// is `FrameHead(n, c2, b1)`, which gives the frame a failure target, and a failure before `b1`, the
+// first guarded body, goes to `c2` as the mark would have sent it (`head_fails`):
+//
+//     c1:   FrameHead(n, c2, b1); LoadArg(0); <pattern>; ...; <where>; <guard>; FailIfFalse
+//     b1:   <body>; Return
+//     c2:   ...
+//
 // **A body expression's values are returned with `Return`**, which leaves its choice points
 // resumable: a function whose body generates is a generator. `return e` is `ReturnCommit`, which
 // keeps only the first.
@@ -36,16 +44,24 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
         val next = e.label()
         var seen = unseen(res.scopes.at(sid).count())
 
-        e.op(Mark(next))
-        e.op(Frame(res.scopes.at(sid).count()))
+        val b = cl.kind match
+            FunctionC(b) -> b
+            _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
+
+        val clean = clean_head(c, cl.params, b)
+        val body = e.label()
+
+        if clean
+            e.op(FrameHead(res.scopes.at(sid).count(), next, body))
+        else
+            e.op(Mark(next))
+            e.op(Frame(res.scopes.at(sid).count()))
 
         for j in 0..<cl.params.len()
             e.op(LoadArg(j))
             pattern(&e, c, cl.params.at(j), &seen, j)?
 
-        cl.kind match
-            FunctionC(b) -> clause_body(&e, c, b)?
-            _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
+        clause_body(&e, c, b, clean, next, body)?
 
         e.place(next)
 
@@ -54,35 +70,110 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
 end compile_function
 
 // A clause's `where` values, then its guards, each choosing a body.
-private clause_body(e: *Emit, c: Ctx, b: FnBody) -> Result[unit, string]
+//
+// **A clean clause** (`clean_head`) runs under no mark: its `where` values need none, since they
+// neither generate nor trail, and the failure of its parameters, its `where` values and its only or
+// first guard reaches the frame's failure target, `next`, because they all lie before `body`, the
+// first guarded body. A guard with another after it keeps its `Mark(other)`, whose failure tries the
+// next guard; the last of several guards lies after the first body, out of the head's reach, so it
+// keeps a mark too, aimed at `next`. Nothing commits: the bodies run with no clause entry beneath
+// them.
+private clause_body(e: *Emit, c: Ctx, b: FnBody, clean: bool, next: usize, body: usize) -> Result[unit, string]
     for s in b.wheres.view()
         s match
             ValS(pat, x, _) ->
-                e.op(MarkThrough)
+                if !clean then e.op(MarkThrough)
+
                 compile_value(e, c, x)?
-                e.op(UnmarkKeep)
+
+                if !clean then e.op(UnmarkKeep)
+
                 match_fresh(e, c, pat)?
             _ -> ()
 
     for i in 0..<b.guards.len()
         val g = b.guards.at(i)
         val other = e.label()
+        val last = i + 1 == b.guards.len()
 
         g.cond match
             Some(cond) ->
-                // The last guard's failure is the clause's.
-                e.op(if i + 1 == b.guards.len() then MarkThrough else Mark(other))
+                if !last
+                    e.op(Mark(other))
+                elif !clean
+                    // The last guard's failure is the clause's.
+                    e.op(MarkThrough)
+                elif i > 0
+                    e.op(Mark(next))
+
                 compile_value(e, c, cond)?
                 e.op(FailIfFalse)
-                e.op(Unmark)
+
+                if !last || !clean || i > 0 then e.op(Unmark)
             None -> ()
 
-        e.op(Unmark)
+        if clean
+            if i == 0 then e.place(body)
+        else
+            e.op(Unmark)
+
         body_tail(e, c, g.body)?
         e.place(other)
 
+    if b.guards.len() == 0 then e.place(body)
+
     Ok(())
 end clause_body
+
+// Whether a function clause's head may run without a mark: every failure in it is a test that
+// binds nothing, trails nothing and leaves no entry, so the frame's failure target can stand in for
+// the mark. Its parameter patterns have no alternation and no computed map key; its `where` values'
+// patterns are the same and their values, like its guards, fail cleanly (`fails_cleanly`) -- no
+// unification, `<-`, generator, relation call or call through a value. A head that unified could
+// bind a caller's variable with no entry fresh enough to make the binding trailed, and so undone for
+// the next clause.
+private clean_head(c: Ctx, params: Buf[&Expr], b: FnBody) -> bool
+    for p in params.view()
+        if !clean_pattern(p) then return false
+
+    for s in b.wheres.view()
+        s match
+            ValS(pat, x, _) -> if !clean_pattern(pat) || !fails_cleanly(c, x) then return false
+            _ -> ()
+
+    for g in b.guards.view()
+        g.cond match
+            Some(cond) -> if !fails_cleanly(c, cond) then return false
+            None -> ()
+
+    true
+
+// Whether pattern `p` compiles to tests and stores alone: no `Choice` (alternation) and no
+// `MarkThrough` (a map key that is not a constant).
+private clean_pattern(p: &Expr) -> bool
+    p.kind match
+        Disj(_, _) -> false
+        TupleE(items) -> all_clean(items)
+        CallE(_, _, args) -> all_clean(args)
+        ApplyE(_, args) -> all_clean(args)
+        ListE(items) -> all_clean(items)
+        ConsE(h, t) -> clean_pattern(h) && clean_pattern(t)
+        AsE(_, x) -> clean_pattern(x)
+        MapE(keys, vals) -> constant_keys(keys) && all_clean(vals)
+        MapRestE(keys, vals, rest) -> constant_keys(keys) && all_clean(vals) && clean_pattern(rest)
+        _ -> true
+
+private all_clean(ps: Buf[&Expr]) -> bool
+    for p in ps.view()
+        if !clean_pattern(p) then return false
+
+    true
+
+private constant_keys(keys: Buf[&Expr]) -> bool
+    for k in keys.view()
+        if !constant_key(k) then return false
+
+    true
 
 // A function body in tail position: every path through it ends in `Return`, a call there in a tail
 // call. A scan `s ? e` there keeps its body in tail position, so a `yield` that is the last thing

@@ -169,6 +169,7 @@ op_label(op: Op) -> string = op match
     Op.TestEq -> "TestEq"
     Op.TestNe -> "TestNe"
     Op.Frame(_) -> "Frame"
+    Op.FrameHead(_, _, _) -> "Frame"
     Op.Call(_, _) -> "Call"
     Op.TailCall(_, _) -> "TailCall"
     Op.Return -> "Return"

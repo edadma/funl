@@ -170,7 +170,7 @@ its condition fails the loop fails, which the enclosing statement absorbs.
 > or compares or computes on operands that do — runs as `c; FailIfFalse; Pop`: its failure is its
 > context's anyway, and the next entry failure reaches undoes everything its mark would have.
 
-### Clause-head marks (proposed, not decided)
+### Clause-head marks
 
 **After the statement-mark elision, the marks left in function-heavy code are clause-head marks.** A
 function of clauses compiles (`compile_fn.sysl:31-52`) to:
@@ -274,23 +274,40 @@ entry instead.
 | (b) or (b′) | −22.2% | −15.0% | −12.8% |
 | (b′) + (a) discriminating | −22.2% | −35.0% | −30.8% |
 
-**Recommendation (proposed): (b′) first, then (a) by the first discriminating argument as its own
+**Recommendation: (b′) first, then (a) by the first discriminating argument as its own
 item.** (b′) is the only option that reaches guard dispatch — FunL's commonest shape, fib's — and the
 one-clause lambda; it touches `compile_fn.sysl`, `Frame` and `fail` and adds no instruction. (a) then
 removes the failed attempts (Frame, loads and tests) that (b′) leaves, where a head keys a constant or
 structure. Instruction counts are not time: each step is measured by wall clock as well.
 
-**Open questions (proposed, not decided):**
-
-1. (b′) over (b): a test on the failure path in exchange for no twinned instructions?
-2. Index on the first argument, as relations do, or on the first argument some clause keys?
-3. Numbers in a function index: normalise by `==` (`0`, `0.0`, `0/1` one key), or route every
-   non-`Int` number to the all-clauses chain? Key strings?
-4. Should relations' index move to the first discriminating argument at the same time, or stay
-   first-argument as in Prolog?
-5. A further step, not estimated above: a clause whose parameters bind the same names to the same
-   slots as the failed one before it could skip re-running `Frame`, `LoadArg` and `StoreSlot` (fib's
-   clause 2: −2.5M, 8.3%). Worth the coupling between clauses?
+> **Decided — clause heads and function indexing** (user, 2026-10-10), the recommendation above:
+>
+> 1. **(b′), the frame failure target.** A clean clause begins `FrameHead(n, next, body)`, which
+>    sets the frame's `fail_to`, `head_end` and `head_floor`; `Frame(n)` clears `fail_to`, as do a new
+>    frame and a reused one. `fail` first asks `head_fails` (`frame.sysl`): the frame has a target,
+>    `control.len() == frame.entry`, the running chunk is the frame's and the failing instruction lies
+>    below `head_end` — then it cuts the operand stack to `head_floor` and jumps to `next`. *Clean*
+>    is `clean_head` (`compile_fn.sysl`): parameter and `where` patterns with no alternation and no
+>    computed map key, and `where` values and guards that `fails_cleanly`. `head_end` is the first
+>    guarded body, so the handler answers the parameters, the `where` values and the first guard. A
+>    guard with another after it keeps its `Mark(other)`, and the last of several guards, which lies
+>    after the first body, keeps a `Mark(next)`: its failure goes to the next clause by the
+>    ordinary path. Nothing commits, since no clause entry is pushed. `FrameHead` is profiled as
+>    `Frame`. Measured at `-O2`, best of five:
+>
+>    | program | instructions | mark share | ms |
+>    |---|---:|---:|---:|
+>    | fib(29) | 29,953,494 → 23,297,178 | 22.2% → 0 | 564 → 460 |
+>    | count(10^6, 0) | 20,000,090 → 17,000,088 | 15.0% → 0 | 367 → 348 |
+>    | foldl over 1..300000 | 11,700,095 → 10,200,093 | 12.8% → 0.0% | 211 → 202 |
+>
+> 2. **Indexing keys on the first argument some clause actually tests**, not on the first argument.
+> 3. **Index keys are `Int` and string**; every other number goes to the all-clauses chain.
+> 4. **Relations' index moves to the same argument choice.**
+> 5. **Reusing slots across clauses** (skipping `Frame`, `LoadArg` and `StoreSlot` where a failed
+>    clause bound the same names to the same slots) is a later item.
+>
+> Only 1 is built; 2–4 are one later item, 5 another.
 
 ### Leaving several marks at once
 

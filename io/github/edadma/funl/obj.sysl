@@ -150,6 +150,14 @@ struct FrameObj
     // middle of an expression cuts the stack back to.
     base: usize
 
+    // The failure target of a function clause whose head runs without a mark (`FrameHead`): where
+    // failure goes -- the next clause, or `NoMatch` -- when it happens in the head, at an address
+    // below `head_end` in this frame's chunk, while the frame has made no entry; and the operand
+    // height to cut back to when it does. `fail_to` is `NoMark` while the frame has no target.
+    fail_to: usize
+    head_end: usize
+    head_floor: usize
+
     // Whether a function value may still reach this frame through its static chain. A captured
     // frame is never reused by a tail call, which would change what the function value sees.
     captured: bool
@@ -318,6 +326,9 @@ new_frame(chunk: usize) -> Result[*FrameObj, string]
     o.up = null
     o.caller = null
     o.captured = false
+    o.fail_to = NoMark
+    o.head_end = 0
+    o.head_floor = 0
     o.args = buf()
     o.slots = buf()
     Ok(o)

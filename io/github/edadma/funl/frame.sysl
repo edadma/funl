@@ -115,6 +115,7 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
     f.chunk = target
     f.up = up
     f.cut = v.control.len()
+    f.fail_to = NoMark
 
     v.code = target
     v.ip = 0
@@ -258,12 +259,14 @@ ret_commit(v: *Vm) -> Result[unit, string]
     v.stack.push(value)
     ret(v)
 
-// Size the running frame's slots to `n`, every one `Undefined`.
+// Size the running frame's slots to `n`, every one `Undefined`, and take away its failure target: a
+// clause that runs under a mark, and every chunk that is not a function's, has none.
 size_frame(v: *Vm, n: usize) -> Result[unit, string]
     val f = v.frame
 
     if f == null then return Err("Frame with no frame running")
 
+    f.fail_to = NoMark
     f.slots.clear()
 
     for _ in 0..<n
@@ -271,6 +274,29 @@ size_frame(v: *Vm, n: usize) -> Result[unit, string]
 
     v.allocated += n * sizeof(Value)
     Ok(())
+
+// `FrameHead`, after `size_frame`: the clause's head, from here to `body`, fails to `next`. The frame
+// is running, so `size_frame` has already refused a missing one.
+head_target(v: *Vm, next: usize, body: usize)
+    val f = v.frame
+
+    f.fail_to = next
+    f.head_end = body
+    f.head_floor = v.stack.len()
+
+// Failure in a mark-free clause head: the running frame has a failure target, has made no entry, and
+// the instruction that failed -- the one before `v.ip` -- lies in the head of the clause running in
+// it. Then the head's cells go and the next clause starts, which is everything the clause's mark
+// would have done: with no entry above the frame's own, there is no trail and no saved cell to undo.
+head_fails(v: *Vm) -> bool
+    val f = v.frame
+
+    if f == null || f.fail_to == NoMark || v.control.len() != f.entry || v.code != f.chunk || v.ip > f.head_end
+        return false
+
+    v.stack.truncate(f.head_floor)
+    v.ip = f.fail_to
+    true
 
 // The frame `depth` static links up from the running one.
 frame_up(v: *Vm, depth: usize) -> Result[*FrameObj, string]

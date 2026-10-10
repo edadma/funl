@@ -92,8 +92,14 @@ enum Op
 
     // -- frames and calls (`frame.sysl`) ------------------------------------------------------------
 
-    // Size the running frame's slots to `n`, every one `Undefined`.
+    // Size the running frame's slots to `n`, every one `Undefined`, and give the frame no failure
+    // target.
     Frame(n: usize)
+
+    // `Frame(n)` for a function clause whose head runs without a mark: the frame's failure target
+    // becomes `next`, which a failure in the head -- before `body` -- reaches while the frame has made
+    // no entry of its own (`fail`). Counted as `Frame`: it is the same instruction, carrying more.
+    FrameHead(n: usize, next: usize, body: usize)
 
     // Call chunk `target` with the top `argc` values as its arguments.
     Call(target: usize, argc: usize)

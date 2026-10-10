@@ -77,8 +77,11 @@ push_choice(v: *Vm, alt: usize)
     push_entry(v, Choice, alt, floor_of(v, v.mark))
 
 // Fail: pop entries, restoring each, until one resumes. Answers false when the control stack runs
-// out, which is the whole run failing.
+// out, which is the whole run failing. A failure in a clause head that runs without a mark goes to
+// the frame's failure target first (`head_fails`), popping nothing.
 fail(v: *Vm) -> bool
+    if head_fails(v) then return true
+
     loop
         val e = v.control.pop() match
             Some(e) -> e

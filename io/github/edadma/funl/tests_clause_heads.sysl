@@ -1,0 +1,187 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Function clauses whose heads run without a mark: a clean head -- one that only tests and stores --
+// begins with `FrameHead`, and its failure reaches the frame's failure target, the next clause or
+// `NoMatch`; any other head keeps its `Mark` (`compile_fn.sysl`, `head_fails` in `frame.sysl`).
+
+// The clause-level instructions of the chunk named `name`, once `text` is compiled: how many
+// `FrameHead`s, `Frame`s, `Mark`s, `MarkThrough`s and `Unmark`s, as `heads/frames/marks/throughs/unmarks`.
+private heads_in(text: string, name: string) -> string
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+
+    val said = compiled_text(text) match
+        Ok(_) -> counted_heads(&v, name)
+        Err(e) -> s"assembly: $e"
+
+    dispose_vm(&v)
+    leave(was)
+    said
+
+private counted_heads(v: *Vm, name: string) -> string
+    for ch in v.chunks.view()
+        if ch.name == name
+            var heads: usize = 0
+            var frames: usize = 0
+            var marks: usize = 0
+            var throughs: usize = 0
+            var unmarks: usize = 0
+
+            for o in ch.code.view()
+                o match
+                    FrameHead(_, _, _) -> heads += 1
+                    Frame(_) -> frames += 1
+                    Mark(_) -> marks += 1
+                    MarkThrough -> throughs += 1
+                    Unmark -> unmarks += 1
+                    _ -> ()
+
+            return s"$heads/$frames/$marks/$throughs/$unmarks"
+
+    s"no chunk '$name'"
+
+// What a program said, which must have faulted with a message containing `want`.
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- which heads are clean ------------------------------------------------------------------------
+
+@test
+A_HEAD_OF_TESTS_AND_STORES_RUNS_WITHOUT_A_MARK()
+    val fib = "def fib( n ) | n < 2 = n\ndef fib( n ) = fib( n - 1 ) + fib( n - 2 )\n"
+
+    assert_eq(heads_in(fib, "fib"), "2/0/0/0/0")
+    assert_eq(heads_in("def f( 0, acc ) = acc\ndef f( n, acc ) = f( n - 1, acc + n )\n", "f"), "2/0/0/0/0")
+    assert_eq(heads_in("def f( x:_, (a, b), {'k': v} ) = x\ndef f( _, _, _ ) = 0\n", "f"), "2/0/0/0/0")
+    assert_eq(heads_in("def f( n ) | m < 10 = m\n  where\n    m = n * 2\ndef f( _ ) = 0\n", "f"), "2/0/0/0/0")
+
+// A guard with another after it keeps its own mark, which tries the next guard; the last of several
+// keeps one too, aimed at the next clause, since it lies after the first guarded body.
+@test
+SEVERAL_GUARDS_KEEP_A_MARK_EACH_AND_THE_CLAUSE_NONE()
+    assert_eq(heads_in("def f( a, b )\n  | a < 0 = 1\n  | b < 0 = 2\ndef f( _, _ ) = 3\n", "f"), "2/0/2/0/2")
+
+@test
+A_HEAD_THAT_UNIFIES_GENERATES_OR_ASSIGNS_KEEPS_ITS_MARK()
+    assert_eq(heads_in("def f( x ) | x ~ 3 = 1\n", "f"), "0/1/1/1/2")
+    assert_eq(heads_in("def f( x ) | x == (1 | 2) = 1\n", "f"), "0/1/1/1/2")
+    assert_eq(heads_in("var t = 0\ndef f( x ) | (t <- x) > 2 = 1\n", "f"), "0/1/1/1/2")
+    assert_eq(heads_in("def f( (x, _) | [x] ) = x\n", "f"), "0/1/1/0/1")
+    assert_eq(heads_in("def f( k, {k: v} ) = v\n", "f"), "0/1/1/1/2")
+
+// A guard calling a function that may fail keeps the mark: the callee's failure would leave its own
+// frame, not the clause head's.
+@test
+A_GUARD_CALLING_A_FUNCTION_THAT_MAY_FAIL_KEEPS_ITS_MARK()
+    val text = "def ev( 0 ) = true\ndef ev( 1 ) = fail\ndef ev( k ) = ev( k - 2 )\n" +
+        "def say( k ) | ev( k ) = #even\ndef say( _ ) = #odd\nwrite( say(4), say(7) )\n"
+
+    assert_eq(heads_in(text, "say"), "1/1/1/1/2")
+    assert_eq(ran_funl(text), "even, odd\nsucceeded")
+
+// -- failing through to the next clause -----------------------------------------------------------
+
+@test
+A_CLEAN_HEAD_FAILING_TRIES_THE_NEXT_CLAUSE()
+    val text = "def\n  f( 0 ) = #zero\n  f( [] ) = #empty\n  f( x:_ ) = x\n  f( (a, b) ) = a + b\n  f( n ) = n\n" +
+        "write( f(0), f([]), f([5, 6]), f((3, 4)), f(7) )\n"
+
+    assert_eq(ran_funl(text), "zero, empty, 5, 7, 7\nsucceeded")
+
+// `n < 0` fails inside the ordering, before any `FailIfFalse`; a chained ordering fails at either link.
+@test
+A_GUARD_FAILING_INSIDE_AN_ORDERING_TRIES_THE_NEXT_CLAUSE()
+    val text = "def sign( n ) | n < 0 = #neg\ndef sign( n ) | 0 < n < 10 = #small\n" +
+        "def sign( n ) | n == 0 = #zero\ndef sign( _ ) = #big\nwrite( sign(-3), sign(0), sign(4), sign(40) )\n"
+
+    assert_eq(ran_funl(text), "neg, zero, small, big\nsucceeded")
+
+@test
+A_WHERE_VALUE_SEEN_BY_A_FAILING_GUARD_TRIES_THE_NEXT_CLAUSE()
+    val text = "def size( n )\n  | n < limit = #small\n  where\n    limit = 10\ndef size( _ ) = #large\n" +
+        "write( size(4), size(40) )\n"
+
+    assert_eq(ran_funl(text), "small, large\nsucceeded")
+
+@test
+SEVERAL_GUARDS_FAILING_TRY_THE_NEXT_GUARD_THEN_THE_NEXT_CLAUSE()
+    val text = "def two( a, b )\n  | a < 0 = #first\n  | b < 0 = #second\ndef two( _, _ ) = #neither\n" +
+        "write( two(-1, 1), two(1, -1), two(1, 1) )\n"
+
+    assert_eq(ran_funl(text), "first, second, neither\nsucceeded")
+
+@test
+THE_LAST_CLEAN_CLAUSE_FAILING_IS_NO_MATCH()
+    faults_with("def last( 0 ) = 1\ndef last( n ) | n < 0 = 2\nwrite( last(5) )\n", "no clause of 'last' matches (5)")
+    faults_with("def only( x:_ ) = x\nwrite( only([]) )\n", "no clause of 'only' matches ([])")
+
+// -- clean and marked clauses together ------------------------------------------------------------
+
+@test
+CLEAN_AND_MARKED_CLAUSES_MIX_IN_ONE_FUNCTION()
+    val text = "def m( 0 ) = #zero\ndef m( n ) | n == (5 | 6) = #five_or_six\ndef m( n ) | n < 0 = #neg\n" +
+        "def m( x ) | x ~ 3 = #three\ndef m( _ ) = #other\nwrite( m(0), m(6), m(-2), m(3), m(9) )\n"
+
+    assert_eq(heads_in(text, "m"), "3/2/2/2/4")
+    assert_eq(ran_funl(text), "zero, five_or_six, neg, three, other\nsucceeded")
+
+// The binding a failed head made is undone for the next clause: `k` is still unbound there.
+@test
+A_HEAD_THAT_UNIFIES_AND_THEN_FAILS_UNDOES_ITS_BINDING()
+    val text = "def h( x ) | (x ~ 3) == 4 = #never\ndef h( x ) = x ~ 5\nvar k\nwrite( h(k), k )\n"
+
+    assert_eq(ran_funl(text), "5, 5\nsucceeded")
+
+@test
+A_HEAD_THAT_ASSIGNS_REVERSIBLY_AND_THEN_FAILS_UNDOES_THE_ASSIGNMENT()
+    val text = "var t = 0\ndef r( x ) | (t <- x) > 2 = t\ndef r( _ ) = t\nwrite( r(5) )\nwrite( r(1) )\n"
+
+    assert_eq(ran_funl(text), "5\n5\nsucceeded")
+
+@test
+A_HEAD_THAT_GENERATES_TRIES_EACH_VALUE_BEFORE_THE_NEXT_CLAUSE()
+    val text = "def g( x ) | x == (1 | 2 | 3) = #small\ndef g( _ ) = #large\nwrite( g(3), g(4) )\n"
+
+    assert_eq(ran_funl(text), "small, large\nsucceeded")
+
+// -- recursion, and choice points around the call -------------------------------------------------
+
+@test
+RECURSIVE_FUNCTIONS_OF_CLEAN_CLAUSES()
+    val text = "def fib( n ) | n < 2 = n\ndef fib( n ) = fib( n - 1 ) + fib( n - 2 )\n" +
+        "def count( 0, acc ) = acc\ndef count( n, acc ) = count( n - 1, acc + n )\n" +
+        "def fold( f, z, [] ) = z\ndef fold( f, z, x:xs ) = fold( f, f(z, x), xs )\n" +
+        "write( fib(15), count(1000, 0) )\n" +
+        "write( fold((a, b) -> a + b, 0, [1, 2, 3, 4]), foldl((a, b) -> a + b, 0, 1..100) )\n"
+
+    assert_eq(ran_funl(text), "610, 500500\n10, 5050\nsucceeded")
+
+// The generator's choice point stands while `p` chooses a clause: a clean head's failure goes to the
+// next clause, and the chosen body's failure goes back into the generator, not to the next clause.
+@test
+A_CLEAN_HEAD_FAILS_TO_ITS_NEXT_CLAUSE_WHILE_A_CALLERS_CHOICE_POINT_STANDS()
+    val text = "def g() = 1 | 2 | 3\ndef p( 3 ) = #three\ndef p( 1 ) = fail\ndef p( n ) = n\nevery write( p(g()) )\n"
+
+    assert_eq(ran_funl(text), "2\nthree\nsucceeded")
+
+// A chosen body that generates is resumed, and its exhaustion fails to the caller, never to the
+// clause after it.
+@test
+A_GENERATING_BODY_EXHAUSTED_FAILS_TO_THE_CALLER_NOT_THE_NEXT_CLAUSE()
+    val text = "def q( n ) | n > 0 = n | n * 10\ndef q( _ ) = #next\nevery write( q(2) )\nwrite( q(0) )\n"
+
+    assert_eq(ran_funl(text), "2\n20\nnext\nsucceeded")
+
+// A clause head failing after an earlier call in the same statement left choice points behind.
+@test
+A_CLEAN_HEAD_FAILING_AFTER_A_NESTED_CALL_LEFT_CHOICE_POINTS()
+    val text = "def g() = 1 | 2 | 3\ndef big( n ) | n > 2 = #big\ndef big( n ) = n\n" +
+        "def both( a, b ) = (a, big( b ))\nevery write( both(g(), g()) )\n"
+
+    assert_eq(ran_funl(text), "(1, 1)\n(1, 2)\n(1, big)\n(2, 1)\n(2, 2)\n(2, big)\n(3, 1)\n(3, 2)\n(3, big)\nsucceeded")
