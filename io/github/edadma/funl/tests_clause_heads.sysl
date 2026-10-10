@@ -73,7 +73,8 @@ A_HEAD_THAT_UNIFIES_GENERATES_OR_ASSIGNS_KEEPS_ITS_MARK()
     assert_eq(heads_in("def f( x ) | x == (1 | 2) = 1\n", "f"), "0/1/1/1/2")
     assert_eq(heads_in("var t = 0\ndef f( x ) | (t <- x) > 2 = 1\n", "f"), "0/1/1/1/2")
     assert_eq(heads_in("def f( (x, _) | [x] ) = x\n", "f"), "0/1/1/0/1")
-    assert_eq(heads_in("def f( k, {k: v} ) = v\n", "f"), "0/1/1/1/2")
+    // A bare name before `:` is a string key, so the computed key is the parenthesized `(k)`.
+    assert_eq(heads_in("def f( k, {(k): v} ) = v\n", "f"), "0/1/1/1/1")
 
 // A guard calling a function that may fail keeps the mark: the callee's failure would leave its own
 // frame, not the clause head's.
@@ -134,7 +135,7 @@ CLEAN_AND_MARKED_CLAUSES_MIX_IN_ONE_FUNCTION()
 // The binding a failed head made is undone for the next clause: `k` is still unbound there.
 @test
 A_HEAD_THAT_UNIFIES_AND_THEN_FAILS_UNDOES_ITS_BINDING()
-    val text = "def h( x ) | (x ~ 3) == 4 = #never\ndef h( x ) = x ~ 5\nvar k\nwrite( h(k), k )\n"
+    val text = "def h( x ) | (x ~ 3) == 4 = #never\ndef h( x ) = x ~ 5\nfree k\nwrite( h(k), k )\n"
 
     assert_eq(ran_funl(text), "5, 5\nsucceeded")
 

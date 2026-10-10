@@ -91,7 +91,7 @@ A_PROMISE_PRINTS_WHAT_IT_HAS_COME_TO_AND_IS_TESTED_WITH_IS()
 
     assert_eq(ran_funl(text),
         "<promise pending>, <promise pending>, <promise pending>\nsmall(9) failed\n5\n1 / 0 divides by zero\n" +
-        "<promise failed>, <promise 5>\n<promise faulted: broken@13: 1 / 0 divides by zero>\n<promise 5>, 5 is not a promise\nsucceeded")
+        "<promise failed>, <promise 5>\n<promise faulted: broken@11: 1 / 0 divides by zero>\n<promise 5>, 5 is not a promise\nsucceeded")
 
 // `await` is bounded: failure after it passes back over it, so what was awaited is asked for once.
 // The choice points made before it are still live in the machine that comes back.

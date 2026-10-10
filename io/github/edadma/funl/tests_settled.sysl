@@ -67,18 +67,19 @@ private counted_bounds(v: *Vm, name: string) -> string
 
     s"no chunk '$name'"
 
-// A function's clause has one mark of its own, around its head; every other is a statement's.
+// A function's clause with no parameters or guards has a clean head and so no mark of its own
+// (`tests_clause_heads.sysl`); every mark counted here is a statement's.
 @test
 AN_ASSIGNMENT_OF_ARITHMETIC_ON_LOCALS_RUNS_WITHOUT_A_MARK()
-    assert_eq(marks_in("def f()\n  var x = 0\n  x = x + 1\n  x += 2\n  x++\n  val y = x * 2\n  y\n", "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def f()\n  var x = 0\n  x = x + 1\n  x += 2\n  x++\n  val y = x * 2\n  y\n", "f"), "0 marks, 0 unmarks")
 
 @test
 A_STATEMENT_THAT_MAY_FAIL_OR_GENERATE_KEEPS_ITS_MARK()
-    assert_eq(marks_in("def f()\n  var x = 0\n  x = (1 | 2)\n  x\n", "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def f()\n  var x = 0\n  x < 3\n  x\n", "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g() = 1 | 2\ndef f()\n  val x = g()\n  x\n", "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def f()\n  var x = 0\n  x <- 3\n  x\n", "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def f()\n  var x = 0\n  x = 6 div 3\n  x\n", "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def f()\n  var x = 0\n  x = (1 | 2)\n  x\n", "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def f()\n  var x = 0\n  x < 3\n  x\n", "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g() = 1 | 2\ndef f()\n  val x = g()\n  x\n", "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def f()\n  var x = 0\n  x <- 3\n  x\n", "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def f()\n  var x = 0\n  x = 6 div 3\n  x\n", "f"), "1 marks, 1 unmarks")
 
 @test
 A_FAILING_STATEMENT_OF_EVERY_KIND_STILL_MOVES_ON_TO_THE_NEXT()
@@ -148,7 +149,7 @@ private const SettledFunctions: string = "def double( x ) = x * 2\n" +
 
 @test
 A_CALL_OF_A_FUNCTION_THAT_SETTLES_RUNS_WITHOUT_A_MARK()
-    assert_eq(marks_in(SettledFunctions, "run"), "1 marks, 1 unmarks")
+    assert_eq(marks_in(SettledFunctions, "run"), "0 marks, 0 unmarks")
     // The top level's two are the `catch` statement's: its own mark and the one `catch` makes.
     assert_eq(marks_in(SettledFunctions, "main"), "2 marks, 2 unmarks")
     assert_eq(marks_in("def r() = 2\n\nr()\n", "main"), "0 marks, 0 unmarks")
@@ -160,20 +161,20 @@ A_CALL_OF_A_FUNCTION_THAT_MAY_FAIL_OR_GENERATE_KEEPS_ITS_MARK()
 
     // A comparison, a generator, an `if` with no `else`, `return`, `yield`, a call of one that may
     // fail, a call of a value, recursion and mutual recursion that reach `fail`, `async`, `<-`.
-    assert_eq(marks_in("def g( x ) = x < 3" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( x ) = x | x + 1" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( x ) = if x > 0 then x" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( x )\n  return x\n  x" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( x )\n  yield x\n  x" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def k( x ) = x < 3\ndef g( x ) = k( x ) + 0" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( x ) = x( 1 )" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( n ) = if n == 0 then fail else g( n - 1 )" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( n ) = if n == 0 then fail else h( n - 1 )\ndef h( n ) = if n == 0 then 0 else g( n - 1 )" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("async def g( x ) = x" + caller, "f"), "2 marks, 2 unmarks")
-    assert_eq(marks_in("def g( x ) = (x <- 2)" + caller, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in("def g( x ) = x < 3" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( x ) = x | x + 1" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( x ) = if x > 0 then x" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( x )\n  return x\n  x" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( x )\n  yield x\n  x" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def k( x ) = x < 3\ndef g( x ) = k( x ) + 0" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( x ) = x( 1 )" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( n ) = if n == 0 then fail else g( n - 1 )" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( n ) = if n == 0 then fail else h( n - 1 )\ndef h( n ) = if n == 0 then 0 else g( n - 1 )" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("async def g( x ) = x" + caller, "f"), "1 marks, 1 unmarks")
+    assert_eq(marks_in("def g( x ) = (x <- 2)" + caller, "f"), "1 marks, 1 unmarks")
 
     // A function that settles, reached through a value, is a call of a value.
-    assert_eq(marks_in("def g( x ) = x * 2\ndef f()\n  val h = g\n  val y = h( 3 )\n  y\n", "f"), "3 marks, 3 unmarks")
+    assert_eq(marks_in("def g( x ) = x * 2\ndef f()\n  val h = g\n  val y = h( 3 )\n  y\n", "f"), "2 marks, 2 unmarks")
 
 @test
 A_FAILING_CALL_STILL_MOVES_ON_AND_A_GENERATING_ONE_STILL_GENERATES()
@@ -219,7 +220,7 @@ A_FUNCTION_ANOTHER_MODULE_DEFINES_IS_NOT_TAKEN_TO_SETTLE()
     val m = put(d, "twice.funl", "export def double( x ) = x * 2\n")
     val text = s"import { double } from \"$m\"\n" + "def f()\n  val y = double( 3 )\n  y\n\nwrite( f() )\n"
 
-    assert_eq(marks_in(text, "f"), "2 marks, 2 unmarks")
+    assert_eq(marks_in(text, "f"), "1 marks, 1 unmarks")
     assert_eq(ran_funl(text), "6\nsucceeded")
 
 @test
