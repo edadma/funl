@@ -253,9 +253,9 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Frame(n) ->
             size_frame(v, n)?
             Ok(Next)
-        FrameHead(n, next, body) ->
+        FrameHead(n, next, body, resume) ->
             size_frame(v, n)?
-            head_target(v, next, body)
+            head_target(v, next, body, resume)
             Ok(Next)
         Call(target, argc) ->
             call(v, target, argc)?

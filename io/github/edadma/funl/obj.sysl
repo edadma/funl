@@ -154,9 +154,12 @@ struct FrameObj
     // failure goes -- the next clause, or `NoMatch` -- when it happens in the head, at an address
     // below `head_end` in this frame's chunk, while the frame has made no entry; and the operand
     // height to cut back to when it does. `fail_to` is `NoMark` while the frame has no target.
+    // `resume`, unless `NoMark`, is where such a failure resumes the next clause past the slots this
+    // head already bound for it (`FrameHead`'s `resume`).
     fail_to: usize
     head_end: usize
     head_floor: usize
+    resume: usize
 
     // Whether a function value may still reach this frame through its static chain. A captured
     // frame is never reused by a tail call, which would change what the function value sees.
@@ -329,6 +332,7 @@ new_frame(chunk: usize) -> Result[*FrameObj, string]
     o.fail_to = NoMark
     o.head_end = 0
     o.head_floor = 0
+    o.resume = NoMark
     o.args = buf()
     o.slots = buf()
     Ok(o)

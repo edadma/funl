@@ -99,7 +99,12 @@ enum Op
     // `Frame(n)` for a function clause whose head runs without a mark: the frame's failure target
     // becomes `next`, which a failure in the head -- before `body` -- reaches while the frame has made
     // no entry of its own (`fail`). Counted as `Frame`: it is the same instruction, carrying more.
-    FrameHead(n: usize, next: usize, body: usize)
+    //
+    // `resume`, unless it is `NoMark`, is where that failure goes instead of `next`: the clause at
+    // `next` begins with a `FrameHead` and binds the same slots first, to what this head bound before
+    // anything in it could fail, so the failure takes that `FrameHead`'s size and targets and resumes
+    // the next head after its shared prefix (`reuse_slots`, `head_fails`).
+    FrameHead(n: usize, next: usize, body: usize, resume: usize)
 
     // Call chunk `target` with the top `argc` values as its arguments.
     Call(target: usize, argc: usize)

@@ -1,0 +1,144 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.slices.contains
+
+// Reusing a failed clause's slots in the next clause.
+//
+// **A clean head that fails goes to the next clause, which often begins by binding the same slots
+// to the same arguments**: fib's two clauses both start `LoadArg(0); StoreSlot(0)`, and the first
+// fails at its guard after binding `n`. Where the next clause also begins with a `FrameHead`, the
+// failing head's `FrameHead` gets a `resume` past that shared prefix, and `head_fails` takes the next
+// `FrameHead`'s size and targets itself instead of running it, `LoadArg` and `StoreSlot` again:
+//
+//     c1:   FrameHead(1, c2, b1, r2); LoadArg(0); StoreSlot(0); <n < 2>; FailIfFalse
+//     b1:   ...
+//     c2:   FrameHead(1, NoMatch, b2, NoMark); LoadArg(0); StoreSlot(0)
+//     r2:   <body>
+//
+// **It is sound only where nothing tells the two apart.** The prefix is a run of `LoadArg`,
+// `StoreSlot` and `Pop` that is the same in both heads and leaves the operand stack as it found it,
+// so it has run, in full, before anything in the failing head could fail, and the failure has cut
+// the stack back to where it began. The failing head writes no slot but the prefix's, so every other
+// slot is still the `Undefined` its `FrameHead` left, which is what the next `FrameHead` would make.
+// And `head_fails` answers only a failure with no entry above the frame, so no choice point of a
+// call made in the head, and no `yield` of the frame, can see the slots change. A failure that goes
+// by a mark -- an unclean head, or the last of several guards -- restores and runs the next clause
+// from its start, as before.
+//
+// **An index stub is a `FrameHead` and a `Branch` into its clause's head**, so a stub fails to the
+// next stub of its chain, or to a clause as written, and takes the prefix it shares with that one.
+
+// Give every clean head's `FrameHead` in `e`, a function's chunk with every label placed, the
+// `resume` its failure may take.
+reuse_slots(e: *Emit)
+    for p in 0..<e.code.len()
+        e.code.at(p) match
+            FrameHead(n, next, body, resume) ->
+                if resume == NoMark
+                    val r = resume_at(e, p, next, body)
+
+                    if r != NoMark
+                        val l = e.label()
+
+                        e.labels.set(l, r)
+                        e.code.set(p, FrameHead(n, next, body, l))
+            _ -> ()
+
+// Where a failure of the head whose `FrameHead` is at `p` may resume the clause at label `next`, or
+// `NoMark` where it must run that clause from its start.
+private resume_at(e: *Emit, p: usize, next: usize, body: usize) -> usize
+    val t = e.labels.at(next)
+
+    val until = e.code.at(t) match
+        FrameHead(_, _, b, _) -> e.labels.at(b)
+        _ -> return NoMark
+
+    val a = head_start(e, p)
+    val end = e.labels.at(body)
+    val b = head_start(e, t)
+    val k = shared_prefix(e, a, end, b, until)
+
+    if k == 0 || !writes_only_prefix(e, a, end, k) then return NoMark
+
+    b + k
+
+// Where the head of the `FrameHead` at `p` begins: after it, or, for an index stub, where its
+// `Branch` goes. A clause's own head with parameters begins with `LoadArg`, never a `Branch`.
+private head_start(e: *Emit, p: usize) -> usize
+    if p + 1 < e.code.len()
+        e.code.at(p + 1) match
+            Branch(h) -> return e.labels.at(h)
+            _ -> ()
+
+    p + 1
+
+// The length of the longest run of `LoadArg`, `StoreSlot` and `Pop` that heads `[a, end)` and
+// `[b, until)` both begin with and that leaves the operand stack as it found it.
+private shared_prefix(e: *Emit, a: usize, end: usize, b: usize, until: usize) -> usize
+    var depth: usize = 0
+    var best: usize = 0
+    var i: usize = 0
+
+    while a + i < end && b + i < until
+        val x = e.code.at(a + i)
+        val y = e.code.at(b + i)
+
+        val same = x match
+            LoadArg(j) ->
+                y match
+                    LoadArg(k) -> j == k
+                    _ -> false
+            StoreSlot(s) ->
+                y match
+                    StoreSlot(t) -> depth > 0 && s == t
+                    _ -> false
+            Pop ->
+                y match
+                    Pop -> depth > 0
+                    _ -> false
+            _ -> false
+
+        if !same then return best
+
+        x match
+            LoadArg(_) -> depth += 1
+            _ -> depth -= 1
+
+        i += 1
+
+        if depth == 0 then best = i
+
+    best
+
+// Whether the head `[a, end)` writes no slot past its first `k` instructions that those do not.
+private writes_only_prefix(e: *Emit, a: usize, end: usize, k: usize) -> bool
+    var kept: Buf[usize] = buf()
+
+    for i in a..<a + k
+        e.code.at(i) match
+            StoreSlot(s) -> kept.push(s)
+            _ -> ()
+
+    for i in a + k..<end
+        val w = written_slot(e.code.at(i))
+
+        if w != NoMark && !contains(kept.view(), w) then return false
+
+    true
+
+// The slot an instruction writes, of whichever frame, or `NoMark` for none.
+private written_slot(o: Op) -> usize
+    o match
+        StoreSlot(s) -> s
+        NewVar(s) -> s
+        GetVar(s, _) -> s
+        GetValue(s, _) -> s
+        SaveMark(s) -> s
+        SaveHeight(s) -> s
+        StoreUp(_, s) -> s
+        Update(_, s, _) -> s
+        StoreBack(_, s) -> s
+        Collect(s) -> s
+        InPlace(_, s, _) -> s
+        _ -> NoMark

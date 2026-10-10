@@ -80,7 +80,10 @@ finish(e: Emit) -> Result[usize, string]
 private resolved(e: Emit, o: Op) -> Result[Op, string]
     o match
         Mark(l) -> Ok(Mark(target(e, l)?))
-        FrameHead(n, next, body) -> Ok(FrameHead(n, target(e, next)?, target(e, body)?))
+        FrameHead(n, next, body, resume) ->
+            val r = if resume == NoMark then NoMark else target(e, resume)?
+
+            Ok(FrameHead(n, target(e, next)?, target(e, body)?, r))
         Choice(l) -> Ok(Choice(target(e, l)?))
         Branch(l) -> Ok(Branch(target(e, l)?))
         ChangeMark(l) -> Ok(ChangeMark(target(e, l)?))

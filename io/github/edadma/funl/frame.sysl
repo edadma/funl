@@ -277,17 +277,24 @@ size_frame(v: *Vm, n: usize) -> Result[unit, string]
 
 // `FrameHead`, after `size_frame`: the clause's head, from here to `body`, fails to `next`. The frame
 // is running, so `size_frame` has already refused a missing one.
-head_target(v: *Vm, next: usize, body: usize)
+head_target(v: *Vm, next: usize, body: usize, resume: usize)
     val f = v.frame
 
     f.fail_to = next
     f.head_end = body
     f.head_floor = v.stack.len()
+    f.resume = resume
 
 // Failure in a mark-free clause head: the running frame has a failure target, has made no entry, and
 // the instruction that failed -- the one before `v.ip` -- lies in the head of the clause running in
 // it. Then the head's cells go and the next clause starts, which is everything the clause's mark
 // would have done: with no entry above the frame's own, there is no trail and no saved cell to undo.
+//
+// **Where the head has a `resume`, the next clause's `FrameHead` and its shared prefix are not run
+// again** (`reuse_slots`): the failure takes that `FrameHead`'s size and targets itself and resumes
+// the next head after the slots this one already bound. Every other slot is still `Undefined`, since
+// this head wrote none but those, so sizing the frame to the next clause's count leaves it exactly as
+// `FrameHead` and the prefix would have.
 head_fails(v: *Vm) -> bool
     val f = v.frame
 
@@ -295,6 +302,25 @@ head_fails(v: *Vm) -> bool
         return false
 
     v.stack.truncate(f.head_floor)
+
+    if f.resume != NoMark
+        v.chunks.at(v.code).code.at(f.fail_to) match
+            FrameHead(n, next, body, resume) ->
+                if f.slots.len() > n
+                    f.slots.truncate(n)
+                else
+                    v.allocated += (n - f.slots.len()) * sizeof(Value)
+
+                    while f.slots.len() < n
+                        f.slots.push(Undefined)
+
+                v.ip = f.resume
+                f.fail_to = next
+                f.head_end = body
+                f.resume = resume
+                return true
+            _ -> ()
+
     v.ip = f.fail_to
     true
 

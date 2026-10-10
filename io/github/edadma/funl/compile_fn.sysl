@@ -22,6 +22,9 @@ import sysl.buf.{Buf, buf}
 //     b1:   <body>; Return
 //     c2:   ...
 //
+// Where `c2` begins by binding the same slots `c1` bound before it could fail, `c1`'s failure resumes
+// `c2` past them (`reuse_slots`, `clause_slots.sysl`).
+//
 // **A body expression's values are returned with `Return`**, which leaves its choice points
 // resumable: a function whose body generates is a generator. `return e` is `ReturnCommit`, which
 // keeps only the first.
@@ -77,7 +80,7 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
         e.place(starts.at(i))
 
         if h.clean
-            e.op(FrameHead(h.slots, next, h.body))
+            e.op(FrameHead(h.slots, next, h.body, NoMark))
         else
             e.op(Mark(next))
             e.op(Frame(h.slots))
@@ -92,6 +95,7 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
 
     e.place(starts.at(r.clauses.len()))
     e.op(NoMatch)
+    reuse_slots(&e)
     install(e, r.chunk)
 end compile_function
 

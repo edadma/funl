@@ -40,7 +40,7 @@ private index_shape(v: *Vm, name: string) -> string
                 o match
                     SwitchClause(arg, _, _, n) -> switch = s"SwitchClause($arg)/$n"
                     SwitchArg(arg, _, _, n) -> switch = s"SwitchArg($arg)/$n"
-                    FrameHead(_, next, _) ->
+                    FrameHead(_, next, _, _) ->
                         heads += 1
 
                         if no_match_at(ch.code, next) then nomatch += 1

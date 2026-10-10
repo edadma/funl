@@ -223,7 +223,7 @@ private stub_chain(e: *Emit, heads: Buf[ClauseHead], starts: Buf[usize], which: 
             e.label()
 
         if h.clean
-            e.op(FrameHead(h.slots, next, h.body))
+            e.op(FrameHead(h.slots, next, h.body, NoMark))
         else
             e.op(Mark(next))
             e.op(Frame(h.slots))

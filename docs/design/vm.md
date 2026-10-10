@@ -305,9 +305,9 @@ structure. Instruction counts are not time: each step is measured by wall clock 
 > 3. **Index keys are `Int` and string**; every other number goes to the all-clauses chain.
 > 4. **Relations' index moves to the same argument choice.**
 > 5. **Reusing slots across clauses** (skipping `Frame`, `LoadArg` and `StoreSlot` where a failed
->    clause bound the same names to the same slots) is a later item.
+>    clause bound the same names to the same slots).
 >
-> 1–4 are built; 5 is a later item. **2–4 as built** (`clause_index.sysl`, `index.sysl`): "tests" is
+> 1–5 are built. **2–4 as built** (`clause_index.sysl`, `index.sysl`): "tests" is
 > anything but a fresh name or `_` (a repeated name is a test), and the index is built only when some
 > clause *keys* that first tested argument -- so no clause is ever skipped past a look at an earlier
 > argument, and an unbound argument faults exactly where it did. A function's `SwitchClause(arg,
@@ -327,6 +327,28 @@ structure. Instruction counts are not time: each step is measured by wall clock 
 > | fib(29) | 29,953,494 → 23,297,178 → 23,297,178 | 476 → 489 (noise; no index) |
 > | count(10^6, 0) | 20,000,090 → 17,000,088 → 13,000,089 (−35.0%) | 341 → 249 |
 > | foldl over 1..300000 | 11,700,095 → 10,200,093 → 8,100,095 (−30.8%) | 195 → 189 |
+>
+> **5 as built** (`clause_slots.sysl`, `head_fails`): `FrameHead(n, next, body, resume)`. After a
+> function's clauses are emitted, each clean head's `FrameHead` -- a clause's own or an index stub's
+> -- whose `next` also begins with a `FrameHead` gets a `resume`: the address in that next head past
+> the longest run of `LoadArg`, `StoreSlot` and `Pop` the two heads begin with alike and that leaves
+> the operand stack as it found it, provided the failing head writes no slot outside that run. A
+> head failure (`head_fails`: a target, no entry above the frame, the failing address in the head)
+> with a `resume` takes the next `FrameHead`'s slot count, `next`, `body` and `resume` itself, sizes
+> the slots to that count and jumps to `resume`. *Sound* because the shared run cannot fail, so it
+> ran in full before any failure; the failure cut the stack back to the head's floor, which is where
+> the run began; every slot outside it is still the `Undefined` the failing `FrameHead` left; and
+> with no entry above the frame no choice point or `yield` can observe the difference. A failure by
+> a mark -- an unclean head, a guard with another after it, the last of several guards -- restores
+> and runs the next clause from its start as before, and a clean head before an unclean clause has
+> no `resume`. No instruction is added; `FrameHead` carries one word more and the frame one field.
+> Measured at `-O2`, best of five, before → after:
+>
+> | program | instructions | ms |
+> |---|---:|---:|
+> | fib(29) | 23,297,178 → 20,801,061 (−10.7%) | 493 → 459 |
+> | count(10^6, 0) | 13,000,089 → 13,000,089 (index: no failed attempt) | 251 → 258 (noise) |
+> | foldl over 1..300000 | 8,100,095 → 8,100,095 (index: no failed attempt) | 192 → 192 |
 
 ### Leaving several marks at once
 
