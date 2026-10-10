@@ -23,7 +23,7 @@ package {
   // makers assign their container fields, as containers are reference types from alpha.3 on. The
   // floor moves only when something here genuinely needs a newer compiler, never to track the
   // newest release.
-  sysl = "0.1.0-alpha.5"
+  sysl = "0.1.0-alpha.7"
 }
 
 workspace = ["funl", "prolog"]

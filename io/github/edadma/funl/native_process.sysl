@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 import sysl.env.{get, vars}
-import sysl.fs.{IoError, NotFound, PermissionDenied}
+import sysl.fs.{IoError, NotFound, NotPermitted, PermissionDenied}
 import sysl.process.{Exited, Output, Signalled, TimedOut, Var, capture}
 
 // `funl:process`: this program's arguments and environment, ending it with a status, and running
@@ -175,7 +175,7 @@ private ran(a: Asked, name: string) -> Result[Option[Output], Fault]
 private start_fault(e: IoError, name: string, program: string) -> Fault
     val msg = s"'$name' cannot start `$program`: ${e.message()}"
 
-    if e == PermissionDenied
+    if e == PermissionDenied || e == NotPermitted
         new_str(program) match
             Ok(p) -> return permission_error("execute", "source_sink", p, msg)
             Err(m) -> return Broken(m)
