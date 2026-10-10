@@ -31,8 +31,14 @@ import sysl.buf.{Buf, buf}
 // values.
 
 // Compile every clause of function `r` into its reserved chunk.
+//
+// **A function whose clauses test an argument by a key is indexed** (`clause_index.sysl`): a
+// `SwitchClause` before the clauses jumps by that argument's key to the clauses that could take it,
+// so the others are never attempted. Clause `i` begins at `starts.at(i)`; its head, after its
+// `FrameHead` or `Mark; Frame`, at `afters.at(i)`; `starts.at(n)` is the `NoMatch`.
 compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
     var e = emit_function(r.name, r.arity)
+    var heads: Buf[ClauseHead] = buf()
 
     e.is_async = is_async_rel(r)
 
@@ -41,30 +47,50 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
         val sid = r.scopes.at(i)
         var loops: Buf[Looping] = buf()
         val c = context(res, sid, &loops)
-        val next = e.label()
-        var seen = unseen(res.scopes.at(sid).count())
 
         val b = cl.kind match
             FunctionC(b) -> b
             _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
 
-        val clean = clean_head(c, cl.params, b)
-        val body = e.label()
+        heads.push(clause_head(&e, c, cl.params, res.scopes.at(sid).count(), clean_head(c, cl.params, b)))
 
-        if clean
-            e.op(FrameHead(res.scopes.at(sid).count(), next, body))
+    var starts: Buf[usize] = buf()
+
+    for _ in 0..<r.clauses.len() + 1
+        starts.push(e.label())
+
+    clause_index(&e, heads, starts)
+
+    for i in 0..<r.clauses.len()
+        val cl = r.clauses.at(i)
+        val sid = r.scopes.at(i)
+        var loops: Buf[Looping] = buf()
+        val c = context(res, sid, &loops)
+        val h = heads.at(i)
+        val next = starts.at(i + 1)
+        var seen = unseen(h.slots)
+
+        val b = cl.kind match
+            FunctionC(b) -> b
+            _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
+
+        e.place(starts.at(i))
+
+        if h.clean
+            e.op(FrameHead(h.slots, next, h.body))
         else
             e.op(Mark(next))
-            e.op(Frame(res.scopes.at(sid).count()))
+            e.op(Frame(h.slots))
+
+        e.place(h.after)
 
         for j in 0..<cl.params.len()
             e.op(LoadArg(j))
             pattern(&e, c, cl.params.at(j), &seen, j)?
 
-        clause_body(&e, c, b, clean, next, body)?
+        clause_body(&e, c, b, h.clean, next, h.body)?
 
-        e.place(next)
-
+    e.place(starts.at(r.clauses.len()))
     e.op(NoMatch)
     install(e, r.chunk)
 end compile_function

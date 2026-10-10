@@ -1,0 +1,235 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// Indexing a function's clauses by the key of one argument.
+//
+// **The argument is the first that some clause's pattern tests**, not the first argument: foldl's
+// clauses take `f` and `z` by name and test the list, so the list is the one keyed. Testing is
+// anything but storing a fresh name or `_`. Since no clause tests an earlier argument, skipping a
+// clause never skips a fault an earlier test of it would have raised. The index is built only when
+// some clause keys that argument -- an `Int`, a string, an atom or nullary constructor, a
+// constructor's functor and arity, `[]` or `h:t` (`pattern_head_key`); any other test, a tuple or a
+// float for one, is in every key's chain.
+//
+//     SwitchClause(2, c1, c3, 2); Case([], k1); Case(h:t, c2)
+//     k1:   FrameHead(n, c3, b1); Branch(h1)       -- clause 1, failing to clause 3
+//     c1:   FrameHead(n, c2, b1)
+//     h1:   LoadArg(0); ...                        -- clause 1's head
+//     c2:   FrameHead(n, c3, b2)
+//     ...
+//     c4:   NoMatch
+//
+// **An unbound argument, or a value no pattern keys, takes every clause in order** -- the clauses as
+// written, from the first. Patterns compare by `==`, so `def g(0)` takes `0.0` and `0/1`: a float, a
+// rational and a big integer have no key (`pattern_key`), and an unbound variable reaches the first
+// clause that looks inside it, which faults as it always did.
+//
+// **A key's chain is the clauses that key it or test it by no key, in order.** Where that is the
+// clauses from one on to the last, the case jumps straight to it, and each clause's failure goes to
+// the next as written: a clause between that keys another value fails at its test. Otherwise the
+// chain is a stub per clause that starts the clause's frame aimed at the next clause *in the chain*
+// -- or at `NoMatch` after the last -- and branches into the clause after its own `FrameHead` or
+// `Frame`. So a key with one candidate clause runs it with no mark when its head is clean, and its
+// failure is `NoMatch` with nothing tried after it.
+
+// What compiling a function's clauses needs of each head before any is emitted: its slot count,
+// whether it is clean (`clean_head`), the labels of its head after its frame instruction and of its
+// first guarded body, and per parameter whether its pattern tests the argument and by which key.
+struct ClauseHead
+    slots: usize
+    clean: bool
+    after: usize
+    body: usize
+    tests: Buf[bool]
+    keys: Buf[Option[Key]]
+
+// The head of a clause with these parameters.
+clause_head(e: *Emit, c: Ctx, params: Buf[&Expr], slots: usize, clean: bool) -> ClauseHead
+    var tests: Buf[bool] = buf()
+    var keys: Buf[Option[Key]] = buf()
+    var names: Buf[string] = buf()
+
+    for p in params.view()
+        tests.push(pattern_tests(c, p, names))
+        keys.push(pattern_head_key(c, p))
+        simple_names(p, &names)
+
+    ClauseHead(slots, clean, e.label(), e.label(), tests, keys)
+
+// Whether pattern `p` tests its argument, given the names earlier parameters stored: anything but a
+// fresh name or `_`. A name stored before is a test of equality.
+private pattern_tests(c: Ctx, p: &Expr, names: Buf[string]) -> bool = p.kind match
+    Ref(n) -> nullary(c.meaning(n, p.span.start)).is_some() || holds_name(names, n)
+    Anon -> false
+    AsE(n, x) -> holds_name(names, n) || pattern_tests(c, x, names)
+    _ -> true
+
+// The names a parameter that tests nothing stores. A parameter that tests is not looked into: the
+// index is on it or on one before it.
+private simple_names(p: &Expr, names: *Buf[string])
+    p.kind match
+        Ref(n) -> names.push(n)
+        AsE(n, x) ->
+            names.push(n)
+            simple_names(x, names)
+        _ -> ()
+
+private holds_name(names: Buf[string], n: string) -> bool
+    for x in names.view()
+        if x == n then return true
+
+    false
+
+// What a function's parameter pattern is keyed by in the clause index, or `None` for one in every
+// key's chain. The key is what the pattern's first test accepts: a constant `==` to the argument, a
+// compound of that functor and arity, an empty or non-empty list.
+private pattern_head_key(c: Ctx, p: &Expr) -> Option[Key] = p.kind match
+    Ref(n) -> nullary(c.meaning(n, p.span.start)) match
+        Some(functor) -> Some(KAtom(functor))
+        None -> None
+    AtomE(n) -> Some(KAtom(intern(n)))
+    IntE(n) -> Some(KInt(n))
+    StrE(s) -> Some(KStr(s))
+    BoolE(b) -> Some(KAtom(if b then TrueAtom else FalseAtom))
+    CallE(n, at, args) ->
+        val functor = c.meaning(n, at.start) match
+            Constructor(id) -> current().ctors.at(id).functor
+            _ -> intern(n)
+
+        Some(KFunctor(functor, args.len()))
+    ApplyE(f, args) -> pattern_functor(qualified_callee(c, f)) match
+        Ok(functor) -> Some(KFunctor(functor, args.len()))
+        Err(_) -> None
+    FieldE(x, name) -> pattern_functor(qualified_in(c, x, name)) match
+        Ok(functor) -> Some(KAtom(functor))
+        Err(_) -> None
+    ListE(items) -> Some(if items.len() == 0 then KNil else KCons)
+    ConsE(_, _) -> Some(KCons)
+    AsE(_, x) -> pattern_head_key(c, x)
+    _ -> None
+
+// The argument a function of these clause heads is indexed on, or `None` for no index: the first
+// some clause tests, provided there are two clauses or more and some clause keys it.
+function_index_arg(heads: Buf[ClauseHead]) -> Option[usize]
+    if heads.len() < 2 then return None
+
+    val n = heads.at(0).tests.len()
+
+    for h in heads.view()
+        if h.tests.len() != n then return None
+
+    for j in 0..<n
+        var tested = false
+
+        for h in heads.view()
+            if h.tests.at(j) then tested = true
+
+        if tested
+            return if worth_indexing(keys_at(heads, j)) then Some(j) else None
+
+    None
+
+private keys_at(heads: Buf[ClauseHead], arg: usize) -> Buf[Option[Key]]
+    var keys: Buf[Option[Key]] = buf()
+
+    for h in heads.view()
+        keys.push(h.keys.at(arg))
+
+    keys
+
+// Emit a function's clause index, if it has one, before its clauses: clause `i` begins at
+// `starts.at(i)`, and `starts.at(heads.len())` is the `NoMatch`.
+clause_index(e: *Emit, heads: Buf[ClauseHead], starts: Buf[usize])
+    val arg = function_index_arg(heads) match
+        Some(a) -> a
+        None -> return
+
+    val keys = keys_at(heads, arg)
+    val distinct = distinct_keys(keys)
+    var stubs: Buf[usize] = buf()
+    var chains: Buf[Buf[usize]] = buf()
+    var open: Buf[usize] = buf()
+
+    for i in 0..<keys.len()
+        keys.at(i) match
+            None -> open.push(i)
+            Some(_) -> ()
+
+    val other = chain_target(e, starts, open, &stubs, &chains)
+    var targets: Buf[usize] = buf()
+
+    for k in distinct.view()
+        var these: Buf[usize] = buf()
+
+        for i in 0..<keys.len()
+            val takes = keys.at(i) match
+                None -> true
+                Some(x) -> same_key(x, k)
+
+            if takes then these.push(i)
+
+        targets.push(chain_target(e, starts, these, &stubs, &chains))
+
+    e.op(SwitchClause(arg, starts.at(0), other, distinct.len()))
+
+    for j in 0..<distinct.len()
+        e.op(Case(distinct.at(j), targets.at(j)))
+
+    for s in 0..<stubs.len()
+        e.place(stubs.at(s))
+        stub_chain(e, heads, starts, chains.at(s))
+end clause_index
+
+// Where a chain of clauses `which` begins: `NoMatch` for none, the first clause itself where the
+// chain is every clause from it on, and otherwise a stub chain, noted to be emitted.
+private chain_target(e: *Emit, starts: Buf[usize], which: Buf[usize], stubs: *Buf[usize], chains: *Buf[Buf[usize]]) -> usize
+    val n = starts.len() - 1
+
+    if which.len() == 0 then return starts.at(n)
+
+    if suffix_from(which, 0, n) then return starts.at(which.at(0))
+
+    val l = e.label()
+
+    stubs.push(l)
+    chains.push(which)
+    l
+
+// Whether `which` from position `k` on is every clause from `which.at(k)` to the last of `n`.
+private suffix_from(which: Buf[usize], k: usize, n: usize) -> bool
+    if which.at(k) + (which.len() - k) != n then return false
+
+    for m in k..<which.len()
+        if which.at(m) != which.at(k) + (m - k) then return false
+
+    true
+
+// The stubs of chain `which`: each clause's frame instruction, aimed at the next clause of the chain,
+// and a branch into its head; once the rest of the chain is every clause to the last, it is reached
+// as written.
+private stub_chain(e: *Emit, heads: Buf[ClauseHead], starts: Buf[usize], which: Buf[usize])
+    val n = heads.len()
+
+    for k in 0..<which.len()
+        val h = heads.at(which.at(k))
+        val done = k + 1 == which.len() || suffix_from(which, k + 1, n)
+
+        val next = if k + 1 == which.len()
+            starts.at(n)
+        elif done
+            starts.at(which.at(k + 1))
+        else
+            e.label()
+
+        if h.clean
+            e.op(FrameHead(h.slots, next, h.body))
+        else
+            e.op(Mark(next))
+            e.op(Frame(h.slots))
+
+        e.op(Branch(h.after))
+
+        if done then return
+
+        e.place(next)

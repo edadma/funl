@@ -1,0 +1,215 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.Buf
+import sysl.text.Search
+
+// Clause indexing (`clause_index.sysl`, `index.sysl`): a function, and a relation, switch on the first
+// argument some clause tests, to the clauses that could take its key. A function keys `Int`s,
+// strings, atoms, constructors, `[]` and `h:t`; every other number, and an unbound argument, takes
+// every clause in order.
+
+// The index of the chunk named `name`, once `text` -- FunL, or Prolog when `prolog` -- is compiled, as
+// `switch frameheads/frames/marks/branches/to_nomatch`: the switch is `SwitchClause(arg)`,
+// `SwitchArg(arg)` or `none`, and `to_nomatch` counts the `FrameHead`s and `Mark`s aimed straight at
+// `NoMatch`.
+private index_in(text: string, name: string, prolog: bool) -> string
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val compiled = if prolog then prolog_text(text) else compiled_text(text)
+
+    val said = compiled match
+        Ok(_) -> index_shape(&v, name)
+        Err(e) -> s"assembly: $e"
+
+    dispose_vm(&v)
+    leave(was)
+    said
+
+private index_shape(v: *Vm, name: string) -> string
+    for ch in v.chunks.view()
+        if ch.name == name
+            var switch = "none"
+            var heads: usize = 0
+            var frames: usize = 0
+            var marks: usize = 0
+            var branches: usize = 0
+            var nomatch: usize = 0
+
+            for o in ch.code.view()
+                o match
+                    SwitchClause(arg, _, _, n) -> switch = s"SwitchClause($arg)/$n"
+                    SwitchArg(arg, _, _, n) -> switch = s"SwitchArg($arg)/$n"
+                    FrameHead(_, next, _) ->
+                        heads += 1
+
+                        if no_match_at(ch.code, next) then nomatch += 1
+                    Frame(_) -> frames += 1
+                    Mark(to) ->
+                        marks += 1
+
+                        if no_match_at(ch.code, to) then nomatch += 1
+                    Branch(_) -> branches += 1
+                    _ -> ()
+
+            return s"$switch $heads/$frames/$marks/$branches/$nomatch"
+
+    s"no chunk '$name'"
+
+private no_match_at(code: Buf[Op], at: usize) -> bool
+    if at >= code.len() then return false
+
+    code.at(at) match
+        NoMatch -> true
+        _ -> false
+
+// What a program said, which must have faulted with a message containing `want`.
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- the keys ------------------------------------------------------------------------------------
+
+@test
+EACH_KEY_SHAPE_REACHES_ITS_CLAUSE()
+    val text = "def g( 0 ) = #zero\ndef g( \"a\" ) = #str\ndef g( [] ) = #nil\ndef g( x:_ ) = x\n" +
+        "def g( #k ) = #atom\ndef g( _ ) = #other\n" +
+        "write( g(0), g(\"a\"), g([]), g([7]), g(#k), g(5), g(\"b\"), g(1..3), g(1..0), g((1, 2)) )\n"
+
+    assert_eq(ran_funl(text), "zero, str, nil, 7, atom, other, other, 1, nil, other\nsucceeded")
+    // Each key's chain is its clause and the open `g( _ )`: a stub aimed past the clauses between, but
+    // for `#k`, whose clause is next to it and is reached as written.
+    assert_eq(index_in(text, "g", false), "SwitchClause(0)/5 10/0/0/4/1")
+
+@test
+A_CONSTRUCTOR_KEYS_BY_ITS_FUNCTOR_AND_A_BOOLEAN_AS_ITS_ATOM()
+    val text = "data circle(r)\ndata square(s)\ndef area( circle(r) ) = 3 * r * r\ndef area( square(s) ) = s * s\n" +
+        "def area( true ) = #yes\ndef area( _ ) = #none\n" +
+        "write( area(square(4)), area(circle(1)), area(true), area(false), area(7) )\n"
+
+    assert_eq(ran_funl(text), "16, 3, yes, none, none\nsucceeded")
+    assert_eq(index_in(text, "area", false), "SwitchClause(0)/3 6/0/0/2/1")
+
+// -- numbers compare by `==` ----------------------------------------------------------------------
+
+// `def g(0)` takes every number `==` to 0, so a float, a rational and a big integer take every clause
+// in order rather than a key's chain.
+@test
+A_NUMBER_EQUAL_TO_A_KEYED_INT_STILL_TAKES_ITS_CLAUSE()
+    val text = "def g( 0 ) = #zero\ndef g( _ ) = #other\n" +
+        "write( g(0), g(0.0), g(1/1 - 1), g(2^100 - 2^100), g(0.5), g(-0.0) )\n" +
+        "def k( 1 ) = #one\ndef k( 2 ) = #two\nwrite( k(2.0), k(4/2), k(10^30 / 10^30), k(1) )\n"
+
+    assert_eq(ran_funl(text), "zero, zero, zero, zero, other, zero\ntwo, two, one, one\nsucceeded")
+    assert_eq(index_in(text, "g", false), "SwitchClause(0)/1 2/0/0/0/1")
+
+// -- which argument -------------------------------------------------------------------------------
+
+// foldl's shape: `f` and `z` are taken by name in every clause, so the list is the argument keyed. A
+// list goes straight to `x:xs`, skipping `[]`; `[]` runs clause 1 aimed at clause 3.
+@test
+THE_FIRST_TESTED_ARGUMENT_IS_KEYED_NOT_THE_FIRST()
+    val text = "def fl( f, z, [] ) = z\ndef fl( f, z, x:xs ) = fl( f, f(z, x), xs )\n" +
+        "def fl( f, z, xs ) | xs == #stop = z\n" +
+        "write( fl((a, b) -> a + b, 0, [1, 2, 3]), fl((a, b) -> a + b, 0, 1..4), fl((a, b) -> a + b, 9, #stop) )\n"
+
+    assert_eq(ran_funl(text), "6, 10, 9\nsucceeded")
+    assert_eq(index_in(text, "fl", false), "SwitchClause(2)/2 4/0/0/1/1")
+
+@test
+NO_TESTED_ARGUMENT_OR_NO_KEY_IS_NO_INDEX()
+    val fib = "def fib( n ) | n < 2 = n\ndef fib( n ) = fib( n - 1 ) + fib( n - 2 )\nwrite( fib(10) )\n"
+
+    assert_eq(index_in(fib, "fib", false), "none 2/0/0/0/1")
+    // The first argument tested is tested by a tuple and a float, which key nothing; the list after it
+    // is not keyed instead, since skipping clause 1 on the list could skip its look at the tuple.
+    val t = "def h( (a, b), [] ) = a\ndef h( 1.5, x:_ ) = x\ndef h( _, _ ) = 0\nwrite( h((1, 2), []), h(1.5, [4]) )\n"
+
+    assert_eq(ran_funl(t), "1, 4\nsucceeded")
+    assert_eq(index_in(t, "h", false), "none 3/0/0/0/1")
+
+// -- chains ---------------------------------------------------------------------------------------
+
+// A candidate that fails tries the next candidate of its chain: `f(0, -1)` fails clause 1's guard,
+// then clause 2's, and takes clause 4, never trying clause 3, which keys 1.
+@test
+A_FAILING_CANDIDATE_FALLS_THROUGH_ITS_CHAIN()
+    val text = "def f( 0, y ) | y > 0 = #zpos\ndef f( x, _ ) | x > 10 = #big\ndef f( 1, _ ) = #one\ndef f( _, _ ) = #rest\n" +
+        "write( f(0, 1), f(0, -1), f(1, 0), f(50, 0), f(5, 0), f(0.0, 1), f(1.0, 0) )\n"
+
+    assert_eq(ran_funl(text), "zpos, rest, one, big, rest, zpos, one\nsucceeded")
+    // The chain of 0 is clauses 1, 2 and 4: two stubs, the second aimed at clause 4 as written. The
+    // chain of 1 is clauses 2 to 4, entered as written; no key's is clauses 2 and 4, one more stub.
+    assert_eq(index_in(text, "f", false), "SwitchClause(0)/2 7/0/0/3/1")
+
+// A key with one candidate runs it with no mark, and its failure is `NoMatch`: nothing after it is
+// tried. A key no clause has is `NoMatch` at once.
+@test
+A_SINGLE_CANDIDATE_RUNS_ALONE_AND_FAILS_TO_NO_MATCH()
+    val text = "def t( 1, y ) | y > 0 = #pos\ndef t( 2, _ ) = #two\ndef t( 3, _ ) = #three\n" +
+        "write( t(1, 1), t(2, 0), t(3, 0) )\n"
+
+    assert_eq(ran_funl(text), "pos, two, three\nsucceeded")
+    // Stubs for 1 and 2, each aimed at `NoMatch`; 3 is the last clause, reached as written, whose own
+    // failure is `NoMatch` too.
+    assert_eq(index_in(text, "t", false), "SwitchClause(0)/3 5/0/0/2/3")
+    faults_with(text + "write( t(1, -1) )\n", "no clause of 't' matches (1, -1)")
+    faults_with(text + "write( t(4, 0) )\n", "no clause of 't' matches (4, 0)")
+    faults_with(text + "write( t(\"x\", 0) )\n", "no clause of 't' matches (x, 0)")
+
+// A head that unifies keeps its mark, and its stub is that mark aimed at the next candidate; a body
+// that generates still generates through the index.
+@test
+UNCLEAN_AND_GENERATING_CLAUSES_MIX_WITH_THE_INDEX()
+    val text = "def u( 0, y ) | y ~ 3 = #three\ndef u( 1, _ ) = #one\ndef u( 0, _ ) = #zero\ndef u( _, _ ) = #any\n" +
+        "free w\nwrite( u(0, 3), u(0, 4), u(1, 9), u(5, 0), u(0, w), w )\n"
+
+    assert_eq(ran_funl(text), "three, zero, one, any, three, 3\nsucceeded")
+    assert_eq(index_in(text, "u", false), "SwitchClause(0)/2 4/2/2/2/1")
+
+    val gen = "def gen( 0 ) = 1 | 2\ndef gen( #a ) = 3 | 4\ndef gen( n ) = n\n" +
+        "every write( gen(0) )\nevery write( gen(#a) )\nevery write( gen(9) )\n"
+
+    assert_eq(ran_funl(gen), "1\n2\n3\n4\n9\nsucceeded")
+    assert_eq(index_in(gen, "gen", false), "SwitchClause(0)/2 4/0/0/1/1")
+
+// -- unbound arguments ------------------------------------------------------------------------------
+
+// An unbound argument takes every clause in order, so the first that looks inside it faults.
+@test
+AN_UNBOUND_ARGUMENT_FAULTS_AS_IT_DID()
+    faults_with("def g( 0 ) = 1\ndef g( _ ) = 2\nfree v\nwrite( g(v) )\n",
+        "`g` was given an unbound variable as argument 1")
+    faults_with("def fl( f, z, [] ) = z\ndef fl( f, z, x:xs ) = fl( f, f(z, x), xs )\nfree v\nwrite( fl((a, b) -> a + b, 0, v) )\n",
+        "`fl` was given an unbound variable as argument 3")
+    // A clause before it that takes it by name still runs first, and the next clause still faults.
+    val named = "def g( _, y ) | y > 5 = y\ndef g( 0, _ ) = 1\ndef g( 1, _ ) = 3\nfree v\n"
+
+    assert_eq(ran_funl(named + "write( g(v, 7) )\n"), "7\nsucceeded")
+    faults_with(named + "write( g(v, 2) )\n", "`g` was given an unbound variable as argument 1")
+
+// -- relations and Prolog ---------------------------------------------------------------------------
+
+// A relation is indexed on the first argument some head tests; an unbound argument there backtracks
+// through every clause, and a key through its own.
+@test
+A_RELATION_IS_INDEXED_ON_THE_FIRST_TESTED_ARGUMENT()
+    val text = "def edge( _, #a, 1 )\ndef edge( _, #b, 2 )\ndef edge( _, #a, 3 )\nfree k\nfree n\n" +
+        "every edge( 0, k, n ) do write( k, n )\nevery edge( 0, #a, n ) do write( n )\n" +
+        "every edge( 0, #b, n ) do write( n )\nevery edge( 0, #c, n ) do write( n )\nwrite( #done )\n"
+
+    assert_eq(ran_funl(text), "a, 1\nb, 2\na, 3\n1\n3\n2\ndone\nsucceeded")
+    assert_eq(index_in(text, "edge", false), "SwitchArg(1)/2 0/3/0/6/0")
+
+// A Prolog predicate is indexed on its first argument, as before.
+@test
+A_PROLOG_PREDICATE_KEEPS_ITS_FIRST_ARGUMENT_INDEX()
+    val text = "p(_, a, 1).\np(_, b, 2).\np(_, a, 3).\nq(a, 1).\nq(b, 2).\n" +
+        ":- forall(p(0, K, N), (write(K-N), nl)).\n:- forall(p(0, a, N), (write(N), nl)).\n" +
+        ":- forall(q(K, N), (write(K-N), nl)).\n:- (q(b, N) -> write(N) ; write(no)), nl.\n"
+
+    assert_eq(ran_prolog(text), "a-1\nb-2\na-3\n1\n3\na-1\nb-2\n2\nsucceeded")
+    assert_eq(index_in(text, pred_key("p", 3), true), "none 0/3/0/0/0")
+    assert_eq(index_in(text, pred_key("q", 2), true), "SwitchArg(0)/2 0/2/0/4/0")

@@ -422,12 +422,17 @@ enum Op
     // list or range is split. Either way the tail and then the head are pushed, the head on top.
     GetCons(src: Src)
 
-    // A relation's first-argument index. The first argument, dereferenced: unbound goes to
-    // `unbound`; otherwise the `cases` `Case` instructions that follow are searched for its key, and
-    // one that is not there goes to `other`.
-    SwitchFirst(unbound: usize, other: usize, cases: usize)
+    // A relation's argument index, on argument `arg`, dereferenced: unbound goes to `unbound`;
+    // otherwise the `cases` `Case` instructions that follow are searched for its key (`value_key`),
+    // and one that is not there goes to `other`.
+    SwitchArg(arg: usize, unbound: usize, other: usize, cases: usize)
 
-    // One key of the `SwitchFirst` before it, and where a first argument with that key goes.
+    // A function's clause index, on argument `arg`, dereferenced: unbound, or a value no pattern is
+    // keyed by (`pattern_key`), goes to `every`, the clauses in order; otherwise the `cases` `Case`
+    // instructions that follow are searched for its key, and one that is not there goes to `other`.
+    SwitchClause(arg: usize, every: usize, other: usize, cases: usize)
+
+    // One key of the `SwitchArg` or `SwitchClause` before it, and where an argument with that key goes.
     Case(key: Key, to: usize)
 
     // A function's parameter pattern is about to look inside argument `param`: an unbound variable
@@ -515,11 +520,13 @@ enum Op
     NoArity
 end Op
 
-// What a first argument is keyed by in a relation's index. A head argument of any other kind, and
-// a variable, is in every key's list.
+// What an argument is keyed by in a relation's or a function's index. A head argument of any other
+// kind, and a variable, is in every key's list. A string is keyed only in a function's index, where
+// patterns compare by `==`.
 enum Key
     KAtom(id: u32)
     KInt(n: long)
+    KStr(s: string)
     KFunctor(functor: u32, n: usize)
     KNil
     KCons

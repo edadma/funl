@@ -585,10 +585,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             Ok(Next)
         GetNil(src) -> Ok(fails_if(get_nil(v, src)?))
         GetCons(src) -> Ok(fails_if(get_cons(v, src)?))
-        SwitchFirst(unbound, other, cases) ->
-            switch_first(v, unbound, other, cases)?
+        SwitchArg(arg, unbound, other, cases) ->
+            switch_arg(v, arg, unbound, other, other, cases, false)?
             Ok(Next)
-        Case(_, _) -> Err(Broken("a `Case` was run as an instruction rather than searched by its `SwitchFirst`"))
+        SwitchClause(arg, every, other, cases) ->
+            switch_arg(v, arg, every, every, other, cases, true)?
+            Ok(Next)
+        Case(_, _) -> Err(Broken("a `Case` was run as an instruction rather than searched by its switch"))
         Instantiated(param) ->
             instantiated(v, param)?
             Ok(Next)

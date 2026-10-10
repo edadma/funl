@@ -307,7 +307,26 @@ structure. Instruction counts are not time: each step is measured by wall clock 
 > 5. **Reusing slots across clauses** (skipping `Frame`, `LoadArg` and `StoreSlot` where a failed
 >    clause bound the same names to the same slots) is a later item.
 >
-> Only 1 is built; 2–4 are one later item, 5 another.
+> 1–4 are built; 5 is a later item. **2–4 as built** (`clause_index.sysl`, `index.sysl`): "tests" is
+> anything but a fresh name or `_` (a repeated name is a test), and the index is built only when some
+> clause *keys* that first tested argument -- so no clause is ever skipped past a look at an earlier
+> argument, and an unbound argument faults exactly where it did. A function's `SwitchClause(arg,
+> every, other, n)` keys `Int`, string, atom (a nullary constructor, `true`/`false`), constructor
+> functor and arity, `[]` and `h:t`, a range as the list it is; tuples and other numbers are in every
+> chain, and an unbound or unkeyed argument jumps to the first clause as written. A key's chain that
+> is every clause from one on to the last is entered as written; any other is a stub per clause --
+> its `FrameHead` (or `Mark; Frame`) aimed at the next clause of the chain, or at `NoMatch` after the
+> last, and a `Branch` into its head -- so a single candidate runs with no mark when clean and fails
+> straight to `NoMatch`. The last of several guards keeps its `Mark` aimed at the next clause as
+> written, whose keyed head then fails at its test. Relations' `SwitchArg(arg, ...)` takes the first
+> argument some head has anything but a variable in; a Prolog predicate stays on its first argument.
+> Measured at `-O2`, best of five, original → (b′) → (b′) + index:
+>
+> | program | instructions | ms |
+> |---|---:|---:|
+> | fib(29) | 29,953,494 → 23,297,178 → 23,297,178 | 476 → 489 (noise; no index) |
+> | count(10^6, 0) | 20,000,090 → 17,000,088 → 13,000,089 (−35.0%) | 341 → 249 |
+> | foldl over 1..300000 | 11,700,095 → 10,200,093 → 8,100,095 (−30.8%) | 195 → 189 |
 
 ### Leaving several marks at once
 

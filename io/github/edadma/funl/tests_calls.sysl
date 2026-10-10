@@ -289,14 +289,16 @@ A_RECURSIVE_RELATION_OVER_A_LONG_LIST_RUNS_IN_CONSTANT_CONTROL_STACK()
     // hundred thousand calls add none.
     assert_eq(long.control_peak, 3, "the control stack's peak")
 
-// The index is what makes it so: walking the list as the second argument, which nothing keys, leaves
-// a choice point at every element for the empty-list clause that was not tried.
+// The index is on the first argument some head tests, so walking the list as the second argument,
+// after an accumulator every clause takes by name, is indexed the same way and leaves no choice point.
 @test
-THE_SAME_RECURSION_WITHOUT_AN_INDEX_GROWS_ITS_CONTROL_STACK()
-    val said = walked(1000, false)
+THE_SAME_RECURSION_ON_THE_SECOND_ARGUMENT_IS_INDEXED_TOO()
+    val short = walked(1000, false)
+    val long = walked(100000, false)
 
-    assert_eq(said.text, "1000\nsucceeded")
-    assert(said.control_peak > 1000, s"the control stack reached only ${said.control_peak} entries")
+    assert_eq(short.text, "1000\nsucceeded")
+    assert_eq(long.text, "100000\nsucceeded")
+    assert_eq(long.control_peak, 3, "the control stack's peak")
 
 // The same walk on both heaps, short enough for the stress heap.
 @test

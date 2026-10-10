@@ -231,6 +231,9 @@ When the first argument is bound, the relation jumps straight to the clauses who
 argument could match it, keyed by atom, number or functor. A call that can match only one clause
 then leaves no choice point at all — so `parent(#liam, c)` is a generator over two clauses rather
 than a walk of twelve, and a recursive relation over a list runs in constant control-stack space.
+The index is on the first argument some clause's head tests, which is the first argument only where
+some head says something there (`vm.md` § "Clause-head marks", decisions 2–4): `len(a, [], a)` /
+`len(a, _:t, n)` is indexed on the list. A Prolog predicate is indexed on its first argument.
 
 ## Calling across the line
 

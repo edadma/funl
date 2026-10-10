@@ -14,8 +14,9 @@ import sysl.path.{join, parent}
 //     Frame(n); <head>; NewVar for each body variable; <body in tail position>
 //     c2: ...
 //
-// A relation whose first head arguments say something is reached through its first-argument index
-// instead (`index.sysl`), whose chains make the choice points, and its clauses carry none.
+// A relation whose head arguments say something is reached through its index instead, on the first
+// argument some head tests (`index.sysl`), whose chains make the choice points, and its clauses carry
+// none.
 //
 // **The head is unified, not matched** (`logic.md` § "Head unification is two-way"): a variable's
 // first occurrence is `GetVar`, a later one `GetValue`, a constant `GetConst` and a term
@@ -301,9 +302,13 @@ private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
 
     // An indexed relation reaches its clauses through the index's chains, which make the choice
     // points; otherwise each clause but the last is an alternative of its own.
-    val index = indexed(r.clauses)
+    val on = relation_index_arg(r.clauses)
 
-    if index then first_arg_index(&e, clause_keys(r.clauses), starts)
+    val index = on match
+        Some(arg) ->
+            arg_index(&e, arg, clause_keys(r.clauses, arg), starts)
+            true
+        None -> false
 
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)

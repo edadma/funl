@@ -2,23 +2,26 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 
-// First-argument indexing, and the check that names a function given an unbound variable.
+// Argument indexing, and the check that names a function given an unbound variable.
 //
 // **Indexing is about determinism as much as speed** (`logic.md` § "Head unification is two-way").
-// A relation whose clauses' first head arguments say something -- an atom, an integer, a term's
-// functor, `[]` or `h:t` -- begins with a `SwitchFirst` over those keys. Each key leads to a chain of
-// exactly the clauses that could take a first argument with that key: its own and those whose first
-// argument is a variable. A chain of one clause is a `Branch`, with no choice point, so a call that
-// can match one clause leaves nothing behind, and a recursion down a list runs in constant control
-// stack space:
+// A relation whose clauses' head arguments say something -- an atom, an integer, a term's functor,
+// `[]` or `h:t` -- begins with a `SwitchArg` over those keys, on the first argument some clause's head
+// tests (`relation_index_arg`). Each key leads to a chain of exactly the clauses that could take an
+// argument with that key: its own and those whose argument there is a variable. A chain of one clause
+// is a `Branch`, with no choice point, so a call that can match one clause leaves nothing behind, and
+// a recursion down a list runs in constant control stack space:
 //
-//     SwitchFirst(all, rest, 2); Case([], k1); Case(h:t, k2)
+//     SwitchArg(0, all, rest, 2); Case([], k1); Case(h:t, k2)
 //     all:  Choice(a2); Branch(c1); a2: Branch(c2)       -- unbound: every clause
 //     rest: Fail                                         -- bound, and no clause's key
 //     k1:   Branch(c1)
 //     k2:   Branch(c2)
 //     c1:   Frame(n); <head>; <body>
 //     c2:   ...
+//
+// A Prolog predicate is indexed on its first argument (`first_arg_index`). A function's clauses are
+// indexed by `SwitchClause` (`compile_fn.sysl`), keyed by `pattern_key`.
 
 // What a head argument is keyed by, or `None` for one that is in every chain: a variable, `_`, and a
 // string, which is not keyed.
@@ -30,20 +33,38 @@ clause_key(p: &Expr) -> Option[Key] = p.kind match
     ConsE(_, _) -> Some(KCons)
     _ -> None
 
-// Whether a relation of these clauses is worth an index: more than one clause, and a first
-// argument some clause keys.
-indexed(clauses: Buf[Clause]) -> bool
+// The argument a relation of these clauses is indexed on, or `None` for no index: the first argument
+// some clause's head tests -- has anything there but a variable or `_` -- provided there are two
+// clauses or more and some clause keys it. A function's index chooses its argument by the same rule
+// (`compile_fn.sysl`).
+relation_index_arg(clauses: Buf[Clause]) -> Option[usize]
+    if clauses.len() < 2 then return None
+
+    val n = clauses.at(0).params.len()
+
     for cl in clauses.view()
-        if cl.params.len() == 0 then return false
+        if cl.params.len() != n then return None
 
-    worth_indexing(clause_keys(clauses))
+    for j in 0..<n
+        var tested = false
 
-// The key of each clause's first head argument.
-clause_keys(clauses: Buf[Clause]) -> Buf[Option[Key]]
+        for cl in clauses.view()
+            cl.params.at(j).kind match
+                Ref(_) -> ()
+                Anon -> ()
+                _ -> tested = true
+
+        if tested
+            return if worth_indexing(clause_keys(clauses, j)) then Some(j) else None
+
+    None
+
+// The key of each clause's head argument `arg`.
+clause_keys(clauses: Buf[Clause], arg: usize) -> Buf[Option[Key]]
     var keys: Buf[Option[Key]] = buf()
 
     for cl in clauses.view()
-        keys.push(clause_key(cl.params.at(0)))
+        keys.push(clause_key(cl.params.at(arg)))
 
     keys
 
@@ -59,9 +80,11 @@ worth_indexing(keys: Buf[Option[Key]]) -> bool
 
     false
 
-// Emit the index of clauses whose first arguments have `keys`, the code of clause `i` beginning at
-// label `starts.at(i)`.
-first_arg_index(e: *Emit, keys: Buf[Option[Key]], starts: Buf[usize])
+// Emit the index of a Prolog predicate's clauses, whose first arguments have `keys`.
+first_arg_index(e: *Emit, keys: Buf[Option[Key]], starts: Buf[usize]) = arg_index(e, 0, keys, starts)
+
+// The distinct keys among `keys`, in the order they first appear.
+distinct_keys(keys: Buf[Option[Key]]) -> Buf[Key]
     var distinct: Buf[Key] = buf()
 
     for k in keys.view()
@@ -69,6 +92,12 @@ first_arg_index(e: *Emit, keys: Buf[Option[Key]], starts: Buf[usize])
             Some(x) -> if !holds_key(distinct, x) then distinct.push(x)
             None -> ()
 
+    distinct
+
+// Emit the index of clauses whose arguments `arg` have `keys`, the code of clause `i` beginning at
+// label `starts.at(i)`.
+arg_index(e: *Emit, arg: usize, keys: Buf[Option[Key]], starts: Buf[usize])
+    val distinct = distinct_keys(keys)
     val unbound = e.label()
     val other = e.label()
     var targets: Buf[usize] = buf()
@@ -76,7 +105,7 @@ first_arg_index(e: *Emit, keys: Buf[Option[Key]], starts: Buf[usize])
     for _ in 0..<distinct.len()
         targets.push(e.label())
 
-    e.op(SwitchFirst(unbound, other, distinct.len()))
+    e.op(SwitchArg(arg, unbound, other, distinct.len()))
 
     for j in 0..<distinct.len()
         e.op(Case(distinct.at(j), targets.at(j)))
@@ -108,7 +137,7 @@ first_arg_index(e: *Emit, keys: Buf[Option[Key]], starts: Buf[usize])
 
         e.place(targets.at(j))
         chain(e, starts, these)
-end first_arg_index
+end arg_index
 
 // Try the clauses `which`, in order: a `Choice` before each but the last. No clause is `Fail`, and
 // one is a plain `Branch`, leaving no choice point.
@@ -140,6 +169,9 @@ same_key(a: Key, b: Key) -> bool = a match
     KInt(n) -> b match
         KInt(m) -> n == m
         _ -> false
+    KStr(s) -> b match
+        KStr(t) -> s == t
+        _ -> false
     KFunctor(f, n) -> b match
         KFunctor(g, m) -> f == g && n == m
         _ -> false
@@ -160,13 +192,29 @@ value_key(x: Value) -> Option[Key] = x match
     Range(r) -> Some(if range_empty(r) then KNil else KCons)
     _ -> None
 
-// `SwitchFirst`: jump by the running frame's first argument.
-switch_first(v: *Vm, unbound: usize, other: usize, cases: usize) -> Result[unit, string]
+// The key of a bound argument as a function's patterns see it, or `None` for a value no pattern is
+// keyed by, which every clause must be tried on. Patterns compare by `==`, so `Int` and string key,
+// and every other number -- a float, a rational, a big integer -- has none, since `def g(0)` takes
+// `0.0` and `0/1`. A range keys as the list it is.
+pattern_key(x: Value) -> Option[Key] = x match
+    Atom(i) -> Some(KAtom(i))
+    Int(n) -> Some(KInt(n))
+    Str(p) -> Some(KStr(p.s))
+    Compound(c) -> Some(KFunctor(c.functor, c.args.len()))
+    Nil -> Some(KNil)
+    Cons(_) -> Some(KCons)
+    Range(r) -> Some(if range_empty(r) then KNil else KCons)
+    _ -> None
+
+// `SwitchArg` and `SwitchClause`: jump by the running frame's argument `arg`. Unbound goes to
+// `unbound`; a value with no key (`value_key`, or `pattern_key` for a function's `patterns`) to
+// `unkeyed`; a key no `Case` holds to `other`.
+switch_arg(v: *Vm, arg: usize, unbound: usize, unkeyed: usize, other: usize, cases: usize, patterns: bool) -> Result[unit, string]
     val args = v.frame.args
 
-    if args.len() == 0 then return Err("`SwitchFirst` in a call with no arguments")
+    if arg >= args.len() then return Err(s"a switch on argument ${arg + 1} in a call with ${args.len()}")
 
-    val x = deref(args.at(0))
+    val x = deref(args.at(arg))
 
     x match
         Var(_) ->
@@ -174,10 +222,12 @@ switch_first(v: *Vm, unbound: usize, other: usize, cases: usize) -> Result[unit,
             return Ok(())
         _ -> ()
 
-    val key = value_key(x) match
+    val keyed = if patterns then pattern_key(x) else value_key(x)
+
+    val key = keyed match
         Some(k) -> k
         None ->
-            v.ip = other
+            v.ip = unkeyed
             return Ok(())
 
     val code = v.chunks.at(v.code).code
@@ -189,11 +239,11 @@ switch_first(v: *Vm, unbound: usize, other: usize, cases: usize) -> Result[unit,
                 if same_key(k, key)
                     v.ip = to
                     return Ok(())
-            _ -> return Err("`SwitchFirst` is not followed by its `Case` instructions")
+            _ -> return Err("a switch is not followed by its `Case` instructions")
 
     v.ip = other
     Ok(())
-end switch_first
+end switch_arg
 
 // `Instantiated(param)`: a function's pattern is about to look inside argument `param`, on top.
 //
