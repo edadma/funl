@@ -170,6 +170,128 @@ its condition fails the loop fails, which the enclosing statement absorbs.
 > or compares or computes on operands that do — runs as `c; FailIfFalse; Pop`: its failure is its
 > context's anyway, and the next entry failure reaches undoes everything its mark would have.
 
+### Clause-head marks (proposed, not decided)
+
+**After the statement-mark elision, the marks left in function-heavy code are clause-head marks.** A
+function of clauses compiles (`compile_fn.sysl:31-52`) to:
+
+```
+c1:  Mark(c2); Frame(n); LoadArg(0); <pattern>; ...       :39, :40, :43-44
+     MarkThrough; <where>; UnmarkKeep; <match_fresh>       :61-64, per `where` value
+     Mark(g2) | MarkThrough; <guard>; FailIfFalse; Unmark  :74-77, the last guard MarkThrough
+     Unmark; <body in tail position>                       :80-81, the commit
+c2:  Mark(c3); Frame(n); ...                               the last clause's mark aims at NoMatch
+     NoMatch                                               :52
+```
+
+A pattern pops the argument and fails or faults (`:201-299`): a constant is `PushConst; TestEq`
+(`equal_to`, `:359`), structure is `MatchCons`/`MatchNil`/`MatchTuple`/`MatchCompound`/`MatchMap`, a
+name is `StoreSlot` (a repeat is `TestEq`), and every look inside an argument is preceded by
+`Instantiated(param)` (`:340`, `index.sysl:203`), which faults on an unbound variable. An ordering
+fails inside its own `Arith`, so `FailIfFalse` runs only when the guard answered. Failure anywhere in
+the head reaches `Mark(next)` (`run.sysl:178` → `control.sysl:70`), whose restore (`control.sysl:96`)
+truncates the operand stack, undoes the trail and puts the frame back; `NoMatch` (`run.sysl:380` →
+`frame.sysl:199`) is the `existence_error(matching_clause, ...)` fault. Relations (`:-`) do not take
+this path: they are `Choice` per clause behind `first_arg_index` (`compile_def.sysl:304-316`,
+`index.sysl:64`), and Prolog predicates the same (`pl_compile.sysl:116`). `f/(n+1)` calls the
+function's own chunk and unifies the value in the caller (`compile_expr.sysl:578`).
+
+**Measured** (`--features profile`, `-O2`): `fib(29)` by `def fib(n) | n < 2 = n` / `def fib(n) =
+fib(n - 1) + fib(n - 2)`; `count(1000000, 0)` by `count(0, acc) = acc` / `count(n, acc) = count(n - 1,
+acc + n)`; the prelude's three-clause `foldl` with `(a, b) -> a + b` over `1..300000`.
+
+| program | instructions | `Mark` | `MarkThrough` | `Unmark` | share |
+|---|---:|---:|---:|---:|---:|
+| fib(29) | 29,953,494 | 2,496,118 | 1,664,079 | 2,496,119 | 22.2% |
+| count | 20,000,090 | 2,000,001 | — | 1,000,001 | 15.0% |
+| foldl | 11,700,095 | 900,002 | — | 600,002 | 12.8% |
+
+Every one is a clause's: fib pays 1.5 clause marks a call (clause 1's guard fails on 832,039 of
+1,664,079 calls) and a guard `MarkThrough` per clause-1 attempt; count tries clause 1 and fails on
+every call but the last; foldl tries `[]` and fails on every element, and the one-clause lambda pays a
+mark of its own. A failed attempt also re-runs `Frame`, `LoadArg` and its tests: 3 to 9 instructions.
+
+**(a) First-argument indexing.** A `SwitchFirst` before the clauses, as relations have, jumps by the
+argument's key to the candidate clauses; one candidate whose head cannot fail needs no mark. *Removes*
+the failed attempts outright, not only their marks: count drops clause 1's six instructions and clause
+2's two, for one `SwitchFirst` — **−7.0M (35%)**. fib keys nothing (both heads are `n`): **0**. foldl's
+first argument is `f` in every clause: **0**; keyed on its first *discriminating* argument (the third)
+it skips the `[]` attempt, **−2.4M (20.5%)**, but clause 2 keeps its mark because clause 3 (`xs`,
+guarded) is a candidate for every list. *Costs* a switch per call, and a second key function:
+`value_key` (`index.sysl:154`) is unification's, keying `Int` only, while patterns compare by `==`, and
+`g(0.0)` and `g(1/1 - 1)` both take a `def g(0)` clause — numbers must key by `==` (or go to the
+all-clauses chain), and strings, which `==` compares, become keyable. *Soundness*: an unbound first
+argument goes to the chain of every clause in order (today's code), so a clause that takes it by a
+variable still runs first and the first clause that looks inside still faults — functions never
+try clauses on a variable (`Instantiated`), unlike relations, which keep their own index.
+
+**(b) Mark-free heads by jumps.** A clause whose head is *clean* — patterns, `where` values and guards
+that cannot bind, trail or leave an entry — gets no mark, and each test that can fail jumps to the
+next clause instead. *Removes* every clause `Mark`, clause `Unmark`, guard `MarkThrough`/`Mark` and
+guard `Unmark` of a clean clause: fib **−6.66M (22.2%)**, count **−3.0M (15.0%)**, foldl **−1.5M
+(12.8%)** (clause 3 keeps its mark: `_nonlist` is a prelude function, never taken to settle). *Costs*:
+a jump-carrying twin of every instruction that can fail in a clean head — `TestEq`, the five `Match`
+instructions, `FailIfFalse` and, because fib's guard fails inside `<`, the orderings — plus a reset of
+the operand stack to the frame's base at each clause start, since a failed `MatchCons` leaves its
+tail behind.
+
+**(b′) Mark-free heads by a frame handler** — the variant judged better. A clean clause's `Frame`
+carries the next clause and the end of its head, `Frame(n, next, body)`, and stores both in the frame;
+`fail` (`control.sysl:81`), before popping anything, checks whether `control.len() == frame.entry`
+and the failing address lies in the running frame's head — if so it truncates the stack to
+`frame.base` and jumps to `next`. No instruction is added and none is twinned: every failing
+instruction keeps answering `Fails` (`run.sysl:111`), so the removal is (b)'s exactly, and the body
+needs no commit because its addresses are outside the head's range. A clause that is not clean keeps
+today's `Mark(next)` and a `Frame(n)` that clears the handler, so clean and marked clauses mix in one
+function. A guard but the last keeps its `Mark(other)`: that entry fails the `control.len()` test, so
+its failure takes the ordinary path to the next guard, and the handler answers only the last guard's.
+*Costs* two words a frame and one test on the failure path, which today pops and restores a whole
+entry instead.
+
+**Soundness, for (b) and (b′) alike — what "clean" must exclude:**
+
+- **Bindings.** A function head never binds: a variable pattern stores the argument, a look inside
+  faults on an unbound one (a rule calling `g(y)` gets `instantiation error: 'g' was given an unbound
+  variable`). A unifying `where` value or guard would bind, and it is *conditional trailing* that
+  forbids dropping the mark there: the mark is the entry whose fresh stamp makes the caller's
+  variables old enough to trail, so without it a binding made with an empty control stack is never
+  recorded and cannot be undone for the next clause.
+- **`<-`, generators, alternation.** A guard or `where` value qualifies only as `fails_cleanly` /
+  `settles` decides (`settled.sysl:87`, `:146`); a guard with `<-`, a generator, a relation call or a
+  call through a value keeps the mark. A disjunctive pattern pushes a `Choice` (`compile_fn.sysl:277`)
+  and a computed map key a `MarkThrough` (`:332`): those clauses keep it too. Output written by a
+  guard is not undone by a mark today either.
+- **Clauses that generate.** Only the head changes; the body runs after the commit point as now, with
+  no clause entry beneath its choice points, and its exhaustion fails to the caller.
+- **`yield`, `return`, tail calls.** All in the body. A tail call reusing the frame runs the callee's
+  `Frame`, which sets or clears the handler.
+- **Relations and Prolog** do not share the path; `f/(n+1)` gets whatever its function gets.
+
+| | fib(29) | count | foldl |
+|---|---:|---:|---:|
+| (a) first argument | 0 | −35.0% | 0 |
+| (a) first discriminating argument | 0 | −35.0% | −20.5% |
+| (b) or (b′) | −22.2% | −15.0% | −12.8% |
+| (b′) + (a) discriminating | −22.2% | −35.0% | −30.8% |
+
+**Recommendation (proposed): (b′) first, then (a) by the first discriminating argument as its own
+item.** (b′) is the only option that reaches guard dispatch — FunL's commonest shape, fib's — and the
+one-clause lambda; it touches `compile_fn.sysl`, `Frame` and `fail` and adds no instruction. (a) then
+removes the failed attempts (Frame, loads and tests) that (b′) leaves, where a head keys a constant or
+structure. Instruction counts are not time: each step is measured by wall clock as well.
+
+**Open questions (proposed, not decided):**
+
+1. (b′) over (b): a test on the failure path in exchange for no twinned instructions?
+2. Index on the first argument, as relations do, or on the first argument some clause keys?
+3. Numbers in a function index: normalise by `==` (`0`, `0.0`, `0/1` one key), or route every
+   non-`Int` number to the all-clauses chain? Key strings?
+4. Should relations' index move to the first discriminating argument at the same time, or stay
+   first-argument as in Prolog?
+5. A further step, not estimated above: a clause whose parameters bind the same names to the same
+   slots as the failed one before it could skip re-running `Frame`, `LoadArg` and `StoreSlot` (fib's
+   clause 2: −2.5M, 8.3%). Worth the coupling between clauses?
+
 ### Leaving several marks at once
 
 **`break`, `continue` and `return` have to discard every mark between them and their target.** Counting
@@ -285,14 +407,15 @@ keeps only the first value.
 **Committed-choice clause selection** is a mark per clause:
 
 ```
-clause 1:   Mark(clause2); match parameters; guard; FailIfFalse; UnmarkKeep; body; Return
+clause 1:   Mark(clause2); Frame(n); match parameters; MarkThrough; guard; FailIfFalse; Unmark; Unmark; body
 clause 2:   Mark(clause3); ...
 last:       Mark(nomatch); ...
-nomatch:    Error("argument match not found")
+nomatch:    NoMatch
 ```
 
-Failure while matching or in the guard reaches the clause's mark and moves to the next clause;
-`UnmarkKeep` commits, so failure in the body is the body's own. The [logic chapter](logic.md) gives
+Failure while matching or in the guard reaches the clause's mark and moves to the next clause; the
+second `Unmark` commits, so failure in the body is the body's own ([clause-head
+marks](#clause-head-marks-proposed-not-decided) has the detail and a proposal to remove them). The [logic chapter](logic.md) gives
 relations the other choice: `Choice` per clause and no commit.
 
 ### Builtins that call back
