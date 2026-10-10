@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
-import sysl.fs.{IoError, NotFound, PermissionDenied, Regular, Directory, Symlink, append_bytes, append_text,
+import sysl.fs.{IoError, NotFound, NotPermitted, PermissionDenied, Regular, Directory, Symlink, append_bytes, append_text,
     current_dir, entries, exists, is_dir, is_file, make_dir_all, metadata, read_bytes, remove_dir,
     remove_file, rename, write_bytes, write_text}
 import sysl.path.{extension, file_name, join, parent}
@@ -91,7 +91,7 @@ private path_text(base: usize, name: string) -> Result[string, Fault] = path_arg
 private fs_fault(e: IoError, name: string, action: string, path: string) -> Fault
     val msg = s"'$name' cannot ${action_text(action)} `$path`: ${e.message()}"
 
-    if e == PermissionDenied
+    if e == PermissionDenied || e == NotPermitted
         new_str(path) match
             Ok(p) -> return permission_error(action, "source_sink", p, msg)
             Err(m) -> return Broken(m)
