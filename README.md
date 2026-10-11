@@ -31,7 +31,7 @@ With Homebrew:
 brew install edadma/tap/funl
 ```
 
-Or build from source. You need `sysl` 0.1.0-alpha.5 or later:
+Or build from source. You need `sysl` 0.1.0-alpha.7 or later:
 
 ```
 brew install sysl-lang/tap/sysl
@@ -124,6 +124,14 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
   with an optional, checked `end` marker, and list, set and map literals take a trailing comma.
 - `zip` and its family take an endless range beside a finite input, and the list functions refuse a
   string, tuple or map rather than guess.
+- Map patterns: a pattern `{ name: n }` matches any map holding that key, `..rest` collects the
+  other entries and `{}` matches only the empty map; keys may be computed, in literals too.
+- Faster clauses: a clause head that cannot fail runs without a choice point, calls and loop turns
+  that settle skip theirs, a statement that cannot fail needs no mark, functions and relations switch
+  on the first argument some clause tests, and a clean head failing into a clean clause resumes it
+  past the slots both bind.
+- A real prints as sysl prints a float, so `write(1.0)` prints `1`; Prolog keeps ISO float output
+  (`1.0`).
 - Prolog reads and writes `1.0Inf` and `1.5NaN`, has SWI's `float_overflow`, `float_zero_div` and
   `float_undefined` flags, and reads integers in any radix.
 
