@@ -104,9 +104,9 @@ every write( 3/2 until 0 by -1/2 )
 1/2
 3/4
 1
-1.0
+1
 1.5
-2.0
+2
 3/2
 1
 1/2
@@ -114,14 +114,14 @@ every write( 3/2 until 0 by -1/2 )
 
 Because each value is worked out from the start rather than from the value before, a real step's
 rounding does not build up along the range: every value is rounded once, however far along it is,
-and counting from 0 by `0.1` reaches `1.0`:
+and counting from 0 by `0.1` reaches `1`:
 
 ```funl
 every write( 0 to 1 by 0.1 )
 ```
 
 ```output
-0.0
+0
 0.1
 0.2
 0.30000000000000004
@@ -131,7 +131,7 @@ every write( 0 to 1 by 0.1 )
 0.7000000000000001
 0.8
 0.9
-1.0
+1
 ```
 
 The range stops at the first value that is past `j`: greater than `j` for `to` and greater than or
@@ -145,7 +145,7 @@ every write( 0 to 3/10 by 1/10 )
 ```
 
 ```output
-0.0
+0
 0.1
 0.2
 0
@@ -161,7 +161,7 @@ every write( 1 to 2 by 0.0 )
 ```
 
 ```error
-`to ... by 0.0` would produce 1.0 for ever: a step cannot be zero
+`to ... by 0` would produce 1 for ever: a step cannot be zero
 ```
 
 ```funl

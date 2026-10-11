@@ -50,7 +50,7 @@ AN_INDENTED_LINE_UNDER_NOTHING_THAT_OPENS_A_BLOCK_IS_REFUSED()
 A_FLOAT_LITERAL_IS_ONE_TOKEN_READ_AS_A_REAL()
     assert_eq(complaints("write( 0.001 )\nval x = 2.5 * 3\nwrite( 1e3, 1E3, 12.5e-3 + 1, 7e+2, 2e-1 )\n"), "")
     assert_eq(ran_funl("write( 0.001 )\nval x = 2.5 * 3\nwrite( x )\n"), "0.001\n7.5\nsucceeded")
-    assert_eq(ran_funl("write( 1e3, 1E3, 12.5e-3 + 1, 7e+2, 2e-1, 1_000.25 )\n"), "1000.0, 1000.0, 1.0125, 700.0, 0.2, 1000.25\nsucceeded")
+    assert_eq(ran_funl("write( 1e3, 1E3, 12.5e-3 + 1, 7e+2, 2e-1, 1_000.25 )\n"), "1000, 1000, 1.0125, 700, 0.2, 1000.25\nsucceeded")
 
 @test
 AN_INTEGER_LITERAL_PAST_64_BITS_IS_READ_AND_ONE_IN_A_RADIX_IS_REFUSED()

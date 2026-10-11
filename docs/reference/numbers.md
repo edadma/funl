@@ -34,7 +34,7 @@ write( 2e-1 )
 5
 123456789012345678901234567890
 2.5
-2500.0
+2500
 0.2
 ```
 
@@ -83,8 +83,9 @@ write( 7 / 2 * 2 )
 ## Reals
 
 An operation with a real operand produces a real, and **a real result stays a real even when its
-value is whole**: `2.5 * 2` is `5.0`, not `5`. A real prints as the shortest decimal that reads back
-as the same value, always with a `.0` or an exponent.
+value is whole**: `2.5 * 2` is a real, though it prints as `5`. A real prints as the shortest decimal
+that reads back as the same value, with no `.0` and no exponent, so a whole real looks like an
+integer; `is` tells them apart.
 
 ```funl
 write( 2.5 * 2 )
@@ -93,19 +94,25 @@ write( 1.0 / 3 )
 write( 0.1 + 0.2 )
 write( 100.0 )
 write( 1e10 )
-write( 1e22 )
+write( 1e20 )
 write( 1e-7 )
+write( -0.0 )
+write( "${2.5} and ${1.0}" )
+write( 2.5 * 2 is real )
 ```
 
 ```output
-5.0
-1.0
+5
+1
 0.3333333333333333
 0.30000000000000004
-100.0
-10000000000.0
-1.0e+22
-1.0e-07
+100
+10000000000
+100000000000000000000
+0.0000001
+-0
+2.5 and 1
+5
 ```
 
 ## The kinds, and `is`
@@ -126,7 +133,7 @@ write( 0.5 is number )
 ```output
 1/3
 3
-5.0
+5
 1000000000000000000000000000000
 0.5
 ```
@@ -169,8 +176,8 @@ write( -(10^30) \ 7 )
 ```output
 2
 -1
-3.0
--4.0
+3
+-4
 -142857142857142857142857142858
 ```
 
@@ -241,7 +248,7 @@ write( 1.0 / 0 )
 ```
 
 ```error
-1.0 / 0 divides by zero
+1 / 0 divides by zero
 ```
 
 ## `^` is power
@@ -267,7 +274,7 @@ write( 0 ^ 0 )
 1
 ```
 
-A real power, or a fractional one, gives a real: `4 ^ (1/2)` is `2.0`, not `2`.
+A real power, or a fractional one, gives a real: `4 ^ (1/2)` is a real, which prints as `2`.
 
 ```funl
 write( 2 ^ 0.5 )
@@ -279,8 +286,8 @@ write( 2 ^ -1.0 )
 
 ```output
 1.4142135623730951
-2.0
-4.0
+2
+4
 0.5
 0.5
 ```
@@ -320,7 +327,7 @@ write( 10 ^ 400.0 )
 ```
 
 ```error
-10 ^ 400.0 is too large for a float
+10 ^ 400 is too large for a float
 ```
 
 ## `div` asks "divides"
@@ -364,8 +371,8 @@ write( 0.3333333333333333 < 1/3 )
 ```
 
 ```output
-1.0
-2.0
+1
+2
 3/2
 1/3
 ```
@@ -407,10 +414,10 @@ write( atan(1, 1), atan2(1, 1) )
 ```
 
 ```output
-4.0, 1.4142135623730951, 0.5
-1.0, 0.0
-0.0, 1.0, 0.0
-0.0, 0.0, 0.0
+4, 1.4142135623730951, 0.5
+1, 0
+0, 1, 0
+0, 0, 0
 0.7853981633974483, 0.7853981633974483
 ```
 
@@ -428,11 +435,11 @@ write( copysign(3, -0.0), copysign(-2.5, 1) )
 ```
 
 ```output
-0.0, 1.0, 0.0, 0.0, 0.0, 0.0
+0, 1, 0, 0, 0, 0
 1.1752011936438014, 0.5493061443340549
-3.0, 3.0, 0.0
+3, 3, 0
 0.6420926159343308, 0.7853981633974483, 1.5707963267948966
--3.0, 2.5
+-3, 2.5
 ```
 
 `floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `round`)
@@ -448,7 +455,7 @@ write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )
 ```output
 3, 4, 4, -3, -4
 2, -3, 3, 5
--1, 1.0, 0, 0.25, 3.0
+-1, 1, 0, 0.25, 3
 ```
 
 `pi` and `epsilon` (the gap between 1.0 and the next real above it) are values, written without
@@ -467,7 +474,7 @@ write( e )
 ```
 
 ```output
-3.141592653589793, 2.220446049250313e-16, 2.718281828459045
+3.141592653589793, 0.0000000000000002220446049250313, 2.718281828459045
 6.283185307179586
 2
 2

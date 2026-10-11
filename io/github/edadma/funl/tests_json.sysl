@@ -22,7 +22,7 @@ A_DOCUMENT_READS_AS_MAPS_LISTS_AND_SCALARS()
 
     assert_eq(with_json(text),
         "funl, prolog, list, map, undefined\n" +
-        "[1, 2.5, -300.0, 123456789012345678901234567890, true, false, undefined]\n" +
+        "[1, 2.5, -300, 123456789012345678901234567890, true, false, undefined]\n" +
         "aé\t!\n" +
         "43, {}, []\n" +
         "succeeded")

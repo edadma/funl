@@ -837,9 +837,15 @@ refuse a float. A refusal from `dal` becomes the ISO error term its README maps 
 
 **Both readers take a float literal and an integer past 64 bits** -- `2.5`, `1e10`, `2e-1`,
 `123456789012345678901234567890` -- carried as text until it becomes a constant; an integer written
-in a radix still has to fit 64 bits. FunL prints a real as `dal` writes it, the shortest decimal that
-reads back as the same double, always with a `.0` or an exponent (`5.0`, `1.0e+22`); Prolog writes a
-rational as `7r2`.
+in a radix still has to fit 64 bits. FunL prints a real as sysl prints a float, the shortest decimal that
+reads back as the same double, with no `.0` and no exponent (`5.0` prints `5`, `1e22` prints all its
+digits); Prolog writes a real with a `.0` where the digits alone would read as an integer, so that it
+reads back as a real (`5.0`, `1.0e+22`), and a rational as `7r2`.
+
+> **Decided — how does FunL print a real?** **As sysl prints a float** (user, 2026-10-10: "use
+> sysl"). A whole real prints as an integer does (`2.5 * 2` prints `5`, `-0.0` prints `-0`); `is`
+> tells the kinds apart. `format` with an explicit `%f`, `%e` or `%g` is unchanged, and the ISO
+> Prolog front end keeps ISO's float output.
 
 ## What the collector has to see
 

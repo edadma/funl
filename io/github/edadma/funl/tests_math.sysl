@@ -14,19 +14,19 @@ private faulted_with(text: string, want: string)
 
 @test
 THE_ROOT_EXPONENTIAL_LOGARITHM_AND_TRIGONOMETRIC_FUNCTIONS_ANSWER_REALS()
-    assert_eq(ran_funl("write( sqrt(16), sqrt(2), sqrt(1/4) )\n"), "4.0, 1.4142135623730951, 0.5\nsucceeded")
-    assert_eq(ran_funl("write( exp(0), log(1), sin(0), cos(0), tan(0), asin(0), acos(1), atan(0) )\n"), "1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0\nsucceeded")
+    assert_eq(ran_funl("write( sqrt(16), sqrt(2), sqrt(1/4) )\n"), "4, 1.4142135623730951, 0.5\nsucceeded")
+    assert_eq(ran_funl("write( exp(0), log(1), sin(0), cos(0), tan(0), asin(0), acos(1), atan(0) )\n"), "1, 0, 0, 1, 0, 0, 0, 0\nsucceeded")
     assert_eq(ran_funl("write( atan(1, 1), atan2(1, 1) )\n"), "0.7853981633974483, 0.7853981633974483\nsucceeded")
 
 @test
 THE_ROUNDINGS_ANSWER_EXACT_INTEGERS_AND_KEEP_INTEGERS()
     assert_eq(ran_funl("write( floor(7/2), ceiling(7/2), round(7/2), truncate(-7/2), floor(-7/2) )\n"), "3, 4, 4, -3, -4\nsucceeded")
     assert_eq(ran_funl("write( floor(2.5), round(-2.5), integer(2.5), floor(5), round(5) )\n"), "2, -3, 3, 5, 5\nsucceeded")
-    assert_eq(ran_funl("write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )\n"), "-1, 1.0, 0, 0.25, 3.0\nsucceeded")
+    assert_eq(ran_funl("write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )\n"), "-1, 1, 0, 0.25, 3\nsucceeded")
 
 @test
 PI_AND_EPSILON_ARE_VALUES_AND_E_IS_LEFT_AS_A_NAME()
-    assert_eq(ran_funl("write( pi, epsilon, exp(1) )\n"), "3.141592653589793, 2.220446049250313e-16, 2.718281828459045\nsucceeded")
+    assert_eq(ran_funl("write( pi, epsilon, exp(1) )\n"), "3.141592653589793, 0.0000000000000002220446049250313, 2.718281828459045\nsucceeded")
     assert_eq(ran_funl("val e = 10\nwrite( e )\n"), "10\nsucceeded")
     assert_eq(ran_funl("val f = pi -> pi + 1\nwrite( f(1) )\n"), "2\nsucceeded")
 
@@ -48,10 +48,10 @@ A_MATH_FUNCTION_REFUSES_A_NON_NUMBER_AND_A_WRONG_COUNT()
 
 @test
 THE_HYPERBOLIC_COTANGENT_AND_TWO_ARGUMENT_LOGARITHM_FUNCTIONS_ANSWER_REALS()
-    assert_eq(ran_funl("write( sinh(0), cosh(0), tanh(0), asinh(0), acosh(1), atanh(0) )\n"), "0.0, 1.0, 0.0, 0.0, 0.0, 0.0\nsucceeded")
-    assert_eq(ran_funl("write( log(2, 8), log2(8), log(1) )\n"), "3.0, 3.0, 0.0\nsucceeded")
+    assert_eq(ran_funl("write( sinh(0), cosh(0), tanh(0), asinh(0), acosh(1), atanh(0) )\n"), "0, 1, 0, 0, 0, 0\nsucceeded")
+    assert_eq(ran_funl("write( log(2, 8), log2(8), log(1) )\n"), "3, 3, 0\nsucceeded")
     assert_eq(ran_funl("write( cot(1), acot(1), acot(0) )\n"), "0.6420926159343308, 0.7853981633974483, 1.5707963267948966\nsucceeded")
-    assert_eq(ran_funl("write( copysign(3, -0.0), copysign(-2.5, 1) )\n"), "-3.0, 2.5\nsucceeded")
+    assert_eq(ran_funl("write( copysign(3, -0.0), copysign(-2.5, 1) )\n"), "-3, 2.5\nsucceeded")
     assert_eq(ran_funl("write( sinh(1), cosh(1), tanh(1), asinh(1), acosh(2), atanh(0.5) )\n"), "1.1752011936438014, 1.5430806348152437, 0.7615941559557649, 0.881373587019543, 1.3169578969248166, 0.5493061443340549\nsucceeded")
 
 @test

@@ -36,7 +36,7 @@ write( parse('[true, false, 42, 123456789012345678901234567890, 2.5, 1e3, "caf\\
 ```
 
 ```output
-[true, false, 42, 123456789012345678901234567890, 2.5, 1000.0, "café"]
+[true, false, 42, 123456789012345678901234567890, 2.5, 1000, "café"]
 ```
 
 The map an object becomes is immutable, and keeps its keys in the order the document gives them. A

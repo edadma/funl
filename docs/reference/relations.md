@@ -88,7 +88,7 @@ write( a )
 ```
 
 ```output
-1.0
+1
 same
 4
 ```

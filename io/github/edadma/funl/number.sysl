@@ -89,21 +89,23 @@ num_value(n: Number) -> Result[Value, string] = n match
     Number.Big(b) -> new_num(n, b.limbs(), false)
     Number.Rat(q) -> new_num(n, q.numerator().limbs() + q.denominator().limbs(), true)
 
-// A number as text, as both languages print it: an integer in decimal, a rational as `n/d`, and a
-// real as the shortest decimal that reads back as the same double, with a `.0` where the digits alone
-// would read as an integer.
-num_text(n: Number) -> string = dal.to_string(n)
+// A number as FunL prints it: an integer in decimal, a rational as `n/d`, and a real as sysl prints a
+// float, the shortest decimal that reads back as the same double (`1.0` prints as `1`).
+num_text(n: Number) -> string = n match
+    Number.Real(r) -> s"$r"
+    _ -> dal.to_string(n)
 
 // A number as Prolog writes it: a rational as SWI-Prolog does, `7r2`, an infinity `1.0Inf` or
-// `-1.0Inf` and a NaN `1.5NaN`, as SWI-Prolog writes them and both readers read them back, and the
-// rest as FunL does.
+// `-1.0Inf` and a NaN `1.5NaN`, as SWI-Prolog writes them and both readers read them back, and any
+// other real with a `.0` where the digits alone would read as an integer, so that a written float
+// reads back as a float.
 prolog_num_text(n: Number) -> string = n match
     Number.Rat(q) -> s"${big.to_string(q.numerator())}r${big.to_string(q.denominator())}"
     Number.Real(r) ->
         if r.is_nan() then "1.5NaN"
         elif r.is_infinite() then (if r > 0.0 then "1.0Inf" else "-1.0Inf")
-        else num_text(n)
-    _ -> num_text(n)
+        else dal.to_string(n)
+    _ -> dal.to_string(n)
 
 // A Prolog number literal's text as a value: `1.0Inf`, `-1.0Inf` and `1.5NaN` as the reader carries
 // them, and any other as `literal_value` reads it.

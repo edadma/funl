@@ -104,7 +104,7 @@ A_VAR_A_FREE_AND_AN_ASSIGNMENT_SHADOW_A_BUILTIN()
 
 @test
 A_PARAMETER_SHADOWS_A_BUILTIN()
-    assert_eq(ran_funl("def f( log ) = log + 1\nwrite( f(2) )\nwrite( log(1) )\n"), "3\n0.0\nsucceeded")
+    assert_eq(ran_funl("def f( log ) = log + 1\nwrite( f(2) )\nwrite( log(1) )\n"), "3\n0\nsucceeded")
 
 @test
 A_TOP_LEVEL_DEF_IS_USED_INSTEAD_OF_THE_BUILTIN()
@@ -112,7 +112,7 @@ A_TOP_LEVEL_DEF_IS_USED_INSTEAD_OF_THE_BUILTIN()
 
 @test
 THE_BUILTIN_IS_REACHED_OUTSIDE_THE_SHADOWING_SCOPE()
-    assert_eq(ran_funl("if true\n  val sqrt = 7\n  write( sqrt )\n\nwrite( sqrt(9) )\n"), "7\n3.0\nsucceeded")
+    assert_eq(ran_funl("if true\n  val sqrt = 7\n  write( sqrt )\n\nwrite( sqrt(9) )\n"), "7\n3\nsucceeded")
     assert_eq(ran_funl("def g()\n  val sign = 5\n  sign * 2\n\nwrite( g(), sign(-3) )\n"), "10, -1\nsucceeded")
 
 @test

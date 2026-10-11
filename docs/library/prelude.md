@@ -170,7 +170,7 @@ write( sortBy((a, b) -> a > b, [3, 1, 2]), sortBy((a, b) -> a.length < b.length,
 ```
 
 ```output
-[1, 2, 3], ["fig", "pear"], [1.0, 1, 2]
+[1, 2, 3], ["fig", "pear"], [1, 1, 2]
 [3, 2, 1], ["a", "b", "bb", "ccc"]
 ```
 

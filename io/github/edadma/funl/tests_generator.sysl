@@ -62,12 +62,12 @@ A_RATIONAL_STEP_COUNTS_EXACTLY()
 A_REAL_STEP_MAKES_EVERY_VALUE_A_REAL()
     val text = "every write( 0 to 1 by 0.25 )\nevery write( 0.5 until 2 )\n"
 
-    assert_eq(ran_funl(text), "0.0\n0.25\n0.5\n0.75\n1.0\n0.5\n1.5\nsucceeded")
+    assert_eq(ran_funl(text), "0\n0.25\n0.5\n0.75\n1\n0.5\n1.5\nsucceeded")
 
 // The end is compared exactly: `0 + 3*0.1` is just past `0.3`.
 @test
 A_REAL_RANGE_STOPS_BY_PLAIN_COMPARISON()
-    assert_eq(ran_funl("every write( 0 to 0.3 by 0.1 )\n"), "0.0\n0.1\n0.2\nsucceeded")
+    assert_eq(ran_funl("every write( 0 to 0.3 by 0.1 )\n"), "0\n0.1\n0.2\nsucceeded")
 
 // The k-th value of a real range is `start + k*step`, not the step added k times, so the range from
 // 0 to 1 by 0.1 reaches 1.0 and its fourth value is `0 + 3*0.1`.
@@ -75,26 +75,26 @@ A_REAL_RANGE_STOPS_BY_PLAIN_COMPARISON()
 A_REAL_RANGE_COMPUTES_EACH_VALUE_FROM_THE_START()
     val text = "var n = 0\nevery x = 0 to 1 by 0.1 do\n  n++\n  if n == 4 or n == 11 then write( x )\nwrite( n )\n"
 
-    assert_eq(ran_funl(text), "0.30000000000000004\n1.0\n11\nsucceeded")
+    assert_eq(ran_funl(text), "0.30000000000000004\n1\n11\nsucceeded")
 
 // Added up a thousand times, `0.1` would have drifted away from `99.9`; `0 + 999*0.1` is `99.9`.
 @test
 A_LONG_REAL_RANGE_DOES_NOT_DRIFT()
     val text = "var n = 0\nevery x = 0 to 1000 by 0.1 do\n  n++\n  if n == 1000 or n == 10001 then write( x )\nwrite( n )\n"
 
-    assert_eq(ran_funl(text), "99.9\n1000.0\n10001\nsucceeded")
+    assert_eq(ran_funl(text), "99.9\n1000\n10001\nsucceeded")
 
 @test
 A_REAL_UNTIL_RANGE_COMPUTES_EACH_VALUE_FROM_THE_START()
     val text = "var n = 0\nevery x = 0 until 1 by 0.1 do\n  n++\n  if n == 10 then write( x )\nwrite( n )\nevery write( 1 until 0 by -0.25 )\n"
 
-    assert_eq(ran_funl(text), "0.9\n10\n1.0\n0.75\n0.5\n0.25\nsucceeded")
+    assert_eq(ran_funl(text), "0.9\n10\n1\n0.75\n0.5\n0.25\nsucceeded")
 
 @test
 A_REAL_RANGE_IS_THE_SAME_INSIDE_AN_EXPRESSION()
     val text = "val xs = [x | x <- 0 to 1 by 0.1]\nwrite( xs.length )\nwrite( xs(3) )\nwrite( xs(10) )\n"
 
-    assert_eq(ran_funl(text), "11\n0.30000000000000004\n1.0\nsucceeded")
+    assert_eq(ran_funl(text), "11\n0.30000000000000004\n1\nsucceeded")
 
 @test
 INTEGERS_AND_RATIONALS_MIX_IN_A_RANGE()
@@ -110,7 +110,7 @@ A_NEGATIVE_RATIONAL_STEP_COUNTS_DOWN()
 
 @test
 A_REAL_STEP_OF_ZERO_IS_REFUSED()
-    generator_fault("write( 0 to 1 by 0.0 )\n", "`to ... by 0.0` would produce 0.0 for ever: a step cannot be zero")
+    generator_fault("write( 0 to 1 by 0.0 )\n", "`to ... by 0` would produce 0 for ever: a step cannot be zero")
     generator_fault("write( 1/2 until 1 by -0.0 )\n", "a step cannot be zero")
 
 // -- ! --------------------------------------------------------------------------------------------
