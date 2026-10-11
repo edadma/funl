@@ -6,7 +6,7 @@ import sysl.text.Search
 #if feature_http
 import sysl.fs.write_bytes
 import sysl.net.{resolve_passive, socket}
-import sysl.posix.threads.{spawn, Thread}
+import sysl.threads.{spawn, Thread}
 import sysl.posix.time.sleep
 import sysl.slices.as_ptr
 import sysl.sync.Atomic
