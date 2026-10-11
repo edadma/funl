@@ -196,7 +196,8 @@ PRELUDE_ORDERING()
 // `sort` is stable: elements equal by `<` keep the order they came in.
 @test
 PRELUDE_SORT_IS_STABLE_AND_REFUSES_WHAT_IT_CANNOT_COMPARE()
-    assert_eq(ran_funl("write( sort([2, 1.0, 1, 2.0, 1]) )\n"), "[1, 1, 1, 2, 2]\nsucceeded")
+    assert_eq(ran_funl("write( map(x -> if x is real then \"r\" else \"i\", sort([2, 1.0, 1, 2.0, 1, 1.0])) )\n"),
+        "[\"r\", \"i\", \"i\", \"r\", \"i\", \"r\"]\nsucceeded")
     prelude_fault("write( sort([1, \"a\"]) )\n", "'<' cannot compare the string 'a' with the integer 1")
     prelude_fault("write( reverse(5) )\n", "'reverse' wants a list and reached the integer 5")
 

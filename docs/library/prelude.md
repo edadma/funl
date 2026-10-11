@@ -165,12 +165,12 @@ function that says whether its first argument goes before its second. Both keep 
 the order they came in:
 
 ```funl
-write( sort([3, 1, 2]), sort(["pear", "fig"]), sort([2, 1.0, 1]) )
+write( sort([3, 1, 2]), sort(["pear", "fig"]), map(x -> if x is real then "real" else "integer", sort([2, 1.0, 1])) )
 write( sortBy((a, b) -> a > b, [3, 1, 2]), sortBy((a, b) -> a.length < b.length, ["ccc", "a", "bb", "b"]) )
 ```
 
 ```output
-[1, 2, 3], ["fig", "pear"], [1, 1, 2]
+[1, 2, 3], ["fig", "pear"], ["real", "integer", "integer"]
 [3, 2, 1], ["a", "b", "bb", "ccc"]
 ```
 
