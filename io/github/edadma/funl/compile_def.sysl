@@ -215,6 +215,7 @@ private compiled(res: *Resolved, loads: Buf[usize], out: ModuleOut) -> Result[us
     val c = context(res, res.top, &loops)
 
     e.op(Frame(res.scopes.at(res.top).count()))
+    name_top_level(&e, res)
 
     if !program then e.op(KeepTop(TopUp - 1 - res.top_up))
 

@@ -529,16 +529,18 @@ with a newline; no standard input, no standard error, no open file.
 > `a &b` is refused with a note naming `a & b`. Built: the token and its refusal, `&subject` and
 > `&pos` (`&pos <- i` reversible), the csets, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the
 > clocks, `&version`, `&host`, `&progname`, `&features` (without `"co-expressions"` until they
-> exist), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). What remains:
+> exist), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). Built since:
+> `&trace` (calls, returns, suspensions, resumptions and failures, counted down per line; the line
+> is Icon's, with the function's first clause standing for the place), `&dump`, `display()`,
+> `collect()`, `&collections` and `&allocated` (one number each: sysl's heap has no regions, so
+> `&storage` and `&regions` are not adopted), over a name table the compiler keeps per chunk
+> (`trace.sysl`). What remains:
 
 | keyword | FunL |
 |---|---|
 | `&current`, `&source`, `&main` | adopted ([co-expressions](#co-expressions)); `&features` then generates `"co-expressions"` too |
 | `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)): the three standard streams as the file handles item 9 makes |
-| `&trace` | adopted, assignable: while it is not zero, calls, returns, `yield`s, failures and resumptions are written to standard error, one line each, and it counts down per line as Icon's does; the check is a test on the call and return instructions only |
-| `&collections`, `&allocated`, `&storage`, `&regions` | `&collections` and `&allocated` from sysl's collector; the region keywords are not adopted (sysl's heap has no regions); `collect()` asks for a collection |
-| `&dump` | adopted: a non-zero value prints `display()`'s report when the program ends; `display()` prints the running function's named locals and the top-level names, from a name table the compiler keeps per chunk |
-| `&error`, `&errornumber`, `&errortext`, `&errorvalue` | see I19 |
+| `&error`, `&errornumber`, `&errortext`, `&errorvalue` | not adopted ([I19](#errors)) |
 | `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | adopted in [Graphics](graphics.md#events) |
 
 **Machine (as built, `keywords.sysl`):** a keyword is fixed when parsed (`&null`, `&fail`, `&file`,
@@ -557,12 +559,10 @@ recovery that fails turns it into failure — `e catch _ -> fail` is Icon's `&er
 expression. `throw(x)` and `error(msg)` raise. This is **covered**, by a [decided](language.md#every-expression-succeeds-or-fails)
 design that scopes the conversion to an expression instead of a global counter.
 
-> **Open question I19 — `&error` and `runerr`.** (a) nothing more: `catch` covers `&error`,
-> `throw` covers `runerr`, and the error keywords are not adopted; (b) add `&error` as a global
-> counter that makes every fault a failure, beside `catch`. **Recommendation: (a).** A global
-> switch that turns faults into failures anywhere — in a library, in Prolog — breaks every
-> guarantee the decided design makes about faults, and `catch` already says the same thing where
-> it is meant.
+> **Decided (user, 2026-10-15) — I19: nothing more.** `catch` covers `&error`, `throw` covers
+> `runerr`, and the error keywords are not adopted: a global switch that turns faults into failures
+> anywhere — in a library, in Prolog — would break every guarantee the decided design makes about
+> faults.
 
 ## The preprocessor
 

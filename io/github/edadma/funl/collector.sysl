@@ -341,6 +341,7 @@ maybe_collect(v: *Vm)
 collect_now(v: *Vm)
     gc.collect(&v.heap, &roots)
     v.collections += 1
+    v.allocated_earlier += v.allocated
     v.allocated = 0
 
     val grown = gc.live_size(&v.heap) * v.growth

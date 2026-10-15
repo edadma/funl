@@ -96,6 +96,7 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
     e.place(starts.at(r.clauses.len()))
     e.op(NoMatch)
     reuse_slots(&e)
+    name_function(&e, res, r, starts)
     install(e, r.chunk)
 end compile_function
 

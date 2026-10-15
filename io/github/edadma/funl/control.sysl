@@ -82,12 +82,22 @@ push_choice(v: *Vm, alt: usize)
 fail(v: *Vm) -> bool
     if head_fails(v) then return true
 
+    // `&trace` reports the frames failure leaves and re-enters (`trace.sysl`).
+    val tracing = v.trace != 0
+
     loop
         val e = v.control.pop() match
             Some(e) -> e
-            None -> return false
+            None ->
+                if tracing then trace_moved(v, v.frame, null)
+
+                return false
+
+        val before = v.frame
 
         restore(v, e)
+
+        if tracing then trace_moved(v, before, e.frame)
 
         if e.kind == Mark || e.kind == Choice
             v.ip = e.ip

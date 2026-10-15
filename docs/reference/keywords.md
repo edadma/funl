@@ -31,6 +31,9 @@ write( area(3) )
 | `&features` | generates what this FunL has: `"large integers"`, the platform, and each optional feature built in |
 | `&file`, `&line` | the source file and line the keyword is written on |
 | `&level` | how many calls deep the running code is |
+| `&trace` | while not zero, each call, return, suspension, resumption and failure of a function is written to standard error; assignable ([tracing](#tracing)) |
+| `&dump` | while not zero, the program's end writes `display()`'s report to standard error; assignable ([looking inside](#looking-inside)) |
+| `&collections`, `&allocated` | how many times the collector has run, and the bytes the program has allocated in the collected heap |
 
 ## `&` and conjunction
 
@@ -87,7 +90,8 @@ write( if a == [?100, ?100, ?100] then 'repeated' else 'differs', &random )
 repeated, 2026
 ```
 
-Only `&subject`, `&pos` and `&random` can be assigned, and only the scan keywords with `<-`:
+Only `&subject`, `&pos`, `&random`, `&trace` and `&dump` can be assigned, and only the scan keywords
+with `<-`:
 
 ```funl
 &pi = 3
@@ -141,4 +145,108 @@ write( &line, &level, depth(), twice() )
 
 ```output
 3, 1, 2, 3
+```
+
+## Tracing
+
+`&trace` is 0 until a program assigns it. While it is not zero, every call of a function, and what
+became of it, is written to standard error, one line each; a positive `&trace` falls by one with
+each line, so `&trace = 20` shows the next twenty, and a negative one, `&trace = -1`, traces until it
+is set back to 0. In the transcripts on this page, a line marked `stderr:` went to standard error.
+
+```funl
+def fact( 0 ) = 1
+def fact( n ) = n * fact( n - 1 )
+&trace = -1
+write( fact(2) )
+```
+
+```output
+stderr: docs/reference/keywords.md:1 | fact(2)
+stderr: docs/reference/keywords.md:1 | | fact(1)
+stderr: docs/reference/keywords.md:1 | | | fact(0)
+stderr: docs/reference/keywords.md:1 | | | fact returned 1
+stderr: docs/reference/keywords.md:1 | | fact returned 1
+stderr: docs/reference/keywords.md:1 | fact returned 2
+2
+```
+
+A line is Icon's: where the function was written, a `| ` for each call the event is inside, and the
+event. **The file and line are those of the function's first clause** — FunL keeps no line for each
+instruction — and a value is shown as `image` writes it. The events are:
+
+| line | when |
+|---|---|
+| `f(1, "a")` | `f` is called, with these arguments |
+| `f returned 2` | `f` gives its value and can give no other |
+| `f suspended 2` | `f` gives a value and can be asked for another: a generator |
+| `f resumed` | failure goes back into `f` for its next value |
+| `f failed` | failure leaves `f` for good: it gives no value, or no more |
+
+A generator suspends with each value, is resumed for the next, and fails when it has none left:
+
+```funl
+def two()
+  yield 'a'
+  yield 'b'
+&trace = -1
+every write( two() )
+```
+
+```output
+stderr: docs/reference/keywords.md:1 | two()
+stderr: docs/reference/keywords.md:1 | two suspended "a"
+a
+stderr: docs/reference/keywords.md:1 | two resumed
+stderr: docs/reference/keywords.md:1 | two suspended "b"
+b
+stderr: docs/reference/keywords.md:1 | two resumed
+stderr: docs/reference/keywords.md:1 | two failed
+```
+
+Functions, lambdas and the prelude's functions are traced, since they are all FunL; a builtin is
+not, nor is Prolog. A call in tail position takes its caller's place, as it does for `&level`, so
+the caller's return is not shown: the callee's return is the caller's.
+
+## Looking inside
+
+`display()` writes to standard error the named variables of the function running — its parameters
+and locals, each as `image` writes it — and then those of the top level. A name not yet given a value
+is `undefined`.
+
+```funl
+total = 10
+def share( n )
+  part = total / n
+  display()
+  part
+write( share(4) )
+```
+
+```output
+stderr: share local identifiers:
+stderr:    n = 4
+stderr:    part = 5/2
+stderr: 
+stderr: top-level identifiers:
+stderr:    total = 10
+5/2
+```
+
+Setting `&dump` to anything but 0 writes the same report, headed `Termination dump:`, when the
+program ends — however it ends, a fault included, and then about the function the fault was raised in.
+
+`collect()` runs the collector now. `&collections` is how many times it has run, and `&allocated`
+how many bytes the program has allocated in the collected heap since it started — one number each,
+where Icon's give one for each of its regions, since FunL's heap has none. How often the collector
+runs depends on the heap, so a program compares these rather than printing them:
+
+```funl
+before = &collections
+collect()
+write( if &collections > before then 'collected' else 'not', if &allocated > 0 then 'counted' else 'none' )
+```
+
+```output
+collected, counted
 ```
