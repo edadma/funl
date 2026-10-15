@@ -70,7 +70,7 @@ done
 
 ## Looking ahead
 
-Four builtins look at the subject from the position without moving, and produce a position for
+Several builtins look at the subject from the position without moving, and produce a position for
 `tab` to move to. A **character set** argument is a cset, such as `digits` or `letters`, or a string
 standing for the set of its characters.
 
@@ -81,6 +81,7 @@ standing for the set of its characters.
 | `any(c)` | the position after the next character, if it is in `c` |
 | `match(s)` | the position after `s`, if the subject continues with `s` |
 | `find(s)` | each position at which `s` occurs |
+| `bal(c1, c2, c3, s, i, j)` | each position of `c1` balanced in `c2`, `c3` (see below) |
 
 ```funl
 'hello world' ? write( upto('o') )
@@ -138,6 +139,42 @@ the
 quick
 brown
 fox
+```
+
+### `=s`: tab past a string
+
+`=s` is `tab(match(s))`: if the subject continues with `s` it moves past it and produces `s`, and it
+fails otherwise. Like `tab`, it is undone when the program backtracks past it.
+
+```funl
+'key=value' ? (='key' & ='=' & write( tab(0) ))
+'key=value' ? (if ='val' then write( 'yes' ) else write( 'no' ))
+```
+
+```output
+value
+no
+```
+
+### `bal`: balanced positions
+
+`bal(c1, c2, c3, s, i, j)` generates each position in `s[i:j]` at which a character of `c1` stands
+with the text before it, from `i`, balanced in the openers `c2` and the closers `c3`. The search
+stops at a closer that has no opener. Every argument may be left out (or be `undefined`): `c1` is
+then every character, `c2` is `(`, `c3` is `)`, `s` is the subject with `i` the scan position, and `j`
+the end.
+
+```funl
+'f(a,b),g,h' ? every write( bal(',') )
+'f(a,b),g,h' ? write( tab(bal(',')) )
+every write( bal(';', '[', ']', 'a[;]b;c') )
+```
+
+```output
+7
+9
+f(a,b)
+6
 ```
 
 ## Backtracking puts the position back

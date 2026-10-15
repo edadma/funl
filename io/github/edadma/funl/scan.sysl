@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sysl.text.str_builder
 
-// The scanning builtins: `tab`, `move`, `pos`, `upto`, `many`, `any`, `match` and `find`, which read
+// The scanning builtins: `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find` and `bal`, which read
 // and move the scan position; `cset` and the named csets; and `right`.
 //
 // **A position is a place between characters, counted from 1**: 1 is before the first character
@@ -24,6 +24,7 @@ install_scan(v: *Vm)
     register_generator(v, "any", 1, do_any)
     register_generator(v, "match", 1, do_match)
     register_generator(v, "find", Variadic, do_find)
+    register_generator(v, "bal", Variadic, do_bal)
     register(v, "cset", 1, do_cset)
     register_constant(v, "letters", make_letters)
     register_constant(v, "digits", make_digits)
@@ -152,6 +153,75 @@ private do_find(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
             val last = k + needle.chars == p.chars + 1
 
             return Ok(if last then Gives(Int(long(k))) else GivesMore(Int(long(k)), long(k + 1)))
+
+        k += 1
+
+    Ok(Refuses)
+
+// Whether argument `i` of a call of `argc` arguments was left out: not passed, or `undefined`.
+private left_out(base: usize, i: usize, argc: usize) -> bool
+    if i >= argc then return true
+
+    deref(arg(base, i)) match
+        Undefined -> true
+        _ -> false
+
+// An optional integer position argument.
+private opt_int(base: usize, i: usize, argc: usize, name: string) -> Result[Option[long], Fault]
+    if left_out(base, i, argc) then return Ok(None)
+
+    Ok(Some(int_arg(base, i, name)?))
+
+// `bal(c1, c2, c3, s, i, j)`: each position in `s[i:j]` at which a character of `c1` stands with the
+// text before it (from `i`) balanced in the openers `c2` and closers `c3`. Any argument may be left
+// out, or be `undefined`: `c1` is then every character, `c2` is `(`, `c3` is `)`, `s` is the scan's
+// subject (with `i` its position) and `j` the end. The search stops at a closer with no opener.
+private do_bal(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    if argc > 6 then return Err(wrong_count("bal", argc, s"'bal' takes up to 6 arguments, and was given $argc"))
+
+    val any_char = left_out(base, 0, argc)
+    var c1 = char_set("")
+
+    if !any_char then c1 = set_arg(base, 0, "bal")?
+
+    val c2 = if left_out(base, 1, argc) then char_set("(") else set_arg(base, 1, "bal")?
+    val c3 = if left_out(base, 2, argc) then char_set(")") else set_arg(base, 2, "bal")?
+    val given = !left_out(base, 3, argc)
+    val p = if given then str_arg(base, 3, "bal")? else subject("bal")?
+    val first = opt_int(base, 4, argc, "bal")?
+    val last = opt_int(base, 5, argc, "bal")?
+
+    var a = if given then 1 else current().pos
+    var b = p.chars + 1
+
+    first match
+        Some(i) -> a = position(i, p.chars) match
+            Some(k) -> k
+            None -> return Ok(Refuses)
+        None -> ()
+
+    last match
+        Some(j) -> b = position(j, p.chars) match
+            Some(k) -> k
+            None -> return Ok(Refuses)
+        None -> ()
+
+    if a > b
+        val t = a
+        a = b
+        b = t
+
+    val resume = if cursor > 0 then usize(cursor) else a
+    var depth = 0
+    var k = a
+
+    while k < b && depth >= 0
+        val c = char_at(p, k - 1)
+
+        if depth == 0 && k >= resume && (any_char || c1.has(c))
+            return Ok(GivesMore(Int(long(k)), long(k + 1)))
+
+        if c2.has(c) then depth += 1 elif c3.has(c) then depth -= 1
 
         k += 1
 
