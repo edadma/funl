@@ -139,7 +139,8 @@ end imported_file
 // **A key a Prolog file has already defined is refused**, naming both definitions: Prolog and FunL
 // share one predicate for each name and arity. A key of the library's is taken over, as a Prolog
 // program's own definition takes it over. A builtin's key stays the builtin's: the FunL definition is
-// FunL's own under its name and Prolog does not see it, which no load order can change.
+// FunL's own under its name and Prolog does not see it, which no load order can change. (A module a
+// Prolog file imports is stricter: its export on a builtin's key is refused.)
 //
 // Answers why the code is refused when a key was: the first key refused, or `Unreadable` when none.
 private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal, string]
@@ -151,6 +152,8 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal
         if !is_top_rel(res, i) then continue
 
         val key = if r.function then pred_key(r.name, r.arity + 1) else pred_key(r.name, r.arity)
+
+        if r.function then note_top_fn(r.name, r.arity, r.chunk)
 
         if is_builtin(key) then continue
 

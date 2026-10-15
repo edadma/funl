@@ -130,7 +130,8 @@ about.
 > space separates a name from a bracket. **Decision: juxtaposition multiplies only
 > a number literal immediately followed by a name or `(`**, with no space — `2n`, `3(x + 1)`.
 > **Rejected:** the general rule, and with it the parse in which a stray space changes a call into
-> a multiplication.
+> a multiplication. **The one exception** is `r` after a base of 2 to 36 digits: `16rFF` is the
+> radix number 255 (Icon's `NrDDD`, user 2026-10-15), not `16 * rFF`.
 
 **The resolver runs before the compiler** and does everything that needs to know what a name is:
 numbering slots as `(depth, index)`, applying the [relation variable rule](logic.md#variables-in-a-relation),
