@@ -10,7 +10,8 @@ done with it is a method on that handle. The module exports `open`, which makes 
 which joins two; and `color_value`, which reads a colour.
 
 This page covers windows on a **hidden canvas**: a picture drawn in memory and read back, with no
-window on screen. Drawing, images, text and events come with later parts of the module.
+window on screen, and [text and fonts](#text-and-fonts). Drawing, images and events come with later
+parts of the module.
 
 ## Hidden canvases
 
@@ -48,8 +49,9 @@ w = open( "hello" )
 'open': a window on screen is not in this build -- it is behind the `graphics` feature
 ```
 
-A canvas opened with no `size` is Icon's default, 80 columns by 12 lines of the default font. It
-starts painted in its background colour.
+A canvas opened with no `size` is Icon's default, 80 columns by 12 lines of the font it is opened
+with — 480 by 156 in the default font, `"fixed"` ([Text and fonts](#text-and-fonts)). It starts
+painted in its background colour.
 
 ## Attributes
 
@@ -75,12 +77,12 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
 ```
 
 | attribute | value | default |
 |---|---|---|
-| `size` | `(width, height)` | `(480, 156)` |
+| `size` | `(width, height)` | 80 columns by 12 lines of the font: `(480, 156)` |
 | `width`, `height` | an integer from 1 to 32767 | |
 | `label` | the title, a string | `open`'s title |
 | `canvas` | `#hidden` (`#normal`, `#maximal` and `#iconic` are on-screen states) | |
@@ -95,6 +97,12 @@ red, 3, dashed
 | `dx`, `dy` | the origin, added to every coordinate | `0` |
 | `depth` | read-only: bits per pixel | `24` |
 | `density` | read-only: device pixels per point, always 1 on a hidden canvas | `1` |
+| `font` | a font specification, a string ([Text and fonts](#text-and-fonts)) | `"fixed"` |
+| `leading` | an integer: the pixels between one line's baseline and the next | the font's `fheight` |
+| `ascent`, `descent` | read-only: how far the font rises above the baseline and falls below it | `10`, `3` |
+| `fheight`, `fwidth` | read-only: the font's height, `ascent + descent`, and its widest character | `13`, `6` |
+| `x`, `y` | the text cursor: the left of the next character and its baseline, moved by `dx` and `dy` | `0`, the ascent |
+| `row`, `col` | the text cursor in character cells, `fwidth` wide and `leading` high, from 1 | `1`, `1` |
 
 **Changing the size keeps the picture.** The pixels the old and new sizes share stay, and the rest
 is painted in the background colour.
@@ -182,6 +190,109 @@ write( [p | p <- w.pixel(2, 0, 2, 1)] )
 
 A canvas holds eight bits of each component, so a pixel's numbers are multiples of 257: a colour
 drawn and read back is `color_value`'s answer where that already is one.
+
+## Text and fonts
+
+**A font is Icon's specification, a string `"family,style,…,size"`**: a family, then any of the
+styles `bold` and `italic` and a size in points, in any order. The family is one of
+
+| family | what it is |
+|---|---|
+| `"fixed"` | the font carried in `funl` itself, the default |
+| `"mono"`, `"typewriter"` | a system monospaced face: Menlo and Courier on macOS |
+| `"sans"`, `"serif"` | a system proportional face: Helvetica and Times on macOS |
+| any other name | the installed family of exactly that name, such as `"Helvetica"` |
+
+and a font that names no size is 10 points. **`"fixed"` is JetBrains Mono Regular**, under the SIL
+Open Font License 1.1, carried in the binary so that text draws the same pixels on every machine,
+one with no fonts installed included. On Linux the generic families are DejaVu, Liberation or
+Nimbus faces, whichever are installed.
+
+**Setting `font` fails, setting nothing, on a specification it cannot read or a family there is no
+face of**, and a font that is set sets `leading` to its height. The metrics are read-only
+attributes: `ascent` and `descent`, how far the font rises above the baseline and falls below it,
+`fheight`, their sum, and `fwidth`, its widest character. **`w.text_width(s)`** is how far `s`
+would advance in the window's font.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "fonts", {canvas: #hidden} )
+write( w.get("size"), w.get("font"), w.get("ascent"), w.get("descent"), w.get("fheight"), w.get("fwidth") )
+write( w.text_width("hello") )
+w.set( {font: "fixed,20"} )
+write( w.get("fheight"), w.get("fwidth"), w.get("leading"), w.text_width("hello") )
+write( w.set({font: "fixed,huge"}) | #refused )
+write( w.set({font: "no such family"}) | #refused )
+write( open("big", {canvas: #hidden, font: "fixed,20"}).get("size") )
+```
+
+```output
+(480, 156), fixed, 10, 3, 13, 6
+30
+26, 12, 26, 60
+refused
+refused
+(960, 312)
+```
+
+**`w.draw_string(x, y, s, …)` draws each string in the foreground colour** with its baseline
+starting at `(x, y)`, moved by `dx` and `dy`, and answers `w`. Only the glyphs are painted, the
+clip rectangle confines them, and the text cursor does not move.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "label", {canvas: #hidden, size: (20, 13)} )
+w.draw_string( 0, 10, "a", 9, 10, "b" )
+for y <- [3, 6] do write( join([(if p == "65535,65535,65535" then "." else "#") | p <- w.pixel(0, y, 20, 1)]) )
+write( w.draw_string(0, 10) catch e -> e )
+```
+
+```output
+.........##.........
+.#####...##..##.....
+error(existence_error(procedure, /(draw_string, 2)), context(_G2, "'draw_string' takes x, y and a string, repeated, and was given 2 arguments"))
+```
+
+### The window as a terminal
+
+**A window has a text cursor**, as Icon's has: `x` and `y`, the left of the next character and its
+baseline, or `row` and `col`, character cells `fwidth` wide and `leading` high counted from 1. A
+window opens with it at row 1, column 1. `w.goto_rc(r, c)` moves it to a cell (each 1 when not
+given) and `w.goto_xy(x, y)` to a point (each 0), both answering `w`.
+
+**`w.write(x…)` and `w.writes(x…)` write at the cursor** exactly what `write` and `writes` would
+print — `write` separating its arguments with `, ` and ending the line, `writes` running them
+together — and answer `()`. Each character's cell is painted in the background colour before the
+character is drawn over it, as a terminal shows text. A newline moves the cursor to the start of the
+next line, a carriage return to the start of its own line, and a tab to the column after the next
+multiple of 8. **A line that would pass the bottom scrolls the canvas up**, the uncovered rows
+painted in the background colour.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "terminal", {canvas: #hidden, size: (60, 26)} )
+w.writes( "x = ", 42 )
+write( w.get("row"), w.get("col") )
+w.write( "one" )
+write( w.get("row"), w.get("col"), w.get("x"), w.get("y") )
+w.write( "two" )
+w.write( "three" )
+write( w.get("row"), w.get("y") )
+write( w.goto_rc(2, 4).get("x"), w.get("y") )
+```
+
+```output
+1, 7
+2, 1, 0, 23
+2, 23
+18, 23
+```
+
+After `"two"` and `"three"`, each ending its line, the canvas has scrolled twice, and `"three"` is on
+row 1 with the cursor below it on row 2, the last row the canvas holds.
 
 ## Clones, couples and closing
 
