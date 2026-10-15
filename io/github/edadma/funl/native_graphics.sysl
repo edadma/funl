@@ -49,7 +49,7 @@ private const NoScreen: string = "a window on screen is not in this build -- it 
 
 // A canvas: its pixels and the plutovg canvas drawing on them, how many handles are open on it, and
 // its attributes.
-private struct WinCanvas
+struct WinCanvas
     surface: &pv.Surface
     drawn: &pv.Canvas
     handles: usize
@@ -59,18 +59,21 @@ private struct WinCanvas
     resize: bool
 
 // A context: how many handles share it, and its attributes. A colour is kept as the specification
-// it was given, which `get` answers, and as the components it names. `clipw` is negative when there
+// it was given, which `get` answers, and as the components it names; `fg_alpha` is the coverage the
+// foreground paints at, a half for Icon's `"transparent"` modifier. `clipw` is negative when there
 // is no clip rectangle, as Icon keeps it.
-private struct WinContext
+struct WinContext
     refs: usize
     fg: string
     fg_rgb: Rgb
+    fg_alpha: f32
     bg: string
     bg_rgb: Rgb
     reverse: bool
     linewidth: long
     linestyle: u32
     fillstyle: u32
+    pattern: string
     drawop: u32
     clipx: long
     clipy: long
@@ -80,7 +83,7 @@ private struct WinContext
     dy: long
 
 // An open window handle and its places.
-private struct Win
+struct Win
     h: *HandleObj
     at: usize
     ctx: usize
@@ -94,11 +97,11 @@ private var canvases: Buf[Option[WinCanvas]] = buf()
 private var generations: Buf[long] = buf()
 
 // process-wide: every context in use, by place, beside the canvases.
-private var contexts: Buf[Option[WinContext]] = buf()
+var contexts: Buf[Option[WinContext]] = buf()
 
 // Every attribute, in the order `attributes()` gives them.
-private val Attributes: [21]string = ["size", "width", "height", "label", "canvas", "resize", "fg", "bg", "reverse",
-    "linewidth", "linestyle", "fillstyle", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density"]
+private val Attributes: [22]string = ["size", "width", "height", "label", "canvas", "resize", "fg", "bg", "reverse",
+    "linewidth", "linestyle", "fillstyle", "pattern", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density"]
 
 install_graphics(v: *Vm)
     val w = register_handle_kind_forgetting(v, WindowKind, close_canvas, detach_window)
@@ -113,6 +116,7 @@ install_graphics(v: *Vm)
     register_method(v, w, "clone", Variadic, do_clone)
     register_method(v, w, "uncouple", 0, do_uncouple)
     register_stepping_method(v, w, "pixel", Variadic, start_pixel, step_pixel)
+    install_drawing(v, w)
 
 // The exports of `funl:graphics`.
 graphics_exports() -> Buf[ModExport] = native_exports("graphics", GraphicsNames)
@@ -159,9 +163,9 @@ private canvas_live(h: *HandleObj) -> bool
 
     at < canvases.len() && canvases.at(at).is_some() && generations.at(at) == small(h.vals.at(0))
 
-private canvas_at(at: usize) -> WinCanvas = canvases.at(at).unwrap()
+canvas_at(at: usize) -> WinCanvas = canvases.at(at).unwrap()
 
-private context_at(at: usize) -> WinContext = contexts.at(at).unwrap()
+context_at(at: usize) -> WinContext = contexts.at(at).unwrap()
 
 // The canvas closed: its place freed and its generation moved on, so every other handle on it finds
 // it gone.
@@ -212,7 +216,7 @@ private detach_window(h: *HandleObj)
 
 // Argument `i`, an open window whose canvas is open. A handle whose canvas was closed through another
 // handle is closed now, and faults as a closed handle does.
-private window_arg(base: usize, i: usize, name: string) -> Result[Win, Fault]
+window_arg(base: usize, i: usize, name: string) -> Result[Win, Fault]
     val h = open_handle(base, i, kind_named(WindowKind), s"'$name'")?
 
     if !canvas_live(h)
@@ -247,7 +251,7 @@ private is_read_only(k: string) -> bool = k == "depth" || k == "density"
 // -- surfaces --------------------------------------------------------------------------------------
 
 // A colour component, 0 to 65535, as plutovg takes it.
-private channel(c: long) -> f32 = f32(c) / 65535.0
+channel(c: long) -> f32 = f32(c) / 65535.0
 
 // A surface `w` by `h` filled with `bg`, and the plutovg canvas that draws on it; `None` for a size
 // no canvas may have, or pixels that could not be had.
@@ -431,12 +435,17 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
             Some(b) -> b
             None -> return Ok(None)
     else if k == "fg"
-        val (spec, c) = colour(x) match
+        val spec = x match
+            Str(s) -> s.s
+            _ -> return Ok(None)
+
+        val (c, alpha) = parse_fg_color(spec) match
             Some(found) -> found
             None -> return Ok(None)
 
         q.ctx.fg = spec
         q.ctx.fg_rgb = c
+        q.ctx.fg_alpha = alpha
     else if k == "bg"
         val (spec, c) = colour(x) match
             Some(found) -> found
@@ -449,10 +458,13 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
             Some(b) -> b
             None -> return Ok(None)
 
+        // The background has no alpha, so a `"transparent"` or `"opaque"` foreground goes over to it
+        // as the colour its modifier qualifies.
         if on != q.ctx.reverse
             q.ctx.fg = p.ctx.bg
             q.ctx.fg_rgb = p.ctx.bg_rgb
-            q.ctx.bg = p.ctx.fg
+            q.ctx.fg_alpha = 1.0
+            q.ctx.bg = unmodified_color(p.ctx.fg)
             q.ctx.bg_rgb = p.ctx.fg_rgb
             q.ctx.reverse = on
     else if k == "linewidth"
@@ -467,6 +479,10 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
         q.ctx.fillstyle = one_of(x, ["solid", "textured", "masked"]) match
             Some(id) -> id
             None -> return Ok(None)
+    else if k == "pattern"
+        q.ctx.pattern = x match
+            Str(s) -> if parse_pattern(s.s).is_some() then s.s else return Ok(None)
+            _ -> return Ok(None)
     else if k == "drawop"
         q.ctx.drawop = one_of(x, ["copy", "reverse"]) match
             Some(id) -> id
@@ -541,6 +557,7 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
         "linewidth" -> Int(ctx.linewidth)
         "linestyle" -> Atom(ctx.linestyle)
         "fillstyle" -> Atom(ctx.fillstyle)
+        "pattern" -> new_str(ctx.pattern)?
         "drawop" -> Atom(ctx.drawop)
         "clipx" -> if clip then Int(ctx.clipx) else Undefined
         "clipy" -> if clip then Int(ctx.clipy) else Undefined
@@ -555,8 +572,8 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
 // -- opening ---------------------------------------------------------------------------------------
 
 private default_context() -> WinContext =
-    WinContext(1, "black", Rgb(0, 0, 0), "white", Rgb(65535, 65535, 65535), false, 1, intern("solid"), intern("solid"),
-        intern("copy"), 0, 0, -1, -1, 0, 0)
+    WinContext(1, "black", Rgb(0, 0, 0), 1.0, "white", Rgb(65535, 65535, 65535), false, 1, intern("solid"), intern("solid"),
+        "black", intern("copy"), 0, 0, -1, -1, 0, 0)
 
 // Whether attribute map `m` asks for a hidden canvas: a fault for a visible one, which this build
 // cannot open, and `None` for a `canvas` value that is no canvas state at all.

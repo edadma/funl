@@ -1,0 +1,121 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text as text
+
+// `funl:graphics`'s patterns: Icon's pattern specifications, the `pattern` attribute that
+// `fillstyle: #textured` and `#masked` paint with.
+//
+// **A specification is a name or a bit pattern.** A bit pattern is its width, a comma, and its rows
+// from the top: either `#` and hexadecimal digits, as many per row as the width needs four-bit digits
+// (`"4,#9696"`), or decimal numbers separated by commas (`"4,9,6,6,9"`). Width and height are each from
+// 1 to 32. The low bit of a row is its leftmost pixel, as in an X bitmap, which is what Icon hands its
+// patterns to. A row with a bit beyond the width is no pattern.
+
+// A pattern: its width, and its rows from the top, each a row of bits with the leftmost pixel low.
+struct Pattern
+    width: long
+    rows: Buf[long]
+
+// The largest side a pattern may have.
+private const MaxPatternSide: long = 32
+
+// The named patterns, each as the bit pattern it stands for: Icon's names, from solid through the
+// grays to empty, then its textures.
+private val PatternNames: [16]string = ["black", "verydark", "darkgray", "gray", "lightgray", "verylight", "white",
+    "vertical", "diagonal", "horizontal", "grid", "trellis", "checkers", "grains", "scales", "waves"]
+
+private val PatternBits: [16]string = ["8,#ffffffffffffffff", "8,#77ffddff77ffddff", "8,#77dd77dd77dd77dd",
+    "8,#55aa55aa55aa55aa", "8,#8822882288228822", "8,#8800220088002200", "8,#0000000000000000",
+    "8,#1111111111111111", "8,#0102040810204080", "8,#ff000000ff000000", "8,#ff111111ff111111",
+    "8,#8142241818244281", "8,#0f0f0f0ff0f0f0f0", "8,#0240001080000804", "8,#8080412214080808",
+    "8,#0000314a84000000"]
+
+// The pattern specification `spec` names, or `None` when it names none.
+parse_pattern(spec: string) -> Option[Pattern]
+    val lowered = text.to_lower(spec)
+
+    for i in 0..<PatternNames.len
+        if PatternNames[i] == lowered then return bit_pattern(PatternBits[i])
+
+    bit_pattern(spec)
+
+// Whether pixel `(x, y)` of the canvas is a one of pattern `p`, the pattern repeated from the
+// canvas's corner.
+pattern_bit(p: Pattern, x: long, y: long) -> bool
+    val row = p.rows.at(usize(y % long(p.rows.len())))
+
+    (row >> (x % p.width)) & 1 == 1
+
+// The bit pattern `s` spells: its width, a comma, and its rows.
+private bit_pattern(s: string) -> Option[Pattern]
+    var comma: usize = 0
+
+    while comma < s.bytes.len && s.bytes[comma] != u8(',')
+        comma += 1
+
+    if comma == 0 || comma >= s.bytes.len then return None
+
+    val width = decimal(s[0..<comma])?
+
+    if width < 1 || width > MaxPatternSide then return None
+
+    val rest = s[comma + 1..<s.bytes.len]
+    val rows = (if rest.bytes.len > 0 && rest.bytes[0] == u8('#') then hex_rows(rest[1..<rest.bytes.len], width) else decimal_rows(rest))?
+
+    if rows.len() < 1 || long(rows.len()) > MaxPatternSide then return None
+
+    for i in 0..<rows.len()
+        if rows.at(i) >> width != 0 then return None
+
+    Some(Pattern(width, rows))
+
+// The rows of hexadecimal digits `s`, each as many digits as `width` bits need.
+private hex_rows(s: string, width: long) -> Option[Buf[long]]
+    val per = usize((width + 3) / 4)
+
+    if s.bytes.len == 0 || s.bytes.len % per != 0 then return None
+
+    var rows: Buf[long] = buf()
+    var row: long = 0
+
+    for i in 0..<s.bytes.len
+        row = row * 16 + hex_value(s.bytes[i])?
+
+        if (i + 1) % per == 0
+            rows.push(row)
+            row = 0
+
+    Some(rows)
+
+// The rows of decimal numbers `s`, separated by commas.
+private decimal_rows(s: string) -> Option[Buf[long]]
+    var rows: Buf[long] = buf()
+    var from: usize = 0
+
+    for i in 0..s.bytes.len
+        if i == s.bytes.len || s.bytes[i] == u8(',')
+            rows.push(decimal(s[from..<i])?)
+            from = i + 1
+
+    Some(rows)
+
+// The unsigned decimal number `s`, digits only, no larger than any pattern row can be.
+private decimal(s: string) -> Option[long]
+    if s.bytes.len == 0 || s.bytes.len > 10 then return None
+
+    var n: long = 0
+
+    for b in s.bytes
+        if b < u8('0') || b > u8('9') then return None
+
+        n = n * 10 + long(b - u8('0'))
+
+    Some(n)
+
+private hex_value(b: u8) -> Option[long]
+    if b >= u8('0') && b <= u8('9') then return Some(long(b - u8('0')))
+    if b >= u8('a') && b <= u8('f') then return Some(long(b - u8('a')) + 10)
+    if b >= u8('A') && b <= u8('F') then return Some(long(b - u8('A')) + 10)
+
+    None

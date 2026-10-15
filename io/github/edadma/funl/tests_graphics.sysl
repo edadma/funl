@@ -21,7 +21,7 @@ EVERY_ATTRIBUTE_HAS_ICONS_DEFAULT()
     assert_eq(on_canvas("write( w.attributes() )\n"),
         "{\"size\": (4, 3), \"width\": 4, \"height\": 3, \"label\": \"test\", \"canvas\": hidden, \"resize\": false, " +
         "\"fg\": \"black\", \"bg\": \"white\", \"reverse\": false, \"linewidth\": 1, \"linestyle\": solid, \"fillstyle\": solid, " +
-        "\"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
+        "\"pattern\": \"black\", \"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
         "\"depth\": 24, \"density\": 1}\nsucceeded")
 
 @test

@@ -255,7 +255,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    G5, G6, G12. Done, except `image_bytes`, which waits on finding F4 (plutovg's PNG stream writer).
 2. **Drawing**: `draw_point`, `draw_line`, `draw_segment`, the rectangles, polygons, circles and
    arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
-   `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1.
+   `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1. Done.
 3. **`drawop: #reverse`**: the coverage mask and the exclusive-or; drawing twice restores. Waits on
    item 2 and G7.
 4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`

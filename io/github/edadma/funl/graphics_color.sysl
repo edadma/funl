@@ -72,6 +72,48 @@ parse_color(spec: string) -> Option[Rgb]
 
     phrase(s)
 
+// A foreground colour: specification `spec`, which may begin with one of Icon's coverage modifiers,
+// and the coverage it paints at -- a half for `"transparent"`, all of it for `"opaque"` and for no
+// modifier. `None` when the rest names no colour.
+parse_fg_color(spec: string) -> Option[(Rgb, f32)] = modified(spec) match
+    Some((alpha, rest)) ->
+        parse_color(rest) match
+            Some(c) -> Some((c, alpha))
+            None -> None
+    None ->
+        parse_color(spec) match
+            Some(c) -> Some((c, f32(1.0)))
+            None -> None
+
+// Foreground colour `spec` without its coverage modifier: the colour the background takes when the
+// two are swapped, since the background is always opaque.
+unmodified_color(spec: string) -> string = modified(spec) match
+    Some((_, rest)) -> rest
+    None -> spec
+
+// The coverage modifier `spec` begins with and the specification after it: the word `transparent`
+// or `opaque`, in any case, after any blanks and before a space or a hyphen.
+private modified(spec: string) -> Option[(f32, string)]
+    var from: usize = 0
+
+    while from < spec.bytes.len && is_blank(spec.bytes[from])
+        from += 1
+
+    var end = from
+
+    while end < spec.bytes.len && spec.bytes[end] != u8(' ') && spec.bytes[end] != u8('-')
+        end += 1
+
+    if end >= spec.bytes.len then return None
+
+    val word = text.to_lower(spec[from..<end])
+    val rest = spec[end + 1..<spec.bytes.len]
+
+    if word == "transparent" then return Some((f32(0.5), rest))
+    if word == "opaque" then return Some((f32(1.0), rest))
+
+    None
+
 // The normal form of colour `c`, `"r,g,b"`, which `color_value` and `pixel` answer.
 color_text(c: Rgb) -> string = s"${c.r},${c.g},${c.b}"
 
