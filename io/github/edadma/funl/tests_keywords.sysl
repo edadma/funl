@@ -1,0 +1,177 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.text.Search
+import sysl.text.str_builder
+
+// Keywords: the `&name` token and the refusal of `a &b`; `&subject` and `&pos`, read and assigned
+// plainly and reversibly; the csets, `&null`, `&fail`, the constants, `&random`, the clocks, the
+// program and the platform, `&file`, `&line` and `&level`.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// What program `text` printed when run as the file `file`, and its status.
+private ran_as(file: string, text: string) -> string
+    var out: Buf[string] = buf()
+    val status = run_source(file, text, (_) -> None, (t) -> out.push(t), (t) -> out.push(t))
+    var b = str_builder()
+
+    for p in out.view()
+        b.push(p)
+
+    s"${b.finish()}status $status"
+
+// -- the token -------------------------------------------------------------------------------------------
+
+@test
+A_NAME_TOUCHING_AMP_IS_A_KEYWORD_AND_AMP_WITH_SPACE_A_CONJUNCTION()
+    assert_eq(ran_funl("x = 1\ny = 2\nwrite(x & y, 1 & 2, &pi & 3)\nwrite(&digits)\n"), "2, 2, 3\ncset(\"0123456789\")\nsucceeded")
+
+    // `&` ending a line still runs the conjunction on to the next.
+    assert_eq(ran_funl("x = 1 &\n    &pos\nwrite(x)\n"), "1\nsucceeded")
+
+@test
+A_KEYWORD_RIGHT_AFTER_AN_OPERAND_IS_REFUSED_NAMING_THE_CONJUNCTION()
+    assert_eq(complaints("x = 1\ny = 2\nwrite(x &y)\nwrite(x&y)\nwrite((x) &y)\n"),
+        "error 3:9 `&y` touching its name is the keyword `&y`, and a keyword cannot follow an operand\n" +
+        "error 4:8 `&y` touching its name is the keyword `&y`, and a keyword cannot follow an operand\n" +
+        "error 5:11 `&y` touching its name is the keyword `&y`, and a keyword cannot follow an operand\n")
+
+    val said = rendered("x = 1\ny = 2\nwrite(x &y)\n")
+
+    assert(said.contains("a conjunction is written with a space after `&`: `x & y`"), said)
+
+@test
+A_NAME_THAT_IS_NO_KEYWORD_IS_REFUSED()
+    assert_eq(complaints("write(&foo)\nwrite(1 & &bar)\n"),
+        "error 1:7 `&foo` is not a keyword\nerror 2:11 `&bar` is not a keyword\n")
+
+@test
+A_PROGRAMS_NAMES_CANNOT_SHADOW_A_KEYWORD()
+    assert_eq(ran_funl("def f(pi, digits) = (&pi, &digits)\nwrite(f(1, 2))\nlcase = 'x'\nwrite(&lcase.length)\n"),
+        "(3.141592653589793, cset(\"0123456789\"))\n26\nsucceeded")
+
+// -- &subject and &pos -----------------------------------------------------------------------------------
+
+@test
+SUBJECT_AND_POS_READ_THE_SCAN_AND_ARE_EMPTY_AND_ONE_OUTSIDE_IT()
+    assert_eq(ran_funl("write(&subject == '', &pos)\n\"hello\" ?\n    tab(3)\n    write(&subject, &pos)\n    \"inner\" ? write(&subject, &pos)\n    write(&subject, &pos)\nwrite(&subject.length, &pos)\n"),
+        ", 1\nhello, 3\ninner, 1\nhello, 3\n0, 1\nsucceeded")
+
+@test
+POS_IS_ASSIGNED_AS_A_POSITION_AND_FAILS_OUTSIDE_THE_SUBJECT()
+    assert_eq(ran_funl("\"abc\" ?\n    write(if (&pos = 9) then 'moved' else 'stayed', &pos)\n    &pos = 0\n    write(&pos)\n    &pos = -2\n    write(&pos, tab(0))\n    &pos += -1\n    write(&pos)\n    write(if (&pos = 0 - 4) then 'moved' else 'stayed', &pos)\n"),
+        "stayed, 1\n4\n2, bc\n3\nstayed, 3\nsucceeded")
+
+    // Each value a generator gives is stored in turn.
+    assert_eq(ran_funl("\"abcd\" ?\n    every &pos = 2 to 9 do writes(move(1))\n    write()\n"), "bcd\nsucceeded")
+
+@test
+POS_ASSIGNED_WITH_AN_ARROW_IS_PUT_BACK_BY_BACKTRACKING_AND_WITH_EQUALS_IS_NOT()
+    assert_eq(ran_funl("\"abcdef\" ?\n    tab(2)\n    ((&pos <- 5) & fail) | write('failed back')\n    write(&pos)\n    ((&pos = 5) & fail) | write('kept')\n    write(&pos)\n"),
+        "failed back\n2\nkept\n5\nsucceeded")
+
+    // A reversible move inside a loop's bounded body stays once the body has completed.
+    assert_eq(ran_funl("\"abcdef\" ?\n    every i = 1 to 3 do &pos <- i * 2\n    write(&pos)\n"), "6\nsucceeded")
+
+@test
+SUBJECT_ASSIGNED_SCANS_FROM_ONE_AND_A_SCAN_PUTS_THE_OUTER_ONE_BACK()
+    assert_eq(ran_funl("&subject = \"xyz\"\nwrite(&subject, &pos, tab(2), &pos)\n\"inner\" ?\n    &subject = \"changed\"\n    write(&subject, &pos)\nwrite(&subject, &pos)\n((&subject <- \"tmp\") & fail) | write(&subject)\n(&subject <- \"kept\")\nwrite(&subject)\n"),
+        "xyz, 1, x, 2\nchanged, 1\nxyz, 2\nxyz\nkept\nsucceeded")
+
+@test
+A_SCAN_KEYWORD_ASSIGNED_THE_WRONG_KIND_FAULTS()
+    faults_with("\"abc\" ? (&pos = 'x')\n", "'&pos' wants an integer and was given the string 'x'")
+    faults_with("&subject = 3\n", "'&subject' wants a string and was given the integer 3")
+    faults_with("&subject = #s\n", "'&subject' wants a string and was given the atom s")
+
+@test
+ONLY_SUBJECT_POS_AND_RANDOM_ARE_ASSIGNED_AND_ONLY_THE_SCAN_ONES_WITH_AN_ARROW()
+    assert_eq(complaints("&pi = 3\n&random <- 5\nx = (&e = 3)\n&clock += 1\n&pos <- 1\n&subject <- 'a'\n&random = 1\n"),
+        "error 1:1 `&pi` cannot be assigned\nerror 2:1 `&random` cannot be assigned with `<-`\n" +
+        "error 3:5 `&e` cannot be assigned\nerror 4:1 `&clock` cannot be assigned\n")
+
+// -- the values ----------------------------------------------------------------------------------------
+
+@test
+THE_CSET_KEYWORDS_ARE_THE_NAMED_CSETS()
+    assert_eq(ran_funl("write(&lcase == lowercase, &ucase == uppercase, &letters == letters, &digits == digits)\nwrite(&lcase.length, &ucase.length, &ascii.length, &cset == cset_all, 'q' in &lcase, if 'Q' in &lcase then 'in' else 'out')\n"),
+        "cset(\"abcdefghijklmnopqrstuvwxyz\"), cset(\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\"), cset(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\"), cset(\"0123456789\")\n26, 26, 128, complement(cset(\"\")), q, out\nsucceeded")
+    assert_eq(ran_funl("write(lowercase + uppercase == letters, upto(&ucase, 'abCd'))\n"), "cset(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\"), 3\nsucceeded")
+
+@test
+NULL_IS_UNDEFINED_AND_FAIL_FAILS()
+    assert_eq(ran_funl("write(if /&null then 'null' else 'not', if &fail then 'no' else 'failed', &null)\nwrite(&null == undefined)\n"),
+        "null, failed, undefined\nundefined\nsucceeded")
+
+@test
+THE_CONSTANT_KEYWORDS_ARE_THE_CONSTANTS()
+    assert_eq(ran_funl("write(&pi, &e, &phi)\nwrite(&pi == pi, &e == e, &phi == phi)\n"),
+        "3.141592653589793, 2.718281828459045, 1.618033988749895\n3.141592653589793, 2.718281828459045, 1.618033988749895\nsucceeded")
+
+@test
+RANDOM_IS_THE_SEED_AND_ASSIGNING_IT_REPEATS_A_RUN()
+    assert_eq(ran_funl("&random = 42\na = [?1000, ?1000, ?1000]\n&random = 42\nb = [?1000, ?1000, ?1000]\nwrite(if a == b then 'repeated' else 'differs', &random, &random == random_seed())\nrandom_seed(7)\nwrite(&random)\n"),
+        "repeated, 42, 42\n7\nsucceeded")
+    assert_eq(ran_funl("write(if &random is integer then 'seeded' else 'not')\n"), "seeded\nsucceeded")
+    faults_with("&random = 1.5\n", "'&random' wants a 64-bit integer and was given the real 1.5")
+
+@test
+THE_CLOCKS_READ_THE_HOSTS_TIME_IN_ICONS_SHAPES()
+    assert_eq(ran_funl("t = &time\nwrite(if t is integer and t >= 0 then 'ms' else t)\nc = &clock\nwrite(c.length, c(2), c(5))\nd = &date\nwrite(d.length, d(4), d(7))\nl = &dateline\nwrite(if l(l.length - 2..) in ['am', 'pm'] then 'ok' else l)\n"),
+        "ms\n8, :, :\n10, /, /\nok\nsucceeded")
+
+    // The date and the weekday agree with `funl:time`'s reading of the same moment in the host's zone.
+    val text = "import { now, fields, local_offset } from funl:time\n" +
+        "t = now()\nf = fields(t, local_offset(t))\n" +
+        "days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']\n" +
+        "write(&date == \"${f.year}/${if f.month < 10 then '0' else ''}${f.month}/${if f.day < 10 then '0' else ''}${f.day}\")\n" +
+        "l = &dateline\nwrite(l ? match(days(f.weekday - 1) + ', '))\n"
+    val said = ran_funl(text)
+
+    assert(said.ends_with("succeeded"), said)
+    assert(!said.contains("\n\n"), said)
+
+@test
+VERSION_HOST_AND_PROGNAME_NAME_FUNL_THE_MACHINE_AND_THE_PROGRAM()
+    assert_eq(ran_funl("write(&version)\nwrite(if &host.length > 0 then 'named' else 'none')\nwrite(&progname.length)\n"),
+        s"FunL version $FunlVersion\nnamed\n0\nsucceeded")
+    assert_eq(ran_as("hello.funl", "write(&progname)\n"), "hello.funl\nstatus 0")
+
+@test
+FEATURES_GENERATES_THE_LANGUAGES_THE_PLATFORMS_AND_THE_BUILDS()
+    var want = "large integers\n"
+
+    want = want + (os() match
+        MacOS -> "macOS\n"
+        Linux -> "Linux\n"
+        _ -> "other\n")
+#if feature_http
+    want = want + "http\n"
+#endif
+#if feature_async
+    want = want + "async\n"
+#endif
+#if feature_profile
+    want = want + "profile\n"
+#endif
+
+    assert_eq(ran_funl("every write(&features)\n"), want + "succeeded")
+    assert_eq(ran_funl("write(if &features == 'large integers' then 'has' else 'lacks', if &features == 'co-expressions' then 'has' else 'lacks')\n"),
+        "has, lacks\nsucceeded")
+
+@test
+FILE_AND_LINE_ARE_WHERE_THE_KEYWORD_IS_WRITTEN()
+    assert_eq(ran_funl("write(&file, &line)\n\ndef f() = &line\nwrite(&line, f())\n"), "test.funl, 1\n4, 3\nsucceeded")
+    assert_eq(ran_as("where.funl", "write(&file)\n"), "where.funl\nstatus 0")
+
+@test
+LEVEL_COUNTS_THE_CALLS_THE_RUNNING_CODE_IS_IN()
+    // A call in tail position replaces its caller's frame, so it is counted at its caller's depth.
+    assert_eq(ran_funl("def f() = &level\ndef g() = f()\ndef h() = f() + 0\ndef k(n) = if n == 0 then &level else k(n - 1) + 0\nwrite(&level, f(), g(), h(), k(3))\n"),
+        "1, 2, 2, 3, 5\nsucceeded")

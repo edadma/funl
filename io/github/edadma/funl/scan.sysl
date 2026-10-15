@@ -29,6 +29,65 @@ install_scan(v: *Vm)
     register_constant(v, "letters", make_letters)
     register_constant(v, "digits", make_digits)
     register_constant(v, "alphanum", make_alphanum)
+    register_constant(v, "lowercase", (b, n) -> Ok(new_cset(char_set("abcdefghijklmnopqrstuvwxyz"))?))
+    register_constant(v, "uppercase", (b, n) -> Ok(new_cset(char_set("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))?))
+
+    // The keywords `&subject` and `&pos`, and their stores, plain (`=`) and reversible (`<-`).
+    register(v, "&subject", 0, (b, n) -> subject_now())
+    register(v, "&pos", 0, (b, n) -> Ok(Int(long(current().pos))))
+    register(v, "&subject=", 1, (b, n) -> store_subject(b, false))
+    register(v, "&subject<-", 1, (b, n) -> store_subject(b, true))
+    register_generator(v, "&pos=", 1, (b, n, c) -> store_pos(b, false))
+    register_generator(v, "&pos<-", 1, (b, n, c) -> store_pos(b, true))
+
+// `&subject`: the string being scanned, `""` outside every scan, as Icon's is.
+private subject_now() -> Result[Value, Fault]
+    val x = current().subject
+
+    x match
+        Str(_) -> Ok(x)
+        _ -> Ok(new_str("")?)
+
+// `&subject = s`: scan `s` from position 1 -- an ordinary assignment, or with `back` a reversible one,
+// which failure passing back over it undoes. Outside every scan it sets the state the next scan saves
+// and puts back.
+private store_subject(base: usize, back: bool) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+    val v = current()
+
+    x match
+        Str(_) -> ()
+        _ -> return Err(kind_error(x, "string", s"'&subject' wants a string and was given ${described(x)}"))
+
+    if back
+        set_scan(v, x, 1)
+    else
+        v.subject = x
+        v.pos = 1
+
+    Ok(x)
+
+// `&pos = i`: move the scan position to `i`, written as any position argument is -- 0 the end, negative
+// counting back from it; failure when it is outside the subject. With `back` the move is undone by
+// failure passing back over it, as `tab`'s is.
+private store_pos(base: usize, back: bool) -> Result[Answer, Fault]
+    val i = int_arg(base, 0, "&pos")?
+    val v = current()
+
+    val chars = v.subject match
+        Str(p) -> p.chars
+        _ -> 0
+
+    val k = position(i, chars) match
+        Some(k) -> k
+        None -> return Ok(Refuses)
+
+    if back
+        set_scan(v, v.subject, k)
+    else
+        v.pos = k
+
+    Ok(Gives(arg(base, 0)))
 
 // The string being scanned.
 //

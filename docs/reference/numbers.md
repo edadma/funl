@@ -461,20 +461,20 @@ write( copysign(3, -0.0), copysign(-2.5, 1) )
 -3, 2.5
 ```
 
-`floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `round`)
+`floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `truncate`)
 answer integers, and exactly: a rational is rounded as a rational, an integer is its own. `sign`
 keeps its argument's kind, and `float` makes a real. `integer` takes a string too, and so do `real`
 and `numeric` ([below](#converting-a-string-to-a-number)).
 
 ```funl
 write( floor(7/2), ceiling(7/2), round(7/2), truncate(-7/2), floor(-7/2) )
-write( floor(2.5), round(-2.5), integer(2.5), floor(5) )
+write( floor(2.5), round(-2.5), integer(2.7), floor(5) )
 write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )
 ```
 
 ```output
 3, 4, 4, -3, -4
-2, -3, 3, 5
+2, -3, 2, 5
 -1, 1, 0, 0.25, 3
 ```
 
@@ -744,18 +744,18 @@ repeated
 Arithmetic never reads a number out of a string; `integer`, `real` and `numeric` do. Each takes a
 number or a string. A string is read as a number literal is, so it converts exactly when the same
 characters in a program would be a number, and the three then make of it what they make of a
-number: `integer` rounds as `round` does, `real` makes a real, and `numeric` leaves the number the
+number: `integer` truncates toward zero as `truncate` does, `real` makes a real, and `numeric` leaves the number the
 kind it is.
 
 ```funl
 write( integer('42') + 1, integer('1_000'), integer('0xFF') )
-write( integer('2.5'), real('3'), real(1/4) )
+write( integer('2.7'), integer('-2.7'), real('3'), real(1/4) )
 write( numeric('7'), numeric('0.5'), numeric(7/2) )
 ```
 
 ```output
 43, 1000, 255
-3, 3, 0.25
+2, -2, 3, 0.25
 7, 0.5, 7/2
 ```
 
