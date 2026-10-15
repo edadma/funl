@@ -422,6 +422,40 @@ m.b = 2
 is an immutable map, and nothing can be stored in it
 ```
 
+### Union, difference and intersection
+
+On sets, `+` is union, `-` difference and `**` intersection. `+` and `-` take a set or a single
+element on the right, and answer a new set. `**` takes two sets, mutable or not, and answers the
+elements of the left that the right holds too, in the left's order, as a set of the left's kind.
+`**` binds as `*` does. On a mutable set, `+=`, `-=` and `**=` change it in place, even where the
+name is a `val`; on a variable holding an immutable set they assign a new one.
+
+```funl
+a = {1, 2, 3}
+write( a + {4}, a + 5, a - {1, 2}, a - 3 )
+write( a ** {3, 2, 9}, a ** {7} )
+
+val s = set( [1, 2, 3, 4] )
+s **= {2, 4, 6}
+write( s )
+```
+
+```output
+{1, 2, 3, 4}, {1, 2, 3, 5}, {3}, {1, 2}
+{2, 3}, {}
+MutableSet(2, 4)
+```
+
+```funl
+write( {1, 2} ** [2] )
+```
+
+```error
+'**' intersects a set with another set, and was given the list [2]
+```
+
+The same three operators work on csets, the [sets of characters](scanning.md#character-sets).
+
 ## Maps with a default
 
 `map(c, d)` is a mutable copy of `c` whose missing keys read as `d` instead of failing. Counting

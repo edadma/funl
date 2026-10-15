@@ -59,6 +59,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
         Buffer(_) -> ()
         Map(_) -> ()
         MutMap(_) -> ()
+        CSet(_) -> ()
         Range(r) -> first = r.from
         Var(_) ->
             val what = if draw then "`<-`" else "`!`"
@@ -71,7 +72,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
                 v.stack.push(Int(0))
                 return Ok(())
 
-            val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map, a string or a byte string, and was given ${described(c)}"
+            val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map, a string, a byte string or a cset, and was given ${described(c)}"
 
             return Err(type_error("collection", c, msg))
 
@@ -211,6 +212,17 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 return Ok(false)
 
             elem = Int(long(p.b.at(usize(at))))
+            rest = v.stack.at(top - 2)
+            next = at + 1
+            spent = next == n
+        CSet(p) ->
+            val n = long(cset_count(deref(v.stack.at(top - 2)), p.set, "cannot be listed")?)
+
+            if at >= n
+                v.stack.truncate(top - 2)
+                return Ok(false)
+
+            elem = cset_nth(deref(v.stack.at(top - 2)), p.set, usize(at))?
             rest = v.stack.at(top - 2)
             next = at + 1
             spent = next == n

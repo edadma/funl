@@ -1,0 +1,89 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// The cset algebra -- `+`, `-`, `**`, `complement` and its flag, `ascii` and `cset_all` -- and `**`
+// on sets.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// `+` is union, `-` difference and `**` intersection, with a cset or a string on the right.
+@test
+CSETS_HAVE_UNION_DIFFERENCE_AND_INTERSECTION()
+    assert_eq(ran_funl("v = cset('aeiou')\nwrite(v + 'xya', v - 'aei', v ** 'abcde', cset('cab') ** cset('bcd'))\nwrite(v - v, v ** '', cset('') + '', cset('é日') + 'ü' - '日')\n"),
+        "cset(\"aeiouxy\"), cset(\"ou\"), cset(\"ae\"), cset(\"bc\")\ncset(\"\"), cset(\"\"), cset(\"\"), cset(\"éü\")\nsucceeded")
+
+// `**` binds as `*` does and groups to the left; `**=` updates a variable holding a cset.
+@test
+INTERSECTION_BINDS_AS_MULTIPLICATION_DOES()
+    assert_eq(ran_funl("write(cset('ab') + cset('cd') ** 'c', (cset('ab') + 'cd') ** 'c')\nvar c = letters\nc **= 'abc1'\nc += '9'\nwrite(c)\nwrite((** 'xyz')(cset('yz!')))\n"),
+        "cset(\"abc\"), cset(\"c\")\ncset(\"9abc\")\ncset(\"yz\")\nsucceeded")
+
+// A complement holds every character but those it names, Unicode included, and the algebra and
+// membership read its flag.
+@test
+A_COMPLEMENT_HOLDS_EVERY_CHARACTER_BUT_ITS_OWN()
+    assert_eq(ran_funl("n = complement('aeiou')\nwrite(n, complement(cset('ab')), 'b' in n, 'é' in n, '日' in n)\nwrite(if 'a' in n then 'in' else 'out', if 'ab' in cset('ab') then 'in' else 'out')\n"),
+        "complement(cset(\"aeiou\")), complement(cset(\"ab\")), b, é, 日\nout, out\nsucceeded")
+    assert_eq(ran_funl("n = complement('aeiou')\nwrite(n + 'a', n - 'b', n ** 'abc', n ** complement('ab'), n + complement('ab'))\nwrite(cset('aeb') - complement('ae'), complement('a') - complement('ab'), complement('ab') - 'b')\n"),
+        "complement(cset(\"eiou\")), complement(cset(\"abeiou\")), cset(\"bc\"), complement(cset(\"abeiou\")), complement(cset(\"a\"))\ncset(\"ae\"), cset(\"b\"), complement(cset(\"ab\"))\nsucceeded")
+    assert_eq(ran_funl("write(complement(complement('ab')) == cset('ab'), complement('ab') == complement('ba'))\nwrite(if complement('a') == cset('a') then 'same' else 'differ', if complement('') == cset_all then 'same' else 'differ')\n"),
+        "cset(\"ab\"), complement(cset(\"ab\"))\ndiffer, same\nsucceeded")
+
+// A complement is searched for as any cset is.
+@test
+SCANNING_READS_A_COMPLEMENT()
+    assert_eq(ran_funl("'hello, wörld' ? write(tab(upto(complement(letters))), tab(many(complement(letters + 'ö'))), tab(0))\nwrite(split('a1b22c', complement(digits)))\n"),
+        "hello, , , wörld\n[\"\", \"1\", \"22\", \"\"]\nsucceeded")
+
+// `ascii` is the 128 ASCII characters and `cset_all` every character.
+@test
+ASCII_AND_CSET_ALL_ARE_NAMED_CSETS()
+    assert_eq(ran_funl("write(ascii.length, '~' in ascii, cset_all, 'é' in cset_all, ascii - complement('ab'))\nwrite(if 'é' in ascii then 'in' else 'out', (ascii + 'é') ** 'é')\n"),
+        "128, ~, complement(cset(\"\")), é, cset(\"ab\")\nout, cset(\"é\")\nsucceeded")
+
+// A cset's length and `!` count and list its characters in ascending order; a complement has
+// neither, and faults with `domain_error(finite, C)`.
+@test
+A_CSET_IS_COUNTED_AND_LISTED_BUT_A_COMPLEMENT_IS_NOT()
+    assert_eq(ran_funl("c = cset('héllo')\nwrite(c.length, [x | x <- c], cset('').length)\nevery write(!cset('ba'))\nwrite([x | x <- !cset('')])\n"),
+        "4, [\"h\", \"l\", \"o\", \"é\"], 0\na\nb\n[]\nsucceeded")
+    assert_eq(ran_funl("write(complement('a').length catch error(t, _) -> t)\nwrite([x | x <- cset_all] catch error(t, _) -> t)\n"),
+        "domain_error(finite, complement(cset(\"a\")))\ndomain_error(finite, complement(cset(\"\")))\nsucceeded")
+    faults_with("write(complement('a').length)\n", "the complement complement(cset(\"a\")) has no length: it holds every character but the ones it names")
+    faults_with("every write(!complement('a'))\n", "the complement complement(cset(\"a\")) cannot be listed")
+
+@test
+THE_CSET_OPERANDS_ARE_CHECKED()
+    faults_with("write(cset('a') + 5)\n", "'+' on a cset wants a cset or a string and was given the integer 5")
+    faults_with("write(cset('a') ** [1])\n", "'**' on a cset wants a cset or a string and was given the list [1]")
+    faults_with("write(complement(5))\n", "'complement' wants a cset or a string and was given the integer 5")
+    faults_with("write('ab' ** cset('a'))\n", "'**' intersects two sets or two csets, and was given the string 'ab'")
+    faults_with("free u\nwrite(cset('a') - u)\n", "'-' was given an unbound variable")
+    assert_eq(ran_funl("write(complement(1) catch error(t, _) -> t)\nwrite(cset('a') + 1 catch error(t, _) -> t)\n"),
+        "type_error(cset, 1)\ntype_error(cset, 1)\nsucceeded")
+
+// `**` on sets: the elements of the left that the right holds too, in the left's order, as a set of
+// the left's kind.
+@test
+SETS_INTERSECT()
+    assert_eq(ran_funl("write({1, 2, 3} ** {3, 2, 4}, {1, 2} ** {3}, {1} ** set([1]))\nval s = set([1, 2, 3])\nwrite(s ** {2, 5}, s)\n"),
+        "{2, 3}, {}, {1}\nMutableSet(2), MutableSet(1, 2, 3)\nsucceeded")
+    faults_with("write({1} ** 3)\n", "'**' intersects a set with another set, and was given the integer 3")
+    faults_with("write(3 ** {1})\n", "'**' intersects two sets or two csets, and was given the integer 3")
+    faults_with("write([1] ** [1])\n", "'**' intersects two sets or two csets, and was given the list [1]")
+    assert_eq(ran_funl("write({1} ** 2 catch error(t, _) -> t)\n"), "type_error(set, 2)\nsucceeded")
+
+// `s **= t` keeps in a mutable set only what `t` holds, in place -- a `val` included -- and assigns a
+// variable holding an immutable set.
+@test
+INTERSECTION_EQUALS_CHANGES_A_MUTABLE_SET_IN_PLACE()
+    assert_eq(ran_funl("val m = set([1, 2, 3])\nval alias = m\nm **= {3, 1}\nwrite(m, alias)\nvar t = {1, 2, 3}\nt **= set([2])\nwrite(t)\n"),
+        "MutableSet(1, 3), MutableSet(1, 3)\n{2}\nsucceeded")
+    faults_with("val s = {1}\ns **= {1}\n", "`**=` on a `val` keeps only part of the mutable set it holds, and this one holds {1}")
+    faults_with("val m = set([1])\nm **= 1\n", "'**' intersects a set with another set, and was given the integer 1")

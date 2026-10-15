@@ -137,7 +137,7 @@ private class_holds(k: RxClass, c: char) -> bool
 
     false
 
-empty_class(fold: bool) -> RxClass = RxClass(CharSet(0, 0, buf()), buf(), buf(), false, fold)
+empty_class(fold: bool) -> RxClass = RxClass(empty_chars(), buf(), buf(), false, fold)
 
 // Add the characters `lo` to `hi` to a class.
 add_range(k: *RxClass, lo: u32, hi: u32)
@@ -173,7 +173,7 @@ named_set(name: string) -> Option[CharSet]
 
     if !known then return None
 
-    var set = CharSet(0, 0, buf())
+    var set = empty_chars()
 
     for u in 0..<128
         val c = char(u32(u))

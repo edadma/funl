@@ -544,24 +544,13 @@ converted. Icon's two families exist only because of the conversion, so FunL's o
 
 ### Csets
 
-**Icon:** `c1 ++ c2` union, `c1 -- c2` difference, `c1 ** c2` intersection, `~c` the complement
-in the 256-character universe; `*c` the size and `!c` each character in order; the same `++`,
-`--`, `**` on sets. The keywords `&lcase`, `&ucase`, `&letters`, `&digits`, `&ascii` and `&cset`.
+The cset algebra is built (`+`, `-`, `**`, `complement`, `ascii`, `cset_all`; see
+[scanning](../reference/scanning.md#character-sets)). What remains:
 
-**FunL today:** `+` and `-` are union and difference on sets; csets have no operators; `letters`,
-`digits` and `alphanum` are names. `++` and `--` are increment and decrement, and `&` is conjunction.
-
-**Proposed:**
-
-- **`+` and `-` on csets**, as on sets, and **`**` intersection on both** — Icon's spelling, free in
-  FunL (power is `^`), and with `**=` under the augmented assignment rule. `s1 & s2` stays
-  conjunction.
-- **`complement(c)`**: the characters not in `c`. FunL's characters are Unicode, so a complement is
-  stored as a flag on the cset ("everything but these"), and every cset operation takes the flag
-  into account; `*c` of a complement and `!c` over one fault, there being no useful answer.
-  Prefix `~` is not taken for it: `~` is unification, and `x ~ ~c` would read as a typo.
-- `lower`, `upper`, `ascii` and `cset_all` as names beside `letters`, and Icon's keywords for all
-  of them under [I18](#keywords).
+- **`lower` and `upper` as cset names beside `letters`.** Both names are already the case-mapping
+  functions `lower(s)` and `upper(s)`, so neither can also be a named cset without a decision: a
+  different spelling (`lowercase`/`uppercase`, `lower_letters`), or Icon's `&lcase`/`&ucase` only,
+  under [I18](#keywords). Icon's keywords for the other named csets wait on I18 as well.
 
 ## Structures
 
@@ -570,7 +559,6 @@ in the 256-character universe; `*c` the size and `!c` each character in order; t
 | `push(L, x…)`, `pop(L)`, `get(L)`, `pull(L)`, `put(L, x…)` | the same names over a buffer; `pop`, `get` and `pull` fail on an empty one | new; `put` is `b += x` |
 | `delete(S, x)`, `delete(T, k)` | `delete(c, k)` on a mutable set or map, and `m -= k`, `s -= x` | new; `m -= k` faults today |
 | `list(n, x)` | `array(n, x)` | new arity |
-| `S1 ** S2` | `**` | new |
 | `sort(T, i)` | `sort(m)` is the list of `(k, v)` sorted by key; by value with `sortOn` | new |
 | `sortf(L, i)` | `sortOn(f, xs)`: sorted by the key `f` gives, stable — the prelude's Haskell spelling | new |
 | `copy(x)` | `copy(x)`: a one-level copy of a mutable collection; any other value itself | new |
