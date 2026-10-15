@@ -118,7 +118,7 @@ THE_CONSTANT_KEYWORDS_ARE_THE_CONSTANTS()
 RANDOM_IS_THE_SEED_AND_ASSIGNING_IT_REPEATS_A_RUN()
     assert_eq(ran_funl("&random = 42\na = [?1000, ?1000, ?1000]\n&random = 42\nb = [?1000, ?1000, ?1000]\nwrite(if a == b then 'repeated' else 'differs', &random, &random == random_seed())\nrandom_seed(7)\nwrite(&random)\n"),
         "repeated, 42, 42\n7\nsucceeded")
-    assert_eq(ran_funl("write(&random is integer)\n"), "true\nsucceeded")
+    assert_eq(ran_funl("write(if &random is integer then 'seeded' else 'not')\n"), "seeded\nsucceeded")
     faults_with("&random = 1.5\n", "'&random' wants a 64-bit integer and was given the real 1.5")
 
 @test
