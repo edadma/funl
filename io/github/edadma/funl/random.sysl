@@ -28,13 +28,13 @@ draw_unit() -> real
 
     current().rng.unit()
 
-private seed_if_needed()
+seed_if_needed()
     val v = current()
 
     if !v.rng_seeded
         reseed(long(seed_from_os().unwrap_or(0)))
 
-private reseed(seed: long)
+reseed(seed: long)
     val v = current()
 
     v.rng = rng(u64(seed), 0)

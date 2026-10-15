@@ -139,7 +139,8 @@ end imported_file
 // **A key a Prolog file has already defined is refused**, naming both definitions: Prolog and FunL
 // share one predicate for each name and arity. A key of the library's is taken over, as a Prolog
 // program's own definition takes it over. A builtin's key stays the builtin's: the FunL definition is
-// FunL's own under its name and Prolog does not see it, which no load order can change.
+// FunL's own under its name and Prolog does not see it, which no load order can change. (A module a
+// Prolog file imports is stricter: its export on a builtin's key is refused.)
 //
 // Answers why the code is refused when a key was: the first key refused, or `Unreadable` when none.
 private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal, string]
@@ -149,6 +150,11 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal
         val r = res.rels.at(i)
 
         if !is_top_rel(res, i) then continue
+
+        if r.function then note_top_fn(r.name, r.arity, r.chunk, r.variadic)
+
+        // A variadic function has no one arity, so no Prolog key (`variadic.sysl`).
+        if r.variadic then continue
 
         val key = if r.function then pred_key(r.name, r.arity + 1) else pred_key(r.name, r.arity)
 
@@ -215,6 +221,7 @@ private compiled(res: *Resolved, loads: Buf[usize], out: ModuleOut) -> Result[us
     val c = context(res, res.top, &loops)
 
     e.op(Frame(res.scopes.at(res.top).count()))
+    name_top_level(&e, res)
 
     if !program then e.op(KeepTop(TopUp - 1 - res.top_up))
 
@@ -250,6 +257,7 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
 
         val value = x.kind match
             ExFunction(_, _) -> true
+            ExVariadic(_, _) -> true
             ExValue(_) -> true
             ExCtor(_, _) -> true
             _ -> false
@@ -272,12 +280,30 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
                     arities.push(FnMember(chunk, arity, res.top_up))
                 _ -> ()
 
+        // A variadic arity is the family's last member, taking the counts the others leave.
+        for k in 0..<out.exports.len()
+            val y = out.exports.at(k)
+
+            if y.name != x.name then continue
+
+            y.kind match
+                ExVariadic(chunk, arity) ->
+                    if k < i then earlier = true
+
+                    arities.push(RestMember(chunk, arity - 1, res.top_up))
+                _ -> ()
+
         if earlier then continue
 
         e.op(PushConst(e.constant(new_str(x.name)?)))
 
         x.kind match
             ExFunction(chunk, _) ->
+                if arities.len() > 1
+                    e.op(MakeClosure(family_chunk(x.name, arities)?, res.top_up))
+                else
+                    e.op(MakeClosure(chunk, res.top_up))
+            ExVariadic(chunk, _) ->
                 if arities.len() > 1
                     e.op(MakeClosure(family_chunk(x.name, arities)?, res.top_up))
                 else
@@ -444,9 +470,9 @@ private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest:
 private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
         CallE(n, at, args) ->
-            c.res.picked(at.start, n, c.meaning(n, at.start), args.len()) match
-                Relation(_) -> call_named(e, c, n, at.start, args, true)?
-                Predicate(_) -> call_named(e, c, n, at.start, args, true)?
+            c.res.picked(x, n, c.meaning(n, at.start), args.len()) match
+                Relation(_) -> call_named(e, c, x, n, at.start, args, true)?
+                Predicate(_) -> call_named(e, c, x, n, at.start, args, true)?
                 _ -> returning(e, c, x)?
         Conj(a, b) ->
             compile_value(e, c, a)?
