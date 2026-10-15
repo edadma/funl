@@ -173,7 +173,7 @@ private stops_from(base: usize, argc: usize, name: string) -> Result[Stops, Faul
     Ok(Stops(cols))
 
 // `detab(s, i…)` replaces each tab of `s` with the spaces that reach the next tab stop; `entab(s, i…)`
-// replaces the spaces that reach a tab stop with a tab. Stops are columns counted from 1, every 8
+// replaces the spaces that reach a tab stop with a tab, except a single blank, which stays a blank. Stops are columns counted from 1, every 8
 // columns (9, 17, …) when none is given; a line break starts a new line at column 1.
 private tabbed(base: usize, argc: usize, name: string, tabs: bool) -> Result[Value, Fault]
     val s = text_arg(base, 0, name)?
@@ -209,7 +209,12 @@ private tabbed(base: usize, argc: usize, name: string, tabs: bool) -> Result[Val
             col += 1
 
             if stops.after(col - 1) == col
-                out.push("\t")
+                // A run of a single blank never becomes a tab.
+                if pending > 1
+                    out.push("\t")
+                else
+                    out.push(" ")
+
                 pending = 0
         else
             for _ in 0..<pending

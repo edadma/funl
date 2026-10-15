@@ -379,7 +379,8 @@ write( ord('ab') )
 ```
 
 `detab(s, i…)` replaces each tab with the spaces that reach the next tab stop, and `entab(s, i…)`
-replaces spaces that reach a tab stop with a tab. Stops are columns counted from 1: every 8 columns
+replaces spaces that reach a tab stop with a tab, except a single blank, which stays a blank (as in
+Icon). Stops are columns counted from 1: every 8 columns
 (9, 17, …) when none is given. With stops given, the last interval repeats past the last one, and
 the first interval runs from column 1. A line break starts a new line at column 1. `image` shows
 the result below with its tabs spelled out.
