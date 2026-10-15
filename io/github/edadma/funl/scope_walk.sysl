@@ -587,7 +587,7 @@ walk(w: *Walk, e: &Expr)
             walk_two(w, c, k)
             walk(w, x)
         StepE(n, _, _) -> updated(w, n, e.span)
-        MultiAssignE(targets, values) ->
+        MultiAssignE(targets, values, _) ->
             for x in values.view()
                 walk(w, x)
 
@@ -840,7 +840,7 @@ hoist_expr(w: *Walk, e: &Expr)
             hoist_maybe(w, body)
         BreakE(_, v) -> hoist_maybe(w, v)
         CompoundE(_, _, x) -> hoist_expr(w, x)
-        MultiAssignE(_, values) ->
+        MultiAssignE(_, values, _) ->
             for x in values.view()
                 hoist_expr(w, x)
         CallE(_, _, args) ->
