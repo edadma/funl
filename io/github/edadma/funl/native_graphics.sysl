@@ -1055,8 +1055,13 @@ private do_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val code = if ev.is_key then new_str(ev.key)? else Atom(ev.sym)
 
     // The string made, the event is taken: nothing allocates from here on.
-    canvas_at(w.at).queue.remove(0)
+    taken(w)
+    Ok(Some(code))
 
+// The oldest event on `w`'s queue, which holds one, taken off it and the running machine's event
+// keywords set from it, as `event()` sets them -- the pointer in `w`'s coordinates, its origin taken off.
+taken(w: Win) -> WinEvent
+    val ev = canvas_at(w.at).queue.remove(0)
     val ctx = context_at(w.ctx)
     val x = ev.x - ctx.dx
     val y = ev.y - ctx.dy
@@ -1067,7 +1072,11 @@ private do_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val high = if ctx.leading > 0 then ctx.leading else f.height()
 
     current().keys = EventKeys(x, y, cell(y, high), cell(x, f.fwidth), ev.interval, ev.mods)
-    Ok(Some(code))
+    ev
+
+// Whether `ev` is a key pressed -- what `read` and `reads` take as typing, where they pass over every
+// other event, a key's release among them.
+typed_key(ev: WinEvent) -> bool = ev.is_key && (ev.mods & ModReleased) == 0
 
 // `w.pending()`: how many events are on `w`'s queue; fails when there are none.
 private do_pending(base: usize, argc: usize) -> Result[Option[Value], Fault]

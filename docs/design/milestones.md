@@ -267,8 +267,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
 6. **Events on a hidden canvas**: the queue, `enqueue`, `event()`, `pending`, `active`, every event
    code, the keywords `&x`, `&y`, `&row`, `&col`, `&interval`, `&control`, `&shift`, `&meta`,
    `&released`, `&window` and the event-code keywords, per machine; `read`/`reads` with `echo`.
-   Waits on item 5, milestone 11 item 10, G9 and G10. Done, except `read`/`reads` with `echo`, which
-   draw the echoed text and so wait on item 5's `writes`.
+   Waits on item 5, milestone 11 item 10, G9 and G10. Done.
 7. **Windows on screen**: the `graphics` feature over `sdl3` (`--no-default-features` refusing a
    visible canvas), the texture and showing on wait, `flush`, `sync`, `delay`, SDL events routed by
    window id, `#close`, resize keeping pixels, several windows, the canvas attributes (`label`,

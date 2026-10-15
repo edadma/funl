@@ -121,12 +121,9 @@ has a colour map.
 
 ## Text and fonts
 
-**Fonts, their metrics, `draw_string` and the window as a text terminal are built** — see the library
-page, [`funl:graphics`](../library/graphics.md#text-and-fonts). What remains is the terminal's input:
-`w.read()` and `w.reads(n)` take keys from the event queue, echoing them at the cursor while `echo`
-is on, until a newline or `n` characters (item 6). With `w.write` and `w.writes` they are the stream
-methods [I17](icon.md#input-and-output) gives a file handle, so a procedure that writes to "a stream"
-writes to a window unchanged.
+**Fonts, their metrics, `draw_string` and the window as a text terminal — `write`, `writes`, `read`
+and `reads` with `echo` — are built**; see the library page,
+[`funl:graphics`](../library/graphics.md#text-and-fonts).
 
 ## Images
 

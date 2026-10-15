@@ -535,6 +535,42 @@ write( w.goto_rc(2, 4).get("x"), w.get("y") )
 After `"two"` and `"three"`, each ending its line, the canvas has scrolled twice, and `"three"` is on
 row 1 with the cursor below it on row 2, the last row the canvas holds.
 
+### Reading from a window
+
+**`w.read()` and `w.reads(n)` read what is typed in the window**, as Icon's `read(W)` and
+`reads(W, n)` do, so a procedure that reads from "a stream" reads from a window unchanged. They take
+keys off the window's [event queue](#events), oldest first: `read()` up to a newline or carriage
+return, answering the line without it, and `reads(n)` exactly `n` characters, line ends included.
+Every other event they come to — a button, motion, a symbol key like `#home`, a key's release — is
+taken and passed over, and each event taken sets the [event keywords](#events) as `event()` would.
+**Backspace and delete rub out the character before them**, when there is one in what is being read.
+
+**While `echo` is on (the default), each key is written at the [cursor](#the-window-as-a-terminal)**
+as `writes` would write it, and the line end that finishes `read()` moves the cursor to the next
+line. A rub-out moves the cursor back over its character and paints that cell in the background
+colour, when the character is still on the cursor's line. With `echo` off, nothing is drawn and the
+cursor stays where it was.
+
+**On a hidden canvas a read the queue cannot finish faults**, as `event()` does on an empty queue —
+nothing but `enqueue` fills it, and the program cannot call that while it waits — and the queue and
+the canvas are left as they were.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "terminal", {canvas: #hidden, size: (60, 26)} )
+for k <- ["n", "o", "x", "\b", "!", #lpress, "\r", "4", "2"] do w.enqueue( k )
+write( w.read(), w.get("row"), w.get("col") )
+write( w.reads(2), w.get("col") )
+write( w.read() catch _ -> "nothing left to read" )
+```
+
+```output
+no!, 2, 1
+42, 3
+nothing left to read
+```
+
 ## Clones, couples and closing
 
 **A window is a canvas and a context.** The canvas is the picture, its size and its title; the
