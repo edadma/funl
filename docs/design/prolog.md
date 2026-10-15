@@ -168,8 +168,10 @@ other, and which one depends on load order. A file that loads again replaces wha
 as consulting a file again does, and a file imported twice is loaded once. The library written in
 Prolog gives way to a program's own definition in either language. A builtin's key is never
 redefined: a Prolog file's clauses for one are refused, as ISO's `permission_error(modify,
-static_procedure, …)` has it, while a FunL function on a builtin's key stays FunL's own under its
-name and Prolog keeps the builtin — no load order can change which one either side sees.
+static_procedure, …)` has it, and so is a FunL export on one when a Prolog file imports the module:
+the import raises the same permission error, naming the builtin's `Name/Arity`, and the module counts
+as not imported. A FunL program's own definitions are not imported and stay FunL's own under
+their names — Prolog keeps the builtin, and no load order can change which one either side sees.
 
 A FunL function's arguments are dereferenced before the call and must be bound where its patterns
 look inside them; an unbound one is an `instantiation_error` naming the function, raised as an
