@@ -277,6 +277,20 @@ struct Vm
     // Where standard error goes, as `put` is standard output's: what `ewrite`, `ewrites` and `stop`
     // write. The default pushes out what standard output holds first, so the two keep program order.
     eput: &Fn(string) -> unit
+
+    // -- files and the keyboard (`native_file.sysl`, `native_term.sysl`) ---------------------------
+
+    // The handles of standard input, output and error, made the first time each is asked for, so
+    // every reach for one is the same handle; `Undefined` until then.
+    streams: Buf[Value]
+
+    // Where `funl:term` takes a keystroke: given whether to wait for one, the character typed, or
+    // `None` -- nothing waiting, or the input ended. The default reads the terminal in raw mode
+    // (`terminal_key`); the suite's machines are given keys of their own.
+    key: &Fn(bool) -> Result[Option[string], Fault]
+
+    // A keystroke `kbhit` found waiting and took, which the next `getch` answers first.
+    held_key: string
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -308,7 +322,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf(), buf(), buf(), None, (t) -> to_stderr(t))
+        buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), (wait) -> terminal_key(wait), "")
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

@@ -513,12 +513,13 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/success-and-failure.md 17 5 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
     AsyncCensus +
-    "docs/library/fs.md 13 2 0 0\n" +
+    "docs/library/fs.md 17 2 0 0\n" +
     HttpCensus +
     "docs/library/json.md 7 1 0 0\n" +
     "docs/library/prelude.md 15 14 0 0\n" +
     "docs/library/process.md 16 4 0 0\n" +
     "docs/library/sqlite.md 10 1 0 0\n" +
+    "docs/library/term.md 1 1 2 0\n" +
     "docs/library/time.md 8 1 0 0\n"
 
 // `docs/library/http.md`'s line, which a build without the `http` feature does not run.

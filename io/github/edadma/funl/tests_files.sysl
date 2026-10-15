@@ -1,0 +1,261 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{read_text, set_permissions, write_bytes}
+
+// Open files (`docs/library/fs.md` § "Open files"): `open(path, mode)` in `funl:fs`, the `file`
+// handle's methods, `!f`, pipes, and the standard streams as handles. Every program runs on both
+// heaps, so each opens what it reads afresh -- a mode of `w` empties the file first.
+
+// FunL program `body` run with `open`, `write_file` and `read_file` imported, `d` bound to `dir`.
+private in_dir(dir: string, body: string) -> string =
+    ran_funl(s"import { open, write_file, read_file, remove } from funl:fs\nval d = \"$dir\"\n" + body)
+
+@test
+A_FILE_IS_WRITTEN_WITH_WRITE_AND_WRITES_AND_READ_A_LINE_AT_A_TIME()
+    val d = scratch()
+    defer scrap(d)
+
+    val body = "f = open(d + \"/t.txt\", \"w\")\nf.write(\"one\", 2)\nf.writes(\"two\", 3, \"\\n\")\nf.write()\nf.write(\"last\")\nwrite( f.close() )\n" +
+        "g = open(d + \"/t.txt\")\nwrite( g.read() )\nwrite( g.read() )\nwrite( g.read() == \"\" )\nwrite( g.read() )\nwrite( g.read() | #end )\ng.close()\n" +
+        "write( read_file(d + \"/t.txt\") )\n"
+
+    assert_eq(in_dir(d, body), "()\none, 2\ntwo3\n\nlast\nend\none, 2\ntwo3\n\nlast\n\nsucceeded")
+
+@test
+OPEN_WITH_NO_MODE_READS_AND_A_FILE_NOT_THERE_FAILS()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "a.txt", "alpha\r\nbeta")
+
+    val body = "f = open(d + \"/a.txt\")\nwrite( f.read() )\nwrite( f.read() )\nwrite( f.read() | #end )\n" +
+        "write( open(d + \"/none.txt\") | #absent )\nwrite( open(d + \"/no/dir.txt\", \"w\") | #no_dir )\nif open(d + \"/none.txt\", \"r\") then write( #there ) else write( #not_there )\n"
+
+    assert_eq(in_dir(d, body), "alpha\nbeta\nend\nabsent\nno_dir\nnot_there\nsucceeded")
+
+@test
+BANG_GENERATES_THE_LINES_AND_GOES_ON_FROM_WHERE_IT_STOPPED()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "l.txt", "a\nb\nc\nd\n")
+
+    val body = "f = open(d + \"/l.txt\")\nwrite( !f )\nwrite( [l | l <- !f] )\nwrite( f.read() | #spent )\n" +
+        "g = open(d + \"/l.txt\")\nevery write( \"> \" + !g )\nwrite( [x | x <- !open(d + \"/l.txt\")] )\n" +
+        "h = open(d + \"/l.txt\")\nwrite( !h == \"c\" )\nwrite( h.read() )\n"
+
+    assert_eq(in_dir(d, body), "a\n[\"b\", \"c\", \"d\"]\nspent\n> a\n> b\n> c\n> d\n[\"a\", \"b\", \"c\", \"d\"]\nc\nd\nsucceeded")
+
+@test
+READS_TAKES_CHARACTERS_AND_FAILS_ONLY_WHEN_NOTHING_IS_LEFT()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "r.txt", "héllo\nwörld")
+
+    val body = "f = open(d + \"/r.txt\")\nwrite( f.reads(2) )\nwrite( f.where() )\nwrite( f.reads(4) )\nwrite( f.reads(100) )\nwrite( f.reads(1) | #end )\n"
+
+    assert_eq(in_dir(d, body), "hé\n4\nllo\n\nwörld\nend\nsucceeded")
+
+@test
+SEEK_AND_WHERE_COUNT_FROM_ONE_AND_FROM_THE_END()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "s.txt", "0123456789")
+
+    val body = "f = open(d + \"/s.txt\")\nwrite( f.where() )\nf.seek(4)\nwrite( f.where(), f.reads(2) )\nf.seek(-3)\nwrite( f.where(), f.reads(9) )\n" +
+        "f.seek(0)\nwrite( f.where(), f.read() | #end )\nf.seek(1)\nwrite( f.read() )\nwrite( f.seek(-11) | #before_the_start )\nwrite( f.where() )\n" +
+        "write( f.seek(-10) )\nwrite( f.reads(1) )\n"
+
+    assert_eq(in_dir(d, body), "1\n4, 34\n8, 789\n11, end\n0123456789\nbefore_the_start\n11\n()\n0\nsucceeded")
+
+@test
+THE_MODES_APPEND_UPDATE_AND_CREATE_AS_ICON_DOES()
+    val d = scratch()
+    defer scrap(d)
+
+    val body = "write_file(d + \"/m.txt\", \"abc\\n\")\na = open(d + \"/m.txt\", \"a\")\na.write(\"added\")\na.close()\nwrite( read_file(d + \"/m.txt\") )\n" +
+        "b = open(d + \"/m.txt\", \"b\")\nb.writes(\"X\")\nb.seek(1)\nwrite( b.read() )\nb.close()\n" +
+        "u = open(d + \"/m.txt\", \"ba\")\nu.seek(1)\nwrite( u.read() )\nu.writes(\"tail\")\nu.seek(1)\nwrite( [l | l <- !u] )\nu.close()\n" +
+        "c = open(d + \"/m.txt\", \"bc\")\nwrite( c.read() | #emptied )\nc.write(\"new\")\nc.seek(1)\nwrite( c.read() )\nc.close()\n" +
+        "w = open(d + \"/m.txt\", \"WT\")\nw.writes(\"upper\")\nw.close()\nwrite( read_file(d + \"/m.txt\") )\n" +
+        "remove(d + \"/fresh.txt\") | ()\nn = open(d + \"/fresh.txt\", \"ra\")\nn.write(\"made\")\nn.close()\nwrite( read_file(d + \"/fresh.txt\") )\n"
+
+    assert_eq(in_dir(d, body), "abc\nadded\n\nXbc\nXbc\n[\"Xbc\", \"added\", \"tail\"]\nemptied\nnew\nupper\nmade\n\nsucceeded")
+
+@test
+A_PIPE_READS_A_COMMANDS_OUTPUT_AND_CLOSE_ANSWERS_ITS_STATUS()
+    val d = scratch()
+    defer scrap(d)
+
+    val body = "p = open(\"echo one; echo two\", \"p\")\nwrite( p.read() )\nwrite( p.read() )\nwrite( p.read() | #end )\nwrite( p.close() )\n" +
+        "every write( \"- \" + !open(\"printf 'x\\\\ny\\\\n'\", \"pr\") )\n" +
+        "write( open(\"exit 3\", \"p\").close() )\nwrite( open('kill -9 $$', \"p\").close() )\n" +
+        "w = open(\"cat > '\" + d + \"/piped.txt'\", \"pw\")\nw.write(\"through\")\nw.writes(\"the pipe\")\nwrite( w.close() )\nwrite( read_file(d + \"/piped.txt\") )\n" +
+        "write( p.close() )\n"
+
+    assert_eq(in_dir(d, body), "one\ntwo\nend\n0\n- x\n- y\n3\n137\n0\nthrough\nthe pipe\n()\nsucceeded")
+
+@test
+SEEK_AND_WHERE_FAIL_ON_A_PIPE()
+    val body = "p = open(\"echo hi\", \"p\")\nwrite( p.where() | #no_position )\nwrite( p.seek(1) | #cannot_seek )\nwrite( p.read() )\np.close()\n"
+
+    assert_eq(ran_funl("import { open } from funl:fs\n" + body), "no_position\ncannot_seek\nhi\nsucceeded")
+
+@test
+A_BAD_MODE_IS_A_DOMAIN_ERROR()
+    val d = scratch()
+    defer scrap(d)
+
+    val body = "write( open(d + \"/x\", \"rq\") catch error(f, _) -> f )\nwrite( open(\"cat\", \"pb\") catch error(f, _) -> f )\nwrite( open(d + \"/x\", 1) catch error(f, _) -> f )\n"
+
+    assert_eq(in_dir(d, body), "domain_error(io_mode, \"rq\")\ndomain_error(io_mode, \"pb\")\ntype_error(string, 1)\nsucceeded")
+
+    assert_eq(unplaced(in_dir(d, "open(d + \"/x\", \"z\")\n")),
+        "fault: main: 'open' takes a mode of the letters r, w, a, b, c, t, u and p, and was given `z`")
+
+@test
+READING_A_FILE_OPENED_TO_WRITE_AND_WRITING_ONE_OPENED_TO_READ_FAULT()
+    val d = scratch()
+    defer scrap(d)
+
+    val body = "w = open(d + \"/o.txt\", \"w\")\nwrite( w.read() catch error(f, _) -> f )\nwrite( w.reads(1) catch error(f, _) -> f )\nwrite( [x | x <- !w] catch error(f, _) -> f )\nw.close()\n" +
+        "r = open(d + \"/o.txt\")\nwrite( r.write(1) catch error(f, _) -> f )\nwrite( r.writes(1) catch error(f, _) -> f )\nr.close()\n" +
+        "p = open(\"cat > /dev/null\", \"pw\")\nwrite( p.read() catch error(f, _) -> f )\np.close()\nq = open(\"true\", \"p\")\nwrite( q.write(1) catch error(f, _) -> f )\nq.close()\n"
+
+    assert_eq(in_dir(d, body), "permission_error(input, stream, <file handle>)\npermission_error(input, stream, <file handle>)\npermission_error(input, stream, <file handle>)\n" +
+        "permission_error(output, stream, <file handle>)\npermission_error(output, stream, <file handle>)\n" +
+        "permission_error(input, stream, <file handle>)\npermission_error(output, stream, <file handle>)\nsucceeded")
+
+    assert_eq(unplaced(in_dir(d, "r = open(d + \"/o.txt\")\nr.write(\"x\")\n")), "fault: main: 'write' cannot write to a file opened only to read")
+
+@test
+A_CLOSED_FILE_PRINTS_AS_CLOSED_AND_ITS_METHODS_FAULT()
+    val d = scratch()
+    defer scrap(d)
+
+    val body = "f = open(d + \"/c.txt\", \"w\")\nwrite( f )\nwrite( f.close() )\nwrite( f.close() )\nwrite( f )\n" +
+        "write( f.write(1) catch error(e, _) -> e )\nwrite( f.read() catch error(e, _) -> e )\nwrite( !f catch error(e, _) -> e )\nwrite( if f == open(d + \"/c.txt\") then #same else #different )\n"
+
+    assert_eq(in_dir(d, body), "<file handle>\n()\n()\n<closed file handle>\nexistence_error(handle, <closed file handle>)\nexistence_error(handle, <closed file handle>)\nexistence_error(handle, <closed file handle>)\ndifferent\nsucceeded")
+
+@test
+THE_ARGUMENTS_OF_THE_METHODS_ARE_CHECKED()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "a.txt", "abc")
+
+    val body = "f = open(d + \"/a.txt\")\nwrite( f.reads(0) catch error(e, _) -> e )\nwrite( f.reads(\"2\") catch error(e, _) -> e )\nwrite( f.seek(1.5) catch error(e, _) -> e )\n" +
+        "write( f.read(1) catch error(e, _) -> e )\nwrite( f.rewind() catch error(e, _) -> e )\nwrite( open(42) catch error(e, _) -> e )\n"
+
+    assert_eq(in_dir(d, body), "domain_error(positive_integer, 0)\ntype_error(integer, \"2\")\ntype_error(integer, 1.5)\nexistence_error(procedure, /(read, 1))\nexistence_error(method, rewind)\ntype_error(string, 42)\nsucceeded")
+
+@test
+TEXT_THAT_IS_NOT_UTF8_FAULTS_AND_A_PERMISSION_REFUSED_FAULTS()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad = s"$d/bad.txt"
+
+    write_bytes(bad, [104, 105, 255, 10]).unwrap()
+
+    val locked = put(d, "locked.txt", "secret")
+
+    set_permissions(locked, 0).unwrap()
+    defer set_permissions(locked, 0o644).unwrap()
+
+    val body = "f = open(d + \"/bad.txt\")\nwrite( f.read() catch error(e, _) -> e )\n" +
+        "write( open(d + \"/locked.txt\") catch error(e, _) -> e )\nwrite( open(d + \"/locked.txt\", \"w\") catch error(e, _) -> e )\n"
+
+    assert_eq(in_dir(d, body), s"syntax_error(illegal_character)\npermission_error(open, source_sink, \"$locked\")\npermission_error(open, source_sink, \"$locked\")\nsucceeded")
+
+@test
+A_FILE_THE_PROGRAM_NEVER_CLOSED_IS_WRITTEN_OUT_WHEN_THE_RUN_ENDS()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "f = open(d + \"/left.txt\", \"w\")\nf.write(\"kept\")\n"), "succeeded")
+    assert_eq(read_text(s"$d/left.txt").unwrap(), "kept\n")
+
+@test
+FLUSH_WRITES_OUT_WHAT_IS_HELD()
+    val d = scratch()
+    defer scrap(d)
+
+    val body = "f = open(d + \"/fl.txt\", \"w\")\nf.writes(\"early\")\nwrite( if read_file(d + \"/fl.txt\") == \"\" then #empty else #written )\nwrite( f.flush() )\nwrite( read_file(d + \"/fl.txt\") )\nf.close()\n"
+
+    assert_eq(in_dir(d, body), "empty\n()\nearly\nsucceeded")
+
+// A word of the language is a field's or a method's name after `.`.
+@test
+A_WORD_AFTER_A_DOT_IS_A_NAME()
+    assert_eq(ran_funl("m = {\"where\": 1, \"if\": 2, \"mod\": 3}\nwrite( m.where, m.if, m.mod )\n"), "1, 2, 3\nsucceeded")
+    assert_eq(complaints("import * as fs from funl:fs\nwrite( fs.where )\n"), "error 2:8 `funl:fs` does not export `where`\n")
+
+// -- the standard streams ------------------------------------------------------------------------
+
+// The lines a machine under test reads as its input, a line at a time.
+private struct Lines
+    text: Buf[string]
+    at: usize
+
+// Make the standard streams' handles reachable as `std_in()`, `std_out()` and `std_err()`, give the
+// machine `lines` as its input, then compile `text`.
+private with_streams(text: string, lines: []const string) -> Result[usize, string]
+    val v = current()
+    var held: Buf[string] = buf()
+
+    for l in lines
+        held.push(l)
+
+    val src: &Lines = Lines(held, 0)
+
+    v.input = (prompt) ->
+        if src.at >= src.text.len()
+            None
+        else
+            src.at += 1
+            Some(src.text.at(src.at - 1))
+
+    register(v, "std_in", 0, (b, n) -> standard_stream(0))
+    register(v, "std_out", 0, (b, n) -> standard_stream(1))
+    register(v, "std_err", 0, (b, n) -> standard_stream(2))
+    compiled_text(text)
+
+@test
+THE_STANDARD_STREAMS_ARE_FILE_HANDLES_THROUGH_THE_MACHINES_SINKS()
+    val text = "o = std_out()\nwrite( o, o == std_out() )\nwrites( \"a\" )\no.writes( \"b\" )\no.write( \"c\", 1 )\nstd_err().write( \"oops\" )\n" +
+        "std_err().writes( \"e\", \"f\\n\" )\nwrite( o.flush(), o.where() | #no_position, o.seek(1) | #cannot_seek )\nwrite( o.read() catch error(e, _) -> e )\n"
+
+    assert_eq(ran(() -> with_streams(text, [])), "<file handle>, <file handle>\nabc, 1\nstderr: oops\nstderr: ef\n(), no_position, cannot_seek\npermission_error(input, stream, <file handle>)\nsucceeded")
+
+@test
+STANDARD_INPUT_IS_READ_THROUGH_ITS_HANDLE_AND_SHARED_WITH_READ()
+    val text = "i = std_in()\nwrite( i.read() )\nwrite( i.reads(2) )\nwrite( read() )\nwrite( [l | l <- !i] )\nwrite( i.read() | #end )\nwrite( i.write(1) catch error(e, _) -> e )\n"
+
+    assert_eq(ran(() -> with_streams(text, ["first", "second", "third", "fourth"])),
+        "first\nse\ncond\n[\"third\", \"fourth\"]\nend\npermission_error(output, stream, <file handle>)\nsucceeded")
+
+// -- funl:term -----------------------------------------------------------------------------------
+
+private val TermImport: string = "import { getch, getche, kbhit } from funl:term\n"
+
+@test
+GETCH_TAKES_THE_NEXT_KEY_AND_GETCHE_ECHOES_IT()
+    assert_eq(ran_funl_keys(TermImport + "write( getch() )\nx = getche()\nwrite()\nwrite( x, getch() )\nwrite( getch() | #no_more )\n", "aéz"),
+        "a\né\né, z\nno_more\nsucceeded")
+
+@test
+KBHIT_KEEPS_THE_KEY_IT_FINDS_FOR_THE_NEXT_GETCH()
+    assert_eq(ran_funl_keys(TermImport + "write( kbhit() )\nwrite( kbhit() )\nwrite( getch() )\nwrite( getch() )\nwrite( kbhit() | #none )\n", "pq"),
+        "()\n()\np\nq\nnone\nsucceeded")
+
+@test
+WITH_NO_KEYS_EVERY_TERM_FUNCTION_FAILS_AND_THE_NAMES_ARE_THE_MODULES()
+    assert_eq(ran_funl(TermImport + "write( getch() | #a, getche() | #b, kbhit() | #c )\n"), "a, b, c\nsucceeded")
+    assert_eq(complaints("write( kbhit() )\n"), "error 1:8 `kbhit` is not defined\n")
+    assert_eq(complaints(TermImport + "write( getch(1) )\n"), "error 2:8 `getch` takes 0 arguments, and this call gives 1\n")

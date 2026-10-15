@@ -22,7 +22,8 @@ import sysl.buf.{Buf, buf}
 // (`MethodGo`): `step` is called with one argument, `bind` with three.
 //
 // **Every kind has `close()`**, which the runtime supplies: it releases the resource now, and closing
-// a closed handle does nothing. Any other method called on a closed handle is a fault,
+// a closed handle does nothing. A kind that registers a method `close` of its own has it run first,
+// on the still-open handle, and `close()` answers what it answers -- a pipe's exit status -- or `()`. Any other method called on a closed handle is a fault,
 // `existence_error(handle, H)`, as a closed stream is in Prolog; a method the kind does not have is
 // `existence_error(method, Name)`.
 //
@@ -54,16 +55,31 @@ struct Method
     arity: usize
     how: MethodHow
 
-// A kind of handle: the name it prints with, its release hook and its methods.
+// A kind of handle: the name it prints with, its release hook, its methods, and what `!h` generates
+// (`register_each`), if anything.
 struct HandleKind
     name: string
     release: ReleaseGo
     methods: Buf[Method]
+    each: Option[StepGo]
 
 // Register a kind of handle and answer its id, which `new_handle` and `register_method` take.
 register_handle_kind(v: *Vm, name: string, release: ReleaseGo) -> u32
-    v.handle_kinds.push(HandleKind(name, release, buf()))
+    v.handle_kinds.push(HandleKind(name, release, buf(), None))
     u32(v.handle_kinds.len() - 1)
+
+// Let `!h` generate for a handle of kind `kind`: `step` is called on the handle itself at each
+// resumption and answers its next value, or `None` when it has no more. **The handle is the state**,
+// so `!h` is not restartable the way `!` over a list is: a file's lines are read as they are taken,
+// and a second `!h` goes on from where the first stopped.
+register_each(v: *Vm, kind: u32, step: StepGo)
+    var k = v.handle_kinds.at(usize(kind))
+
+    k.each = Some(step)
+    v.handle_kinds.set(usize(kind), k)
+
+// What `!h` generates for handle `h`, if its kind says.
+handle_each(h: *HandleObj) -> Option[StepGo] = current().handle_kinds.at(usize(h.kind)).each
 
 // Give kind `kind` the method `name`, taking `arity` arguments besides the handle (`Variadic` for any
 // number). `go` sees the handle as argument 0, so it is called with `arity + 1`.
@@ -158,9 +174,22 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
     if text == "close"
         if argc != 0 then return Err(wrong_count(text, argc, s"$shown takes no arguments and was given $argc"))
 
+        // The kind's own `close`, on the handle -- argument 0, where `MethodOf` left it -- while it is
+        // still open; the handle is closed whatever it answers, a fault included.
+        var said: Result[Option[Value], Fault] = Ok(None)
+
+        if !h.closed
+            for m in current().handle_kinds.at(usize(h.kind)).methods.view()
+                if m.name == "close"
+                    m.how match
+                        Answers(go) -> said = go(first, 1)
+                        Steps(_, _) -> ()
+
         close_handle(h)
         v.stack.truncate(first)
-        v.stack.push(Unit)
+        v.stack.push(said? match
+            Some(x) -> x
+            None -> Unit)
         return Ok(true)
 
     val m = method_named(h, name, recv)?

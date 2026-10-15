@@ -14,7 +14,8 @@ The prelude is the one exception: every program sees it without an import.
 | page | what it covers |
 |---|---|
 | [the prelude](prelude.md) | the list library every program sees: pairs, the ends of a list, folds, `map` and the other transformers, slicing, zipping, `iterate` and `forever` drawn through a thunk, `any`, `all`, `elem` and `lookup`, how a program's own names shadow it, `funl:prelude` by name and from Prolog |
-| [`funl:fs`](fs.md) | reading and writing whole files and bytes, the lines of a file and the names in a directory as generators, `exists`, `stat`, making, removing and renaming, paths, what fails and what faults, the module from Prolog |
+| [`funl:fs`](fs.md) | reading and writing whole files and bytes, the lines of a file and the names in a directory as generators, `exists`, `stat`, making, removing and renaming, paths, open files and pipes with their methods and `!f`, what fails and what faults, the module from Prolog |
+| [`funl:term`](term.md) | the keyboard a key at a time: `getch`, `getche`, `kbhit`, raw mode around each call, input that is not a terminal |
 | [`funl:process`](process.md) | the program's arguments and environment, `exit`, running another program for its output and how it ended, its output as a generator of lines, the options, what fails and what faults, the module from Prolog |
 | [`funl:json`](json.md) | `parse` and `stringify`: JSON text read into maps, lists, strings, numbers, booleans and `undefined`, values written compactly or with an indent, what fails and what faults, the module from Prolog |
 | [`funl:sqlite`](sqlite.md) | opening a database in a file or in memory, `exec`, `run` with parameters, `query` as a generator of rows, the values that cross, what faults |

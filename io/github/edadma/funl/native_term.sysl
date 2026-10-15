@@ -1,0 +1,101 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+import sysl.text.from_utf8
+import sysl.tty.{mode, raw_of, set_mode}
+
+// `funl:term`: the keyboard, a keystroke at a time (`docs/library/term.md`).
+//
+// **`getch()` is the next key typed, `getche()` the same echoed to standard output, and `kbhit()`
+// succeeds where a key is waiting**, as Icon's three are. Each puts the terminal in raw mode for as
+// long as the call takes and puts it back, so nothing the program does between calls sees a changed
+// terminal, and a key is not echoed by the terminal or held back until a line ends.
+//
+// **The keys come from the machine's key source** (`Vm.key`): the terminal on standard input, or,
+// where standard input is not a terminal, the program's input a character at a time, as `reads(1)`
+// takes it -- a key is then never waiting, so `kbhit()` fails. Where there is nothing more to read,
+// `getch()` and `getche()` fail. A key `kbhit()` finds waiting is taken and kept for the next
+// `getch()`, which is what lets it answer without reading the key twice.
+
+// What `funl:term` exports, each name the short form of a native `install_term` registered as
+// `term.name`.
+private val TermNames: [3]string = ["getch", "getche", "kbhit"]
+
+install_term(v: *Vm)
+    register_generator(v, "term.getch", 0, (b, n, c) -> keyed(false))
+    register_generator(v, "term.getche", 0, (b, n, c) -> keyed(true))
+    register_generator(v, "term.kbhit", 0, do_kbhit)
+
+// The exports of `funl:term`.
+term_exports() -> Buf[ModExport] = native_exports("term", TermNames)
+
+// `getch()`, and with `echo` `getche()`: the next key, a one-character string.
+private keyed(echo: bool) -> Result[Answer, Fault]
+    val v = current()
+
+    val k = if v.held_key.bytes.len > 0
+        val held = v.held_key
+
+        v.held_key = ""
+        Some(held)
+    else
+        v.key(true)?
+
+    k match
+        Some(c) ->
+            if echo then put_out(v, c)
+
+            Ok(Gives(new_str(c)?))
+        None -> Ok(Refuses)
+
+// `kbhit()`: `()` where a key is waiting, failure where none is.
+private do_kbhit(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val v = current()
+
+    if v.held_key.bytes.len > 0 then return Ok(Gives(Unit))
+
+    v.key(false)? match
+        Some(c) ->
+            v.held_key = c
+            Ok(Gives(Unit))
+        None -> Ok(Refuses)
+
+// The default key source: a key from the terminal on standard input, in raw mode for the read --
+// waiting for one, or with `wait` false only taking one already typed. Where standard input is no
+// terminal, the program's next character of input, and never a key already waiting. What standard
+// output holds is written first, so a prompt shows before the wait.
+terminal_key(wait: bool) -> Result[Option[string], Fault]
+    flush()
+
+    val was = mode() match
+        Some(m) -> m
+        None -> return if wait then input_chars(1, "'getch'") else Ok(None)
+
+    val waiting: u8 = if wait then 1 else 0
+
+    set_mode(raw_of(was) with { min = waiting })
+
+    val k = key_typed()
+
+    set_mode(was)
+    Ok(k)
+
+// One character from standard input, its first byte saying how many more to read; `None` where
+// nothing came. A key that is not UTF-8 reads as U+FFFD.
+private key_typed() -> Option[string]
+    var bytes: [4]u8 = [0; 4]
+
+    if read(0, &bytes[0], 1) <= 0 then return None
+
+    val first = bytes[0]
+    val width: usize = if first >= 240 then 4 else if first >= 224 then 3 else if first >= 192 then 2 else 1
+    var have: usize = 1
+
+    while have < width
+        if read(0, &bytes[have], 1) <= 0 then break
+
+        have += 1
+
+    from_utf8(bytes[0..<have]) match
+        Ok(s) -> Some(s + "")
+        Err(_) -> Some("\u{FFFD}")

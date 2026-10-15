@@ -1,0 +1,524 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{File, IoError, NotFound, NotPermitted, PermissionDenied, exists}
+import sysl.fs as sfs
+import sysl.io.Reader
+import sysl.process.{Exited, Signalled, Spawned, Stdio, TimedOut, pipe, spawn}
+import sysl.text.{from_utf8, from_utf8_unchecked, str_builder}
+
+// Open files: `open(path, mode)` in `funl:fs`, and the `file` handle it answers (`docs/library/fs.md`
+// § "Open files").
+//
+// **A file is a handle** (`handle.sysl`), whose methods are `read()`, `reads(n)`, `write(x...)`,
+// `writes(x...)`, `seek(i)`, `where()`, `flush()` and `close()`, and `!f` generates its lines. Writing
+// to a file is a method, `f.write(x)`, and the builtin `write` still only prints (I17).
+//
+// **The mode is Icon's**: `r` reads, `w` writes (making the file, or emptying the one there), `a`
+// writes at the end (making the file), `b` both reads and writes, `c` creates, `t` and `u` are
+// accepted and change nothing, and `p` makes the path a command run by `/bin/sh`, read from -- its
+// standard output -- or, with `w` or `a`, written to -- its standard input. Upper case is the same
+// letter. With no `r`, `w`, `a`, `b` or `c` the file is read.
+//
+// **What is not there fails, as everywhere in `funl:fs`**: `open` of a file that is not there, `read`
+// and `reads` at the end, `seek` and `where` that cannot be done (on a pipe or a standard stream, or to
+// before the start). A permission refused opening faults with `permission_error(open, source_sink,
+// Path)`; reading a file opened only to write, or writing one opened only to read, faults with
+// `permission_error(input, stream, F)` or `permission_error(output, stream, F)`, as Prolog's streams
+// do; text that is not UTF-8 faults as `read()` of standard input does; anything else with
+// `system_error`.
+//
+// **The standard streams are handles of the same kind**, made by the builtins `$input`, `$output` and
+// `$errout`, which no program can spell and which the keywords `&input`, `&output` and `&errout`
+// name. Standard input reads through the machine's input, as `read()` does, and standard output and
+// error write through its sinks, as `writes` and `ewrites` do, so what a program writes reaches the
+// stream in the order it was written whichever way it was written.
+//
+// **The open files live in a table here, and a handle holds its place in it** (`n`), as
+// `funl:sqlite`'s connections do, since a handle is collected storage and a `File` holds a counted
+// reference. A file the program never closed is closed by the collector's finalizer, or when the run
+// ends, what it buffered written out.
+
+// The handle kind of an open file.
+private const FileKind: string = "file"
+
+// An open file: one on disk, with what its mode allows (`appends`: every write goes at the end); a
+// pipe to or from a command, `reads` when the program reads what the command writes; or standard
+// input (0), output (1) or error (2).
+private enum Opened
+    OnDisk(f: File, reads: bool, writes: bool, appends: bool)
+    Piped(f: File, child: &Spawned, reads: bool)
+    Standard(which: int)
+
+// process-wide: every open file, by the place its handle holds; a closed one's place is `None` until
+// another file takes it.
+private var files: Buf[Option[Opened]] = buf()
+
+// What a mode string asks for.
+private struct OpenMode
+    reads: bool
+    writes: bool
+    appends: bool
+    creates: bool
+    piped: bool
+
+install_files(v: *Vm)
+    val k = register_handle_kind(v, FileKind, release_file)
+
+    optional_past(v, register_generator(v, "fs.open", 2, do_open), 1)
+    register(v, "$input", 0, (b, n) -> standard_stream(0))
+    register(v, "$output", 0, (b, n) -> standard_stream(1))
+    register(v, "$errout", 0, (b, n) -> standard_stream(2))
+    register_method(v, k, "read", 0, do_read_line)
+    register_method(v, k, "reads", 1, do_read_chars)
+    register_method(v, k, "write", Variadic, (b, n) -> put_method(b, n, "write"))
+    register_method(v, k, "writes", Variadic, (b, n) -> put_method(b, n, "writes"))
+    register_method(v, k, "seek", 1, do_seek)
+    register_method(v, k, "where", 0, do_where)
+    register_method(v, k, "flush", 0, do_flush)
+    register_method(v, k, "close", 0, do_close)
+    register_each(v, k, step_lines_of)
+end install_files
+
+// The id of the file kind on the running VM.
+private file_kind() -> u32
+    val kinds = current().handle_kinds
+
+    for i in 0..<kinds.len()
+        if kinds.at(i).name == FileKind then return u32(i)
+
+    panic("funl:fs's files are not installed on this VM")
+
+// The first free place in `files`, holding `o`.
+private keep_file(o: Opened) -> long
+    for i in 0..<files.len()
+        if files.at(i).is_none()
+            files.set(i, Some(o))
+            return long(i)
+
+    files.push(Some(o))
+    long(files.len() - 1)
+
+// What the file handle `h` holds, or `None` once it is gone.
+private opened_of(h: *HandleObj) -> Option[Opened]
+    val at = usize(h.n)
+
+    if at < files.len() then files.at(at) else None
+
+// A file handle's release: the file closed, what it buffered written out. A pipe the program wrote
+// to is waited for, its command having been told its input has ended; one it read from is stopped.
+private release_file(h: *HandleObj)
+    val at = usize(h.n)
+
+    if at >= files.len() then return
+
+    files.at(at) match
+        Some(OnDisk(f, _, _, _)) ->
+            var g = f
+
+            g.close()
+        Some(Piped(f, child, reads)) ->
+            var g = f
+
+            g.close()
+
+            if !reads then child.wait()
+        _ -> ()
+
+    files.set(at, None)
+
+// -- opening ---------------------------------------------------------------------------------------
+
+// `open(path)`, `open(path, mode)`: the file at `path` opened as `mode` says, `"r"` when it is left
+// out, as a `file` handle; fails where there is no such file, or no directory for one to be made in.
+private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val path = path_arg(base, 0, "open")?
+    val m = if argc > 1 then open_mode(deref(arg(base, 1)))? else OpenMode(true, false, false, false, false)
+
+    if m.piped then return open_pipe(path, m)
+
+    val got = if m.reads && m.writes
+        if m.appends
+            // Read and append: made if it is not there, and every write put at the end.
+            if !exists(path)
+                sfs.create(path) match
+                    Ok(f) ->
+                        var g = f
+
+                        g.close()
+                    Err(e) -> return refused(e, path)
+
+            sfs.open_update(path)
+        else if m.creates then sfs.create_update(path) else sfs.open_update(path)
+    else if m.writes
+        if m.appends then sfs.append(path) else sfs.create(path)
+    else
+        sfs.open(path)
+
+    val f = got match
+        Ok(f) -> f
+        Err(e) -> return refused(e, path)
+
+    handle_for(OnDisk(f, m.reads, m.writes, m.appends))
+
+// A file that would not open: failure where it is not there, else the fault.
+private refused(e: IoError, path: string) -> Result[Answer, Fault]
+    if e == NotFound then return Ok(Refuses)
+
+    Err(fs_fault(e, "open", "open", path))
+
+// A new file handle holding `o`.
+private handle_for(o: Opened) -> Result[Answer, Fault]
+    val h = new_handle(file_kind())?
+
+    h.n = keep_file(o)
+    Ok(Gives(Handle(h)))
+
+// The mode string `x`, read as Icon reads one.
+private open_mode(x: Value) -> Result[OpenMode, Fault]
+    val s = x match
+        Str(p) -> p.s
+        _ -> return Err(kind_error(x, "string", s"'open' wants a mode, a string, and was given ${described(x)}"))
+
+    var m = OpenMode(false, false, false, false, false)
+    var both = false
+
+    for b in s.bytes
+        val c = if b >= u8('A') && b <= u8('Z') then b + 32 else b
+
+        if c == u8('r') then m.reads = true
+        else if c == u8('w') then m.writes = true
+        else if c == u8('a')
+            m.writes = true
+            m.appends = true
+        else if c == u8('b')
+            m.reads = true
+            m.writes = true
+            both = true
+        else if c == u8('c')
+            m.writes = true
+            m.creates = true
+        else if c == u8('p') then m.piped = true
+        else if c != u8('t') && c != u8('u')
+            return Err(domain_error("io_mode", x, s"'open' takes a mode of the letters r, w, a, b, c, t, u and p, and was given `$s`"))
+
+    if !m.reads && !m.writes then m.reads = true
+
+    if m.piped && m.reads && m.writes
+        return Err(domain_error("io_mode", x, s"'open' opens a pipe to read from or to write to, not both, and was given `$s`"))
+
+    Ok(m)
+
+// `open(command, "p")`: `command` run by `/bin/sh`, this program reading what it writes, or with `w`
+// writing what it reads. What standard output holds is written first, since a command written to
+// writes to the same standard output.
+private open_pipe(command: string, m: OpenMode) -> Result[Answer, Fault]
+    val (r, w) = pipe() match
+        Ok(ends) -> ends
+        Err(e) -> return Err(system_error(s"'open' cannot make a pipe for `$command`: ${e.message()}"))
+
+    var rr = r
+    var ww = w
+
+    flush()
+
+    val args: [2]string = ["-c", command]
+
+    val started = if m.writes then spawn("/bin/sh", args, stdin = Stdio.FromFile(r)) else spawn("/bin/sh", args, stdout = Stdio.ToFile(w))
+
+    val child = started match
+        Ok(c) -> c
+        Err(e) ->
+            rr.close()
+            ww.close()
+            return Err(system_error(s"'open' cannot run `$command`: ${e.message()}"))
+
+    if m.writes
+        rr.close()
+        handle_for(Piped(w, child, false))
+    else
+        ww.close()
+        handle_for(Piped(r, child, true))
+
+// `$input`, `$output`, `$errout`: the handle of standard stream `which` -- 0 input, 1 output, 2 error
+// -- made once per machine.
+standard_stream(which: int) -> Result[Value, Fault]
+    val v = current()
+
+    while v.streams.len() < 3
+        v.streams.push(Undefined)
+
+    v.streams.at(usize(which)) match
+        Handle(_) -> return Ok(v.streams.at(usize(which)))
+        _ -> ()
+
+    val h = new_handle(file_kind())?
+
+    h.n = keep_file(Standard(which))
+    v.streams.set(usize(which), Handle(h))
+    Ok(Handle(h))
+
+// -- the methods -----------------------------------------------------------------------------------
+
+// Argument 0 of method `name`, an open file handle, and what it holds.
+private file_arg(base: usize, name: string) -> Result[(*HandleObj, Opened), Fault]
+    val h = open_handle(base, 0, file_kind(), s"'$name'")?
+
+    opened_of(h) match
+        Some(o) -> Ok((h, o))
+        None -> Err(Broken(s"'$name' was called on a file handle whose file is gone"))
+
+// The fault for reading (`input`) or writing (`output`) file `h` its mode does not allow.
+private not_for(h: *HandleObj, action: string, name: string) -> Fault =
+    permission_error(action, "stream", Handle(h), s"'$name' cannot ${if action == "input" then "read from" else "write to"} a file opened only to ${if action == "input" then "write" else "read"}")
+
+// `f.read()`: the next line, without its `\n` or a `\r` before it; fails at the end.
+private do_read_line(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (h, o) = file_arg(base, "read")?
+
+    line_of(h, o, "read")? match
+        Some(l) -> Ok(Some(new_str(l)?))
+        None -> Ok(None)
+
+// `!f`: each line, as `read()` takes it.
+private step_lines_of(h: *HandleObj) -> Result[Option[Value], Fault]
+    val o = opened_of(h) match
+        Some(o) -> o
+        None -> return Ok(None)
+
+    line_of(h, o, "!")? match
+        Some(l) -> Ok(Some(new_str(l)?))
+        None -> Ok(None)
+
+// The next line of file `h`, which holds `o`, for `name`.
+private line_of(h: *HandleObj, o: Opened, name: string) -> Result[Option[string], Fault] = o match
+    Standard(which) -> if which == 0 then input_line(s"'$name'") else Err(not_for(h, "input", name))
+    OnDisk(f, reads, _, _) -> if reads then file_line(f, name) else Err(not_for(h, "input", name))
+    Piped(f, _, reads) -> if reads then file_line(f, name) else Err(not_for(h, "input", name))
+
+// The next line of `f`, read a byte at a time out of its buffer.
+private file_line(f: File, name: string) -> Result[Option[string], Fault]
+    var g = f
+    var one: []u8 = [0; 1]
+    var bytes: Buf[u8] = buf()
+    var any = false
+
+    loop
+        val got = g.read(one)
+
+        if got.len == 0 then break
+
+        any = true
+
+        if got[0] == 10 then break
+
+        bytes.push(got[0])
+
+    if g.failed() then return Err(system_error(s"'$name' could not read the file"))
+
+    if !any then return Ok(None)
+
+    if bytes.len() > 0 && bytes.at(bytes.len() - 1) == 13 then bytes.truncate(bytes.len() - 1)
+
+    text_of(bytes, name)
+
+// Bytes read from a file as a string of their own, or the fault for bytes that are not UTF-8.
+private text_of(bytes: Buf[u8], name: string) -> Result[Option[string], Fault]
+    if from_utf8(bytes.view()).is_err() then return Err(malformed_input_error(s"'$name'"))
+
+    var out = str_builder()
+
+    out.push(from_utf8_unchecked(bytes.view()))
+    Ok(Some(out.finish()))
+
+// `f.reads(n)`: the next `n` characters, newlines included; fewer where the file ends first, and
+// failure where nothing is left. `n` is a positive integer.
+private do_read_chars(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (h, o) = file_arg(base, "reads")?
+    val x = deref(arg(base, 1))
+
+    val n = x match
+        Int(k) -> k
+        Var(_) -> return Err(instantiation_error("instantiation error: 'reads' was given an unbound variable"))
+        _ -> return Err(kind_error(x, "integer", s"'reads' wants an integer count and was given ${described(x)}"))
+
+    if n < 1 then return Err(domain_error("positive_integer", x, s"'reads' wants a count of at least 1 and was given $n"))
+
+    val got = o match
+        Standard(which) -> if which == 0 then input_chars(usize(n), "'reads'")? else return Err(not_for(h, "input", "reads"))
+        OnDisk(f, reads, _, _) -> if reads then file_chars(f, usize(n))? else return Err(not_for(h, "input", "reads"))
+        Piped(f, _, reads) -> if reads then file_chars(f, usize(n))? else return Err(not_for(h, "input", "reads"))
+
+    got match
+        Some(t) -> Ok(Some(new_str(t)?))
+        None -> Ok(None)
+
+// The next `n` characters of `f`, each as many bytes as its first says.
+private file_chars(f: File, n: usize) -> Result[Option[string], Fault]
+    var g = f
+    var one: []u8 = [0; 1]
+    var bytes: Buf[u8] = buf()
+    var seen: usize = 0
+
+    while seen < n
+        val lead = g.read(one)
+
+        if lead.len == 0 then break
+
+        val first = lead[0]
+
+        bytes.push(first)
+
+        val width: usize = if first >= 240 then 4 else if first >= 224 then 3 else if first >= 192 then 2 else 1
+
+        for _ in 1..<width
+            val more = g.read(one)
+
+            if more.len == 0 then break
+
+            bytes.push(more[0])
+
+        seen += 1
+
+    if g.failed() then return Err(system_error("'reads' could not read the file"))
+
+    if bytes.len() == 0 then return Ok(None)
+
+    text_of(bytes, "reads")
+
+// `f.write(x...)` and `f.writes(x...)`: the arguments written to the file as `write` and `writes`
+// print them -- `write` separating them with `, ` and ending the line, `writes` running them together
+// -- answering `()`.
+private put_method(base: usize, argc: usize, name: string) -> Result[Option[Value], Fault]
+    val (h, o) = file_arg(base, name)?
+    var out = str_builder()
+
+    for i in 1..<argc
+        if i > 1 && name == "write" then out.push(", ")
+
+        out.push(render(arg(base, i)))
+
+    if name == "write" then out.push("\n")
+
+    val text = out.finish()
+
+    o match
+        Standard(which) ->
+            if which == 0 then return Err(not_for(h, "output", name))
+
+            if which == 1 then put_out(current(), text) else put_err(current(), text)
+        OnDisk(f, _, writes, appends) ->
+            if !writes then return Err(not_for(h, "output", name))
+
+            var g = f
+
+            if appends
+                g.size() match
+                    Ok(end) -> g.seek(end)
+                    Err(e) -> return Err(system_error(s"'$name' cannot find the end of the file: ${e.message()}"))
+
+            file_put(g, text, name)?
+        Piped(f, _, reads) ->
+            if reads then return Err(not_for(h, "output", name))
+
+            file_put(f, text, name)?
+
+    Ok(Some(Unit))
+
+private file_put(f: File, text: string, name: string) -> Result[unit, Fault]
+    var g = f
+
+    g.write(text.bytes)
+
+    if g.failed() then Err(system_error(s"'$name' could not write to the file")) else Ok(())
+
+// `f.seek(i)`: the position moved to `i`, counted as Icon counts, 1 before the first byte; 0 is the
+// end and a negative `i` counts back from it. Fails where the position is before the start, or the
+// file cannot be moved in -- a pipe, a standard stream.
+private do_seek(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (h, o) = file_arg(base, "seek")?
+    val x = deref(arg(base, 1))
+
+    val i = x match
+        Int(k) -> k
+        Var(_) -> return Err(instantiation_error("instantiation error: 'seek' was given an unbound variable"))
+        _ -> return Err(kind_error(x, "integer", s"'seek' wants an integer position and was given ${described(x)}"))
+
+    val f = o match
+        OnDisk(f, _, _, _) -> f
+        _ -> return Ok(None)
+
+    var g = f
+
+    val to = if i > 0
+        i - 1
+    else
+        g.size() match
+            Ok(n) -> n + i
+            Err(_) -> return Ok(None)
+
+    if to < 0 then return Ok(None)
+
+    g.seek(to) match
+        Ok(_) -> Ok(Some(Unit))
+        Err(_) -> Ok(None)
+
+// `f.where()`: the position, counted from 1; fails where the file has none -- a pipe, a standard
+// stream.
+private do_where(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (h, o) = file_arg(base, "where")?
+
+    o match
+        OnDisk(f, _, _, _) ->
+            var g = f
+
+            g.tell() match
+                Ok(at) -> Ok(Some(Int(at + 1)))
+                Err(_) -> Ok(None)
+        _ -> Ok(None)
+
+// `f.flush()`: what the file holds back written out now, answering `()`.
+private do_flush(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (h, o) = file_arg(base, "flush")?
+
+    val f = o match
+        Standard(which) ->
+            if which == 1 then flush()
+
+            return Ok(Some(Unit))
+        OnDisk(f, _, _, _) -> f
+        Piped(f, _, _) -> f
+
+    var g = f
+
+    g.flush() match
+        Ok(_) -> Ok(Some(Unit))
+        Err(e) -> Err(system_error(s"'flush' could not write out the file: ${e.message()}"))
+
+// `f.close()`, run before the runtime closes the handle: a file's buffered bytes written out, `()`;
+// for a pipe, the command waited for, and how it ended -- its exit status, or 128 and the signal's
+// number for one a signal ended, as a shell reports it.
+private do_close(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val (h, o) = file_arg(base, "close")?
+
+    o match
+        OnDisk(f, _, _, _) ->
+            var g = f
+
+            g.close() match
+                Ok(_) -> Ok(Some(Unit))
+                Err(e) -> Err(system_error(s"'close' could not write out the file: ${e.message()}"))
+        Piped(f, child, _) ->
+            var g = f
+
+            g.close()
+
+            child.wait() match
+                Ok(Exited(c)) -> Ok(Some(Int(long(c))))
+                Ok(Signalled(n)) -> Ok(Some(Int(128 + long(n))))
+                Ok(TimedOut) -> Ok(Some(Unit))
+                Err(e) -> Err(system_error(s"'close' could not wait for the command: ${e.message()}"))
+        Standard(which) ->
+            if which == 1 then flush()
+
+            Ok(Some(Unit))

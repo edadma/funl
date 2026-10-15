@@ -158,6 +158,13 @@ describe(t: Tok) -> string
         _ -> s"`${spelling(t)}`"
 end describe
 
+// The word token `t` is, where it is one of the language's words: what follows a `.` as a field's
+// or a method's name, `f.where()`, since nothing else can stand there.
+word_of(t: Tok) -> Option[string]
+    val s = spelling(t)
+
+    if keyword(s).is_some() then Some(s) else None
+
 // How a word or a symbol is written.
 private spelling(t: Tok) -> string
     t match

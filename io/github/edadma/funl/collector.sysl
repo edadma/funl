@@ -279,6 +279,9 @@ roots(h: *gc.Heap)
 
     // Prolog's global variables.
     mark_value(h, v.pl_globals)
+
+    // The standard streams' handles, which every reach for one answers.
+    mark_values(h, v.streams)
 end roots
 
 // What one machine can still reach: its operands, its control stack and the cells it saved, its scan

@@ -585,7 +585,8 @@ private range_count(p: *Parser, from: &Expr) -> &Expr
 
     expr(RangeCountE(from, count, Some(step)), from.span.to(step.span))
 
-// `e.name`, the `.` already read.
+// `e.name`, the `.` already read. One of the language's words is a name here, so a handle's method
+// may be called `where`, as a file's is.
 private field(p: *Parser, left: &Expr) -> &Expr
     p.peek_tok() match
         Some(k) ->
@@ -593,7 +594,12 @@ private field(p: *Parser, left: &Expr) -> &Expr
                 Name(n) ->
                     p.take()
                     return expr(FieldE(left, n), left.span.to(p.toks.previous()))
-                _ -> ()
+                _ ->
+                    word_of(k) match
+                        Some(w) ->
+                            p.take()
+                            return expr(FieldE(left, w), left.span.to(p.toks.previous()))
+                        None -> ()
         None -> ()
 
     p.fail_here("a field's name after `.`")

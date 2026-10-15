@@ -26,9 +26,9 @@ import sysl.text.from_utf8
 // backtracking takes the next line or name, the names in sorted order.
 
 // What `funl:fs` exports, each name the short form of a native `install_fs` registered as `fs.name`.
-private val FsNames: [21]string = ["read_file", "read_bytes", "write_file", "write_bytes", "append_file",
+private val FsNames: [22]string = ["read_file", "read_bytes", "write_file", "write_bytes", "append_file",
     "append_bytes", "lines", "read_dir", "exists", "is_file", "is_dir", "stat", "remove", "mkdir", "rename",
-    "cwd", "chdir", "join", "basename", "dirname", "extension"]
+    "cwd", "chdir", "join", "basename", "dirname", "extension", "open"]
 
 // The handle kind holding a generator's place in a file's text or a directory's names.
 private const ListingKind: string = "fs listing"
@@ -88,8 +88,9 @@ path_arg(base: usize, i: usize, name: string) -> Result[string, Fault]
 private path_text(base: usize, name: string) -> Result[string, Fault] = path_arg(base, 0, name)
 
 // The fault for error `e`, which `name` met doing `what` to `path` (an ISO action: `open`, `access`,
-// `create`, `modify`): permission refused is `permission_error`, anything else `system_error`.
-private fs_fault(e: IoError, name: string, action: string, path: string) -> Fault
+// `create`, `modify`): permission refused is `permission_error`, anything else `system_error`. Not
+// `private`: `open` (`native_file.sysl`) faults the same way.
+fs_fault(e: IoError, name: string, action: string, path: string) -> Fault
     val msg = s"'$name' cannot ${action_text(action)} `$path`: ${e.message()}"
 
     if e == PermissionDenied || e == NotPermitted

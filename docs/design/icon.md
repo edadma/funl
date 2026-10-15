@@ -540,35 +540,13 @@ cannot be assigned.
 
 ## Input and output
 
-**Icon:** `open(s, mode)` opens a file (`"r"`, `"w"`, `"a"`, `"b"` read and write, `"c"` create,
-`"t"`/`"u"` translated or not, `"p"` a pipe to or from a shell command) and **fails** when it cannot.
-`read(f)` is the next line without its newline, failing at the end; `reads(f, n)` the next `n`
-characters; `!f` generates the lines. `write(x…)` and `writes(x…)` write their arguments — to the
-file an argument names, else `&output` — with or without a newline. `seek(f, i)`, `where(f)`,
-`flush(f)`, `close(f)` (a pipe's exit status). `stop(x…)` writes to `&errout` and ends the program
-with status 1. `chdir(s)`. `&input`, `&output`, `&errout` are the standard files. `getch`,
-`getche` and `kbhit` read the keyboard unbuffered.
+> **Decided (user, 2026-10-15), I17 — writing to a file:** a handle's method, `f.write(x)`, as every
+> handle in FunL is used, and `write` stays "print these".
 
-**FunL today:** whole files and the lines of a file, in `funl:fs`; `write` to standard output only,
-with a newline; no standard input, no standard error, no open file.
-
-**Proposed:**
-
-- **`open(path, mode)` in `funl:fs`** answers a file `Handle` or fails, as `funl:fs` fails "for no
-  such thing" ([decided](modules.md#questions-decided)); a mode string as Icon's, `"p"` included,
-  run over `funl:process`. A file is a `Handle` with the methods `f.read()`, `f.reads(n)`,
-  `f.write(x…)`, `f.writes(x…)`, `f.seek(i)`, `f.where()`, `f.flush()`, `f.close()`, and `!f`
-  generates its lines. Positions in `seek` and `where` are Icon's, 1 before the first byte.
-- `getch()`, `getche()` and `kbhit()` in a new `funl:term`, which puts the terminal in raw mode
-  around each call.
-- `&input`, `&output` and `&errout` are the three standard streams as handles.
-
-> **Open question I17 — writing to a file.** Icon's `write(f, x)` writes to `f` because its first
-> argument is a file. FunL's `write` prints whatever it is given, a handle included. (a) **a
-> handle's method, `f.write(x)`**, as every handle in FunL is used, and `write` stays "print these";
-> (b) Icon's rule: a file among `write`'s arguments redirects the rest. **Recommendation: (a).** It
-> is how `funl:sqlite`'s handles already read, and (b) changes what `write(h)` prints for every
-> handle.
+Built: `open(path, mode)` and the file handle's methods in `funl:fs`, `!f`, pipes, and `funl:term`
+([fs](../library/fs.md#open-files), [term](../library/term.md)). The three standard streams are file
+handles made by the builtins `$input`, `$output` and `$errout`, which the keywords `&input`,
+`&output` and `&errout` name.
 
 ## Keywords
 

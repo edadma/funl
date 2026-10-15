@@ -46,6 +46,18 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
         v.stack.push(Int(0))
         return Ok(())
 
+    // A handle whose kind generates (`register_each`) is its own cursor under `!`; under `<-` it is
+    // drawn whole, as any other value that is not a collection.
+    if !draw
+        c match
+            Handle(h) ->
+                if handle_each(h).is_some()
+                    if h.closed then return Err(existence_error("handle", c, s"`!` was given ${described(c)}"))
+
+                    v.stack.push(Int(0))
+                    return Ok(())
+            _ -> ()
+
     c match
         Nil -> ()
         Cons(_) -> ()
@@ -226,6 +238,24 @@ gen_next(v: *Vm) -> Result[bool, Fault]
             rest = v.stack.at(top - 2)
             next = at + 1
             spent = next == n
+        Handle(h) ->
+            // The handle is its own state (`register_each`): each step reads its next value, and
+            // whether there is one after it is not known until it is asked for, so every value leaves
+            // a choice point. A handle closed meanwhile has nothing more to give.
+            val step = handle_each(h) match
+                Some(s) -> s
+                None -> return Err(Broken("`!` reached a handle that generates nothing"))
+
+            val got = if h.closed then None else step(h)?
+
+            elem = got match
+                Some(x) -> x
+                None ->
+                    v.stack.truncate(top - 2)
+                    return Ok(false)
+
+            rest = v.stack.at(top - 2)
+            next = 0
         Var(_) -> return Err(instantiation_error("instantiation error: `!` reached an unbound tail of a list"))
         x -> return Err(type_error("list", x, s"`!` reached the end of a list that ends in ${described(x)} rather than `[]`"))
 

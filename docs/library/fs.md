@@ -291,6 +291,143 @@ poem.txt, docs/library/fs, txt
 /usr/lib
 ```
 
+## Open files
+
+`open(path, mode)` opens a file and answers a **file handle**, or fails where there is no such file
+(or, to write, no directory for one). The mode is a string of letters, as Icon's is; left out, it is
+`"r"`.
+
+| letter | what it asks for |
+|---|---|
+| `r` | read |
+| `w` | write, making the file or emptying the one that is there |
+| `a` | write at the end, making the file if it is not there |
+| `b` | read and write, keeping what is there |
+| `c` | create: with `b`, empties the file first |
+| `t`, `u` | accepted, and change nothing: lines are always `\n`, a `\r` before one dropped |
+| `p` | the path is a command, run by `/bin/sh`: read what it writes, or, with `w` or `a`, write to it |
+
+Upper case is the same letter. Any other letter is a `domain_error(io_mode, Mode)`, and so is a pipe
+asked to be read and written at once.
+
+A file is used through its methods:
+
+| method | what it does |
+|---|---|
+| `f.read()` | the next line, without its `\n` (or a `\r` before it); fails at the end |
+| `f.reads(n)` | the next `n` characters, newlines included; fewer at the end, failing when none are left |
+| `f.write(x...)` | the arguments, separated by `, `, and a newline, as `write` prints them |
+| `f.writes(x...)` | the arguments run together, and no newline |
+| `f.seek(i)` | moves to position `i`; fails where it cannot |
+| `f.where()` | the position; fails where the file has none |
+| `f.flush()` | writes out what the file holds back |
+| `f.close()` | closes the file; for a pipe, waits for the command and answers its exit status |
+
+and `!f` generates its lines, each as `f.read()` would take it. Writing to a file is always a method,
+`f.write(x)`: the builtin `write` prints what it is given, a handle included.
+
+```funl
+import { open, remove } from funl:fs
+
+f = open( "docs/library/fs/open-demo.txt", "w" )
+f.write( "first line", 1 )
+f.writes( "second", " line\n" )
+f.close()
+
+g = open( "docs/library/fs/open-demo.txt" )
+write( g )
+write( g.read() )
+write( g.reads(6) )
+every write( "rest: " + !g )
+write( g.read() | #end )
+g.close()
+write( g )
+remove( "docs/library/fs/open-demo.txt" )
+```
+
+```output
+<file handle>
+first line, 1
+second
+rest:  line
+end
+<closed file handle>
+```
+
+**Positions are Icon's**: 1 is before the first byte, `f.seek(0)` goes to the end, and a negative
+position counts back from it. `seek` and `where` fail on a pipe or a standard stream, and `seek` to
+before the start fails. Positions count bytes, so a character of more than one byte takes more than
+one place.
+
+```funl
+import { open, write_file, remove } from funl:fs
+
+write_file( "docs/library/fs/seek-demo.txt", "0123456789" )
+f = open( "docs/library/fs/seek-demo.txt", "b" )
+f.seek(5)
+write( f.where(), f.reads(3) )
+f.seek(-2)
+write( f.reads(2) )
+f.seek(0)
+f.writes( "AB" )
+f.seek(1)
+write( f.read() )
+write( f.seek(-20) | "before the start" )
+f.close()
+remove( "docs/library/fs/seek-demo.txt" )
+```
+
+```output
+5, 456
+89
+0123456789AB
+before the start
+```
+
+A pipe reads what a command writes, or writes what it reads, and `close` answers how it ended: its
+exit status, or 128 and the signal's number where a signal ended it, as a shell reports one.
+
+```funl
+import { open } from funl:fs
+
+p = open( "printf 'one\\ntwo\\n'", "p" )
+every write( "> " + !p )
+write( p.close() )
+write( open("exit 4", "p").close() )
+```
+
+```output
+> one
+> two
+0
+4
+```
+
+Reading a file opened only to write, or writing one opened only to read, faults with
+`permission_error(input, stream, F)` or `permission_error(output, stream, F)`; any method but `close`
+on a closed file faults with `existence_error(handle, F)`, and closing one again does nothing. Text
+that is not UTF-8 faults as `read()` of standard input does. A file the program never closed is
+closed, and what it held written out, when it is collected or when the program ends.
+
+```funl
+import { open, remove } from funl:fs
+
+f = open( "docs/library/fs/fault-demo.txt", "w" )
+write( f.read() catch error(e, _) -> e )
+f.close()
+write( f.write("late") catch error(e, _) -> e )
+remove( "docs/library/fs/fault-demo.txt" )
+```
+
+```output
+permission_error(input, stream, <file handle>)
+existence_error(handle, <closed file handle>)
+```
+
+The standard streams are file handles too, which the keywords `&input`, `&output` and `&errout`
+name: reading standard input's shares it with `read()`, and what is written to standard output's or
+standard error's goes where `writes` and `ewrites` write, in the order it was written.
+
 ## From Prolog
 
 A Prolog file loaded by FunL reaches the module with `:- import("funl:fs").` and calls it qualified
