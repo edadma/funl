@@ -25,7 +25,6 @@ install_scan(v: *Vm)
     register_generator(v, "match", 1, do_match)
     register_generator(v, "find", Variadic, do_find)
     register(v, "cset", 1, do_cset)
-    register(v, "right", 2, do_right)
     register_constant(v, "letters", make_letters)
     register_constant(v, "digits", make_digits)
     register_constant(v, "alphanum", make_alphanum)
@@ -61,7 +60,7 @@ str_arg(base: usize, i: usize, name: string) -> Result[*StrObj, Fault]
         _ -> Err(kind_error(x, "string", s"'$name' wants a string and was given ${described(x)}"))
 
 // A cset argument: a cset, or a string standing for the set of its characters.
-private set_arg(base: usize, i: usize, name: string) -> Result[CharSet, Fault]
+set_arg(base: usize, i: usize, name: string) -> Result[CharSet, Fault]
     val x = deref(arg(base, i))
 
     x match
@@ -194,35 +193,6 @@ private do_cset(base: usize, argc: usize) -> Result[Value, Fault]
         CSet(_) -> Ok(x)
         Str(p) -> Ok(new_cset(char_set(p.s))?)
         _ -> Err(kind_error(x, "string", s"'cset' wants a string and was given ${described(x)}"))
-
-// `right(s, n)`: `s` in a field `n` characters wide, padded with spaces on the left, or cut to its
-// last `n` characters when it is longer. A value that is not a string is written as `write` would.
-private do_right(base: usize, argc: usize) -> Result[Value, Fault]
-    val n = int_arg(base, 1, "right")?
-
-    if n < 0 then return Err(domain_error("not_less_than_zero", Int(n), s"'right' makes a field of $n characters"))
-
-    val width = usize(n)
-
-    val text = deref(arg(base, 0)) match
-        Str(p) -> p.s
-        x -> render(x)
-
-    val made = new_str(text)?
-
-    val p = made match
-        Str(q) -> q
-        _ -> return Err(Broken("a new string is not a string"))
-
-    if p.chars >= width then return Ok(new_str(chars_between(p, p.chars - width, p.chars))?)
-
-    var out = str_builder()
-
-    for _ in 0..<(width - p.chars)
-        out.push(" ")
-
-    out.push(text)
-    Ok(new_str(out.finish())?)
 
 private letters_set() -> CharSet
     var set = char_set("")

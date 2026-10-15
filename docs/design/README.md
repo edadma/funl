@@ -153,8 +153,8 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it | [icon](icon.md#co-expressions) |
 | I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
 | I10 Icon's positions in indexing (decided: one way, 0-based) | keep the decision; add assignment to a section of a string variable | [icon](icon.md#sections-and-indexing) |
-| I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#the-functions) |
-| I12 `reverse` of a string (P3.5) | `reverse(s)` reverses it; P3.5 stands for the rest | [icon](icon.md#the-functions) |
+| I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#map-and-reverse) |
+| I12 `reverse` of a string (P3.5) | `reverse(s)` reverses it; P3.5 stands for the rest | [icon](icon.md#map-and-reverse) |
 | I13 Icon's string comparison operators | none; polymorphic comparison covers them | [icon](icon.md#string-comparison) |
 | I14 Icon's implicit conversion | none; a function per conversion | [icon](icon.md#string-comparison) |
 | I15 Mutable records (decided: a record is a term) | keep immutable; add `with(r, {f: x})` | [icon](icon.md#records) |

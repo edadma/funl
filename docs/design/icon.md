@@ -485,25 +485,7 @@ which builds a new string and stores it.
 
 ## Strings and csets
 
-### The functions
-
-| Icon | FunL | |
-|---|---|---|
-| `repl(s, n)` | `repl(s, n)` | new; `replicate` stays the list one |
-| `left(s, n, p)`, `right(s, n, p)`, `center(s, n, p)` | the same names; `p` defaults to `' '` | new `left`, `center`; `right` gains the pad |
-| `reverse(s)` | see I12 | |
-| `map(s1, s2, s3)` | see I11 | |
-| `char(i)`, `ord(s)` | the same, over Unicode code points rather than 0–255 | new |
-| `trim(s, c)` (trailing only) | `trim_end(s, c)`; `trim` and `trim_start` gain the cset too | |
-| `entab(s, i…)`, `detab(s, i…)` | the same; tab stops default to every 8 columns | new |
-| `image(x)` | `image(x)`: the value as source text — a string quoted and escaped, a cset as `cset("…")` | new |
-| `type(x)` | `type(x)`: the name `is` uses for `x`'s kind, a record's constructor name for a record | new |
-| `string(x)` | `str(x)`; `string` is the pattern combinator | new |
-| `cset(x)` | `cset(x)` | covered |
-
-**Padding is Icon's**: `left` pads on the right with the pad string replicated from the right end,
-`right` pads on the left replicated from the left end, and a string longer than `n` is cut from the
-side the padding goes on. Lengths are characters, as everywhere in FunL.
+### `map` and `reverse`
 
 > **Open question I11 — `map(s1, s2, s3)`.** Icon's character mapping replaces each character of
 > `s1` that occurs in `s2` with the one at the same place in `s3`, the last occurrence in `s2`

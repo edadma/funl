@@ -1,0 +1,57 @@
+module io.github.edadma.funl
+
+import sysl.text.{chars_of, str_builder}
+
+// `image`, `type` and `str`: a value as source text, the name of its kind, and a value as a string.
+
+install_string_images(v: *Vm)
+    register(v, "image", 1, (b, n) -> Ok(new_str(image_of(arg(b, 0)))?))
+    register(v, "type", 1, (b, n) -> Ok(new_str(type_name_of(arg(b, 0)))?))
+    register(v, "str", 1, (b, n) -> Ok(new_str(render(arg(b, 0)))?))
+
+// `s` as a double-quoted FunL literal that reads back as `s`: the quote, the backslash and the
+// control characters escaped, and a `$` doubled, which a double-quoted string would take for the
+// start of a hole.
+quoted(s: string) -> string
+    var out = str_builder()
+
+    out.push("\"")
+
+    for c in chars_of(s.bytes)
+        if c == '"' then out.push("\\\"")
+        elif c == '\\' then out.push("\\\\")
+        elif c == '\n' then out.push("\\n")
+        elif c == '\t' then out.push("\\t")
+        elif c == '\r' then out.push("\\r")
+        elif c == '$' then out.push("$$")
+        else out.push_char(c)
+
+    out.push("\"")
+    out.finish()
+
+// The name `is` uses for the kind of `x`: the most specific one, so `true` is a `boolean` and a
+// record is its constructor's name.
+type_name_of(x: Value) -> string
+    deref(x) match
+        Undefined -> "undefined"
+        Unit -> "unit"
+        Nil -> "list"
+        Int(_) | Big(_) -> "integer"
+        Rat(_) -> "rational"
+        Real(_) -> "real"
+        Atom(id) -> if is_boolean_atom(id) then "boolean" else "atom"
+        Str(_) -> "string"
+        Compound(p) -> atom_name(p.functor)
+        Tuple(_) -> "tuple"
+        Cons(_) -> "list"
+        Var(_) -> "variable"
+        Func(_) | Ctor(_) -> "function"
+        Range(_) -> "range"
+        Set(_) | MutSet(_) -> "set"
+        Map(_) | MutMap(_) -> "map"
+        Array(_) -> "array"
+        Buffer(_) -> "buffer"
+        CSet(_) -> "cset"
+        Bytes(_) -> "bytes"
+        Handle(_) -> "handle"
+        Promise(_) -> "promise"
