@@ -36,6 +36,10 @@ write( area(3) )
 | `&collections`, `&allocated` | how many times the collector has run, and the bytes the program has allocated in the collected heap |
 | `&storage`, `&regions` | the bytes in use in the collected heap, and the heap's size ([looking inside](#looking-inside)) |
 | `&current`, `&source`, `&main` | the running co-expression, the one that activated it, and the one the program started in ([co-expressions](coexpressions.md#current-source-and-main)) |
+| `&window` | the window `open` made last, failing when there is none; assignable ([graphics](../library/graphics.md#the-current-window)) |
+| `&x`, `&y`, `&row`, `&col`, `&interval` | where the last event a window's `event()` took happened, and the milliseconds before it ([graphics](../library/graphics.md#events)) |
+| `&control`, `&meta`, `&shift`, `&released` | succeed when that event had the modifier held, or was a key let go, and fail when not |
+| `&lpress`, `&ldrag`, `&lrelease`, `&mpress`, `&mdrag`, `&mrelease`, `&rpress`, `&rdrag`, `&rrelease`, `&resize` | the mouse's event codes, `#lpress` … `#rrelease`, and `#resize` |
 
 ## `&` and conjunction
 
@@ -92,7 +96,7 @@ write( if a == [?100, ?100, ?100] then 'repeated' else 'differs', &random )
 repeated, 2026
 ```
 
-Only `&subject`, `&pos`, `&random`, `&trace` and `&dump` can be assigned, and only the scan keywords
+Only `&subject`, `&pos`, `&random`, `&trace`, `&dump` and `&window` can be assigned, and only the scan keywords
 with `<-`:
 
 ```funl
