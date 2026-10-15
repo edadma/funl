@@ -16,19 +16,22 @@ struct TopFn
     arity: usize
     chunk: usize
 
+    // Variadic, `arity` counting its `..rest` (`variadic.sysl`).
+    variadic: bool
+
 // Record the program's top-level function `name` of `arity` parameters, compiled into `chunk`, for
 // `proc` to find. A later definition of the same name and count (the program compiled again) replaces it.
-note_top_fn(name: string, arity: usize, chunk: usize)
+note_top_fn(name: string, arity: usize, chunk: usize, variadic: bool)
     val v = current()
 
     for i in 0..<v.top_fns.len()
         val f = v.top_fns.at(i)
 
-        if f.name == name && f.arity == arity
-            v.top_fns.set(i, TopFn(name, arity, chunk))
+        if f.name == name && f.arity == arity && f.variadic == variadic
+            v.top_fns.set(i, TopFn(name, arity, chunk, variadic))
             return
 
-    v.top_fns.push(TopFn(name, arity, chunk))
+    v.top_fns.push(TopFn(name, arity, chunk, variadic))
 
 install_proc(v: *Vm)
     optional_past(v, register_generator(v, "proc", 2, do_proc), 1)
@@ -70,7 +73,16 @@ private do_proc(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     for i in 0..<v.top_fns.len()
         val f = v.top_fns.at(i)
 
-        if f.name == name && counted_as(want, f.arity) then members.push(FnMember(f.chunk, f.arity, TopUp))
+        if f.name == name && !f.variadic && counted_as(want, f.arity) then members.push(FnMember(f.chunk, f.arity, TopUp))
+
+    // The variadic takes the counts the fixed arities leave, so it is asked for a count only when none
+    // of them takes it.
+    if want.is_none() || members.len() == 0
+        for i in 0..<v.top_fns.len()
+            val f = v.top_fns.at(i)
+
+            if f.name == name && f.variadic && (want.is_none() || want.unwrap() + 1 >= f.arity)
+                members.push(RestMember(f.chunk, f.arity - 1, TopUp))
 
     // The program's own definition hides a builtin or the prelude's of the same name.
     if members.len() == 0
@@ -107,6 +119,7 @@ private member_value(v: *Vm, name: string, members: Buf[Member]) -> Result[Value
     if members.len() == 1
         members.at(0) match
             FnMember(chunk, _, up) -> return Ok(new_closure(chunk, link(v, up)?)?)
+            RestMember(chunk, _, up) -> return Ok(new_closure(chunk, link(v, up)?)?)
             NativeMember(id) -> return Ok(new_closure(value_chunk(id)?, v.globals)?)
             CtorMember(_) -> ()
 
@@ -117,6 +130,7 @@ private member_value(v: *Vm, name: string, members: Buf[Member]) -> Result[Value
     for m in members.view()
         m match
             FnMember(chunk, arity, up) -> key.push(s"|f$chunk,$arity,$up")
+            RestMember(chunk, fixed, up) -> key.push(s"|r$chunk,$fixed,$up")
             NativeMember(id) -> key.push(s"|n$id")
             CtorMember(id) -> key.push(s"|c$id")
 

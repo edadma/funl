@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
 
 // The parser: the token cursor, the report, and the forms that are not expressions -- statements,
 // `free`, and definitions with their clauses.
@@ -26,6 +27,10 @@ struct Parser
     // The constructs that ended at the cursor, for an `end` marker to be checked against
     // (`parse_end.sysl`).
     closers: Buf[Closer]
+
+    // Where each parenthesized expression read so far ends, by where it begins, so a `match` clause
+    // can tell `(limit)`, a value it compares with, from `limit`, a name it binds.
+    parens: Map[usize, usize]
 
     // A fresh lambda id.
     lambda_id(*self) -> usize
@@ -232,11 +237,12 @@ tag(t: Tok) -> u8
         AwaitW -> 88
         StarStar -> 89
         AmpName(_) -> 90
+        CreateW -> 91
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
 parse(src: Source, report: *Report) -> Program
-    var p = Parser(lex(src, report), report, src, 0, 0, 0, buf())
+    var p = Parser(lex(src, report), report, src, 0, 0, 0, buf(), map())
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
     var imports: Buf[ImportDecl] = buf()

@@ -28,13 +28,14 @@ write( area(3) )
 | `&random` | the random generator's seed, assignable |
 | `&time`, `&clock`, `&date`, `&dateline` | the processor time used, in milliseconds; the time of day, the date, and both as a person writes them |
 | `&version`, `&host`, `&progname` | FunL's version, the machine's name, the program's file |
-| `&features` | generates what this FunL has: `"large integers"`, the platform, and each optional feature built in |
+| `&features` | generates what this FunL has: `"large integers"`, `"co-expressions"`, the platform, and each optional feature built in |
 | `&file`, `&line` | the source file and line the keyword is written on |
 | `&level` | how many calls deep the running code is |
 | `&trace` | while not zero, each call, return, suspension, resumption and failure of a function is written to standard error; assignable ([tracing](#tracing)) |
 | `&dump` | while not zero, the program's end writes `display()`'s report to standard error; assignable ([looking inside](#looking-inside)) |
 | `&collections`, `&allocated` | how many times the collector has run, and the bytes the program has allocated in the collected heap |
 | `&storage`, `&regions` | the bytes in use in the collected heap, and the heap's size ([looking inside](#looking-inside)) |
+| `&current`, `&source`, `&main` | the running co-expression, the one that activated it, and the one the program started in ([co-expressions](coexpressions.md#current-source-and-main)) |
 
 ## `&` and conjunction
 
@@ -119,7 +120,7 @@ ms, 8, 10, /
 named
 ```
 
-`&version` names FunL and its version. `&features` generates `"large integers"`, then the platform
+`&version` names FunL and its version. `&features` generates `"large integers"` and `"co-expressions"`, then the platform
 FunL was built for, then each optional feature of this build — `http`, `async`, `profile`:
 
 ```funl

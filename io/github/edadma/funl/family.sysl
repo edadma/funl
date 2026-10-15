@@ -16,13 +16,19 @@ import sysl.text.str_builder
 //     end: NoArity
 //
 // A member is a function, a builtin, or a constructor of the name with that many fields. A
-// relation is no value, and is not a member.
+// relation is no value, and is not a member. A variadic function's member takes every count from its
+// fixed parameters up, and comes after the fixed arities it leaves counts to:
+//
+//     rest: ArgsIn(1, any, end); LoadArgs; TailCallFn(f/1.., every argument, up); Return
 
 // One member of a family value, as the family's chunk calls it.
 enum Member
     // A function compiled into `chunk`, of `arity` parameters, whose frames' static link is the
     // frame `up` names from the family's own frame.
     FnMember(chunk: usize, arity: usize, up: usize)
+
+    // A variadic function, for every count from `fixed` up (`variadic.sysl`).
+    RestMember(chunk: usize, fixed: usize, up: usize)
 
     // A builtin, for each count it takes.
     NativeMember(id: usize)
@@ -41,6 +47,10 @@ family_value(ms: Buf[Meaning]) -> bool
 
     false
 
+// The fewest arguments a call of builtin `nat` may give: a variadic builtin's `least` is `Variadic`
+// too, since it checks its own count, so any count reaches it.
+fewest(nat: Native) -> usize = if nat.least == Variadic then 0 else nat.least
+
 // The counts the family `ms` takes, for a refusal: "1 or 2 arguments".
 counts_text(res: *Resolved, ms: Buf[Meaning]) -> string
     var counts: Buf[usize] = buf()
@@ -48,13 +58,19 @@ counts_text(res: *Resolved, ms: Buf[Meaning]) -> string
 
     for x in ms.view()
         x match
-            Function(r, _) -> counts.push(res.rels.at(r).arity)
+            Function(r, _) ->
+                val rel = res.rels.at(r)
+
+                if rel.variadic
+                    if rel.arity - 1 < from then from = rel.arity - 1
+                else
+                    counts.push(rel.arity)
             Relation(r) -> counts.push(res.rels.at(r).arity)
             Builtin(id) ->
                 val nat = current().natives.at(id)
 
                 if nat.arity == Variadic
-                    if nat.least < from then from = nat.least
+                    if fewest(nat) < from then from = fewest(nat)
                 else
                     for k in nat.least..nat.arity
                         counts.push(k)
@@ -119,10 +135,14 @@ family_chunk(name: string, members: Buf[Member]) -> Result[usize, string]
                 e.op(ArgsIn(arity, arity, next))
                 e.op(LoadArgs)
                 e.op(TailCallFn(chunk, arity, up))
+            RestMember(chunk, fixed, up) ->
+                e.op(ArgsIn(fixed, AnyArity, next))
+                e.op(LoadArgs)
+                e.op(TailCallFn(chunk, Variadic, up))
             NativeMember(id) ->
                 val nat = current().natives.at(id)
 
-                e.op(ArgsIn(nat.least, if nat.arity == Variadic then AnyArity else nat.arity, next))
+                e.op(ArgsIn(fewest(nat), if nat.arity == Variadic then AnyArity else nat.arity, next))
                 e.op(LoadArgs)
 
                 if is_generator(id)
@@ -149,34 +169,46 @@ push_family(e: *Emit, res: *Resolved, ms: Buf[Meaning], name: string) -> Result[
     var members: Buf[Member] = buf()
     var up = TopUp
 
-    for x in ms.view()
-        x match
-            Function(r, u) ->
-                val rel = res.rels.at(r)
+    // The file's own fixed arities, then its variadic, which takes the counts they leave, then the
+    // others -- fixed before variadic again -- in order: a call through the value reaches what a call
+    // written with that count would (`Resolved.called_in`).
+    for pass in 0..<4
+        for x in ms.view()
+            val own = res.is_top(name, x)
+            val rest = res.is_rest(x)
 
-                // The top level's frame, or a file's, is named the same from anywhere; a count of
-                // static links is one more from inside the family's frame.
-                if u >= TopUp - FileUps
-                    members.push(FnMember(rel.chunk, rel.arity, u))
-                else
-                    up = u
-                    members.push(FnMember(rel.chunk, rel.arity, 1))
-            Builtin(id) -> if is_function_value(id) then members.push(NativeMember(id))
-            _ -> ()
+            if own != (pass < 2) || rest != (pass % 2 == 1) then continue
+
+            x match
+                Function(r, u) ->
+                    val rel = res.rels.at(r)
+
+                    // The top level's frame, or a file's, is named the same from anywhere; a count of
+                    // static links is one more from inside the family's frame.
+                    val link = if u >= TopUp - FileUps then u else 1
+
+                    if u < TopUp - FileUps then up = u
+
+                    members.push(if rel.variadic then RestMember(rel.chunk, rel.arity - 1, link) else FnMember(rel.chunk, rel.arity, link))
+                Builtin(id) -> if is_function_value(id) then members.push(NativeMember(id))
+                _ -> ()
 
     if members.len() == 0 then return Err(s"'$name' was resolved and is not a value")
 
     // One function among relations and predicates is that function's own value.
     if members.len() == 1
-        members.at(0) match
-            FnMember(chunk, _, _) ->
-                for x in ms.view()
-                    x match
-                        Function(_, u) ->
-                            e.op(MakeClosure(chunk, u))
-                            return Ok(())
-                        _ -> ()
-            _ -> ()
+        val chunk = members.at(0) match
+            FnMember(c, _, _) -> Some(c)
+            RestMember(c, _, _) -> Some(c)
+            _ -> None
+
+        if chunk.is_some()
+            for x in ms.view()
+                x match
+                    Function(_, u) ->
+                        e.op(MakeClosure(chunk.unwrap(), u))
+                        return Ok(())
+                    _ -> ()
 
     e.op(MakeClosure(family_chunk(name, members)?, up))
     Ok(())

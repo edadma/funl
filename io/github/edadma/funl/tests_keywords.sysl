@@ -145,7 +145,7 @@ VERSION_HOST_AND_PROGNAME_NAME_FUNL_THE_MACHINE_AND_THE_PROGRAM()
 
 @test
 FEATURES_GENERATES_THE_LANGUAGES_THE_PLATFORMS_AND_THE_BUILDS()
-    var want = "large integers\n"
+    var want = "large integers\nco-expressions\n"
 
     want = want + (os() match
         MacOS -> "macOS\n"
@@ -163,7 +163,7 @@ FEATURES_GENERATES_THE_LANGUAGES_THE_PLATFORMS_AND_THE_BUILDS()
 
     assert_eq(ran_funl("every write(&features)\n"), want + "succeeded")
     assert_eq(ran_funl("write(if &features == 'large integers' then 'has' else 'lacks', if &features == 'co-expressions' then 'has' else 'lacks')\n"),
-        "has, lacks\nsucceeded")
+        "has, has\nsucceeded")
 
 @test
 FILE_AND_LINE_ARE_WHERE_THE_KEYWORD_IS_WRITTEN()

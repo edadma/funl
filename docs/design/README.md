@@ -137,10 +137,14 @@ Each is argued where it arises; this is the list.
 | M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
 | Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [icon](icon.md) |
+| I2 A `case` expression | postfix `e match` over a clause block, the subject bounded, committed choice; no match fails; `(e)` in a clause's pattern compares with `e`'s first value (user, 2026-10-15) | [functions](../reference/functions.md#match) |
 | I6 Reflection by name | `proc(name)` and `proc(name, n)` over top-level names and builtins (the prelude too); fails for an unknown name; no `variable`/`name`, no string invocation (user, 2026-10-15) | [functions](../reference/functions.md#calling-by-name) |
 | I3 Limitation, `\` being integer division | the infix word `e limit n`, Icon's semantics (a generating `n` re-limits); `\` stays division (user, 2026-10-15) | [icon](icon.md#limitation) |
 | I21 Are Icon's graphics facilities in scope? | yes, as the native module `funl:graphics`, designed in its own chapter; its questions are G1–G12 (user, 2026-10-15) | [graphics](graphics.md) |
 | I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [icon](icon.md#keywords) |
+| I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` (user, 2026-10-15) | [icon](icon.md#co-expressions) |
+| I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it (user, 2026-10-15) | [icon](icon.md#co-expressions) |
+| I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family; no relation is variadic, and a variadic function has no Prolog key; `f(..xs)` is resolved when it runs (user, 2026-10-15) | [language](language.md#one-name-several-arities) |
 
 ## Open questions
 
@@ -149,11 +153,7 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | question | recommendation | where |
 |---|---|---|
 | I1 The loop `until` beside the range `until` | both, by position: prefix is the loop, infix the range | [icon](icon.md#until) |
-| I2 A `case` expression | postfix `e match` over a clause block; no match fails; `(e)` in a pattern compares with `e`'s value | [icon](icon.md#case) |
 | I4 Whose is a `static`: the definition's or each closure's? | each closure value's | [icon](icon.md#static-and-initial) |
-| I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family | [icon](icon.md#variadic-procedures-and-list-invocation) |
-| I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` | [icon](icon.md#co-expressions) |
-| I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it | [icon](icon.md#co-expressions) |
 | I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
 | I10 Icon's positions in indexing (decided: one way, 0-based) | keep the decision; add assignment to a section of a string variable | [icon](icon.md#sections-and-indexing) |
 | I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#map-and-reverse) |

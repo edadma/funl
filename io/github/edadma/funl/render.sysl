@@ -171,6 +171,13 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
                 out.push(">")
             else
                 out.push("<promise pending>")
+        CoExpr(p) ->
+            // `<co-expression 2 (3 results)>`: its number, and how far it has gone.
+            out.push("<co-expression ")
+            out.push_int(long(p.id))
+            out.push(" (")
+            out.push_int(long(p.results))
+            out.push(if p.results == 1 then " result)>" else " results)>")
 end write_value
 
 // A map's entries, `key: value`, keys and values written as elements are.

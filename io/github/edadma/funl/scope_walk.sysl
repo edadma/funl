@@ -43,6 +43,10 @@ struct Walk
     // head may.
     ball: bool
 
+    // Whether the code being read is the expression of a `create`, which runs on a control stack of
+    // its own: nothing in it can return, yield, await or leave a loop outside it.
+    creating: bool
+
     // What `name` means written at offset `pos`: the blocks being read first, then the complete
     // scopes above.
     meaning(self, name: string, pos: usize) -> Meaning
@@ -69,7 +73,7 @@ struct LoopSeen
 // A walk over scope `sid`, from its root block, inside no loop.
 walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool,
        waits: bool) -> Walk =
-    Walk(res, report, pending, sc, sid, relation, function, waits, 0, buf(), relation, false)
+    Walk(res, report, pending, sc, sid, relation, function, waits, 0, buf(), relation, false, false)
 
 // Whether a call of `n`, which means `m`, is one of the all-solutions forms: the name, where nothing
 // the program declares takes it.
@@ -295,6 +299,8 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
                 _ ->
                     w.report.add(error(rest.span, "a map pattern's `..` is followed by a name, `_` or nothing")
                         .with_note("`..rest` binds `rest` to a map of the entries the pattern does not name"))
+        // `(e)` in a `match` clause: `e` is read where the pattern is, and declares nothing.
+        ValueP(v) -> walk(w, v)
         SetE(_) ->
             w.report.add(error(p.span, "a set is not a pattern")
                 .with_note("matching a set means searching it: test a member with `x in s`, draw them with `x <- !s`, and the kind with `s is set`"))
@@ -410,7 +416,13 @@ walk(w: *Walk, e: &Expr)
                         w.report.add(error(e.span, s"`$n` is not defined")
                             .with_note("a name is a parameter, a `val`, a function, or declared with `free`"))
         CallE(n, at, args) ->
-            val m = picked_call(w, n, w.meaning(n, at.start), at, args.len())
+            // `f(..xs)`: the count is known only when it runs, so the call is through `f`'s value.
+            if has_spread(args)
+                walk(w, expr(Ref(n), at))
+                walk_args(w, args)
+                return
+
+            val m = picked_call(w, e, n, w.meaning(n, at.start), args.len())
 
             if is_all_solutions(m, n)
                 all_solutions(w, n, at, args)
@@ -432,6 +444,10 @@ walk(w: *Walk, e: &Expr)
 
             for i in 0..<vals.len()
                 walk_entry_value(w, keys.at(i), vals.at(i))
+        SpreadE(x) ->
+            w.report.add(error(e.span, "`..` spreads a call's arguments, `f(..xs)`, or gathers a function's last ones, `def f(a, ..rest)`")
+                .with_note("a list is joined to another with `+`: `xs + ys`"))
+            walk(w, x)
         MapRestE(_, _, rest) ->
             w.report.add(error(rest.span, "`..` does not build a map: it belongs to a map pattern")
                 .with_note("in a pattern, `{k: p, ..rest}` binds `rest` to a map of the entries it does not name, as in `val {a: x, ..rest} = m`"))
@@ -440,6 +456,8 @@ walk(w: *Walk, e: &Expr)
                 walk(w, x)
         ScanE(s, body) -> walk_two(w, s, body)
         CatchE(id, s, pat, guard, r) -> walk_catch(w, id, s, pat, guard, r)
+        MatchE(s, cs) -> walk_match(w, s, cs)
+        ValueP(v) -> walk(w, v)
         RegexE(_, _) -> ()
         SetElemE(c, k, x, _) ->
             walk_two(w, c, k)
@@ -451,6 +469,11 @@ walk(w: *Walk, e: &Expr)
             // `m.f(args)`, `m` a module: a call of what the module exports as `f`, checked as a call
             // of `f` in its own file is.
             var called = false
+
+            if has_spread(args)
+                walk(w, f)
+                walk_args(w, args)
+                return
 
             f.kind match
                 FieldE(x, name) ->
@@ -464,7 +487,7 @@ walk(w: *Walk, e: &Expr)
                                 _ ->
                                     val qn = s"${ref_name(x)}.$name"
 
-                                    check_call(w, picked_call(w, qn, m, f.span, args.len()), qn, f.span, args.len())
+                                    check_call(w, picked_call(w, f, qn, m, args.len()), qn, f.span, args.len())
                         None -> ()
                 _ -> ()
 
@@ -509,7 +532,9 @@ walk(w: *Walk, e: &Expr)
         BlockE(id, stmts) -> walk_block(w, id, stmts)
         LambdaE(id, clauses) -> queue_lambda(w, id, clauses, e.span)
         ReturnE(x) ->
-            if !w.function
+            if w.creating
+                w.report.add(outside_create(e.span, "return"))
+            elif !w.function
                 w.report.add(error(e.span, "`return` is written inside a function")
                     .with_note("it leaves the function it is in, and the top level and a relation are not one"))
 
@@ -518,9 +543,10 @@ walk(w: *Walk, e: &Expr)
             x match
                 Some(v) -> walk(w, v)
                 None -> ()
-        AsE(_, _) ->
-            w.report.add(error(e.span, "`name@pattern` is a pattern, and this is not where one is matched")
-                .with_note("it belongs in a parameter or on the left of a `val`"))
+        AsE(n, x) ->
+            // Where an expression is read, `name @ c` is transmission.
+            walk(w, expr(Ref(n), Span(e.span.start, e.span.start + n.bytes.len)))
+            walk(w, x)
         SectionL(_, _) ->
             w.report.add(error(e.span, "this operator has no right operand")
                 .with_note("a section that fixes the left operand is written in parentheses: `(2 *)`"))
@@ -571,14 +597,19 @@ walk(w: *Walk, e: &Expr)
             walk(w, x)
             assigned(w, n, e.span, e.span.end)
         YieldE(x) ->
-            if !w.function
+            if w.creating
+                w.report.add(outside_create(e.span, "yield"))
+            elif !w.function
                 w.report.add(error(e.span, "`yield` is written inside a function")
                     .with_note("it hands a value to the function's caller, and the top level and a relation have none"))
 
             w.sc.yields = true
             walk(w, x)
         AwaitE(x) ->
-            if !w.waits
+            if w.creating
+                w.report.add(error(e.span, "`await` cannot be written inside `create`")
+                    .with_note("a co-expression runs when `@` activates it; await the value before `create`, or after the `@`"))
+            elif !w.waits
                 w.report.add(error(e.span, "`await` is written in an `async` function or at the top level")
                     .with_note("it belongs to the function it is written in: make that one `async def`, or `async` before a lambda"))
 
@@ -600,12 +631,40 @@ walk(w: *Walk, e: &Expr)
 
             for t in targets.view()
                 assigned(w, t.value, t.span, e.span.end)
+        CreateE(x) -> walk_create(w, x)
+        ActivateE(x, c) -> walk_two(w, x, c)
+        RefreshE(x) -> walk(w, x)
+        SizeE(x) -> walk(w, x)
         _ -> ()
 end walk
+
+// `create e`: `e` is read in the scope around it, but inside no loop of that scope, and with nothing
+// to return to, yield to or await in.
+private walk_create(w: *Walk, x: &Expr)
+    val loops = w.loops
+    val creating = w.creating
+
+    w.loops = buf()
+    w.creating = true
+    walk(w, x)
+    w.loops = loops
+    w.creating = creating
+
+// The refusal of `word` inside `create`.
+private outside_create(at: Span, word: string) -> Diagnostic =
+    error(at, s"`$word` cannot be written inside `create`")
+        .with_note("a co-expression's results are its expression's values, handed to the `@` that activates it; it ends when the expression fails")
 
 private walk_two(w: *Walk, a: &Expr, b: &Expr)
     walk(w, a)
     walk(w, b)
+
+// The arguments of a spread call: each `..e` is `e`, read as any value.
+private walk_args(w: *Walk, args: Buf[&Expr])
+    for a in args.view()
+        a.kind match
+            SpreadE(x) -> walk(w, x)
+            _ -> walk(w, a)
 
 walk_maybe(w: *Walk, x: Option[&Expr])
     x match
@@ -706,15 +765,15 @@ private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
         Ref(g) -> w.report.add(not_exported(w.res, g, name, at))
         _ -> ()
 
-// What a call of `n` written at `at` with `argc` arguments reaches, `n` meaning `m` there: decided
-// here, where it is known whether the call is in a goal, and kept for the compiler.
-private picked_call(w: *Walk, n: string, m: Meaning, at: Span, argc: usize) -> Meaning
+// What the call `call` of `n` with `argc` arguments reaches, `n` meaning `m` there: decided here,
+// where it is known whether the call is in a goal, and kept for the compiler.
+private picked_call(w: *Walk, call: &Expr, n: string, m: Meaning, argc: usize) -> Meaning
     val p = w.res.called_in(n, m, argc, w.goal)
 
     // Kept for every call, not only a family's: by the time the compiler reads the call, the
     // program's own definitions are Prolog predicates too, and the name would mean more than it
     // did here.
-    w.res.picks.put(at.start, p)
+    w.res.pick(call, p)
     p
 
 // A call of `n`, which means `m`, with as many arguments as it takes.
@@ -726,6 +785,13 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
             return
         Function(r, _) ->
             val n_params = w.res.rels.at(r).arity
+
+            // A variadic function takes every count from its fixed parameters up.
+            if w.res.rels.at(r).variadic
+                if argc + 1 < n_params
+                    w.report.add(error(at, s"`$n` takes ${counts_phrase(buf(), n_params - 1)}, and this call gives $argc"))
+
+                return
 
             // In a goal, a function of `n` parameters is also the relation `f/(n+1)`.
             if w.goal && argc == n_params + 1 then return
@@ -794,17 +860,28 @@ private global_names(r: *Resolved) -> Buf[string]
 
 // A lambda is a function of its own, defined in the scope being read and resolved once that scope is
 // complete.
-private queue_lambda(w: *Walk, id: usize, clauses: Buf[Clause], at: Span)
-    val arity = clauses.at(0).params.len()
+//
+// A lambda is variadic as a `def` is, its last parameter `..rest`, and then every clause of it is.
+private queue_lambda(w: *Walk, id: usize, written: Buf[Clause], at: Span)
+    val arity = written.at(0).params.len()
+    val variadic = is_variadic_clause(written.at(0))
+    var clauses: Buf[Clause] = buf()
 
-    for c in clauses.view()
+    for c in written.view()
         if c.params.len() != arity
             w.report.add(error(c.head, s"this clause of a function literal takes ${c.params.len()}, and its first clause ${counted(arity, "argument")}")
                 .with_note("every clause of a function takes the same number of arguments"))
+        elif is_variadic_clause(c) != variadic
+            w.report.add(error(c.head, "one clause of this function literal gathers its last arguments with `..`, and another does not")
+                .with_note("every clause of a variadic function ends in `..rest`"))
+
+        gathered(c, w.report) match
+            Some(g) -> clauses.push(g)
+            None -> clauses.push(c)
 
     w.res.lambdas.put(id, w.res.rels.len())
     w.pending.push(w.res.rels.len())
-    w.res.rels.push(Rel("lambda", arity, clauses, reserve_chunk("lambda"), true, w.sid, w.blk, buf()))
+    w.res.rels.push(Rel("lambda", arity, clauses, reserve_chunk("lambda"), true, w.sid, w.blk, buf(), variadic))
 
 // -- hoisting -------------------------------------------------------------------------------------
 
@@ -871,6 +948,7 @@ hoist_expr(w: *Walk, e: &Expr)
         BinE(_, a, b) -> hoist_two(w, a, b)
         Neg(x) -> hoist_expr(w, x)
         MinusE(x) -> hoist_expr(w, x)
+        SpreadE(x) -> hoist_expr(w, x)
         ReturnE(x) ->
             x match
                 Some(v) -> hoist_expr(w, v)
@@ -887,6 +965,11 @@ hoist_expr(w: *Walk, e: &Expr)
         LimitE(_, x, n) -> hoist_two(w, n, x)
         YieldE(x) -> hoist_expr(w, x)
         AwaitE(x) -> hoist_expr(w, x)
+        CreateE(x) -> hoist_expr(w, x)
+        ActivateE(x, c) -> hoist_two(w, x, c)
+        RefreshE(x) -> hoist_expr(w, x)
+        SizeE(x) -> hoist_expr(w, x)
+        AsE(_, x) -> hoist_expr(w, x)
         AssignE(_, x) -> hoist_expr(w, x)
         RangeE(a, b, by, _) ->
             hoist_two(w, a, b)
@@ -926,6 +1009,12 @@ hoist_expr(w: *Walk, e: &Expr)
         CatchE(_, s, _, guard, r) ->
             hoist_two(w, s, r)
             hoist_maybe(w, guard)
+        MatchE(s, cs) ->
+            hoist_expr(w, s)
+
+            for cl in cs.view()
+                hoist_maybe(w, cl.guard)
+                hoist_expr(w, cl.body)
         RegexE(_, _) -> ()
         SetElemE(c, k, x, _) ->
             hoist_two(w, c, k)
@@ -949,11 +1038,17 @@ private hoist_maybe(w: *Walk, x: Option[&Expr])
         None -> ()
 
 // One clause of a local `def` joins the function of its name in the scope being read.
-private hoist_clause(w: *Walk, c: Clause)
-    if !is_function(c.kind)
-        w.report.add(error(c.head, s"`${c.name}` is a relation, and a relation is defined at the top level")
+private hoist_clause(w: *Walk, written: Clause)
+    if !is_function(written.kind)
+        w.report.add(error(written.head, s"`${written.name}` is a relation, and a relation is defined at the top level")
             .with_note("a `def` inside a body or a `where` defines a function, with `=`, a guard or a block"))
         return
+
+    val c = gathered(written, w.report) match
+        Some(x) -> x
+        None -> return
+
+    val variadic = is_variadic_clause(written)
 
     // The function of this name and arity in the scope, which the clause joins, or a new one.
     var rs: Buf[usize] = w.sc.fns.get(c.name) match
@@ -963,10 +1058,12 @@ private hoist_clause(w: *Walk, c: Clause)
     for i in rs.view()
         var r = w.res.rels.at(i)
 
-        if r.arity == c.params.len()
+        if joins(r, written)
             r.clauses.push(c)
             w.res.rels.set(i, r)
             return
+
+    if variadic && second_variadic(w.res, rs, c, w.report) then return
 
     var cs: Buf[Clause] = buf()
 
@@ -974,5 +1071,5 @@ private hoist_clause(w: *Walk, c: Clause)
     rs.push(w.res.rels.len())
     w.sc.fns.put(c.name, rs)
     w.pending.push(w.res.rels.len())
-    w.res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), true, w.sid, 0, buf()))
+    w.res.rels.push(Rel(c.name, c.params.len(), cs, reserve_chunk(c.name), true, w.sid, 0, buf(), variadic))
 end hoist_clause
