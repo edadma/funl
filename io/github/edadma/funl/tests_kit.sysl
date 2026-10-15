@@ -57,6 +57,9 @@ run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled) ->
     var out = str_builder()
     var warned = ""
 
+    // A program under test reads an input that has ended, never the terminal the suite runs from.
+    v.input = (prompt) -> None
+
     val outcome = build() match
         Ready(chunk, said) ->
             warned = said
@@ -65,6 +68,11 @@ run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled) ->
         CannotRead(why) -> s"assembly: $why"
 
     for line in v.output.view()
+        out.push(line)
+        out.push("\n")
+
+    for line in v.errput.view()
+        out.push("stderr: ")
         out.push(line)
         out.push("\n")
 

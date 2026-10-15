@@ -623,8 +623,8 @@ names_val(m: Meaning) -> bool = m match
     _ -> false
 
 // Whether `x op= e`, `x` meaning `m`, changes the collection a `val` holds rather than assigning:
-// `+=` onto a buffer or a mutable set, `-=` out of a mutable set, checked as it runs.
-changes_val(o: BinOp, m: Meaning) -> bool = (o == Add || o == Sub) && names_val(m)
+// `+=` onto a buffer or a mutable set, `-=` out of one, `**=` keeping part of one, checked as it runs.
+changes_val(o: BinOp, m: Meaning) -> bool = (o == Add || o == Sub || o == Inter) && names_val(m)
 
 // Whether a call of `n`, which means `m`, is `swap`: the name, where nothing the program declares
 // takes it.

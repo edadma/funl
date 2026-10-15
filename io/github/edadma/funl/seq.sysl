@@ -85,8 +85,8 @@ is_seq(x: Value) -> bool = deref(x) match
     Range(_) -> true
     _ -> false
 
-// Every element of `x` -- a proper list, a range with an end, a tuple, a set, an array or a buffer --
-// pushed onto `out`, in order;
+// Every element of `x` -- a proper list, a range with an end, a tuple, a set, an array, a buffer or a
+// cset, whose elements are its characters -- pushed onto `out`, in order;
 // `what` names the operation for a refusal.
 elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
     var at = deref(x)
@@ -129,6 +129,7 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
                     out.push(Int(long(b)))
 
                 return Ok(())
+            CSet(p) -> return cset_chars(at, p.set, out)
             Var(_) -> return Err(instantiation_error(s"instantiation error: $what reached an unbound tail of a list"))
             y -> return Err(type_error("list", y, s"$what wants a list and reached ${described(y)}"))
 
@@ -231,6 +232,7 @@ member(x: Value, c: Value) -> Result[bool, Fault]
             Array(a) -> return within(x, a.items)
             Buffer(a) -> return within(x, a.items)
             Map(m) -> return Ok(map_find(m, x)?.is_some())
+            CSet(p) -> return cset_member(x, p.set)
             MutMap(m) -> return Ok(map_find(m, x)?.is_some())
             Bytes(p) ->
                 val n = deref(x) match
@@ -244,7 +246,7 @@ member(x: Value, c: Value) -> Result[bool, Fault]
                 return Ok(false)
             Var(_) -> return Err(instantiation_error("instantiation error: 'in' was given an unbound variable to look in"))
             y ->
-                val msg = s"'in' looks in a list, a range, a tuple, a set, an array, a buffer, a byte string or a map's keys, and was given ${described(y)}"
+                val msg = s"'in' looks in a list, a range, a tuple, a set, an array, a buffer, a byte string, a map's keys or a cset, and was given ${described(y)}"
 
                 return Err(type_error("collection", y, msg))
 
@@ -452,8 +454,8 @@ private endless_element(x: Value, q: *RangeObj, i: long) -> Result[long, Fault]
         Some(n) -> Ok(n)
         None -> Err(evaluation_error("int_overflow", s"element $i of ${render(x)} does not fit in 64 bits"))
 
-// How many elements a list, a range with an end, a tuple, a set, an array, a buffer, a map, a term or
-// a string -- in characters -- has.
+// How many elements a list, a range with an end, a tuple, a set, an array, a buffer, a map, a term, a
+// string -- in characters -- or a cset has.
 length_of(x: Value) -> Result[long, Fault]
     val c = deref(x)
 
@@ -486,6 +488,7 @@ length_of(x: Value) -> Result[long, Fault]
         Compound(p) -> Ok(long(p.args.len()))
         Str(p) -> Ok(long(p.chars))
         Bytes(p) -> Ok(long(p.b.len()))
+        CSet(p) -> cset_count(c, p.set, "has no length")
         Var(_) -> Err(instantiation_error("instantiation error: a length was asked of an unbound variable"))
         y -> Err(type_error("collection", y, s"${described(y)} has no length"))
 end length_of

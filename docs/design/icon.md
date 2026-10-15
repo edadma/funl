@@ -454,17 +454,6 @@ an ordinary assignment and `&pos <- i` the reversible one**, which Icon cannot s
 position's existing trail entry is what `<-` pushes. An assignment outside a scan sets the outer
 scan environment, which a scan saves on entry and puts back on leaving.
 
-### `=s` and `bal`
-
-**Icon:** `=s` is `tab(match(s))`: it moves past `s` if the subject continues with it and produces
-`s`, reversibly. `bal(c1, c2, c3, s, i, j)` generates each position in `s[i:j]` at which a character
-of `c1` occurs with the text before it balanced in `c2` (openers) and `c3` (closers); the defaults
-are every character, `'('` and `')'`, and in a scan the subject and the position.
-
-**Proposed:** both as Icon has them. `=s` is a prefix operator compiled as `tab(match(s))`; prefix
-`=` begins nothing else in FunL. `bal` is a builtin generator beside `upto`, positions Icon's
-([decided](language.md#string-scanning)).
-
 ### Sections and indexing
 
 **Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the
@@ -485,25 +474,7 @@ which builds a new string and stores it.
 
 ## Strings and csets
 
-### The functions
-
-| Icon | FunL | |
-|---|---|---|
-| `repl(s, n)` | `repl(s, n)` | new; `replicate` stays the list one |
-| `left(s, n, p)`, `right(s, n, p)`, `center(s, n, p)` | the same names; `p` defaults to `' '` | new `left`, `center`; `right` gains the pad |
-| `reverse(s)` | see I12 | |
-| `map(s1, s2, s3)` | see I11 | |
-| `char(i)`, `ord(s)` | the same, over Unicode code points rather than 0–255 | new |
-| `trim(s, c)` (trailing only) | `trim_end(s, c)`; `trim` and `trim_start` gain the cset too | |
-| `entab(s, i…)`, `detab(s, i…)` | the same; tab stops default to every 8 columns | new |
-| `image(x)` | `image(x)`: the value as source text — a string quoted and escaped, a cset as `cset("…")` | new |
-| `type(x)` | `type(x)`: the name `is` uses for `x`'s kind, a record's constructor name for a record | new |
-| `string(x)` | `str(x)`; `string` is the pattern combinator | new |
-| `cset(x)` | `cset(x)` | covered |
-
-**Padding is Icon's**: `left` pads on the right with the pad string replicated from the right end,
-`right` pads on the left replicated from the left end, and a string longer than `n` is cut from the
-side the padding goes on. Lengths are characters, as everywhere in FunL.
+### `map` and `reverse`
 
 > **Open question I11 — `map(s1, s2, s3)`.** Icon's character mapping replaces each character of
 > `s1` that occurs in `s2` with the one at the same place in `s3`, the last occurrence in `s2`
@@ -544,24 +515,13 @@ converted. Icon's two families exist only because of the conversion, so FunL's o
 
 ### Csets
 
-**Icon:** `c1 ++ c2` union, `c1 -- c2` difference, `c1 ** c2` intersection, `~c` the complement
-in the 256-character universe; `*c` the size and `!c` each character in order; the same `++`,
-`--`, `**` on sets. The keywords `&lcase`, `&ucase`, `&letters`, `&digits`, `&ascii` and `&cset`.
+The cset algebra is built (`+`, `-`, `**`, `complement`, `ascii`, `cset_all`; see
+[scanning](../reference/scanning.md#character-sets)). What remains:
 
-**FunL today:** `+` and `-` are union and difference on sets; csets have no operators; `letters`,
-`digits` and `alphanum` are names. `++` and `--` are increment and decrement, and `&` is conjunction.
-
-**Proposed:**
-
-- **`+` and `-` on csets**, as on sets, and **`**` intersection on both** — Icon's spelling, free in
-  FunL (power is `^`), and with `**=` under the augmented assignment rule. `s1 & s2` stays
-  conjunction.
-- **`complement(c)`**: the characters not in `c`. FunL's characters are Unicode, so a complement is
-  stored as a flag on the cset ("everything but these"), and every cset operation takes the flag
-  into account; `*c` of a complement and `!c` over one fault, there being no useful answer.
-  Prefix `~` is not taken for it: `~` is unification, and `x ~ ~c` would read as a typo.
-- `lower`, `upper`, `ascii` and `cset_all` as names beside `letters`, and Icon's keywords for all
-  of them under [I18](#keywords).
+- **`lower` and `upper` as cset names beside `letters`.** Both names are already the case-mapping
+  functions `lower(s)` and `upper(s)`, so neither can also be a named cset without a decision: a
+  different spelling (`lowercase`/`uppercase`, `lower_letters`), or Icon's `&lcase`/`&ucase` only,
+  under [I18](#keywords). Icon's keywords for the other named csets wait on I18 as well.
 
 ## Structures
 
@@ -602,13 +562,9 @@ not Icon's linear congruential one, so seeded runs repeat within FunL but not ac
 | Icon | FunL | |
 |---|---|---|
 | `iand`, `ior`, `ixor`, `icom`, `ishift(i, j)` | the same names, over the whole integer tower as if two's complement were infinitely long; `ishift` left for positive `j`, right (flooring) for negative | new; Prolog has `/\`, `\/`, `xor`, `<<`, `>>` |
-| `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
 | `dtor`, `rtod` | the same | new |
 | `&pi`, `&e`, `&phi` | `pi`, `e`, `phi` and the keywords | new |
 | `16rFF` literal | see I16 | |
-
-The `0x`, `0o` and `0b` literals stop being limited to 64 bits: a long one is a big integer, as a
-long decimal one is.
 
 > **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
 > number literal touching a name multiplies, so `2r1` today is `2 * r1`. (a) **no `NrDDD` literal**:
@@ -638,10 +594,6 @@ with a newline; no standard input, no standard error, no open file.
   run over `funl:process`. A file is a `Handle` with the methods `f.read()`, `f.reads(n)`,
   `f.write(x…)`, `f.writes(x…)`, `f.seek(i)`, `f.where()`, `f.flush()`, `f.close()`, and `!f`
   generates its lines. Positions in `seek` and `where` are Icon's, 1 before the first byte.
-- **Core builtins** beside `write`: `read()` and `reads(n)` from standard input, `writes(x…)`
-  (no newline), `ewrite(x…)` and `ewrites(x…)` to standard error, and `stop(x…)`, which writes to
-  standard error and ends with status 1.
-- `chdir(path)` in `funl:fs`, beside `cwd()`.
 - `getch()`, `getche()` and `kbhit()` in a new `funl:term`, which puts the terminal in raw mode
   around each call.
 - `&input`, `&output` and `&errout` are the three standard streams as handles.

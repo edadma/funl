@@ -379,7 +379,8 @@ swap_elements(v: *Vm) -> Result[bool, Fault]
     Ok(true)
 
 // `held op= x` where `held` changes in place: `b += x` adds `x` to the end of buffer `b`, `s += x`
-// adds to mutable set `s` -- each element of a set `x`, as `+` does -- and `s -= x` takes out of it.
+// adds to mutable set `s` -- each element of a set `x`, as `+` does -- `s -= x` takes out of it, and `s **= t`
+// keeps only what set `t` holds too.
 // False for anything else, which `op=` updates as it would a number.
 changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, Fault]
     deref(held) match
@@ -393,6 +394,7 @@ changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, Fault]
             o match
                 Add -> add_into(s, x)?
                 Sub -> take_out_of(s, x)?
+                Inter -> keep_only(s, x)?
                 _ -> return Ok(false)
 
             Ok(true)
@@ -403,7 +405,7 @@ changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, Fault]
             Ok(true)
         _ -> Ok(false)
 
-// `InPlace`: `b += x` or `s -= x` where the name is a `val`, which nothing can assign -- so it has to
+// `InPlace`: `b += x`, `s -= x` or `s **= t` where the name is a `val`, which nothing can assign -- so it has to
 // hold a collection that changes in place.
 in_place(o: BinOp, held: Value, x: Value) -> Result[Value, Fault]
     if changes_in_place(o, held, x)? then return Ok(held)
@@ -413,7 +415,9 @@ in_place(o: BinOp, held: Value, x: Value) -> Result[Value, Fault]
 
         return Err(type_error("mutable_collection", held, msg))
 
-    Err(type_error("mutable_set", held, s"`${op_text(o)}=` on a `val` takes out of the mutable set or map it holds, and this one holds ${described(held)}"))
+    val does = if o == Inter then "keeps only part of" else "takes out of"
+
+    Err(type_error("mutable_set", held, s"`${op_text(o)}=` on a `val` $does the mutable set or map it holds, and this one holds ${described(held)}"))
 
 // `UpdateElem`: `c(key) op= x`, the element read, combined with `x`, and written back; `None` when
 // the operation fails. An element holding a buffer or a mutable set is changed in place.
@@ -453,6 +457,16 @@ private take_out_of(s: *SetObj, x: Value) -> Result[unit, Fault]
 
     s.items.truncate(0)
     s.items.extend(kept.view())
+    Ok(())
+
+// The elements of `s` that set `x` holds too, kept; the rest taken out.
+private keep_only(s: *SetObj, x: Value) -> Result[unit, Fault]
+    val kept = intersected(MutSet(s), x)? match
+        MutSet(o) -> o
+        _ -> return Err(Broken("an intersection of a mutable set is not one"))
+
+    s.items.truncate(0)
+    s.items.extend(kept.items.view())
     Ok(())
 
 // Whether `-` takes `e` out of a set: `e` is `other`, or one of its elements when it is a set.
@@ -533,6 +547,32 @@ removed(x: Value, y: Value) -> Result[Value, Fault]
             Ok(Map(o))
         _ -> Err(Broken(s"'-' cannot take anything out of ${described(x)}"))
 end removed
+
+// `x ** y`: the elements of set `x` that set `y` holds too, in `x`'s order, as a set of `x`'s kind --
+// mutable when `x` is. (`**` on a cset is `cset_algebra`.)
+intersected(x: Value, y: Value) -> Result[Value, Fault]
+    val s = x match
+        Set(s) -> s
+        MutSet(s) -> s
+        Var(_) -> return Err(instantiation_error("instantiation error: '**' was given an unbound variable"))
+        _ -> return Err(type_error("set", x, s"'**' intersects two sets or two csets, and was given ${described(x)}"))
+
+    val t = deref(y) match
+        Set(t) -> t
+        MutSet(t) -> t
+        Var(_) -> return Err(instantiation_error("instantiation error: '**' was given an unbound variable"))
+        other -> return Err(type_error("set", other, s"'**' intersects a set with another set, and was given ${described(other)}"))
+
+    val o = new_set()?
+
+    for e in s.items.view()
+        if within_set(e, t)?
+            o.items.push(e)
+            current().allocated += sizeof(Value)
+
+    x match
+        MutSet(_) -> Ok(MutSet(o))
+        _ -> Ok(Set(o))
 
 private copy_set(s: *SetObj) -> Result[*SetObj, string]
     val o = new_set()?
