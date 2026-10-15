@@ -295,6 +295,8 @@ declare_pattern(w: *Walk, p: &Expr, from: usize, fixed: bool)
                 _ ->
                     w.report.add(error(rest.span, "a map pattern's `..` is followed by a name, `_` or nothing")
                         .with_note("`..rest` binds `rest` to a map of the entries the pattern does not name"))
+        // `(e)` in a `match` clause: `e` is read where the pattern is, and declares nothing.
+        ValueP(v) -> walk(w, v)
         SetE(_) ->
             w.report.add(error(p.span, "a set is not a pattern")
                 .with_note("matching a set means searching it: test a member with `x in s`, draw them with `x <- !s`, and the kind with `s is set`"))
@@ -440,6 +442,8 @@ walk(w: *Walk, e: &Expr)
                 walk(w, x)
         ScanE(s, body) -> walk_two(w, s, body)
         CatchE(id, s, pat, guard, r) -> walk_catch(w, id, s, pat, guard, r)
+        MatchE(s, cs) -> walk_match(w, s, cs)
+        ValueP(v) -> walk(w, v)
         RegexE(_, _) -> ()
         SetElemE(c, k, x, _) ->
             walk_two(w, c, k)
@@ -918,6 +922,12 @@ hoist_expr(w: *Walk, e: &Expr)
         CatchE(_, s, _, guard, r) ->
             hoist_two(w, s, r)
             hoist_maybe(w, guard)
+        MatchE(s, cs) ->
+            hoist_expr(w, s)
+
+            for cl in cs.view()
+                hoist_maybe(w, cl.guard)
+                hoist_expr(w, cl.body)
         RegexE(_, _) -> ()
         SetElemE(c, k, x, _) ->
             hoist_two(w, c, k)

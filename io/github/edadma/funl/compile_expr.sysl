@@ -369,6 +369,8 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             compile_value(e, c.in_scan(), body)?
             e.op(ScanEnd)
         CatchE(id, s, pat, guard, r) -> compile_catch(e, c, id, s, pat, guard, r)?
+        MatchE(s, cs) -> compile_match(e, c, s, cs)?
+        ValueP(_) -> return Err("a value pattern reached the compiler outside a pattern")
         RegexE(p, groups) -> compile_pattern_value(e, c, p, groups)?
         AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")

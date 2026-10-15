@@ -297,6 +297,7 @@ power(t: Tok) -> Power
     t match
         Arrow -> right_assoc(ArrowPower)
         CatchW -> left_assoc(CatchPower)
+        Name(n) -> if n == "match" then left_assoc(MatchPower) else left_assoc(0)
         Question -> left_assoc(ScanPower)
         Or -> left_assoc(10)
         And -> left_assoc(12)
@@ -357,6 +358,11 @@ const ArrowPower: u16 = 5
 // `e catch p -> r`: looser than every operator but the lambda arrow, so `a + b catch ...` guards the
 // sum and `x -> risky() catch ...` gives the lambda a body that guards.
 const CatchPower: u16 = 6
+
+// `e match` and its block of clauses: `match` is a name everywhere but after an expression, where it
+// takes everything before it but a `catch` and a lambda's arrow -- `a + b match` matches the sum, and a
+// lambda's body can be a `match`.
+const MatchPower: u16 = 7
 
 // String scanning `s ? e`: looser than `or`, so the whole of `s ? a | b` is scanned, and tighter than
 // the lambda arrow, so a lambda's body can be a scan.

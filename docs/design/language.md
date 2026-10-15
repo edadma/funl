@@ -524,7 +524,8 @@ today); and neither Scala 3 nor sysl has it.
 > - **E2.** The constructs are the table above: a `def` clause by its name (`async def`, `export def`,
 >   a rule body and a `where` included), a bare `def` group by `end def`, a block-bodied `val x =` by
 >   `end x` or `end val` (`end val` only, after a pattern), a block-bodied `var x =` by `end x`, an `if`
->   chain by `end if`, and the loops by `end while`, `end for`, `end repeat`, `end every`. A lambda,
+>   chain by `end if`, the loops by `end while`, `end for`, `end repeat`, `end every`, and an
+>   `e match` and its clauses by `end match` (I2, user, 2026-10-15). A lambda,
 >   a partial function, a `?` scan, a `catch` arm, a lone `where`, a `( ; )` sequence and `data` take
 >   none.
 > - **E3.** A labelled loop is closed by its word, `end for`, never by its label.

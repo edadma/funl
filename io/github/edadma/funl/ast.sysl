@@ -219,6 +219,14 @@ enum ExprKind
     // also holds the slot the control-stack height is kept in (`catch.sysl`).
     CatchE(id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr], recovery: &Expr)
 
+    // `e match` over a block of clauses: `e`'s first value, matched against each clause's pattern
+    // and guard in turn; the first clause that takes it gives the `match` its body's values, and a
+    // value no clause takes fails the `match`.
+    MatchE(subject: &Expr, clauses: Buf[MatchClause])
+
+    // `(e)` in a `match` clause's pattern: the value there must equal `e`'s first value.
+    ValueP(e: &Expr)
+
     // `` `a(b|c)*` ``: a regex, read into its pattern tree, which numbers `groups` capture groups. It
     // matches at the scan position, and its value is the text it matched.
     RegexE(pat: &Pat, groups: usize)
@@ -232,6 +240,14 @@ struct Expr
     span: Span
 
 expr(kind: ExprKind, span: Span) -> &Expr = Expr(kind, span)
+
+// One clause of a `match`: `pat -> body` or `pat | guard -> body`. Its names are in block `id`, which
+// the guard and the body are read inside.
+struct MatchClause
+    id: usize
+    pat: &Expr
+    guard: Option[&Expr]
+    body: &Expr
 
 // One binding of a `for` head: `pat <- iter if filter`.
 struct ForGen

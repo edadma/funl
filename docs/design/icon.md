@@ -88,45 +88,10 @@ fails when it runs out.
 
 ### `case`
 
-**Icon:** `case e of { e1 : r1; e2 : r2; default : rd }` evaluates `e` once, bounded. The
-selectors are tried in order; each is evaluated and **may generate**, and each of its values is
-compared with `e`'s by `===`. The first that matches chooses its result expression, whose values
-are the `case`'s — unbounded, so a `case` may generate. With no match the `default` runs, and with
-no `default` the `case` fails.
-
-**FunL today:** clause dispatch and the partial function literal cover selection by pattern: a
-value is classified by applying an indented block of lambdas to it. There is no expression form
-that takes a subject first, and a partial function given a value no clause matches **faults**
-(`argument match not found`), where Icon's `case` fails.
-
-**Proposed:** a postfix `match`, as sysl and Scala write it, whose block is exactly a partial
-function literal:
-
-```
-kind = n match
-  0 -> 'zero'
-  m | m < 0 -> 'negative'
-  _ -> 'positive'
-```
-
-- The subject is evaluated once, bounded; clauses are tried in order with committed choice, as a
-  partial function's are; the chosen clause's body is unbounded, so a `match` may generate.
-- **No clause matching fails**, Icon's rule and goal-directed evaluation's, unlike a partial
-  function, whose callers are functions and for whom a missing case is a programming error.
-- **A parenthesized expression in a pattern compares against its value**, `(limit) -> …`, as a
-  map pattern's `(e)` key is already the value of `e` ([M2](language.md#map-patterns)). This is
-  how an Icon `case` on a variable's value is written. An alternation of such patterns, `(a) | (b)`,
-  is Icon's generating selector.
-
-It compiles as the partial function does, inline: a `Mark` per clause, the subject in a slot, and
-`Fail` where the partial function has `NoMatch`.
-
-> **Open question I2 — a `case` expression.** (a) postfix `e match` with a block of clauses, no
-> match failing, `(e)` in a pattern meaning "equal to `e`'s value"; (b) Icon's `case e of` with the
-> same block; (c) nothing new, the partial function applied, `(… block …)(e)`, faulting on no
-> match. **Recommendation: (a).** It is the partial function FunL already has, put after its
-> subject, and the spelling of sysl, which FunL is written in. (b) adds two words for the same
-> thing. (c) is what FunL says now and reads backwards.
+> **Decided (user, 2026-10-15) — I2, a `case` expression: postfix `e match`** over a block of
+> clauses, built: the subject made once and bounded, committed choice, an unbounded body, no clause
+> taking the value failing the `match`, and `(e)` in a clause's pattern comparing with `e`'s first
+> value. Described in [Functions § `match`](../reference/functions.md#match).
 
 ### Limitation
 
@@ -668,7 +633,7 @@ own book, rather than part of the language.
 | | question | recommendation |
 |---|---|---|
 | I1 | the loop `until` beside the range `until` | both, by position |
-| I2 | a `case` expression | postfix `e match` with a clause block; no match fails; `(e)` pattern compares |
+| I2 | a `case` expression | decided: postfix `e match`, [Functions](../reference/functions.md#match) |
 | I3 | limitation, `\` being integer division | the infix word `e limit n` |
 | I4 | whose is a static | each closure value's |
 | I5 | a variadic `def` beside name/arity | the family member for every count no fixed arity takes |

@@ -681,6 +681,7 @@ A marker stands on a line of its own, at the column of the line that opened the 
 | `val x =` or `var x =` with an indented value | `end x`; `end val` too after a `val`, and only `end val` after a pattern |
 | an `if` with its `elif`s and `else` | one `end if`, after the whole chain |
 | a loop, labelled or not | `end while`, `end for`, `end repeat`, `end every` |
+| `e match` and its clauses | `end match` |
 
 A lambda, a partial function, a `?` scan, a `catch` arm, a `( ; )` sequence and `data` take no marker.
 A marker is optional, and is written only on a block of seven lines or more, counting from the line
@@ -971,4 +972,115 @@ write( only(1) )
 
 ```error
 argument match not found
+```
+
+## `match`
+
+`e match` and an indented block of clauses is a partial function written after its subject, as
+Icon's `case` is: the clauses are a partial function literal's, tried in order with committed
+choice, and the first that takes `e`'s value gives the result.
+
+```funl
+def kind( n ) =
+  n match
+    0 -> 'zero'
+    m | m < 0 -> 'negative'
+    _ -> 'positive'
+
+write( kind(0), kind(-4), kind(9) )
+```
+
+```output
+zero, negative, positive
+```
+
+**No clause taking the value fails the `match`**, where a partial function faults: a `match` is an
+expression in a goal-directed program, and its failure is the ordinary kind, which `or`, `not` and
+`if` take in hand.
+
+```funl
+def roman( d ) =
+  d match
+    1 -> 'I'
+    5 -> 'V'
+    10 -> 'X'
+
+write( roman(5) )
+write( roman(7) or '?' )
+```
+
+```output
+V
+?
+```
+
+**The subject is made once, and only its first value is matched**; a clause's guard refusing it does
+not resume the subject for another. The chosen clause's body is not bounded, so a body that
+generates makes the `match` generate:
+
+```funl
+def first_big() =
+  (1 | 20 | 300) match
+    n | n > 10 -> n
+
+write( first_big() or 'none' )
+
+def upto( x ) =
+  x match
+    0 -> 'nothing'
+    n -> 1 to n
+
+every write( upto(3) )
+```
+
+```output
+none
+1
+2
+3
+```
+
+**A parenthesized expression in a clause's pattern compares with its value**, the first one it
+has, and a name written bare binds as it does in any pattern. This is how a `match` tests against a
+variable, a call or a sum; an alternation of such patterns tries each in turn:
+
+```funl
+val limit = 10
+
+def against( x ) =
+  x match
+    (limit) -> 'at the limit'
+    (limit + 1) -> 'just past it'
+    ((1) | (2)) -> 'small'
+    [(limit), rest] -> rest
+    other -> other
+
+write( against(10), against(11), against(2), against([10, 'tail']), against(5) )
+```
+
+```output
+at the limit, just past it, small, tail, 5
+```
+
+Parentheses that only group a pattern -- around `h:t`, an alternation `p | q` or `name@p` -- keep it
+a pattern, and a clause of several parameters, `(a, b) -> ...`, matches a tuple. An alternation
+written bare before the arrow is a pattern and its guard, as in any lambda, so an alternation of
+values is written in parentheses of its own, `((1) | (2)) -> ...`.
+
+**Each clause's names are its own**, seen by its guard and body and by no other clause. `return`,
+`break` and `continue` in a body leave the function or the loop around the `match`, and a `match`
+takes everything before it but a lambda's arrow, so `a + b match` matches the sum. A long `match`
+may be closed by `end match`.
+
+A line of the block that is not a clause is refused, as is a `match` with no block under it:
+
+```funl
+def size( n ) =
+  n match
+    0 -> 'none'
+    write( n )
+```
+
+```error
+every line of a `match` block is a clause, `pattern -> result`
 ```
