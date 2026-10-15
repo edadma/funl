@@ -1,11 +1,17 @@
 module io.github.edadma.funl
 
-import sysl.text.str_builder
+import sysl.text.{chars_of, str_builder}
 
 // Output builtins.
 
 install_io(v: *Vm)
     register(v, "write", Variadic, do_write)
+    register(v, "writes", Variadic, (b, n) -> put_to(false, b, n))
+    register(v, "ewrite", Variadic, (b, n) -> put_to(true, b, n, true))
+    register(v, "ewrites", Variadic, (b, n) -> put_to(true, b, n))
+    register(v, "stop", Variadic, do_stop)
+    register_generator(v, "read", 0, do_read)
+    register_generator(v, "reads", 1, do_reads)
 
 // `write(a, b, ...)`: print the arguments as one line, separated by `, `, answering `()`. A line
 // Prolog's `write/1` has begun is its start.
@@ -24,9 +30,77 @@ private do_write(base: usize, argc: usize) -> Result[Value, Fault]
     v.output.push(out.finish())
     Ok(Unit)
 
-// End the line Prolog's `write/1` has begun, if it has.
-end_line(v: *Vm)
-    if v.line.bytes.len == 0 then return
+// The arguments of a call as text, separated by `, ` as `write` separates them.
+private joined_args(base: usize, argc: usize) -> string
+    var out = str_builder()
 
-    v.output.push(v.line)
-    v.line = ""
+    for i in 0..<argc
+        if i > 0 then out.push(", ")
+
+        out.push(render(arg(base, i)))
+
+    out.finish()
+
+// `writes(a, ...)` and `ewrites(a, ...)`: the arguments written with no newline after them, to
+// standard output or, with `err`, standard error; a line a call leaves unfinished is continued by the
+// next write to the same stream. `ewrite` is `ewrites` with the newline (`ended`).
+private put_to(err: bool, base: usize, argc: usize, ended: bool = false) -> Result[Value, Fault]
+    val text = joined_args(base, argc)
+
+    if err then put_err_text(if ended then text + "\n" else text) else put_text(text)
+
+    Ok(Unit)
+
+// `t` onto the line standard error has begun, each newline in it ending the line.
+private put_err_text(t: string)
+    val v = current()
+    var line = str_builder()
+
+    line.push(v.err_line)
+
+    for c in chars_of(t.bytes)
+        if c == '\n'
+            v.errput.push(line.finish())
+            line = str_builder()
+        else
+            line.push_char(c)
+
+    v.err_line = line.finish()
+
+// `stop(a, ...)`: the arguments and a newline written to standard error, then the program ends with
+// status 1. Nothing catches it, as nothing catches `halt`.
+private do_stop(base: usize, argc: usize) -> Result[Value, Fault]
+    put_err_text(joined_args(base, argc) + "\n")
+    Err(Exits(1))
+
+// `read()`: the next line of standard input without its newline; fails at the end of the input.
+private do_read(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    input_line("read")? match
+        Some(l) -> Ok(Gives(new_str(l)?))
+        None -> Ok(Refuses)
+
+// `reads(n)`: the next `n` characters of standard input, newlines included; fewer when the input ends
+// first, and failure when nothing is left. `n` is a positive integer.
+private do_reads(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+
+    val n = x match
+        Int(k) -> k
+        Var(_) -> return Err(instantiation_error("instantiation error: 'reads' was given an unbound variable"))
+        _ -> return Err(kind_error(x, "integer", s"'reads' wants an integer count and was given ${described(x)}"))
+
+    if n < 1 then return Err(domain_error("positive_integer", x, s"'reads' wants a count of at least 1 and was given $n"))
+
+    input_chars(usize(n), "reads")? match
+        Some(t) -> Ok(Gives(new_str(t)?))
+        None -> Ok(Refuses)
+
+// End the line Prolog's `write/1` or `writes` has begun, if it has, and the one `ewrites` has.
+end_line(v: *Vm)
+    if v.line.bytes.len > 0
+        v.output.push(v.line)
+        v.line = ""
+
+    if v.err_line.bytes.len > 0
+        v.errput.push(v.err_line)
+        v.err_line = ""

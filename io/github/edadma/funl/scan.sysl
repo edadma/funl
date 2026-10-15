@@ -2,7 +2,7 @@ module io.github.edadma.funl
 
 import sysl.text.str_builder
 
-// The scanning builtins: `tab`, `move`, `pos`, `upto`, `many`, `any`, `match` and `find`, which read
+// The scanning builtins: `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find` and `bal`, which read
 // and move the scan position; `cset` and the named csets; and `right`.
 //
 // **A position is a place between characters, counted from 1**: 1 is before the first character
@@ -24,8 +24,8 @@ install_scan(v: *Vm)
     register_generator(v, "any", 1, do_any)
     register_generator(v, "match", 1, do_match)
     register_generator(v, "find", Variadic, do_find)
+    register_generator(v, "bal", Variadic, do_bal)
     register(v, "cset", 1, do_cset)
-    register(v, "right", 2, do_right)
     register_constant(v, "letters", make_letters)
     register_constant(v, "digits", make_digits)
     register_constant(v, "alphanum", make_alphanum)
@@ -61,7 +61,7 @@ str_arg(base: usize, i: usize, name: string) -> Result[*StrObj, Fault]
         _ -> Err(kind_error(x, "string", s"'$name' wants a string and was given ${described(x)}"))
 
 // A cset argument: a cset, or a string standing for the set of its characters.
-private set_arg(base: usize, i: usize, name: string) -> Result[CharSet, Fault]
+set_arg(base: usize, i: usize, name: string) -> Result[CharSet, Fault]
     val x = deref(arg(base, i))
 
     x match
@@ -158,6 +158,75 @@ private do_find(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     Ok(Refuses)
 
+// Whether argument `i` of a call of `argc` arguments was left out: not passed, or `undefined`.
+private left_out(base: usize, i: usize, argc: usize) -> bool
+    if i >= argc then return true
+
+    deref(arg(base, i)) match
+        Undefined -> true
+        _ -> false
+
+// An optional integer position argument.
+private opt_int(base: usize, i: usize, argc: usize, name: string) -> Result[Option[long], Fault]
+    if left_out(base, i, argc) then return Ok(None)
+
+    Ok(Some(int_arg(base, i, name)?))
+
+// `bal(c1, c2, c3, s, i, j)`: each position in `s[i:j]` at which a character of `c1` stands with the
+// text before it (from `i`) balanced in the openers `c2` and closers `c3`. Any argument may be left
+// out, or be `undefined`: `c1` is then every character, `c2` is `(`, `c3` is `)`, `s` is the scan's
+// subject (with `i` its position) and `j` the end. The search stops at a closer with no opener.
+private do_bal(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    if argc > 6 then return Err(wrong_count("bal", argc, s"'bal' takes up to 6 arguments, and was given $argc"))
+
+    val any_char = left_out(base, 0, argc)
+    var c1 = char_set("")
+
+    if !any_char then c1 = set_arg(base, 0, "bal")?
+
+    val c2 = if left_out(base, 1, argc) then char_set("(") else set_arg(base, 1, "bal")?
+    val c3 = if left_out(base, 2, argc) then char_set(")") else set_arg(base, 2, "bal")?
+    val given = !left_out(base, 3, argc)
+    val p = if given then str_arg(base, 3, "bal")? else subject("bal")?
+    val first = opt_int(base, 4, argc, "bal")?
+    val last = opt_int(base, 5, argc, "bal")?
+
+    var a = if given then 1 else current().pos
+    var b = p.chars + 1
+
+    first match
+        Some(i) -> a = position(i, p.chars) match
+            Some(k) -> k
+            None -> return Ok(Refuses)
+        None -> ()
+
+    last match
+        Some(j) -> b = position(j, p.chars) match
+            Some(k) -> k
+            None -> return Ok(Refuses)
+        None -> ()
+
+    if a > b
+        val t = a
+        a = b
+        b = t
+
+    val resume = if cursor > 0 then usize(cursor) else a
+    var depth = 0
+    var k = a
+
+    while k < b && depth >= 0
+        val c = char_at(p, k - 1)
+
+        if depth == 0 && k >= resume && (any_char || c1.has(c))
+            return Ok(GivesMore(Int(long(k)), long(k + 1)))
+
+        if c2.has(c) then depth += 1 elif c3.has(c) then depth -= 1
+
+        k += 1
+
+    Ok(Refuses)
+
 // `many(c)`: the position after the longest run, at least one long, of characters in cset `c`.
 private do_many(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val p = subject("many")?
@@ -194,35 +263,6 @@ private do_cset(base: usize, argc: usize) -> Result[Value, Fault]
         CSet(_) -> Ok(x)
         Str(p) -> Ok(new_cset(char_set(p.s))?)
         _ -> Err(kind_error(x, "string", s"'cset' wants a string and was given ${described(x)}"))
-
-// `right(s, n)`: `s` in a field `n` characters wide, padded with spaces on the left, or cut to its
-// last `n` characters when it is longer. A value that is not a string is written as `write` would.
-private do_right(base: usize, argc: usize) -> Result[Value, Fault]
-    val n = int_arg(base, 1, "right")?
-
-    if n < 0 then return Err(domain_error("not_less_than_zero", Int(n), s"'right' makes a field of $n characters"))
-
-    val width = usize(n)
-
-    val text = deref(arg(base, 0)) match
-        Str(p) -> p.s
-        x -> render(x)
-
-    val made = new_str(text)?
-
-    val p = made match
-        Str(q) -> q
-        _ -> return Err(Broken("a new string is not a string"))
-
-    if p.chars >= width then return Ok(new_str(chars_between(p, p.chars - width, p.chars))?)
-
-    var out = str_builder()
-
-    for _ in 0..<(width - p.chars)
-        out.push(" ")
-
-    out.push(text)
-    Ok(new_str(out.finish())?)
 
 private letters_set() -> CharSet
     var set = char_set("")

@@ -292,7 +292,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(Update(v.depth, v.slot, Add))
 
             if !prefix then e.op(Pop)
-        MultiAssignE(targets, values) ->
+        MultiAssignE(targets, values, back) ->
             for a in values.view()
                 compile_value(e, c, a)?
 
@@ -300,7 +300,13 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
 
             while i > 0
                 i -= 1
-                e.op(store_to(c, targets.at(i).value, x.span.end)?)
+
+                if back
+                    val v = variable(c, targets.at(i).value, x.span.end)?
+
+                    e.op(StoreBack(v.depth, v.slot))
+                else
+                    e.op(store_to(c, targets.at(i).value, x.span.end)?)
 
             e.op(PushUnit)
         ConsE(h, t) -> binary(e, c, h, t, MakeCons)?

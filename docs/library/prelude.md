@@ -27,7 +27,7 @@ write( map(x -> x * x, take(3, xs)), filter(even, xs) )
 | pairs | `fst`, `snd` |
 | ends of a list | `head`, `tail`, `last`, `init` |
 | folds | `foldl`, `foldl1`, `foldr`, `foldr1`, `product`, `maximum`, `minimum`, `maxBy`, `minBy` |
-| transforming | `map`, `filter`, `concat`, `concatMap`, `reverse`, `sort`, `sortBy`, `nub`, `group` |
+| transforming | `map`, `filter`, `concat`, `concatMap`, `reverse`, `sort`, `sortBy`, `sortOn`, `nub`, `group` |
 | slicing | `take`, `drop`, `takeWhile`, `dropWhile`, `splitAt`, `span`, `spanNot`, `partition` |
 | combining | `zip`, `zip3`, `zipWith`, `zipWith3`, `unzip` |
 | producing | `iterate`, `forever`, `replicate` |
@@ -182,6 +182,34 @@ write( sort([1, "a"]) )
 
 ```error
 '<' cannot compare the string 'a' with the integer 1
+```
+
+**`sort` of a map** is the list of its entries `(key, value)` ordered by key, whether the map is
+immutable or mutable. `sortOn(f, xs)` orders by the key `f` gives each element, keeping equal keys in
+the order they came in, so ordering a map by value is `sortOn` over its sorted entries:
+
+```funl
+m = {b: 2, a: 3, c: 1}
+
+write( sort(m) )
+write( sortOn(p -> p(1), sort(m)) )
+write( sortOn(s -> s.length, ["ccc", "a", "bb"]), sortOn(p -> p(0), [(1, #x), (0, #y), (1, #z), (0, #w)]) )
+```
+
+```output
+[("a", 3), ("b", 2), ("c", 1)]
+[("c", 1), ("b", 2), ("a", 3)]
+["a", "bb", "ccc"], [(0, y), (0, w), (1, x), (1, z)]
+```
+
+`sortOn` wants a list, as `sortBy` does:
+
+```funl
+write( sortOn(x -> x, {a: 1}) )
+```
+
+```error
+'sortOn' wants a list and reached {"a": 1}
 ```
 
 ## Slicing

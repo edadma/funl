@@ -589,7 +589,7 @@ walk(w: *Walk, e: &Expr)
             walk_two(w, c, k)
             walk(w, x)
         StepE(n, _, _) -> updated(w, n, e.span)
-        MultiAssignE(targets, values) ->
+        MultiAssignE(targets, values, _) ->
             for x in values.view()
                 walk(w, x)
 
@@ -625,8 +625,8 @@ names_val(m: Meaning) -> bool = m match
     _ -> false
 
 // Whether `x op= e`, `x` meaning `m`, changes the collection a `val` holds rather than assigning:
-// `+=` onto a buffer or a mutable set, `-=` out of a mutable set, checked as it runs.
-changes_val(o: BinOp, m: Meaning) -> bool = (o == Add || o == Sub) && names_val(m)
+// `+=` onto a buffer or a mutable set, `-=` out of one, `**=` keeping part of one, checked as it runs.
+changes_val(o: BinOp, m: Meaning) -> bool = (o == Add || o == Sub || o == Inter) && names_val(m)
 
 // Whether a call of `n`, which means `m`, is `swap`: the name, where nothing the program declares
 // takes it.
@@ -842,7 +842,7 @@ hoist_expr(w: *Walk, e: &Expr)
             hoist_maybe(w, body)
         BreakE(_, v) -> hoist_maybe(w, v)
         CompoundE(_, _, x) -> hoist_expr(w, x)
-        MultiAssignE(_, values) ->
+        MultiAssignE(_, values, _) ->
             for x in values.view()
                 hoist_expr(w, x)
         CallE(_, _, args) ->

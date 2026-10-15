@@ -228,6 +228,7 @@ b.txt
 | `remove(path)` | removes a file, or a directory that is empty; fails when nothing is there |
 | `rename(from, to)` | moves a file or directory, replacing what `to` named; fails when `from` is not there |
 | `cwd()` | the directory the program runs in |
+| `chdir(path)` | makes `path` the directory the program runs in, which relative paths are read from; fails when there is no such directory |
 
 ```funl
 import { rename, read_file, write_file, remove, exists } from funl:fs

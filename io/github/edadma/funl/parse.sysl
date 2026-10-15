@@ -230,6 +230,7 @@ tag(t: Tok) -> u8
         CatchW -> 86
         AsyncW -> 87
         AwaitW -> 88
+        StarStar -> 89
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.
@@ -660,7 +661,7 @@ private var_statement(p: *Parser) -> Stmt
     closes(p, ClosesVal(n, true))
     VarS(n, t.span, Some(value))
 
-// `a, b = e1, e2`, the first target read and a `,` next.
+// `a, b = e1, e2` or `a, b <- e1, e2`, the first target read and a `,` next.
 private multiple_assignment(p: *Parser, first: &Expr) -> &Expr
     var targets: Buf[Spanned[string]] = buf()
     var bad = !target_name(p, first, &targets)
@@ -671,7 +672,9 @@ private multiple_assignment(p: *Parser, first: &Expr) -> &Expr
 
         if !target_name(p, parse_expr(p, 0), &targets) then bad = true
 
-    if !p.expect(Equals, "`=`") then return expr(BadE, first.span.to(p.toks.previous()))
+    val back = p.accept(LeftArrow)
+
+    if !back && !p.expect(Equals, "`=` or `<-`") then return expr(BadE, first.span.to(p.toks.previous()))
 
     var values: Buf[&Expr] = buf()
 
@@ -680,19 +683,24 @@ private multiple_assignment(p: *Parser, first: &Expr) -> &Expr
 
         if !p.accept(Comma) then break
 
-    val at = first.span.to(p.toks.previous())
+    several_assigned(p, targets, count, values, back, bad, first.span.to(p.toks.previous()))
+end multiple_assignment
+
+// The assignment of `values` to the `count` targets written, `<-`'s when `back`; refused when the
+// counts differ, or when `bad` says a target was (and is then missing from `targets`).
+several_assigned(p: *Parser, targets: Buf[Spanned[string]], count: usize, values: Buf[&Expr], back: bool, bad: bool, at: Span) -> &Expr
+    val sign = if back then "<-" else "="
 
     if values.len() != count
         p.report.add(error(at, s"this assigns ${counted(count, "variable")} and gives ${counted(values.len(), "value")}")
-            .with_note("`a, b = b, a` takes one value for each name"))
-        bad = true
+            .with_note(s"`a, b $sign b, a` takes one value for each name"))
+        return expr(BadE, at)
 
-    if bad then expr(BadE, at) else expr(MultiAssignE(targets, values), at)
-end multiple_assignment
+    if bad then expr(BadE, at) else expr(MultiAssignE(targets, values, back), at)
 
 // One target of a multiple assignment, which is a name; false, with the refusal reported, for
 // anything else.
-private target_name(p: *Parser, e: &Expr, out: *Buf[Spanned[string]]) -> bool
+target_name(p: *Parser, e: &Expr, out: *Buf[Spanned[string]]) -> bool
     e.kind match
         Ref(n) ->
             out.push(Spanned(n, e.span))

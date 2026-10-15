@@ -235,3 +235,65 @@ A_CALL_LAST_IN_A_SCAN_SEES_THE_SCANS_SUBJECT()
         "'zz' ? write( k(), tab(0) )\n"
 
     assert_eq(ran_funl(text), "s1\nqr, zz\nsucceeded")
+
+// `=s` is `tab(match(s))`: it moves past `s` and produces it, and failure passing back over it puts
+// the position back.
+@test
+PREFIX_EQUALS_TABS_PAST_A_MATCHING_STRING()
+    assert_eq(ran_funl("'hello world' ? (=\"hello\" & write(tab(0)))\n'hello' ? write(=\"he\", =\"llo\", pos(0))\n"),
+        " world\nhe, llo, 6\nsucceeded")
+
+@test
+PREFIX_EQUALS_FAILS_WHEN_THE_SUBJECT_DOES_NOT_CONTINUE_WITH_IT()
+    assert_eq(ran_funl("'hello' ? (if =\"help\" then write('yes') else write('no', pos(1)))\n'ab' ? (if =\"abc\" then write('yes') else write('short'))\n"),
+        "no, 1\nshort\nsucceeded")
+
+@test
+PREFIX_EQUALS_IS_UNDONE_BY_BACKTRACKING()
+    assert_eq(ran_funl("'abcd' ? ((=\"ab\" & =\"x\") | write(tab(0)))\n'abab' ? (=\"ab\" & =\"ab\" & write(pos(0)))\n"),
+        "abcd\n5\nsucceeded")
+
+@test
+PREFIX_EQUALS_OUTSIDE_A_SCAN_IS_A_FAULT()
+    faults_with("write(=\"a\")\n", "scan")
+
+@test
+PREFIX_EQUALS_WANTS_A_STRING()
+    faults_with("'abc' ? write(=3)\n", "string")
+
+// `bal` generates the balanced positions.
+@test
+BAL_SKIPS_NESTED_BRACKETS_AND_GENERATES_ITS_POSITIONS()
+    assert_eq(ran_funl("every write(bal(',', undefined, undefined, 'a,(b,c),d'))\n"),
+        "2\n8\nsucceeded")
+
+@test
+BAL_WITH_NO_ARGUMENTS_GENERATES_EVERY_POSITION_AT_DEPTH_ZERO()
+    assert_eq(ran_funl("'x(y)z' ? every write(bal())\n"),
+        "1\n2\n5\nsucceeded")
+
+@test
+BAL_DEFAULTS_TO_THE_SUBJECT_AND_THE_SCAN_POSITION()
+    assert_eq(ran_funl("'a,(b,c),d' ? (move(2) & every write(bal(',')))\n'f(x),y' ? write(tab(bal(',')))\n"),
+        "8\nf(x)\nsucceeded")
+
+@test
+BAL_TAKES_OWN_BRACKETS_AND_A_RANGE()
+    assert_eq(ran_funl("every write(bal(';', '[', ']', 'a[;]b;c', 1, 0))\nevery write(bal(';', '[', ']', 'a;b;c', 1, 3))\n"),
+        "6\n2\nsucceeded")
+
+@test
+BAL_STOPS_AT_A_CLOSER_WITH_NO_OPENER()
+    assert_eq(ran_funl("every write(bal(',', undefined, undefined, 'a),b,c'))\n"),
+        "succeeded")
+
+@test
+BAL_FAILS_WHERE_NOTHING_IS_BALANCED_AND_OUTSIDE_A_SCAN()
+    assert_eq(ran_funl("write(if bal(',', undefined, undefined, '(a,b)') then 'found' else 'none')\n"),
+        "none\nsucceeded")
+    faults_with("bal(',')\n", "scan")
+
+@test
+BAL_REFUSES_A_BAD_ARGUMENT()
+    faults_with("bal(3, undefined, undefined, 'abc')\n", "cset")
+    faults_with("bal(',', undefined, undefined, 5)\n", "string")

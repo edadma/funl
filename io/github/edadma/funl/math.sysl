@@ -9,7 +9,7 @@ import sh.sysl.dal.Number
 // is rounded, refused and faulted alike in both languages.
 
 install_math(v: *Vm)
-    for name in ["sqrt", "exp", "log2", "sin", "cos", "tan", "asin", "acos", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "cot", "acot", "floor", "ceiling", "round", "truncate", "sign", "float", "integer"]
+    for name in ["sqrt", "exp", "log2", "sin", "cos", "tan", "asin", "acos", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "cot", "acot", "floor", "ceiling", "round", "truncate", "sign", "float"]
         register(v, name, 1, (b, n) -> math1(name, b))
 
     register(v, "atan", Variadic, (b, n) -> atan_of(b, n))

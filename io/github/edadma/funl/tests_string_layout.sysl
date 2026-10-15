@@ -1,0 +1,90 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// The string builtins that lay a string out or convert it: `repl`, `left`, `center`, `right`, `char`,
+// `ord`, `entab`, `detab`, the cset argument of `trim` and its one-sided forms, `image`, `type` and `str`.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+REPL_WRITES_A_STRING_N_TIMES()
+    assert_eq(ran_funl("write(repl('ab', 3))\nwrite('[' + repl('x', 0) + ']')\nwrite(repl('', 5))\nwrite(repl('λ', 2))\n"), "ababab\n[]\n\nλλ\nsucceeded")
+    faults_with("write(repl('a', -1))\n", "'repl' repeats a string -1 times")
+    faults_with("write(repl(5, 2))\n", "'repl' wants a string and was given the integer 5")
+    faults_with("write(repl('a', 'b'))\n", "'repl' wants an integer")
+
+@test
+LEFT_PADS_ON_THE_RIGHT_FROM_THE_RIGHT_END_OF_THE_FIELD()
+    assert_eq(ran_funl("write('[' + left('abc', 6) + ']')\nwrite(left('abc', 10, 'xy'))\nwrite(left('abc', 8, '*'))\nwrite(left('abcdef', 3))\nwrite(left('abc', 3))\nwrite(left(42, 5, '.'))\n"),
+        "[abc   ]\nabcyxyxyxy\nabc*****\nabc\nabc\n42...\nsucceeded")
+    faults_with("write(left('a', -1))\n", "'left' makes a field of -1 characters")
+    faults_with("write(left('a', 3, ''))\n", "'left' was given an empty pad")
+
+@test
+RIGHT_PADS_ON_THE_LEFT_FROM_THE_LEFT_END_OF_THE_FIELD()
+    assert_eq(ran_funl("write('[' + right('abc', 6) + ']')\nwrite(right('abc', 10, 'xy'))\nwrite(right('abc', 8, '0'))\nwrite(right('abcdef', 3))\nwrite(right('λμν', 5, '-'))\n"),
+        "[   abc]\nxyxyxyxabc\n00000abc\ndef\n--λμν\nsucceeded")
+    faults_with("write(right('a', 3, ''))\n", "'right' was given an empty pad")
+    faults_with("write(right('a', 'b'))\n", "'right' wants an integer")
+
+@test
+CENTER_PADS_BOTH_SIDES_AND_CUTS_BOTH_ENDS()
+    assert_eq(ran_funl("write('[' + center('ab', 6) + ']')\nwrite('[' + center('ab', 7) + ']')\nwrite(center('ab', 7, '*'))\nwrite(center('abcdef', 4))\nwrite(center('abcde', 2))\nwrite(center('ab', 2))\nwrite(center('a', 6, 'xy'))\n"),
+        "[  ab  ]\n[  ab   ]\n**ab***\nbcde\nbc\nab\nxyayxy\nsucceeded")
+    faults_with("write(center('a', -2))\n", "'center' makes a field of -2 characters")
+
+@test
+CHAR_AND_ORD_CONVERT_CODE_POINTS()
+    assert_eq(ran_funl("write(char(65), char(955), ord('A'), ord('λ'))\nwrite(char(0x1F600), ord(char(0x1F600)))\nwrite(ord(char(0)))\n"), "A, λ, 65, 955\n😀, 128512\n0\nsucceeded")
+    faults_with("write(char(-1))\n", "'char' wants a Unicode code point")
+    faults_with("write(char(0xD800))\n", "'char' wants a Unicode code point")
+    faults_with("write(char(1114112))\n", "'char' wants a Unicode code point")
+    faults_with("write(char('a'))\n", "'char' wants an integer")
+    faults_with("write(ord(''))\n", "'ord' wants a string of one character, and was given one of 0")
+    faults_with("write(ord('ab'))\n", "'ord' wants a string of one character, and was given one of 2")
+    faults_with("write(ord(65))\n", "'ord' wants a string")
+
+@test
+DETAB_REPLACES_TABS_WITH_SPACES_TO_THE_NEXT_STOP()
+    assert_eq(ran_funl("write(image(detab('a\\tb\\tc')))\nwrite(image(detab('\\tx')))\nwrite(image(detab('abcdefgh\\ti')))\nwrite(image(detab('ab\\tc', 5)))\nwrite(image(detab('a\\tb\\tc\\td', 3, 6)))\nwrite(image(detab('a\\tb\\nc\\td')))\nwrite(image(detab('plain')))\n"),
+        "\"a       b       c\"\n\"        x\"\n\"abcdefgh        i\"\n\"ab  c\"\n\"a b  c  d\"\n\"a       b\\nc       d\"\n\"plain\"\nsucceeded")
+    faults_with("write(detab('a', 5, 5))\n", "'detab' wants tab stops in increasing order")
+    faults_with("write(detab(1))\n", "'detab' wants a string and was given the integer 1")
+    faults_with("write(detab('a', 'b'))\n", "'detab' wants an integer")
+
+@test
+ENTAB_REPLACES_SPACES_THAT_REACH_A_STOP_WITH_A_TAB()
+    assert_eq(ran_funl("write(image(entab('a       b       c')))\nwrite(image(entab('abcdefg b')))\nwrite(image(entab('a   b', 3)))\nwrite(image(entab('ab c')))\nwrite(image(entab('x\\n        y')))\nwrite(image(entab('a\\t   b')))\nwrite(image(entab('abcdef  b')))\nwrite(image(entab('a    b', 3)))\n"),
+        "\"a\\tb\\tc\"\n\"abcdefg b\"\n\"a \\tb\"\n\"ab c\"\n\"x\\n\\ty\"\n\"a\\t   b\"\n\"abcdef\\tb\"\n\"a \\t b\"\nsucceeded")
+    assert_eq(ran_funl("s = 'a\\tbc\\td'\nwrite(image(entab(detab(s))))\n"), "\"a\\tbc\\td\"\nsucceeded")
+    faults_with("write(entab([]))\n", "'entab' wants a string")
+    faults_with("write(entab('a', 0))\n", "'entab' wants tab stops in increasing order")
+
+@test
+TRIM_TAKES_A_CSET_OR_A_STRING_OF_CHARACTERS()
+    assert_eq(ran_funl("write(trim('xxhixyx', 'x'))\nwrite(trim_start('xxhixx', cset('x')))\nwrite(trim_end('xxhixx', 'x'))\nwrite(trim('-+hi+-', '+-'))\nwrite(trim('  hi  ', ''))\nwrite(trim('aaa', 'a') + '|')\nwrite(trim('  hi  ', cset('x')))\n"),
+        "hixy\nhixx\nxxhi\nhi\n  hi  \n|\n  hi  \nsucceeded")
+    faults_with("write(trim('a', 5))\n", "'trim' wants a cset or a string and was given the integer 5")
+    faults_with("write(trim_end('a', []))\n", "'trim_end' wants a cset or a string")
+
+@test
+IMAGE_WRITES_A_VALUE_AS_SOURCE_TEXT()
+    assert_eq(ran_funl("write(image('hi'))\nwrite(image(\"q\\\"\\\\ \\n\\t\"))\nwrite(image('cost: $$5'))\nwrite(image(cset('cab')))\nwrite(image(cset('a\"')))\nwrite(image(7))\nwrite(image(1.5))\nwrite(image(true))\nwrite(image(['a', 2, ('b', 3)]))\nwrite(image({'k': 'v'}))\n"),
+        "\"hi\"\n\"q\\\"\\\\ \\n\\t\"\n\"cost: $$$$5\"\ncset(\"abc\")\ncset(\"\\\"a\")\n7\n1.5\ntrue\n[\"a\", 2, (\"b\", 3)]\n{\"k\": \"v\"}\nsucceeded")
+    assert_eq(ran_funl("s = image('say \"hi\"\\n')\nwrite(s)\nwrite(image(s))\n"), "\"say \\\"hi\\\"\\n\"\n\"\\\"say \\\\\\\"hi\\\\\\\"\\\\n\\\"\"\nsucceeded")
+
+@test
+TYPE_NAMES_THE_KIND_OF_A_VALUE_AS_IS_DOES()
+    assert_eq(ran_funl("data shape = circle(r) | square(s) | blank\nwrite(type(1), type(2 ^ 70), type(1.5), type(1 / 3), type('s'), type(true), type(false))\nwrite(type([]), type([1]), type(1..3), type((1, 2)), type(()), type({1}), type({1: 2}))\nwrite(type(cset('a')), type(type), type(circle(1)), type(square(2)), type(undefined))\nwrite(type(array(2)), type(buffer()), type(bytes([1])))\n"),
+        "integer, integer, real, rational, string, boolean, boolean\nlist, list, range, tuple, unit, set, map\ncset, function, circle, square, undefined\narray, buffer, bytes\nsucceeded")
+    assert_eq(ran_funl("write([type(x) | x <- [1, 'a', [2]]])\n"), "[\"integer\", \"string\", \"list\"]\nsucceeded")
+
+@test
+STR_WRITES_ANY_VALUE_AS_A_STRING()
+    assert_eq(ran_funl("write(str(12) + str(1.5))\nwrite(str('as is'))\nwrite(str([1, 'a']))\nwrite(type(str(7)))\nwrite(str(true))\n"), "121.5\nas is\n[1, \"a\"]\nstring\ntrue\nsucceeded")

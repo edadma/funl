@@ -334,7 +334,7 @@ end binary
 
 // A double as the answer of `name(a)`: a finite one is a float, and one that is not is what the
 // float flags make of it (`non_finite`). The message is written only for a refusal.
-private real_of(r: real, name: string, a: Value) -> Result[Value, Fault] =
+real_of(r: real, name: string, a: Value) -> Result[Value, Fault] =
     if r.is_finite() then Ok(Real(r)) else non_finite(r, false, s"$name(${render(a)})")
 
 // A double as the answer of `a name b`, likewise.

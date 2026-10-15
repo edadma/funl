@@ -13,8 +13,8 @@ rational, and a real appears only where a real literal or an operation on a real
 ## Writing numbers
 
 An integer is written in decimal, or in hexadecimal, octal or binary with `0x`, `0o` or `0b`, and
-`_` may separate digits. A real has a decimal point, an exponent, or both. A decimal integer may have
-any number of digits; one written in another radix has to fit 64 bits.
+`_` may separate digits. A real has a decimal point, an exponent, or both. An integer may have any
+number of digits, in any of the four bases.
 
 ```funl
 write( 1_000_000 )
@@ -22,6 +22,7 @@ write( 0x1F )
 write( 0o17 )
 write( 0b101 )
 write( 123456789012345678901234567890 )
+write( 0xFFFF_FFFF_FFFF_FFFF_FF )
 write( 2.5 )
 write( 2.5e3 )
 write( 2e-1 )
@@ -33,6 +34,7 @@ write( 2e-1 )
 15
 5
 123456789012345678901234567890
+4722366482869645213695
 2.5
 2500
 0.2
@@ -444,7 +446,8 @@ write( copysign(3, -0.0), copysign(-2.5, 1) )
 
 `floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `round`)
 answer integers, and exactly: a rational is rounded as a rational, an integer is its own. `sign`
-keeps its argument's kind, and `float` makes a real.
+keeps its argument's kind, and `float` makes a real. `integer` takes a string too, and so do `real`
+and `numeric` ([below](#converting-a-string-to-a-number)).
 
 ```funl
 write( floor(7/2), ceiling(7/2), round(7/2), truncate(-7/2), floor(-7/2) )
@@ -716,6 +719,72 @@ write( random_seed() )
 ```output
 repeated
 7
+```
+
+## Converting a string to a number
+
+Arithmetic never reads a number out of a string; `integer`, `real` and `numeric` do. Each takes a
+number or a string. A string is read as a number literal is, so it converts exactly when the same
+characters in a program would be a number, and the three then make of it what they make of a
+number: `integer` rounds as `round` does, `real` makes a real, and `numeric` leaves the number the
+kind it is.
+
+```funl
+write( integer('42') + 1, integer('1_000'), integer('0xFF') )
+write( integer('2.5'), real('3'), real(1/4) )
+write( numeric('7'), numeric('0.5'), numeric(7/2) )
+```
+
+```output
+43, 1000, 255
+3, 3, 0.25
+7, 0.5, 7/2
+```
+
+Three things a literal does not have are taken from a string, since a string being converted is data
+rather than program: a sign, spaces around the number, and a radix written `NrDDD`, the base in
+decimal from 2 to 36 and then `r` (in a program, `16rFF` is `16` times the name `rFF`). The digits of
+a base past 10 are letters, in either case.
+
+```funl
+write( integer(' -17 '), integer('+5') )
+write( integer('16rFF'), integer('36rZZ'), integer('2r1010'), integer('8r777') )
+```
+
+```output
+-17, 5
+255, 1295, 10, 511
+```
+
+A string that is not a number makes the conversion fail, so a conversion is also the test:
+
+```funl
+write( if integer('ten') then 'a number' else 'not a number' )
+write( [numeric(s) | s <- ['1', 'two', '3.5', ' 4 ', '1.', '37r1', '7/2']] )
+```
+
+```output
+not a number
+[1, 3.5, 4]
+```
+
+A string spelling a number too large to hold is a fault, as the same literal is an error in a
+program, and so is a value that is neither a number nor a string:
+
+```funl
+write( real('1e999') )
+```
+
+```error
+'1e999' is too large for a float
+```
+
+```funl
+write( integer([1]) )
+```
+
+```error
+'integer' wants a number or a string and was given the list [1]
 ```
 
 ## Arithmetic on something that is not a number

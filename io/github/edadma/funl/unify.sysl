@@ -17,7 +17,7 @@ unify_later(a: Value, b: Value)
     v.work.push(b)
 
 // Whether two values are the same variable, the same heap object, or the same atomic value.
-private identical(a: Value, b: Value) -> bool = a match
+identical(a: Value, b: Value) -> bool = a match
     Var(p) -> b match
         Var(q) -> p == q
         _ -> false

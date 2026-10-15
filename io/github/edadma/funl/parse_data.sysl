@@ -48,6 +48,7 @@ reversed(p: *Parser, target: &Expr, value: &Expr) -> &Expr
         OrE(a, b) -> expr(OrE(a, reversed(p, b, value)), at)
         Conj(a, b) -> expr(Conj(a, reversed(p, b, value)), at)
         Ref(n) -> expr(RevAssignE(n, value), at)
+        TupleE(items) -> reversed_tuple(p, items, value, at)
         BadE -> expr(BadE, at)
         _ ->
             element_target(target, value, true, at) match
@@ -56,6 +57,22 @@ reversed(p: *Parser, target: &Expr, value: &Expr) -> &Expr
                     p.report.add(error(target.span, "only a variable or an element can be assigned with `<-`")
                         .with_note("`x <- e` stores `e` in `x`, `a(i) <- e` in an element, and backtracking puts the old value back"))
                     expr(BadE, at)
+
+// `(a, b) <- (e1, e2)`: `a, b <- e1, e2`, the values written as a tuple of as many.
+private reversed_tuple(p: *Parser, items: Buf[&Expr], value: &Expr, at: Span) -> &Expr
+    var targets: Buf[Spanned[string]] = buf()
+    var bad = false
+
+    for t in items.view()
+        if !target_name(p, t, &targets) then bad = true
+
+    value.kind match
+        TupleE(values) -> several_assigned(p, targets, items.len(), values, true, bad, at)
+        BadE -> expr(BadE, at)
+        _ ->
+            p.report.add(error(value.span, "a tuple of names is assigned with `<-` from a tuple of as many values")
+                .with_note("`(a, b) <- (b, a)` swaps, and backtracking puts both back"))
+            expr(BadE, at)
 
 // -- interpolation ------------------------------------------------------------------------------------
 

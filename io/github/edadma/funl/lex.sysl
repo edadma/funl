@@ -211,31 +211,10 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         return true
 
     if is_digit(c)
-        val radix = c == u8('0') && s.peek_at(1).map((p) -> is_radix_letter(p)).unwrap_or(false)
-
-        // A decimal number that is not a 64-bit integer -- a real, or an integer past 64 bits -- is
-        // carried as its text; a radix integer has to fit 64 bits.
-        read_integer(s) match
-            Ok(n) ->
-                if !radix && float_follows(s)
-                    read_float_tail(s)
-                    out.push(NumLit(plain_digits(src.text(Span(start, s.at)))), Span(start, s.at))
-                elif n <= 9223372036854775807
-                    out.push(IntLit(long(n)), Span(start, s.at))
-                elif radix
-                    report.add(error(Span(start, s.at), "this integer is too large to hold")
-                        .with_note("an integer written in a radix is 64 bits, signed"))
-                else
-                    out.push(NumLit(plain_digits(src.text(Span(start, s.at)))), Span(start, s.at))
-            Err(e) -> e match
-                Overflow(_) ->
-                    if radix
-                        report.add(error(where(e), s"this number is $e"))
-                    else
-                        if float_follows(s) then read_float_tail(s)
-
-                        out.push(NumLit(plain_digits(src.text(Span(start, s.at)))), Span(start, s.at))
-                _ -> report.add(error(where(e), s"this number is $e"))
+        read_number_literal(s) match
+            Ok(Small(n)) -> out.push(IntLit(n), Span(start, s.at))
+            Ok(Text(t)) -> out.push(NumLit(t), Span(start, s.at))
+            Err(e) -> report.add(error(where(e), s"this number is $e"))
 
         return true
 
@@ -384,7 +363,10 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         else
             out.push(operator_or_assign(s, Plus, Add), Span(start, s.at))
     elif c == u8('*')
-        out.push(operator_or_assign(s, Star, Mul), Span(start, s.at))
+        if s.accept(u8('*'))
+            out.push(operator_or_assign(s, StarStar, Inter), Span(start, s.at))
+        else
+            out.push(operator_or_assign(s, Star, Mul), Span(start, s.at))
     elif c == u8('/')
         if s.accept(u8('/'))
             out.push(operator_or_assign(s, SlashSlash, FloorQuo), Span(start, s.at))
@@ -432,6 +414,34 @@ plain_digits(bs: []const u8) -> string
         if b != u8('_') then out.push(b)
 
     from_utf8_unchecked(out.view())
+
+// A number literal, as the lexer reads one at `s` and as `integer`, `real` and `numeric` read one
+// out of a string: a 64-bit integer held as itself, and anything else -- a real, or an integer past
+// 64 bits in any of the four bases -- carried as its text with the digit separators taken out, for
+// `literal_value` to read.
+enum LitNumber
+    Small(n: long)
+    Text(t: string)
+
+read_number_literal(s: *Scanner) -> Result[LitNumber, LitError]
+    val start = s.at
+    val radix = s.peek() == Some(u8('0')) && s.peek_at(1).map((p) -> is_radix_letter(p)).unwrap_or(false)
+
+    read_integer(s) match
+        Ok(n) ->
+            if !radix && float_follows(s)
+                read_float_tail(s)
+                Ok(Text(plain_digits(s.src[start..<s.at])))
+            elif n <= 9223372036854775807
+                Ok(Small(long(n)))
+            else
+                Ok(Text(plain_digits(s.src[start..<s.at])))
+        Err(e) -> e match
+            Overflow(_) ->
+                if !radix && float_follows(s) then read_float_tail(s)
+
+                Ok(Text(plain_digits(s.src[start..<s.at])))
+            _ -> Err(e)
 
 // The second letter of a radix prefix, `0x`, `0o` or `0b`.
 private is_radix_letter(b: u8) -> bool =
