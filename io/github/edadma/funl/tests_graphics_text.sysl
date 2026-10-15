@@ -1,0 +1,173 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.testing.skip
+
+// `funl:graphics`'s text and fonts (`docs/library/graphics.md` § "Text and fonts"): the `"fixed"`
+// face carried in the binary and its metrics, font specifications and their failures, `text_width`,
+// `draw_string`, and the window as a terminal -- the cursor, `goto_rc`, `goto_xy`, `write`, `writes`
+// and scrolling. Every pixel and every metric asserted here is the built-in face's, so the answers
+// are the same on a machine with no fonts installed; only the system's families are macOS-only.
+
+// FunL program `body` run with `open` imported and `art(w)` defined: the canvas drawn as text, a `#`
+// for every pixel that is not white.
+private on_text(body: string) -> string =
+    ran_funl("import { open } from funl:graphics\n" +
+        "def dot( p ) = if p == \"65535,65535,65535\" then \".\" else \"#\"\n" +
+        "def art( w ) =\n" +
+        "  for y <- 0..<w.get(\"height\") do\n" +
+        "    write( join([dot(p) | p <- w.pixel(0, y, w.get(\"width\"), 1)]) )\n" +
+        body)
+
+@test
+THE_DEFAULT_FONT_IS_FIXED_AND_SIZES_THE_DEFAULT_WINDOW()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden} )\n" +
+            "write( w.get(\"size\"), w.get(\"font\"), w.get(\"ascent\"), w.get(\"descent\"), w.get(\"fheight\"), w.get(\"fwidth\"), w.get(\"leading\") )\n" +
+            "write( w.get(\"x\"), w.get(\"y\"), w.get(\"row\"), w.get(\"col\") )\n" +
+            "write( w.text_width(\"hello\"), w.text_width(\"\"), w.text_width(\"iiWW\") )\n"),
+        "(480, 156), fixed, 10, 3, 13, 6, 13\n0, 10, 1, 1\n30, 0, 24\nsucceeded")
+
+@test
+A_FONT_SPECIFICATION_NAMES_A_FAMILY_STYLES_AND_A_SIZE()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (4, 3)} )\n" +
+            "for f <- [\"fixed,20\", \" Fixed , 14 \", \"FIXED,bold\", \"fixed,italic,bold,12\"] do\n" +
+            "  write( w.set({font: f}).get(\"font\"), w.get(\"ascent\"), w.get(\"descent\"), w.get(\"fheight\"), w.get(\"fwidth\"), w.get(\"leading\"), w.text_width(\"ab\") )\n"),
+        "fixed,20, 20, 6, 26, 12, 26, 24\n Fixed , 14 , 14, 4, 18, 8, 18, 17\nFIXED,bold, 10, 3, 13, 6, 13, 12\nfixed,italic,bold,12, 12, 4, 16, 7, 16, 14\nsucceeded")
+
+@test
+A_FONT_THAT_IS_NO_SPECIFICATION_OR_NAMES_NO_FAMILY_FAILS_AND_SETS_NOTHING()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (4, 3), leading: 7} )\n" +
+            "for f <- [\"\", \",10\", \"fixed,0\", \"fixed,-3\", \"fixed,10,12\", \"fixed,heavy\", \"fixed,,10\", \"no such family\", 12, #fixed] do write( w.set({font: f}) | #failed )\n" +
+            "write( w.set({font: \"fixed,30\", fg: \"nonsense\"}) | #failed )\n" +
+            "write( w.get(\"font\"), w.get(\"leading\"), w.get(\"fheight\") )\n" +
+            "write( open(\"u\", {canvas: #hidden, font: \"no such family\"}) | #failed )\n"),
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfixed, 7, 13\nfailed\nsucceeded")
+
+@test
+THE_METRICS_ARE_READ_ONLY()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (4, 3)} )\n" +
+            "for m <- [{ascent: 1}, {descent: 1}, {fheight: 1}, {fwidth: 1}] do write( w.set(m) catch e -> e )\n"),
+        "error(permission_error(modify, window_attribute, ascent), context(_G2, \"'set': `ascent` is read-only\"))\n" +
+        "error(permission_error(modify, window_attribute, descent), context(_G5, \"'set': `descent` is read-only\"))\n" +
+        "error(permission_error(modify, window_attribute, fheight), context(_G8, \"'set': `fheight` is read-only\"))\n" +
+        "error(permission_error(modify, window_attribute, fwidth), context(_G11, \"'set': `fwidth` is read-only\"))\nsucceeded")
+
+@test
+OPEN_SIZES_THE_CANVAS_AND_PLACES_THE_CURSOR_BY_THE_FONT_IT_WAS_GIVEN()
+    assert_eq(on_text("v = open( \"v\", {canvas: #hidden, font: \"fixed,20\", dx: 3, dy: 4} )\n" +
+            "write( v.get(\"size\"), v.get(\"x\"), v.get(\"y\"), v.get(\"row\"), v.get(\"col\") )\n" +
+            "u = open( \"u\", {canvas: #hidden, font: \"fixed,20\", size: (10, 10), row: 2} )\n" +
+            "write( u.get(\"size\"), u.get(\"y\"), u.get(\"row\") )\n"),
+        "(960, 312), 0, 20, 1, 1\n(10, 10), 46, 2\nsucceeded")
+
+@test
+THE_CURSOR_MOVES_BY_ROW_AND_COLUMN_OR_BY_POINT_FROM_THE_ORIGIN()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (100, 100)} )\n" +
+            "write( w.goto_rc(3, 5).get(\"x\"), w.get(\"y\"), w.get(\"row\"), w.get(\"col\") )\n" +
+            "write( w.goto_rc().get(\"x\"), w.get(\"y\") )\n" +
+            "write( w.goto_xy(13, 24).get(\"row\"), w.get(\"col\"), w.goto_xy().get(\"y\"), w.get(\"row\") )\n" +
+            "w.set({leading: 20, row: 3, col: 2})\nwrite( w.get(\"y\"), w.get(\"x\"), w.get(\"row\") )\n" +
+            "w.set({dx: 10, dy: 10})\nwrite( w.get(\"x\"), w.get(\"y\"), w.get(\"row\"), w.get(\"col\") )\n" +
+            "w.set({x: 0, y: 10})\nwrite( w.get(\"x\"), w.get(\"y\"), w.get(\"row\"), w.get(\"col\") )\n" +
+            "write( w.set({row: \"2\"}) | #failed, w.set({x: 1.5}) | #failed, w.set({leading: #wide}) | #failed )\n"),
+        "24, 36, 3, 5\n0, 10\n2, 3, 0, 0\n50, 6, 3\n-4, 40, 2, 0\n0, 10, 1, 1\nfailed, failed, failed\nsucceeded")
+
+@test
+WRITE_AND_WRITES_TYPE_AT_THE_CURSOR_AS_A_TERMINAL_DOES()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (100, 100)} )\n" +
+            "write( w.writes(1, \"ab\") )\nwrite( w.get(\"x\"), w.get(\"row\"), w.get(\"col\") )\n" +
+            "write( w.write(1, \"ab\") )\nwrite( w.get(\"x\"), w.get(\"row\"), w.get(\"col\") )\n" +
+            "w.writes(\"abc\\rd\")\nwrite( w.get(\"col\") )\n" +
+            "w.writes(\"\\tz\")\nwrite( w.get(\"col\") )\n" +
+            "w.writes(\"123456789\\t\")\nwrite( w.get(\"col\") )\n" +
+            "w.writes(\"\\n\\n\")\nwrite( w.get(\"row\"), w.get(\"col\") )\n"),
+        "()\n18, 1, 4\n()\n0, 2, 1\n2\n10\n25\n4, 1\nsucceeded")
+
+@test
+WRITES_DRAWS_ITS_TEXT_OVER_THE_BACKGROUND()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (12, 13)} )\nw.writes(\"Hi\")\nart( w )\n"),
+        "............\n............\n" +
+        "##..##..##..\n##..##..##..\n##..##.###..\n######.###..\n######..##..\n##..##..##..\n##..##..##..\n##..########\n" +
+        "............\n............\n............\nsucceeded")
+
+@test
+A_WRITTEN_CELL_IS_PAINTED_IN_THE_BACKGROUND_AND_A_DRAWN_STRING_IS_NOT()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (12, 13)} )\nw.set({bg: \"red\"})\n" +
+            "w.writes(\"X\")\nwrite( w.pixel(0, 0), w.pixel(6, 0) )\n" +
+            "write( w.draw_string(6, 10, \"X\") )\nwrite( w.pixel(6, 0), w.get(\"col\") )\n"),
+        "65535,0,0, 65535,65535,65535\n<window handle>\n65535,65535,65535, 2\nsucceeded")
+
+@test
+A_LINE_PAST_THE_BOTTOM_SCROLLS_THE_CANVAS_UP()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (6, 26)} )\nw.write(\"A\")\nw.write(\"B\")\nart( w )\nwrite( w.get(\"row\"), w.get(\"y\") )\n"),
+        "......\n......\n" +
+        "#####.\n######\n##.###\n######\n######\n##..##\n##.###\n######\n" +
+        "......\n......\n......\n" +
+        "......\n......\n......\n......\n......\n......\n......\n......\n......\n......\n......\n......\n......\n" +
+        "2, 23\nsucceeded")
+
+@test
+DRAW_STRING_DRAWS_FROM_THE_BASELINE_MOVED_BY_THE_ORIGIN()
+    // The same picture twice: drawn at (-3, 12) from an origin of (3, -2), and at (0, 10) from none.
+    val ab = ".........\n.........\n##..##...\n##..##...\n##..##...\n######...\n######...\n##..##...\n##..##...\n##..##...\n.........\n.........\n"
+
+    assert_eq(on_text("a = open( \"a\", {canvas: #hidden, size: (9, 12), dx: 3, dy: -2} )\nwrite( a.draw_string(-3, 12, \"H\") )\na.set({dx: 0, dy: 0})\nart( a )\n" +
+            "b = open( \"b\", {canvas: #hidden, size: (9, 12)} )\nb.draw_string(0, 10, \"H\")\nart( b )\nwrite( b.get(\"x\"), b.get(\"y\") )\n"),
+        "<window handle>\n" + ab + ab + "0, 10\nsucceeded")
+    assert_eq(on_text("c = open( \"c\", {canvas: #hidden, size: (20, 13)} )\nc.draw_string(0, 10, \"a\", 9, 10, \"b\")\nart( c )\n"),
+        "....................\n....................\n.........##.........\n.........##.........\n.####....#####......\n" +
+        "######...######.....\n.#####...##..##.....\n######...##..##.....\n##.###...######.....\n######...#####......\n" +
+        ".##.........#.......\n....................\n....................\nsucceeded")
+
+@test
+TEXT_IS_CONFINED_TO_THE_CLIP_RECTANGLE()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (12, 13), clipx: 0, clipy: 0, clipw: 7, cliph: 13} )\nw.writes(\"HH\")\nart( w )\n"),
+        "............\n............\n" +
+        "##..###.....\n##..###.....\n##..###.....\n#######.....\n#######.....\n##..###.....\n##..###.....\n##..###.....\n" +
+        "............\n............\n............\nsucceeded")
+
+@test
+THE_TEXT_METHODS_FAULT_ON_A_WRONG_ARGUMENT()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (12, 13)} )\n" +
+            "write( w.draw_string(1, 2) catch e -> e )\nwrite( w.draw_string() catch e -> e )\n" +
+            "write( w.draw_string(1, 2, 3) catch e -> e )\nwrite( w.draw_string(1, 2, \"a\", \"1\", 2, \"b\") catch e -> e )\n" +
+            "write( w.get(\"x\") )\nfor y <- [0, 1] do write( join([dot(p) | p <- w.pixel(0, y, 12, 1)]) )\n" +
+            "write( w.text_width(5) catch e -> e )\nwrite( w.goto_rc(1, 2, 3) catch e -> e )\nwrite( w.goto_xy(\"a\") catch e -> e )\n" +
+            "w.close()\nwrite( w.write(\"x\") catch e -> e )\n"),
+        "error(existence_error(procedure, /(draw_string, 2)), context(_G2, \"'draw_string' takes x, y and a string, repeated, and was given 2 arguments\"))\n" +
+        "error(existence_error(procedure, /(draw_string, 0)), context(_G5, \"'draw_string' takes x, y and a string, repeated, and was given 0 arguments\"))\n" +
+        "error(type_error(string, 3), context(_G8, \"'draw_string' wants a string and was given the integer 3\"))\n" +
+        "error(type_error(integer, \"1\"), context(_G11, \"'draw_string' wants an integer and was given the string '1'\"))\n" +
+        "0\n............\n............\n" +
+        "error(type_error(string, 5), context(_G14, \"'text_width' wants a string and was given the integer 5\"))\n" +
+        "error(existence_error(procedure, /(goto_rc, 3)), context(_G17, \"'goto_rc' takes a row and a column and was given 3 arguments\"))\n" +
+        "error(type_error(integer, \"a\"), context(_G20, \"'goto_xy' wants an integer and was given the string 'a'\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G23, \"'write' was called on the handle <closed window handle>\"))\nsucceeded")
+
+@test
+A_TRANSPARENT_FOREGROUND_DRAWS_TEXT_AT_HALF_COVERAGE()
+    assert_eq(on_text("for fg <- [\"black\", \"transparent black\"] do\n" +
+            "  w = open( \"t\", {canvas: #hidden, size: (12, 13), fg: fg} )\n" +
+            "  w.draw_string(0, 10, \"H\")\n  w.goto_xy(6, 10).writes(\"H\")\n  write( w.pixel(1, 5), w.pixel(7, 5) )\n"),
+        "8738,8738,8738, 8738,8738,8738\n37008,37008,37008, 37008,37008,37008\nsucceeded")
+
+@test
+AN_EVENTS_ROW_AND_COLUMN_ARE_CELLS_OF_THE_WINDOWS_FONT()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (100, 100)} )\n" +
+            "w.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n" +
+            "w.set({font: \"fixed,20\"})\nw.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n" +
+            "w.set({leading: 10})\nw.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n" +
+            "w.set({leading: 0})\nw.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n"),
+        "3, 3\n2, 2\n3, 2\n2, 2\nsucceeded")
+
+@test
+THE_GENERIC_FAMILIES_ARE_THE_SYSTEMS_FONTS()
+#if macos
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (4, 3)} )\n" +
+            "for f <- [\"mono\", \"typewriter\", \"sans,14\", \"serif,bold\", \"Helvetica,italic,12\", \"Menlo\"] do write( f, w.set({font: f}) & w.get(\"fwidth\") | #failed )\n" +
+            "write( w.set({font: \"helvetica\"}) | #failed )\n" +
+            "write( if w.set({font: \"sans,20\"}).text_width(\"iiii\") < w.set({font: \"mono,20\"}).text_width(\"iiii\") then #proportional else #monospaced )\n"),
+        "mono, 6\ntypewriter, 6\nsans,14, 12\nserif,bold, 10\nHelvetica,italic,12, 11\nMenlo, 6\nfailed\nproportional\nsucceeded")
+#else
+    skip("the generic families are looked for among macOS's fonts here, and this is not macOS")
+#endif
