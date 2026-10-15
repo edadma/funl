@@ -238,7 +238,10 @@ STANDARD_INPUT_IS_READ_THROUGH_ITS_HANDLE_AND_SHARED_WITH_READ()
 
 @test
 THE_STREAM_KEYWORDS_ARE_ONE_HANDLE_EACH_AND_CANNOT_BE_ASSIGNED()
-    assert_eq(ran_funl("write( &input == &input, &output == &errout, &errout.flush() )\n"), "true, false, ()\nsucceeded")
+    // A comparison that holds produces its right operand, and one that does not fails.
+    assert_eq(ran_funl("write( &input == &input, &output == &errout | #distinct, &errout.flush() )\n"),
+        "<file handle>, distinct, ()\nsucceeded")
+    assert_eq(ran_funl("write( &output == &errout )\nwrite( #after )\n"), "after\nsucceeded")
     assert_eq(complaints("&input = 1\n&output <- 2\n&errout += 3\n"),
         "error 1:1 `&input` cannot be assigned\nerror 2:1 `&output` cannot be assigned\nerror 3:1 `&errout` cannot be assigned\n")
 
