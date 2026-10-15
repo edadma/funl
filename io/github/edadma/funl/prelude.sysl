@@ -263,8 +263,13 @@ private count_arg(x: Value, name: string) -> Result[long, Fault]
         Var(_) -> Err(instantiation_error(s"instantiation error: '$name' was given an unbound variable"))
         y -> Err(kind_error(y, "integer", s"'$name' wants an integer count and was given ${described(y)}"))
 
-// `reverse(xs)`: the elements of `xs` in the other order.
+// `reverse(xs)`: the elements of `xs` in the other order; for a string, its characters in the other
+// order. The other list functions still refuse a string.
 private do_reverse(base: usize, argc: usize) -> Result[Value, Fault]
+    deref(arg(base, 0)) match
+        Str(p) -> return Ok(new_str(reversed_text(p.s))?)
+        _ -> ()
+
     var items: Buf[Value] = buf()
 
     list_guard(arg(base, 0), "'reverse'")?

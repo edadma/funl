@@ -137,6 +137,11 @@ Each is argued where it arises; this is the list.
 | M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
 | Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [icon](icon.md) |
+| I1 The loop `until` beside the range `until` | both, by position: `until` at the start of an expression is Icon's loop (`while not c`, failing when it ends, with `break`, `continue`, labels and `end until`); after an operand it stays the exclusive range `1 until 3` (user, 2026-10-15) | [success-and-failure](../reference/success-and-failure.md#a-loop-fails-when-it-runs-out) |
+| I10 Icon's positions in indexing | one way, 0-based; a section of a string variable is assignable, `s(i..j) = t`, and `<-` makes it reversible (user, 2026-10-15) | [strings](../reference/strings.md#assigning-to-a-section) |
+| I11 `map(s1, s2, s3)` | `translate(s, from, to)`, Icon's mapping; `map/3` stays an existence error (user, 2026-10-15) | [strings](../reference/strings.md#translate) |
+| I12 `reverse` of a string | `reverse(s)` reverses it; the other list functions still refuse a string (user, 2026-10-15) | [strings](../reference/strings.md#reverse-of-a-string) |
+| I15 Mutable records | records stay immutable; `with(r, {f: x})` copies one with fields replaced (user, 2026-10-15) | [data](../reference/data.md#records) |
 | I4 Whose is a `static`: the definition's or each closure's? | each closure value's: a nested `def` or a lambda made twice counts twice (user, 2026-10-15) | [functions](../reference/functions.md#static-and-initial) |
 | I20 A preprocessor | Icon's whole preprocessor, over the token stream: `$define`, `$undef`, `$ifdef`, `$ifndef`, `$else`, `$endif`, `$include` (positions carried through, cycles refused), `$line`, `$error`, and predefined platform and feature names (user, 2026-10-15) | [icon](icon.md#the-preprocessor) |
 | I2 A `case` expression | postfix `e match` over a clause block, the subject bounded, committed choice; no match fails; `(e)` in a clause's pattern compares with `e`'s first value (user, 2026-10-15) | [functions](../reference/functions.md#match) |
@@ -154,14 +159,9 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| I1 The loop `until` beside the range `until` | both, by position: prefix is the loop, infix the range | [icon](icon.md#until) |
 | I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
-| I10 Icon's positions in indexing (decided: one way, 0-based) | keep the decision; add assignment to a section of a string variable | [icon](icon.md#sections-and-indexing) |
-| I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#map-and-reverse) |
-| I12 `reverse` of a string (P3.5) | `reverse(s)` reverses it; P3.5 stands for the rest | [icon](icon.md#map-and-reverse) |
 | I13 Icon's string comparison operators | none; polymorphic comparison covers them | [icon](icon.md#string-comparison) |
 | I14 Icon's implicit conversion | none; a function per conversion | [icon](icon.md#string-comparison) |
-| I15 Mutable records (decided: a record is a term) | keep immutable; add `with(r, {f: x})` | [icon](icon.md#records) |
 | I16 Radix literals `16rFF` (decided, user, 2026-10-15: built) | the `NrDDD` literal, bases 2-36, any size; `0x`/`0o`/`0b` stay | [icon](icon.md#bits-radix-and-conversion) |
 | I17 Writing to a file | handle methods, `f.write(x)`; `write` stays "print these" | [icon](icon.md#input-and-output) |
 | I19 `&error` and `runerr` (decided: `catch`) | nothing more; `catch` and `throw` cover them | [icon](icon.md#errors) |

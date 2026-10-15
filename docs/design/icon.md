@@ -59,34 +59,6 @@ These Icon constructs have a FunL spelling now, and this chapter asks nothing ab
 
 ## Control
 
-### `until`
-
-**Icon:** `until e1 do e2` evaluates `e1`, bounded; if it fails, evaluates `e2`, bounded, and goes
-round again; when `e1` succeeds the loop ends and, as every Icon loop that runs out does, fails.
-`until e1` with no `do` is legal and spins on `e1` alone. `break` leaves it with a value.
-
-**FunL today:** `until` is the infix word of the exclusive generator, `1 until 3`, the generator
-twin of `..<`. It is not a Decided block, but it is the word.
-
-**Proposed:** take both, by position. **`until` at the start of an expression is the loop; `until`
-after an operand is the range**, as `-` is negation before an operand and subtraction after one.
-The parser already tells a prefix use of a token from an infix one, so nothing is ambiguous:
-
-```
-until done(state) do state = step(state)
-every write(1 until 4)
-```
-
-The loop is `while not e1 do e2` compiled directly: the condition's mark jumps into the body, its
-success leaves the loop. It takes a label, `end until`, and `break (v)` as `while` does, and
-fails when it runs out.
-
-> **Open question I1 — the loop `until` beside the range `until`.** (a) both, by position;
-> (b) the loop takes the word and the range is spelled `..<` or `to j - 1` only; (c) no `until`
-> loop, `while not` covers it. **Recommendation: (a).** It costs nothing in the grammar and breaks
-> no program; `while not` is the covered fallback but reads worse for the common "until converged"
-> loop.
-
 ### `case`
 
 > **Decided (user, 2026-10-15) — I2, a `case` expression: postfix `e match`** over a block of
@@ -165,42 +137,8 @@ stress heap.
 
 ## Scanning
 
-### Sections and indexing
-
-**Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the
-first, 0 the end, negative counting back, and every one of them is assignable on a string variable.
-
-**FunL:** an element is `c(i)` counting from 0 and a slice is `c(r)` for a range — decided, one way
-to index. Every section is **covered** by a range: `s[i+:n]` is `s(i ..+ n)`, `s[i-:n]` is
-`s(i - n ..+ n)`, a tail is `s(i..)`. Position arithmetic belongs to scanning, where positions stay
-Icon's. What is not covered is **assigning to a section of a string variable**, `s[2:4] := "xy"`,
-which builds a new string and stores it.
-
-> **Open question I10 — Icon's positions in indexing.** (a) keep the decision: 0-based `c(i)`,
-> ranges for sections, no negative indexes, and add `s(r) = t` on a string variable as "store a new
-> string with that section replaced"; (b) reopen it for Icon's positions. **Recommendation: (a).**
-> Every section has a range spelling, and the 0-based rule is shared with lists, arrays, tuples and
-> Prolog's view of them. The assignable section is the one capability missing, and it fits the
-> existing `c(i) = e` on a mutable collection.
 
 ## Strings and csets
-
-### `map` and `reverse`
-
-> **Open question I11 — `map(s1, s2, s3)`.** Icon's character mapping replaces each character of
-> `s1` that occurs in `s2` with the one at the same place in `s3`, the last occurrence in `s2`
-> winning; `s2` and `s3` must be the same length. FunL's `map` already has three meanings (the
-> prelude's `map(f, xs)`, `map(c)`, `map(c, default)`), and `map` with three arguments is decided to
-> be an `existence_error`. (a) a new name, **`translate(s, from, to)`**; (b) `map/3` over strings,
-> reopening the decision. **Recommendation: (a).** A fourth meaning for `map` is one too many, and
-> `translate` is what the operation is called elsewhere.
-
-> **Open question I12 — `reverse` of a string.** P3.5 decided that the prelude's list functions
-> refuse a string "as `reverse` refuses it". (a) **`reverse(s)` is the string reversed**, by
-> characters, and P3.5's refusal stays for every other list function; (b) a separate
-> `reverse_string`. **Recommendation: (a).** P3.5 refused answering a string *as one element*;
-> a reversed string is a different, well-defined answer of the same kind, and `reverse` is the
-> name anyone reaches for.
 
 ### String comparison
 
@@ -230,19 +168,6 @@ converted. Icon's two families exist only because of the conversion, so FunL's o
 |---|---|---|
 | `S1 ** S2` | `**` | new |
 | `serial(x)` | not adopted: `image` does not print serial numbers | |
-
-### Records
-
-**Icon:** `r.f := x` changes a record in place.
-
-**FunL:** a record is a compound term — the value Prolog sees and unifies — and immutable. A field
-cannot be assigned.
-
-> **Open question I15 — mutable records.** (a) keep records immutable, and add **`with(r, {f: x})`**,
-> a copy of `r` with the named fields replaced; a record whose fields change in place is a mutable
-> map, or a record holding an array; (b) mutable records, breaking the identity of a record with a
-> Prolog term. **Recommendation: (a).** A term that changes under a unification that has already
-> succeeded is the failure the logic chapter's design exists to rule out.
 
 ## Numbers
 
@@ -359,7 +284,6 @@ own book, rather than part of the language.
 
 | | question | recommendation |
 |---|---|---|
-| I1 | the loop `until` beside the range `until` | both, by position |
 | I2 | a `case` expression | decided: postfix `e match`, [Functions](../reference/functions.md#match) |
 | I3 | limitation, `\` being integer division | the infix word `e limit n` |
 | I4 | whose is a static | each closure value's |

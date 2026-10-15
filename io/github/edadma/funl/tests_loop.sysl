@@ -117,3 +117,26 @@ BREAK_AND_CONTINUE_OUTSIDE_A_LOOP_ARE_REFUSED()
 @test
 A_LAMBDA_CANNOT_BREAK_THE_LOOP_IT_IS_WRITTEN_IN()
     assert_eq(complaints("while true\n  val f = () -> break\n"), "error 2:17 `break` is written inside a loop\n")
+
+@test
+UNTIL_RUNS_ITS_BODY_WHILE_ITS_CONDITION_FAILS_AND_THEN_FAILS()
+    assert_eq(ran_funl("var n = 0\nuntil n >= 3\n  write( n )\n  n += 1\nwrite( #done )\n"), "0\n1\n2\ndone\nsucceeded")
+    assert_eq(ran_funl("var n = 0\nuntil n == 2 do n++\nwrite( n )\n"), "2\nsucceeded")
+    assert_eq(ran_funl("if (until true) then write( #yes ) else write( #no )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("var n = 0\nuntil n == 5 do if n++ == 3 then break\nwrite( n )\n"), "4\nsucceeded")
+
+@test
+UNTIL_TAKES_BREAK_WITH_A_VALUE_CONTINUE_AND_A_LABEL()
+    assert_eq(ran_funl("var n = 0\nval v = until false do if n++ == 2 then break (n * 10)\nwrite( v )\n"), "30\nsucceeded")
+    assert_eq(ran_funl("var n = 0\nuntil n >= 5\n  n++\n  if n == 2 then continue\n  write( n )\n"), "1\n3\n4\n5\nsucceeded")
+    assert_eq(ran_funl("var i = 0\nvar j\nouter: until i >= 3\n  i++\n  j = 0\n  until j >= 3\n    j++\n    if j == 2 then continue outer\n    write( i, j )\n"), "1, 1\n2, 1\n3, 1\nsucceeded")
+    assert_eq(ran_funl("var n = 0\nuntil n >= 2\n  n++\n  write( n )\nend until\nwrite( #after )\n"), "1\n2\nafter\nsucceeded")
+
+@test
+UNTIL_AFTER_AN_OPERAND_IS_STILL_THE_EXCLUSIVE_RANGE()
+    assert_eq(ran_funl("every write( 1 until 3 )\nuntil true do write( #no )\nevery write( 5 until 7 )\n"), "1\n2\n5\n6\nsucceeded")
+
+@test
+AN_UNTIL_LOOP_NEEDS_A_CONDITION_AND_A_MISMATCHED_END_IS_REFUSED()
+    assert_eq(complaints("until\n"), "error 1:6 expected an expression\n")
+    assert_eq(complaints("until true\n  write( 1 )\nend while\n"), "error 3:1 `end while` does not match the `until` it closes\n")

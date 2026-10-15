@@ -327,6 +327,12 @@ enum Op
     // the old element on the trail when `back`; push the value.
     StoreElem(back: bool)
 
+    // Pop a value, a range and a collection, as `StoreElem` does. A string collection is not changed:
+    // push the value, then the string with the range's section replaced by the value's text. Any other
+    // collection is stored into as `StoreElem` does, then push the value and the collection, for the
+    // store into its variable that follows to leave it as it was.
+    StoreSection(back: bool)
+
     // Pop a value, a key and a collection; store `x op value` into the element the key names, `x`
     // being what the element holds, and push it; or fail, leaving the element alone, for an ordering
     // that does not hold. `+=` onto an element holding a buffer or a mutable set adds to it in place,

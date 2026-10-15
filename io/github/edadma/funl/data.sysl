@@ -271,6 +271,78 @@ data_field(x: Value, name: u32) -> Result[Option[Value], Fault]
     Ok(None)
 end data_field
 
+// `with(r, {f: x})`: a copy of record `r` with the fields the map's string keys name replaced by their
+// values. A key that is no field of `r` is an existence error, and `r` itself never changes.
+record_with(r: Value, changes: Value) -> Result[Value, Fault]
+    val y = deref(r)
+    val m = deref(changes)
+
+    val c = y match
+        Compound(p) -> p
+        _ -> return Err(kind_error(y, "record", s"'with' wants a record and was given ${described(y)}"))
+
+    val ms = m match
+        Map(p) -> p
+        _ -> return Err(kind_error(m, "map", s"'with' wants a map of the fields to replace and was given ${described(m)}"))
+
+    val d = new_compound(c.functor, c.args.len())?
+
+    d.record = c.record
+
+    for i in 0..<c.args.len()
+        d.args.set(i, c.args.at(i))
+
+    for j in 0..<ms.keys.len()
+        val k = deref(ms.keys.at(j))
+
+        k match
+            Str(p) ->
+                field_index(c, intern(p.s)) match
+                    Some(i) -> d.args.set(i, ms.vals.at(j))
+                    None -> return Err(existence_error("field", k, s"'with' was given the field '${p.s}', which ${described(y)} does not have"))
+            _ -> return Err(kind_error(k, "string", s"'with' names a field by a string key and was given ${described(k)}"))
+
+    Ok(Compound(d))
+
+// `s(r) = t` for a string `c` and a range `key`: the string with the characters `key` names replaced by
+// the string `t`, which may be longer or shorter. `None` where `c` is no string or `key` no range, for
+// `element_set` to answer. The section must be contiguous (a step of 1) and lie inside the string, or
+// start at its end.
+section_set(c: Value, key: Value, t: Value) -> Result[Option[Value], Fault]
+    val s = deref(c)
+
+    val p = s match
+        Str(q) -> q
+        _ -> return Ok(None)
+
+    val r = deref(key) match
+        Range(q) -> q
+        _ -> return Ok(None)
+
+    val ins = deref(t) match
+        Str(q) -> q.s
+        y -> return Err(kind_error(y, "string", s"a section of a string is replaced by a string, and was given ${described(y)}"))
+
+    if r.step != 1
+        return Err(domain_error("contiguous_section", key, "a section of a string that is assigned must run forwards one character at a time"))
+
+    var cs = chars_in(p.s)
+    val n = long(cs.len())
+    val count = if r.endless then n - r.from else range_count(r)
+
+    if r.from < 0 || r.from > n || count < 0 || r.from + count > n
+        return Err(existence_error("section", key, s"the section is outside ${described(s)}, which has ${counted(cs.len(), "character")}"))
+
+    val first = usize(r.from)
+    val past = first + usize(count)
+    var out = str_builder()
+
+    out.push(spelled(&cs, 0, first))
+    out.push(ins)
+    out.push(spelled(&cs, past, cs.len()))
+
+    Ok(Some(new_str(out.finish())?))
+
 // `m.name`: what the map holds under the string `name`, or `None` where it holds nothing there.
 private named_key(m: *MapObj, n: string) -> Result[Option[Value], Fault]
     text_key(m, n) match

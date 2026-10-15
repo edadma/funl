@@ -104,6 +104,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         If -> closing(p, if_expr(p, t.span), ClosesWord("if"))
         Every -> closing(p, every_expr(p, t.span, None), ClosesWord("every"))
         While -> closing(p, while_expr(p, t.span, None), ClosesWord("while"))
+        Until -> closing(p, until_expr(p, t.span, None), ClosesWord("until"))
         Repeat -> closing(p, repeat_expr(p, t.span, None), ClosesWord("repeat"))
         For -> closing(p, for_expr(p, t.span, None), ClosesWord("for"))
         Break ->

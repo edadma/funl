@@ -205,7 +205,7 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
     item — `&subject` and `&pos` assignable (`&pos <- i` reversible), the csets, `&null`, `&fail`,
     the constants, `&input`/`&output`/`&errout` (after item 8), `&random` (after item 5), the clocks,
     `&version`, `&host`, `&progname`, `&features`, `&file`, `&line`, `&level`. Waits on I18.
-11. **`until` loop**. Waits on I1.
+11. **`until` loop**. Done (I1 decided: both, by position).
 12. **Limitation**: `e limit n` with `LimitSet`/`LimitCount`, re-limiting when `n` generates. Waits
     on I3.
 13. **`match`**: the postfix block, failing on no match, and `(e)` value patterns. Waits on I2.

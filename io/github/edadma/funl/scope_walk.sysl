@@ -118,6 +118,12 @@ walk_stmt(w: *Walk, s: Stmt)
 
             if !fixed && writes_element(pat, w.meaning(call_name(pat), pat.span.start))
                 walk(w, pat)
+
+                // `s(i..j) = t` as a statement stores a new string in the variable `s`.
+                pat.kind match
+                    CallE(n, at, args) -> if is_section_key(args.at(0)) && stores_section(w.meaning(n, at.start)) then updated(w, n, pat.span.to(e.span))
+                    _ -> ()
+
                 return
 
             declare_pattern(w, pat, e.span.end, fixed)
@@ -525,6 +531,12 @@ walk(w: *Walk, e: &Expr)
         SetElemE(c, k, x, _) ->
             walk_two(w, c, k)
             walk(w, x)
+
+            // `s(i..j) = t` stores a new string in the variable `s`.
+            if is_section_key(k)
+                c.kind match
+                    Ref(n) -> if stores_section(w.meaning(n, c.span.start)) then updated(w, n, e.span)
+                    _ -> ()
         InterpE(parts) ->
             for x in parts.view()
                 walk(w, x)

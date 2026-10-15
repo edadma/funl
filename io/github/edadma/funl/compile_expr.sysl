@@ -545,6 +545,18 @@ private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
 
     Ok(if v.depth == 0 then StoreSlot(v.slot) else StoreUp(v.depth, v.slot))
 
+// Store the top of the stack into the variable `n` names at offset `pos`, trailing the old value for
+// failure to restore when `back`.
+store_variable(e: *Emit, c: Ctx, n: string, pos: usize, back: bool) -> Result[unit, string]
+    if back
+        val v = variable(c, n, pos)?
+
+        e.op(StoreBack(v.depth, v.slot))
+    else
+        e.op(store_to(c, n, pos)?)
+
+    Ok(())
+
 // `name(args)`, the call `call`, the name written at offset `pos`: a call of whatever the name
 // means. In tail position (`tail`) a call that can reuse the frame is a tail call, and every path
 // ends in `Return`. The call is put down to the line its name is written on, which a call in tail
