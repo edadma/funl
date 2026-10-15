@@ -22,7 +22,7 @@ import sysl.buf.{Buf, buf}
 struct PlFlags
     unknown: string
     double_quotes: string
-    debug: string
+    debug_mode: string
     prefer_rationals: bool
     back_quotes: string
     float_overflow: string
@@ -47,7 +47,7 @@ private flag_list() -> Result[Value, Fault]
     items.push(pair("min_integer", Int(-MaxInteger - 1))?)
     items.push(pair("integer_rounding_function", atom("toward_zero"))?)
     items.push(pair("max_arity", Int(MaxArity))?)
-    items.push(pair("debug", atom(f.debug))?)
+    items.push(pair("debug", atom(f.debug_mode))?)
     items.push(pair("unknown", atom(f.unknown))?)
     items.push(pair("double_quotes", atom(f.double_quotes))?)
     items.push(pair("prefer_rationals", atom(if f.prefer_rationals then "true" else "false"))?)
@@ -154,7 +154,7 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
     elif name == "float_undefined"
         v.flags.float_undefined = text
     else
-        v.flags.debug = text
+        v.flags.debug_mode = text
 
     Ok(Unit)
 end set_flag

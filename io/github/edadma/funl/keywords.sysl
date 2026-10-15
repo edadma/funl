@@ -1,10 +1,9 @@
 module io.github.edadma.funl
 
 import sh.sysl.parsing.*
-import sysl.posix.time.local_offset
-import sysl.slices.as_mut_ptr
-import sysl.text.from_utf8
-import sysl.time.{at_offset, day_of, hour_of, minute_of, month_of, now, second_of, year_of}
+import sysl.posix.time.{cpu_time, local_offset}
+import sysl.process.hostname
+import sysl.time.{at_offset, day_of, hour_of, minute_of, month_of, now, second_of, whole_millis, year_of}
 
 // Keywords: `&name`, Icon's names for what the machine and the host know -- the scan's subject and
 // position, the named csets, the constants, the seed, the clocks, the program and the platform.
@@ -156,12 +155,8 @@ private store_random(base: usize) -> Result[Value, Fault]
 
 // -- the clocks --------------------------------------------------------------------------------------
 
-private extern clock() -> long
-
-private const ClocksPerSecond: long = 1000000
-
 // `&time`: the processor time the program has used, in milliseconds.
-private cpu_millis() -> long = clock() / (ClocksPerSecond / 1000)
+private cpu_millis() -> long = whole_millis(cpu_time())
 
 // The host's local reading of now: its date and its time of day.
 private struct Reading
@@ -205,20 +200,8 @@ private dateline_text() -> string
 
 // -- the program and the platform -------------------------------------------------------------------
 
-private extern gethostname(into: *u8, room: usize) -> int
-
-// `&host`: the name of the machine the program runs on.
-private host_name() -> string
-    var into: []u8 = [0; 256]
-
-    if gethostname(as_mut_ptr(into), into.len) != 0 then return ""
-
-    var n: usize = 0
-
-    while n < into.len && into[n] != 0
-        n += 1
-
-    from_utf8(into[0..<n]).unwrap_or("")
+// `&host`: the name of the machine the program runs on; empty when the system will not say.
+private host_name() -> string = hostname().unwrap_or("")
 
 // The platform as `&features` names it.
 private platform_name() -> string
