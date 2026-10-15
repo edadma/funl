@@ -96,7 +96,7 @@ red, 3, dashed
 | `linestyle` | `#solid`, `#dashed` or `#striped` | `#solid` |
 | `fillstyle` | `#solid`, `#textured` or `#masked` | `#solid` |
 | `pattern` | a [pattern](#painting-styles): a name or a bit pattern, a string | `"black"` |
-| `drawop` | `#copy` or `#reverse` | `#copy` |
+| `drawop` | `#copy`, or `#reverse` to [draw in reverse](#drawing-in-reverse) | `#copy` |
 | `clipx`, `clipy`, `clipw`, `cliph` | the clip rectangle; setting one when there is none starts from the whole canvas, and `undefined` takes it away | `undefined` |
 | `dx`, `dy` | the origin, added to every coordinate | `0` |
 | `depth` | read-only: bits per pixel | `24` |
@@ -320,6 +320,49 @@ write( w.pixel(10, 3) )
 #..##..#.+++
 .##..##..+++
 32639,32639,32639
+```
+
+The named patterns are Icon's own, bit for bit: each is eight rows of eight, `"gray"` is
+`"8,#55aa55aa55aa55aa"`, and `"diagonal"` is `"8,#8040201008040201"`, a line rising to the right.
+
+### Drawing in reverse
+
+**`drawop: #reverse` makes drawing undo itself**, Icon's rubber band: every pixel a shape covers has
+the foreground exclusive-ored with the background exclusive-ored into it, so a background pixel turns
+the foreground colour, a foreground pixel turns the background colour, and drawing the same shape a
+second time puts back exactly what was there. Every drawing method obeys it -- points, lines,
+segments, polygons, curves, rectangles, arcs and circles, drawn or filled -- inside the clip
+rectangle, as `#copy` does.
+
+**A shape drawn in reverse is not anti-aliased.** A pixel is in it when the shape covers at least half
+of it and out otherwise, since a pixel only partly changed could not be changed back. Under
+`#textured` or `#masked` only the pattern's ones are exclusive-ored, and a `#striped` line changes
+only its dashes; a pixel the pattern or the gaps leave alone stays as it was. **`erase_area` and
+`copy_area` are copies under either operation**, as Icon's `EraseArea` and `CopyArea` are.
+
+```funl
+import { open } from funl:graphics
+
+def dot( p ) = if p == "0,0,0" then "#" else if p == "65535,65535,65535" then "." else "+"
+def show( w ) = for y <- 0 to w.get("height") - 1 do write( join([dot(p) | p <- w.pixel(0, y, w.get("width"), 1)]) )
+
+w = open( "band", {canvas: #hidden, size: (8, 4)} )
+w.fill_rectangle( 0, 0, 3, 4 )
+w.set( {drawop: #reverse} ).draw_rectangle( 1, 1, 5, 2 )
+show( w )
+w.draw_rectangle( 1, 1, 5, 2 )
+show( w )
+```
+
+```output
+###.....
+#..####.
+#.#...#.
+#..####.
+###.....
+###.....
+###.....
+###.....
 ```
 
 ### Erasing, copying and clipping
