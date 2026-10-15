@@ -61,10 +61,6 @@ These are reported to the org, not routed around ([Rule 9](#closed-by-design)):
 `close`, `uncouple`, the attribute map and colour specifications are built** — see the library page,
 [`funl:graphics`](../library/graphics.md). What remains of this section is for the later items.
 
-**`&window` is kept** (keywords are [I18](language.md#icon-parity)'s `&name`): assignable, set by
-`open` to the window it makes, failing when no window is open, so a helper procedure can draw on "the
-current window" as Icon's do — `&window.draw_line(…)`.
-
 **Setting `canvas: #normal` later shows a hidden canvas**, in a build that has windows (item 7); today
 it faults, as opening one does.
 
@@ -79,7 +75,6 @@ enumerations symbols, the rest strings):
 |---|---|
 | `pattern` (Icon's pattern specifications, and its failure) | 2, drawing |
 | `image` (a file loaded at open, the canvas sized to it) | 4, images |
-| `cursor`, `echo`, `inputmask` | 6, events |
 | `pos`, `posx`, `posy`, `pointer`, `pointerx`, `pointery`; read-only `displaywidth`, `displayheight` | 7, windows on screen |
 
 Not adopted: `display` (an X server's name), `gamma`, `iconpos`, `iconlabel`, `iconimage`,
@@ -189,45 +184,19 @@ value without a file — a FunL addition, small, and what a test or a program se
 
 ## Events
 
-### What an event is
+**The queue, `enqueue`, `event()`, `pending()`, `active()`, the event codes and keywords, `&window`
+and `inputmask` are built on hidden canvases** — see the library page's
+[events](../library/graphics.md#events). What remains for windows on screen (item 7):
 
-**`w.event()` answers the next event's code, as Icon's `Event()` does, and sets the event
-keywords.** It blocks while the queue is empty, showing the canvas first (it [flushes](#when-the-screen-is-updated)).
-
-- **A key** with a character is a one-character string — `"a"`, `"A"`, `"\r"`, `"\e"`, `"\x03"` for
-  control-C — as Icon's. With `inputmask` holding `"k"`, a key's release is reported too, as the
-  same code with the keyword `&released` succeeding, so a release is told from a press without a
-  second set of codes ([G9](#the-questions-collected)).
-- **A key with no character** is a symbol named for Icon's `keysyms.icn` constants, lower-cased with
-  the `Key_` dropped: `#home`, `#end`, `#pgup`, `#pgdn`, `#left`, `#right`, `#up`, `#down`,
-  `#insert`, `#f1` … `#f12`, and the rest.
-- **A mouse event** is a symbol, and Icon's keywords name the same values: `&lpress`, `&ldrag`,
-  `&lrelease`, `&mpress`, `&mdrag`, `&mrelease`, `&rpress`, `&rdrag`, `&rrelease` are `#lpress` …
-  `#rrelease`; `&resize` is `#resize`. Motion with no button held is `#move`, reported only while
-  `inputmask` holds `"m"`, as Icon's. The wheel is `#wheelup`, `#wheeldown`, `#wheelleft`,
-  `#wheelright`, which Icon 9.5 lacks and every mouse now has.
-- **Closing the window** from its title bar is `#close` (FunL's; Icon's book leaves it to the window
-  manager). A program that never reads it keeps its window until it closes it.
-
-**The event keywords** are set by `event()`, Icon's set: `&x`, `&y` (the pointer, in the window's
-coordinates, `dx`/`dy` taken off), `&row`, `&col` (the text cell under it), `&interval` (milliseconds
-since the previous event), and `&control`, `&shift`, `&meta`, which **succeed when the modifier was
-held and fail when not**, as Icon's do, so `if &shift then …` reads as Icon's. They belong to the
-running machine, not the window: each task of [`async`](modules.md#async-and-await) has its own, so
-one task's `event()` never changes what another reads ([G10](#the-questions-collected)).
-
-### The queue
-
-| Icon | FunL |
-|---|---|
-| `Pending(w)` (a list; `*Pending()` its size) | `w.pending()` — the number of events queued; **fails when there are none**, so `if w.pending() then` reads as Icon's `*Pending() > 0` |
-| `Enqueue(w, a, x, y, s, i)` | `w.enqueue(code, x, y, mods, interval)` — `mods` a string of `"c"`, `"m"`, `"s"`, as Icon's |
-| `Active()` | `active()` — a generator of the open windows that have events, blocking until one does |
-| `WFlush(w)`, `WSync(w)` | `w.flush()`, `w.sync()` |
-| `WDelay(w, i)` | `w.delay(ms)` — flushes, then waits |
-
-**`enqueue` is the same queue the screen fills.** An event put there is read by `event()` exactly as
-a click is, which is how a hidden canvas takes events in a test.
+- **`event()` and `active()` block while no event is queued**, showing the canvas first (they
+  [flush](#when-the-screen-is-updated)); on a hidden canvas, which nothing but `enqueue` fills, they
+  fault instead.
+- **The screen fills the same queue `enqueue` does**, under the same `inputmask`: SDL's keys (the
+  symbols named for Icon's `keysyms.icn`), buttons, motion, `#wheelup` … `#wheelright`, and `#close`
+  from the title bar (FunL's; Icon's book leaves it to the window manager — a program that never reads
+  it keeps its window until it closes it).
+- `WFlush(w)`, `WSync(w)` are `w.flush()`, `w.sync()`; `WDelay(w, i)` is `w.delay(ms)`, which
+  flushes, then waits.
 
 ### Events and the loop
 
@@ -323,8 +292,8 @@ able to test every facility with no window on screen, and it can:
 | G6 | coordinates on a high-density screen | **Decided (user, 2026-10-15)**: points, with the surface at `density` times the pixels; a hidden canvas always density 1 |
 | G7 | `drawop: #reverse` | built, as a coverage mask exclusive-ored into the pixels, not anti-aliased |
 | G8 | image formats | read what stb_image reads; write PNG only, refusing another extension |
-| G9 | key releases | reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
-| G10 | whose are `&x`, `&y`, `&control`, … | the running machine's (each task its own), set by `event()` |
+| G9 | key releases | **Decided (user, 2026-10-15)**: reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
+| G10 | whose are `&x`, `&y`, `&control`, … | **Decided (user, 2026-10-15)**: the running machine's (each task its own), set by `event()` |
 | G11 | the promise form of `Event()` | a method, `w.next_event()`, answering a promise of an event map; it sets no keywords |
 | G12 | module and feature | **Decided (user, 2026-10-15)**: one module, `funl:graphics`, in the core over vendored plutovg (hidden canvases work in every build); on-screen windows behind a `graphics` feature over `sdl3`, on in `default`; without it, opening a visible window faults naming the feature |
 

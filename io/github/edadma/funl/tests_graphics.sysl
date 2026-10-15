@@ -20,7 +20,7 @@ OPEN_WITH_A_HIDDEN_CANVAS_ANSWERS_A_WINDOW_HANDLE()
 EVERY_ATTRIBUTE_HAS_ICONS_DEFAULT()
     assert_eq(on_canvas("write( w.attributes() )\n"),
         "{\"size\": (4, 3), \"width\": 4, \"height\": 3, \"label\": \"test\", \"canvas\": hidden, \"resize\": false, " +
-        "\"fg\": \"black\", \"bg\": \"white\", \"reverse\": false, \"linewidth\": 1, \"linestyle\": solid, \"fillstyle\": solid, " +
+        "\"cursor\": false, \"echo\": true, \"inputmask\": \"\", \"fg\": \"black\", \"bg\": \"white\", \"reverse\": false, \"linewidth\": 1, \"linestyle\": solid, \"fillstyle\": solid, " +
         "\"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
         "\"depth\": 24, \"density\": 1, \"font\": \"fixed\", \"leading\": 13, \"ascent\": 10, \"descent\": 3, \"fheight\": 13, \"fwidth\": 6, " +
         "\"x\": 0, \"y\": 10, \"row\": 1, \"col\": 1}\nsucceeded")

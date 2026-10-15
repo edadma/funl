@@ -145,6 +145,15 @@ THE_TEXT_METHODS_FAULT_ON_A_WRONG_ARGUMENT()
         "error(existence_error(handle, <closed window handle>), context(_G23, \"'write' was called on the handle <closed window handle>\"))\nsucceeded")
 
 @test
+AN_EVENTS_ROW_AND_COLUMN_ARE_CELLS_OF_THE_WINDOWS_FONT()
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (100, 100)} )\n" +
+            "w.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n" +
+            "w.set({font: \"fixed,20\"})\nw.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n" +
+            "w.set({leading: 10})\nw.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n" +
+            "w.set({leading: 0})\nw.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n"),
+        "3, 3\n2, 2\n3, 2\n2, 2\nsucceeded")
+
+@test
 THE_GENERIC_FAMILIES_ARE_THE_SYSTEMS_FONTS()
 #if macos
     assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (4, 3)} )\n" +
