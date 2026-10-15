@@ -83,13 +83,17 @@ fail(v: *Vm) -> bool
     if head_fails(v) then return true
 
     // `&trace` reports the frames failure leaves and re-enters (`trace.sysl`).
+    // Each line is placed where failure stands: the instruction that failed, then the place each
+    // entry popped had saved.
     val tracing = v.trace != 0
+    var here_code = v.code
+    var here_ip = before_ip(v.ip)
 
     loop
         val e = v.control.pop() match
             Some(e) -> e
             None ->
-                if tracing then trace_moved(v, v.frame, null)
+                if tracing then trace_moved(v, v.frame, here_code, here_ip, null)
 
                 return false
 
@@ -97,7 +101,10 @@ fail(v: *Vm) -> bool
 
         restore(v, e)
 
-        if tracing then trace_moved(v, before, e.frame)
+        if tracing
+            trace_moved(v, before, here_code, here_ip, e.frame)
+            here_code = e.code
+            here_ip = e.ip
 
         if e.kind == Mark || e.kind == Choice
             v.ip = e.ip

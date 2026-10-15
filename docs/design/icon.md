@@ -492,11 +492,17 @@ with a newline; no standard input, no standard error, no open file.
 > `&pos` (`&pos <- i` reversible), the csets, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the
 > clocks, `&version`, `&host`, `&progname`, `&features` (without `"co-expressions"` until they
 > exist), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). Built since:
-> `&trace` (calls, returns, suspensions, resumptions and failures, counted down per line; the line
-> is Icon's, with the function's first clause standing for the place), `&dump`, `display()`,
-> `collect()`, `&collections` and `&allocated` (one number each: sysl's heap has no regions, so
-> `&storage` and `&regions` are not adopted), over a name table the compiler keeps per chunk
-> (`trace.sysl`). What remains:
+> `&trace` (calls, returns, suspensions, resumptions and failures, counted down per line), `&dump`,
+> `display()`, `collect()`, `&collections` and `&allocated`, over a name table the compiler keeps per
+> chunk (`trace.sysl`). **Decided (user, 2026-10-15): the line is Icon's, the call site's** — a
+> line table per chunk (run-length, one mark where the line changes, kept beside the chunks and read
+> only by a trace line or a fault) places a call at the call, a return or suspension at what
+> returned, a failure at what failed; and an uncaught fault names its file and line
+> (`f at prog.funl:3: …`, where it named an instruction index). A tail call still takes its caller's
+> place, so the caller's return is not shown — a deliberate difference. `&line` stays fixed when
+> parsed. **`&storage` and `&regions` are adopted** over the one region FunL allocates in, the
+> collected heap: one number each, the bytes in use and the heap's size, where Icon's generate one
+> per region. What remains:
 
 | keyword | FunL |
 |---|---|

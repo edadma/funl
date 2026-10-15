@@ -78,6 +78,7 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
             _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
 
         e.place(starts.at(i))
+        e.at_line(line_of(c, cl.head.start))
 
         if h.clean
             e.op(FrameHead(h.slots, next, h.body, NoMark))
@@ -94,6 +95,10 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
         clause_body(&e, c, b, h.clean, next, h.body)?
 
     e.place(starts.at(r.clauses.len()))
+
+    // No clause matching is put down to where the function begins.
+    if r.clauses.len() > 0 then e.at_line(u32(res.src.locate(r.clauses.at(0).head.start).line))
+
     e.op(NoMatch)
     reuse_slots(&e)
     name_function(&e, res, r, starts)
@@ -212,6 +217,9 @@ private constant_keys(keys: Buf[&Expr]) -> bool
 // (`ScanLeave`) on the way to `Return`, and a call inside it is an ordinary call, made with the
 // scan's subject in force.
 body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    // The `Return` a tail path ends in is put down to the line of the expression it returns.
+    e.at_line(line_of(c, x.span.start))
+
     x.kind match
         CallE(n, at, args) ->
             if c.scans > 0

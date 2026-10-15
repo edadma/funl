@@ -596,6 +596,11 @@ struct Chunk
     // Whether `&trace` reports the calls of this chunk: a FunL function's or lambda's.
     traced: bool
 
+// From instruction `start` on, until the next mark, the code was compiled from source line `line`.
+// A run, not one entry per instruction: a statement's dozen instructions share one mark.
+struct LineMark
+    start: u32
+    line: u32
 // One clause's slot names: the instruction its code begins at, and the name of each slot it numbers,
 // in slot order -- a hidden slot's name begins with `$`.
 struct ClauseNames

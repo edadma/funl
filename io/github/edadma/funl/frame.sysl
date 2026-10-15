@@ -86,11 +86,11 @@ private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[
     f.cut = v.control.len()
     v.allocated += argc * sizeof(Value)
 
+    if v.trace != 0 then trace_call(v, f, v.code, before_ip(v.ip))
+
     v.frame = f
     v.code = target
     v.ip = 0
-
-    if v.trace != 0 then trace_call(v, f)
 
     Ok(())
 
@@ -120,10 +120,10 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
     f.cut = v.control.len()
     f.fail_to = NoMark
 
+    if v.trace != 0 then trace_call(v, f, v.code, before_ip(v.ip))
+
     v.code = target
     v.ip = 0
-
-    if v.trace != 0 then trace_call(v, f)
 
     Ok(())
 

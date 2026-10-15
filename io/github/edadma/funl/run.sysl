@@ -88,7 +88,9 @@ private drive(v: *Vm) -> Outcome
             None ->
                 maybe_collect(v)
 
-                val code = v.chunks.at(v.code).code
+                // Through the view, which reads the one field where the chunk lies: `at` would copy
+                // the whole chunk, every field it has, on every instruction.
+                val code = v.chunks.view()[v.code].code
 
                 if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
 
@@ -126,7 +128,7 @@ private drive(v: *Vm) -> Outcome
                     Raises(f) -> injected = Some(Err(f))
                     Ends(o) -> return o
             Err(Broken(e)) ->
-                val said = s"${v.chunks.at(v.code).name}@$at: $e"
+                val said = s"${fault_place(v, v.code, at)}: $e"
 
                 if !in_task(v) then return Faulted(said)
 
@@ -134,7 +136,7 @@ private drive(v: *Vm) -> Outcome
             Err(Exits(n)) -> return Halted(n)
             Err(Thrown(ball)) ->
                 // Read before unwinding, which undoes the bindings the ball was made with.
-                val said = s"${v.chunks.at(v.code).name}@$at: ${uncaught_text(ball)}"
+                val said = s"${fault_place(v, v.code, at)}: ${uncaught_text(ball)}"
 
                 // What a task's promise is faulted with, should nothing catch the ball.
                 val kept = if in_task(v) then copy_term(ball) else Ok(Undefined)

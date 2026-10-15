@@ -159,26 +159,32 @@ ran(build: () -> Result[usize, string]) -> string
     assert_eq(tight.text, calm.text, "the program said something different on a heap collected at every step")
     calm.text
 
-// Transcript `said` with its fault's instruction index taken out: `fault: f@19: m` reads `fault: f:
-// m`, so a test pinning a fault's text does not move whenever the code before the fault does.
+// Transcript `said` with its fault's place taken out: `fault: f at test.funl:4: m` and `fault: f@19:
+// m` both read `fault: f: m`, for a test about the fault's text rather than where it was raised.
 unplaced(said: string) -> string
     val f = said.index_of("fault: ") match
         Some(i) -> i
         None -> return said
 
-    val tail = said.slice(f, said.bytes.len)
+    // The place is in the fault's head: from just past `fault: ` to the first `: ` after it, which a
+    // file and line, `test.funl:4`, does not contain.
+    val start = f + 7
+    val tail = said.slice(start, said.bytes.len)
 
-    val at = tail.index_of("@") match
+    val colon = tail.index_of(": ") match
         Some(i) -> i
         None -> return said
 
-    val after = tail.slice(at, tail.bytes.len)
+    val head = tail.slice(0, colon)
 
-    val colon = after.index_of(":") match
+    val cut = head.index_of("@") match
         Some(i) -> i
-        None -> return said
+        None ->
+            head.index_of(" at ") match
+                Some(i) -> i
+                None -> return said
 
-    said.slice(0, f + at) + after.slice(colon, after.bytes.len)
+    said.slice(0, start + cut) + tail.slice(colon, tail.bytes.len)
 
 // -- FunL source -------------------------------------------------------------------------------
 

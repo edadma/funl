@@ -325,6 +325,7 @@ private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
         if !last then e.op(Choice(next))
 
         e.place(starts.at(i))
+        e.at_line(line_of(c, cl.head.start))
         e.op(Frame(sc.count()))
 
         var seen: Buf[bool] = buf()
@@ -346,6 +347,7 @@ private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
 
         if !last then e.place(next)
 
+    name_relation(&e, res, r)
     install(e, r.chunk)
 end compile_relation
 
@@ -446,6 +448,8 @@ private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest:
 
 // A body in tail position: every path through it ends in `Return`.
 private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    e.at_line(line_of(c, x.span.start))
+
     x.kind match
         CallE(n, at, args) ->
             c.res.picked(at.start, n, c.meaning(n, at.start), args.len()) match

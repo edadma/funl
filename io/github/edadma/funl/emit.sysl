@@ -31,6 +31,26 @@ struct Emit
     clauses: Buf[ClauseNames]
     traced: bool
 
+    // The line table being built (`Chunk.lines`), and the line the next instruction is compiled from;
+    // 0 until the compiler names one.
+    lines: Buf[LineMark]
+    line_now: u32
+
+    // The instructions emitted from here on are compiled from source line `line`. A mark is added
+    // only where the line changes, and one that no instruction was emitted under is overwritten.
+    at_line(*self, line: u32)
+        if line == self.line_now || line == 0 then return
+
+        self.line_now = line
+
+        val at = u32(self.code.len())
+        val n = self.lines.len()
+
+        if n > 0 && self.lines.at(n - 1).start == at
+            self.lines.set(n - 1, LineMark(at, line))
+        else
+            self.lines.push(LineMark(at, line))
+
     // A fresh label, placed later.
     label(*self) -> usize
         self.labels.push(Unplaced)
@@ -49,10 +69,10 @@ struct Emit
         self.consts.len() - 1
 end Emit
 
-emit(name: string) -> Emit = Emit(name, buf(), buf(), buf(), AnyArity, false, "", 0, buf(), false)
+emit(name: string) -> Emit = Emit(name, buf(), buf(), buf(), AnyArity, false, "", 0, buf(), false, buf(), 0)
 
 // The chunk of a function, whose calls must pass `arity` arguments.
-emit_function(name: string, arity: usize) -> Emit = Emit(name, buf(), buf(), buf(), arity, false, "", 0, buf(), false)
+emit_function(name: string, arity: usize) -> Emit = Emit(name, buf(), buf(), buf(), arity, false, "", 0, buf(), false, buf(), 0)
 
 // A chunk with no code, no name table, and calls of any arity.
 empty_chunk(name: string) -> Chunk = Chunk(name, buf(), buf(), AnyArity, false, "", 0, buf(), false)
@@ -77,6 +97,14 @@ install(e: Emit, at: usize) -> Result[unit, string]
         code.push(resolved(e, o)?)
 
     v.chunks.set(at, Chunk(e.name, code, e.consts, e.arity, e.is_async, e.file, e.line, e.clauses, e.traced))
+
+    // The line table is kept beside the chunks rather than in them: the instruction loop reads its
+    // chunk on every step, and a field more there is a cost on every step for a table read only by
+    // a trace line or a fault.
+    while v.chunk_lines.len() <= at
+        v.chunk_lines.push(buf())
+
+    v.chunk_lines.set(at, e.lines)
     Ok(())
 
 // Reserve and install in one step, answering the chunk's index.

@@ -221,7 +221,8 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
     activation fault, bindings on a co-expression's own trail, and collection of abandoned
     co-expressions under the stress heap. Waits on item 17 and I9.
 19. **Tracing and introspection**: `&trace`, `display()`, `&dump`, `collect()`, `&collections`,
-    `&allocated`, the per-chunk name table. Waits on item 10.
+    `&allocated`, `&storage`, `&regions`, the per-chunk name table, and the per-chunk line table
+    that places a trace line at the call site and a fault at its line. Waits on item 10.
 20. **Answers that reopen a decision**: `translate` (I11), `reverse` of a string (I12), `with`
     (I15), assignment to a string section (I10). Waits on those four; each answered "no" drops its
     part.
