@@ -138,6 +138,9 @@ private page_runs_here(page: string) -> bool
 #if !feature_async || !feature_http
     if page == "docs/library/async.md" then return false
 #endif
+#if !feature_graphics
+    if page == "docs/library/graphics-screen.md" then return false
+#endif
     true
 
 // The fenced blocks of a markdown document, in order.
@@ -517,13 +520,22 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
     AsyncCensus +
     "docs/library/fs.md 13 2 0 0\n" +
-    "docs/library/graphics.md 20 2 0 0\n" +
+    ScreenCensus +
+    "docs/library/graphics.md 25 2 0 0\n" +
     HttpCensus +
     "docs/library/json.md 7 1 0 0\n" +
     "docs/library/prelude.md 15 14 0 0\n" +
     "docs/library/process.md 16 4 0 0\n" +
     "docs/library/sqlite.md 10 1 0 0\n" +
     "docs/library/time.md 8 1 0 0\n"
+
+// `docs/library/graphics-screen.md`'s line, which a build without the `graphics` feature does not run.
+#if feature_graphics
+private val ScreenCensus: string = "docs/library/graphics-screen.md 6 1 0 0\n"
+#endif
+#if !feature_graphics
+private val ScreenCensus: string = ""
+#endif
 
 // `docs/library/http.md`'s line, which a build without the `http` feature does not run.
 #if feature_http

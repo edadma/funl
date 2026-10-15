@@ -155,9 +155,10 @@ Each is argued where it arises; this is the list.
 | G5 Anti-aliasing | plutovg's; integer coordinates stroked through pixel centres and filled on the grid, so points, axis-aligned lines and rectangles are pixel-exact (user, 2026-10-15) | [graphics](../library/graphics.md#coordinates) |
 | G6 Coordinates on a high-density screen | points, the surface at `density`; a hidden canvas density 1 (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |
 | G7 `drawop: #reverse` | a coverage mask exclusive-ored into the pixels, not anti-aliased; every drawing method and `draw_string` obey it, erasing, copying and terminal text are copies, as Icon's (user, 2026-10-15) | [graphics](../library/graphics.md#drawing-in-reverse) |
+| G8 Image formats | read what stb_image reads; write PNG only, a name with another image format's extension faulting (user, 2026-10-15) | [graphics](../library/graphics.md#images) |
 | G9 Key releases | under `inputmask` `"k"`, the same code with `&released` succeeding (user, 2026-10-15) | [graphics](../library/graphics.md#events) |
 | G10 Whose are `&x`, `&y`, `&control`, … | the running machine's (each task its own), set by `event()` (user, 2026-10-15) | [graphics](../library/graphics.md#events) |
-| G12 Module and feature | `funl:graphics` in the core over vendored plutovg; on-screen windows behind a `graphics` feature over `sdl3`, on in `default` (user, 2026-10-15) | [graphics](../library/graphics.md#hidden-canvases) |
+| G12 Module and feature | `funl:graphics` in the core over vendored plutovg; on-screen windows behind a `graphics` feature over `sdl3`, on in `default` (user, 2026-10-15) | [graphics](../library/graphics.md#hidden-canvases), [on screen](../library/graphics-screen.md) |
 | I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [keywords](../reference/keywords.md) |
 | I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md) |
 | I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md#the-creators-locals) |
@@ -175,5 +176,4 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| G8 Image formats | read what stb_image reads; write PNG only | [graphics](graphics.md#images) |
 | G11 The promise form of `Event()` | `w.next_event()`, a promise of an event map; no keywords set | [graphics](graphics.md#events-and-the-loop) |

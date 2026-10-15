@@ -100,7 +100,11 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
                     complain(s"funl: $m\n")
                     status = 1
                 Halted(n) -> status = n
-                _ -> if file.ends_with(".pl") && !v.has_initialization then status = answer_queries(&v, line)
+                _ ->
+                    // A program that ended with a window on screen keeps it until it is closed.
+                    wait_for_screens()
+
+                    if file.ends_with(".pl") && !v.has_initialization then status = answer_queries(&v, line)
 
     dispose_vm(&v)
     leave(was)

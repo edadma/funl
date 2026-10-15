@@ -1,0 +1,337 @@
+module io.github.edadma.funl
+@tests
+
+#if feature_graphics
+import sysl.buf.{Buf, buf}
+import sysl.text.str_builder
+import sh.sysl.plutovg as pv
+import sh.sysl.sdl3 as sdl
+import sh.sysl.sdl3.c as sc
+#endif
+
+// `funl:graphics`'s windows on screen (`docs/library/graphics-screen.md`), in a build with the
+// `graphics` feature: a canvas shown in an SDL window, its attributes there, the picture reaching the
+// window when the program waits, a resize by the window's user keeping the picture, and the program's
+// end waiting for its windows to be closed.
+//
+// **Every window here is made by SDL's dummy video driver** (`headless_video` in `tests_kit.sysl`),
+// which keeps it in memory, so nothing opens on screen and the suite runs where no one is at the
+// console. A user's resize, pointer and close are SDL events pushed onto SDL's queue, as the window
+// system would put them there.
+
+#if feature_graphics
+
+// FunL program `body` run with `open` imported and `w` a window on screen, 4 by 3, in blue.
+private on_screen(body: string) -> string =
+    ran_funl("import { open } from funl:graphics\n" +
+        "w = open( \"screen\", {size: (4, 3), bg: \"blue\"} )\n" +
+        body)
+
+@test
+A_CANVAS_THAT_IS_NOT_HIDDEN_IS_SHOWN_IN_A_WINDOW()
+    assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"shown\", {size: (64, 48)} )\n" +
+            "write( w.get(\"canvas\"), w.get(\"size\"), w.get(\"density\") )\n" +
+            "if w.get(\"displaywidth\") > 0 & w.get(\"displayheight\") > 0 then write( #display )\n" +
+            "v = open( \"default\" )\nwrite( v.get(\"canvas\"), v.get(\"size\") )\nv.close()\nw.close()\nwrite( w )\n"),
+        "normal, (64, 48), 1\ndisplay\nnormal, (480, 156)\n<closed window handle>\nsucceeded")
+
+@test
+POS_PLACES_THE_WINDOW_AND_POINTER_MOVES_THE_POINTER()
+    assert_eq(on_screen("w.set( {pos: (30, 40)} )\nwrite( w.get(\"pos\"), w.get(\"posx\"), w.get(\"posy\") )\n" +
+            "w.set( {posx: 50} )\nwrite( w.get(\"pos\") )\nw.set( {posy: 60} )\nwrite( w.get(\"pos\") )\n" +
+            "write( w.get(\"pointer\"), w.get(\"pointerx\") )\n" +
+            "w.set( {pointer: (2, 1)} )\nwrite( w.get(\"pointer\") )\nw.set( {pointery: 2} )\nwrite( w.get(\"pointer\"), w.get(\"pointerx\"), w.get(\"pointery\") )\n" +
+            "v = open( \"placed\", {pos: (70, 80), size: (5, 5)} )\nwrite( v.get(\"pos\") )\nv.close()\nw.close()\n"),
+        "(30, 40), 30, 40\n(50, 40)\n(50, 60)\nundefined, undefined\n(2, 1)\n(2, 2), 2, 2\n(70, 80)\nsucceeded")
+
+@test
+A_POS_OR_POINTER_THAT_IS_NO_PAIR_OF_INTEGERS_FAILS_AND_DISPLAY_SIZE_IS_READ_ONLY()
+    assert_eq(on_screen("for v <- [{pos: (1, 2, 3)}, {pos: 5}, {posx: 1.5}, {pointer: (\"1\", 2)}, {pointery: #top}] do write( w.set(v) | #failed )\n" +
+            "write( w.set({displaywidth: 9}) catch e -> e )\nw.close()\n"),
+        "failed\nfailed\nfailed\nfailed\nfailed\n" +
+        "error(permission_error(modify, window_attribute, displaywidth), context(_G2, \"'set': `displaywidth` is read-only\"))\nsucceeded")
+
+@test
+A_HIDDEN_CANVAS_KEEPS_ITS_POS_UNTIL_SHOWN_AND_HAS_NO_POINTER()
+    assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"later\", {canvas: #hidden, size: (8, 6), pos: (11, 12)} )\n" +
+            "write( w.get(\"pos\"), w.get(\"pointer\"), w.get(\"displaywidth\") )\nwrite( w.set({pointer: (1, 1)}) | #failed )\n" +
+            "w.set( {canvas: #normal} )\nwrite( w.get(\"canvas\"), w.get(\"pos\"), w.get(\"size\") )\n" +
+            "if w.get(\"displaywidth\") > 0 then write( #display )\n" +
+            "w.set( {canvas: #hidden} )\nwrite( w.get(\"canvas\") )\nw.close()\n"),
+        "(11, 12), undefined, undefined\nfailed\nnormal, (11, 12), (8, 6)\ndisplay\nhidden\nsucceeded")
+
+@test
+A_RESIZE_KEEPS_THE_PICTURE_AND_FILLS_THE_NEW_AREA_WITH_BG()
+    assert_eq(on_screen("w.set( {bg: \"red\", size: (6, 5)} )\nwrite( w.get(\"size\") )\n" +
+            "write( w.pixel(0, 0, 1, 1), w.pixel(3, 2, 1, 1), w.pixel(4, 2, 1, 1), w.pixel(0, 3, 1, 1) )\n" +
+            "w.set( {size: (2, 2)} )\nwrite( w.pixel(1, 1, 1, 1) )\nw.close()\n"),
+        "(6, 5)\n0,0,65535, 0,0,65535, 65535,0,0, 65535,0,0\n0,0,65535\nsucceeded")
+
+@test
+LABEL_RESIZE_AND_RAISE_REACH_THE_WINDOW_AND_FLUSH_SYNC_AND_DELAY_ANSWER_IT()
+    assert_eq(on_screen("write( w.set({label: \"renamed\", resize: true}).get(\"label\") )\n" +
+            "write( w.flush(), w.sync(), w.delay(5), w.raise(), w.delay(0) )\n" +
+            "h = open( \"hid\", {canvas: #hidden} )\nwrite( h.flush(), h.raise() )\nh.close()\nw.close()\n"),
+        "renamed\n<window handle>, <window handle>, <window handle>, <window handle>, <window handle>\n<window handle>, <window handle>\nsucceeded")
+
+@test
+MAXIMAL_AND_ICONIC_FAULT_NAMING_WHAT_THEY_NEED_AND_DELAY_WANTS_AN_INTEGER()
+    assert_eq(on_screen("write( w.set({canvas: #maximal}) catch e -> e )\nwrite( open(\"x\", {canvas: #iconic}) catch e -> e )\n" +
+            "write( w.set({canvas: #elsewhere}) | #failed )\nwrite( w.delay(\"5\") catch e -> e )\nw.close()\nwrite( w.flush() catch e -> e )\n"),
+        "error(system_error, context(_G2, \"'set': `#maximal` and `#iconic` need SDL's maximize and minimize, which the `sdl3` package does not bind yet\"))\n" +
+        "error(system_error, context(_G5, \"'open': `#maximal` and `#iconic` need SDL's maximize and minimize, which the `sdl3` package does not bind yet\"))\n" +
+        "failed\n" +
+        "error(type_error(integer, \"5\"), context(_G8, \"'delay' wants a number of milliseconds, an integer, and was given the string '5'\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G11, \"'flush' was called on the handle <closed window handle>\"))\nsucceeded")
+
+@test
+SEVERAL_WINDOWS_ARE_OPEN_AT_ONCE_EACH_WITH_ITS_OWN_PICTURE()
+    assert_eq(ran_funl("import { open } from funl:graphics\na = open( \"a\", {size: (3, 3), bg: \"red\"} )\nb = open( \"b\", {size: (5, 2), bg: \"green\"} )\n" +
+            "a.flush()\nwrite( a.get(\"size\"), b.get(\"size\"), a.pixel(1, 1, 1, 1), b.pixel(4, 1, 1, 1) )\na.close()\nwrite( b.get(\"label\") )\nb.close()\n"),
+        "(3, 3), (5, 2), 65535,0,0, 0,65535,0\nb\nsucceeded")
+
+// -- shown, resized and closed: SDL's side -----------------------------------------------------------
+
+// The colour of pixel `x`, `y` of canvas surface `s`, as eight-bit `"r,g,b"`.
+private surface_rgb(s: &pv.Surface, x: usize, y: usize) -> string
+    val d = s.data()
+    val o = y * usize(s.stride()) + 4 * x
+
+    s"${d[o + 2]},${d[o + 1]},${d[o]}"
+
+// An SDL window event of `kind` for window `id`, with its two words, as the window system makes one.
+private window_event(kind: u32, id: u32, a: i32, b: i32) -> sdl.Event
+    var e = sc.WindowEvent(kind, 0, 0, id, a, b, [0; 100])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The pointer moving to `x`, `y` over window `id`.
+private motion_event(id: u32, x: f32, y: f32) -> sdl.Event
+    var e = sc.MouseMotionEvent(sdl.EVENT_MOUSE_MOTION, 0, 0, id, 0, 0, x, y, 0.0, 0.0, [0; 84])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The place of the canvas labelled `label` that has a window on screen.
+private shown_canvas(label: string) -> Option[usize]
+    for i in 0..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.screen >= 0 && c.label == label then return Some(i)
+            None -> ()
+
+    None
+
+@test
+WHAT_IS_SHOWN_IS_THE_CANVAS_COPIED_INTO_THE_WINDOW()
+    headless_video()
+
+    val at = screen_open("copied", 4, 3, false, true).expect("the window was made")
+    val s = pv.surface(4, 3).expect("a surface")
+
+    s.clear(1.0, 0.0, 0.0)
+    screen_show(at, s)
+
+    val r = screens.at(at).unwrap().renderer.expect("the window has its renderer")
+    val shot = r.read_pixels().expect("the renderer can be read back")
+    val px = shot.read_pixel(2, 1).expect("a pixel inside the window")
+
+    assert_eq(s"${px.r},${px.g},${px.b}", "255,0,0", "the canvas's red reached the window")
+
+    screen_close(at)
+    assert(screens.at(at).is_none(), "and closing lets the window go")
+
+@test
+A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val chunk = compiled_text("import { open } from funl:graphics\nw = open( \"user\", {size: (4, 3), bg: \"blue\"} )\nw.set( {bg: \"red\"} )\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, chunk)), "succeeded", transcript(streams))
+
+    // The program has ended with its window open, as a program ends that leaves it for its user.
+    val at = shown_canvas("user").expect("the program's window is still open")
+    val id = screen_id(usize(canvases.at(at).unwrap().screen))
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_RESIZED, id, 6, 5)), "the window system resizes it")
+    assert(sdl.push_event(motion_event(id, 2.0, 1.0)), "and moves the pointer over it")
+    show_screens()
+
+    val c = canvases.at(at).unwrap()
+
+    assert_eq(s"${c.width}x${c.height}", "6x5", "the canvas is resized with its window")
+    assert_eq(surface_rgb(c.surface, 3, 2), "0,0,255", "what was there is kept")
+    assert_eq(surface_rgb(c.surface, 5, 4), "255,0,0", "and the new area is filled with bg")
+    assert(c.pointer == Some((2, 1)), "the pointer is where it was last seen")
+
+    // A resize to the size the canvas already has -- the one the program's own `set` causes -- leaves
+    // it as it is.
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_RESIZED, id, 6, 5)), "the same size again")
+    show_screens()
+    assert_eq(surface_rgb(canvases.at(at).unwrap().surface, 3, 2), "0,0,255", "and nothing is repainted")
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, id, 0, 0)), "its user closes it")
+    wait_for_screens()
+    assert(canvases.at(at).is_none(), "the wait at the program's end is over, and the window closed")
+
+    dispose_vm(&v)
+    leave(was)
+end A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT
+
+// A key going down (`down`) or up, scancode `code` with modifiers `mods`, at `ts` nanoseconds.
+private key_event(id: u32, code: i32, mods: u16, down: bool, ts: u64) -> sdl.Event
+    var e = sc.KeyboardEvent(if down then sdl.EVENT_KEY_DOWN else sdl.EVENT_KEY_UP, 0, ts, id, 0, code, 0, mods, 0, down, false, [0; 90])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// A button going down or up at `x`, `y`.
+private button_event(id: u32, button: u8, down: bool, x: f32, y: f32, ts: u64) -> sdl.Event
+    var e = sc.MouseButtonEvent(if down then sdl.EVENT_MOUSE_BUTTON_DOWN else sdl.EVENT_MOUSE_BUTTON_UP, 0, ts, id, 0, button, down, 1, 0, x, y, [0; 88])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The wheel turned by `dx`, `dy`.
+private wheel_event(id: u32, dx: f32, dy: f32, ts: u64) -> sdl.Event
+    var e = sc.MouseWheelEvent(sdl.EVENT_MOUSE_WHEEL, 0, ts, id, 0, dx, dy, 0, 0.0, 0.0, [0; 84])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The pointer moving with buttons `held` down.
+private drag_event(id: u32, held: u32, x: f32, y: f32, ts: u64) -> sdl.Event
+    var e = sc.MouseMotionEvent(sdl.EVENT_MOUSE_MOTION, 0, ts, id, 0, held, x, y, 0.0, 0.0, [0; 84])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The events on the queue of the canvas at `at`, one a line: code, where, modifier bits, interval.
+private queue_text(at: usize) -> string
+    val q = canvases.at(at).unwrap().queue
+    var b = str_builder()
+
+    for i in 0..<q.len()
+        val ev = q.at(i)
+
+        // A key is written as its character's code, since several are control characters.
+        b.push(if ev.is_key then s"key ${ev.key.bytes[0]}" else atom_name(ev.sym))
+        b.push(s" ${ev.x},${ev.y} ${ev.mods} ${ev.interval}\n")
+
+    b.finish()
+
+@test
+THE_WINDOWS_KEYS_BUTTONS_WHEEL_RESIZE_AND_CLOSE_ARE_QUEUED_AS_ICONS_EVENTS()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val chunk = compiled_text("import { open } from funl:graphics\nw = open( \"typed\", {size: (40, 30), inputmask: \"k\", resize: true} )\nw.flush()\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, chunk)), "succeeded", transcript(streams))
+
+    val at = shown_canvas("typed").expect("the program's window is still open")
+    val id = screen_id(usize(canvases.at(at).unwrap().screen))
+    val second: u64 = 1000000000
+
+    // `a`, shifted; control with `c`; F1; a release; Return.
+    assert(sdl.push_event(key_event(id, 4, sdl.KMOD_LSHIFT, true, second)), "shift-a")
+    assert(sdl.push_event(key_event(id, 5, sdl.KMOD_CAPS, true, second)), "b under caps lock")
+    assert(sdl.push_event(key_event(id, 5, sdl.KMOD_CAPS | sdl.KMOD_LSHIFT, true, second)), "and shifted under it")
+    assert(sdl.push_event(key_event(id, 6, sdl.KMOD_LCTRL, true, second + 250000000)), "control-c")
+    assert(sdl.push_event(key_event(id, 58, 0, true, 2 * second)), "F1")
+    assert(sdl.push_event(key_event(id, 58, 0, false, 2 * second)), "F1 let go")
+    assert(sdl.push_event(key_event(id, 40, 0, true, 2 * second)), "Return")
+
+    // A click and a drag, the wheel, motion with no button held (which the mask leaves out), a
+    // resize, and a close.
+    assert(sdl.push_event(button_event(id, 1, true, 5.0, 6.0, 3 * second)), "left press")
+    assert(sdl.push_event(drag_event(id, sdl.BUTTON_LMASK, 7.0, 8.0, 3 * second)), "left drag")
+    assert(sdl.push_event(button_event(id, 1, false, 7.0, 8.0, 3 * second)), "left release")
+    assert(sdl.push_event(button_event(id, 3, true, 1.0, 2.0, 3 * second)), "right press")
+    assert(sdl.push_event(wheel_event(id, 0.0, -1.0, 3 * second)), "wheel down")
+    assert(sdl.push_event(drag_event(id, 0, 9.0, 9.0, 3 * second)), "a move, not asked for")
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_RESIZED, id, 50, 35)), "resized")
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, id, 0, 0)), "closed")
+    show_screens()
+
+    assert_eq(queue_text(at),
+        "key 65 0,0 4 0\nkey 66 0,0 0 0\nkey 98 0,0 4 0\nkey 3 0,0 1 250\nf1 0,0 0 750\nf1 0,0 8 0\nkey 13 0,0 0 0\n" +
+        "lpress 5,6 0 1000\nldrag 7,8 0 0\nlrelease 7,8 0 0\nrpress 1,2 0 0\nwheeldown 1,2 0 0\n" +
+        "resize 9,9 0 0\nclose 9,9 0 0\n")
+
+    free_canvas(at)
+    dispose_vm(&v)
+    leave(was)
+end THE_WINDOWS_KEYS_BUTTONS_WHEEL_RESIZE_AND_CLOSE_ARE_QUEUED_AS_ICONS_EVENTS
+
+@test
+READ_WAITS_ON_A_WINDOW_ON_SCREEN_FOR_THE_KEYS_ITS_USER_TYPES()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val opened = compiled_text("import { open } from funl:graphics\nw = open( \"typed\", {size: (40, 30)} )\nw.flush()\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, opened)), "succeeded", transcript(streams))
+
+    val at = shown_canvas("typed").expect("the program's window is still open")
+    val id = screen_id(usize(canvases.at(at).unwrap().screen))
+
+    // `h`, `x`, backspace, a click, `i`, Return: typed before the program reads, so its canvas's queue is
+    // still empty when `read` starts and the keys reach it only by `read` taking in the screen's news.
+    assert(sdl.push_event(key_event(id, 11, 0, true, 1)), "h")
+    assert(sdl.push_event(key_event(id, 27, 0, true, 2)), "x")
+    assert(sdl.push_event(key_event(id, 42, 0, true, 3)), "backspace")
+    assert(sdl.push_event(button_event(id, 1, true, 5.0, 6.0, 4)), "left press")
+    assert(sdl.push_event(key_event(id, 12, 0, true, 5)), "i")
+    assert(sdl.push_event(key_event(id, 40, 0, true, 6)), "Return")
+
+    val reading = compiled_text("w = &window\nwrite( w.read(), w.get(\"row\"), w.get(\"col\"), w.pending() | #empty )\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, reading)), "succeeded", transcript(streams))
+    assert_eq(transcript(streams), "hi, 2, 1, empty\n")
+
+    free_canvas(at)
+    dispose_vm(&v)
+    leave(was)
+end READ_WAITS_ON_A_WINDOW_ON_SCREEN_FOR_THE_KEYS_ITS_USER_TYPES
+
+@test
+EVENT_READS_WHAT_THE_SCREEN_QUEUED_AND_MOTION_IS_QUEUED_ONLY_UNDER_INPUTMASK_M()
+    // Moving the pointer with `pointer` makes SDL report the motion, as a user's would be.
+    assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"moved\", {size: (40, 30)} )\nw.set( {pointer: (3, 2)} )\nwrite( w.pending() | \"none\" )\n" +
+            "w.set( {inputmask: \"m\", pointer: (5, 4)} )\nwrite( w.event(), &x, &y, w.get(\"pointer\") )\nw.close()\n"),
+        "none\nmove, 5, 4, (5, 4)\nsucceeded")
+
+// What program `text` printed when run as `funl` runs it, and its status.
+private ran_as(text: string) -> string
+    headless_video()
+
+    var out: Buf[string] = buf()
+    val status = run_source("screen.funl", text, (_) -> None, (t) -> out.push(t), (t) -> out.push(t))
+    var b = str_builder()
+
+    for p in out.view()
+        b.push(p)
+
+    s"${b.finish()}status $status"
+
+@test
+A_PROGRAM_ENDS_AT_ONCE_WHEN_IT_CLOSED_ITS_WINDOWS_OR_KEPT_THEM_HIDDEN()
+    assert_eq(ran_as("import { open } from funl:graphics\nw = open( \"done\", {size: (5, 5)} )\nw.close()\n" +
+            "h = open( \"kept\", {canvas: #hidden} )\nwrite( #ended )\n"),
+        "ended\nstatus 0")
+#endif
+
+// In every build: a hidden canvas has nothing on screen to show or raise, and its `flush`, `sync`,
+// `delay` and `raise` answer it all the same.
+@test
+FLUSH_SYNC_DELAY_AND_RAISE_ON_A_HIDDEN_CANVAS_ANSWER_IT()
+    assert_eq(ran_funl("import { open } from funl:graphics\nh = open( \"hid\", {canvas: #hidden} )\nwrite( h.flush(), h.sync(), h.delay(1), h.raise() )\nh.close()\n"),
+        "<window handle>, <window handle>, <window handle>, <window handle>\nsucceeded")

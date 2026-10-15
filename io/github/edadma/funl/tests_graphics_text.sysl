@@ -206,14 +206,72 @@ DRAW_STRING_IN_REVERSE_EXCLUSIVE_ORS_THE_GLYPHS_AND_WRITING_STAYS_A_COPY()
         ".........\n" +
         "......###\n" +
         "......###\n" +
-        "##..#####\n" +
-        "##..#####\n" +
-        "##..#####\n" +
-        "#########\n" +
-        "######...\n" +
-        "##..##...\n" +
-        "##..##...\n" +
-        "##..##...\n" +
+        "......###\n" +
+        "......###\n" +
+        "......###\n" +
+        "......###\n" +
         ".........\n" +
         ".........\n" +
+        ".........\n" +
+        ".........\n" +
+        ".........\n" +
+        ".........\n" +
+        "succeeded")
+
+// `hue(w)` printing canvas `w` by exact colour: `.` white, `#` black, `r` red, `b` blue, `g` green
+// (white ^ red ^ blue), `y` yellow (white ^ blue), `m` magenta (red ^ blue), `+` anything else -- the
+// edge of a glyph, where its coverage blends.
+private const Hue: string =
+    "def tint( p ) = if p == \"65535,65535,65535\" then \".\" else if p == \"0,0,0\" then \"#\" else if p == \"65535,0,0\" then \"r\" else if p == \"0,0,65535\" then \"b\" " +
+    "else if p == \"0,65535,0\" then \"g\" else if p == \"65535,65535,0\" then \"y\" else if p == \"65535,0,65535\" then \"m\" else \"+\"\n" +
+    "def hue( w ) = for y <- 0 to w.get(\"height\") - 1 do write( join([tint(p) | p <- w.pixel(0, y, w.get(\"width\"), 1)]) )\n"
+
+@test
+DRAW_STRING_PAINTS_ITS_GLYPHS_IN_THE_FILL_STYLE()
+    // As X's XDrawString does under the GC's fill style: `#textured` paints the pattern's ones in the
+    // foreground and its zeros in the background, `#masked` the ones alone, both only where a glyph is.
+    // At 40 points a stem is wide enough to cover whole pixels, which take the colour exactly; its
+    // anti-aliased edges blend.
+    assert_eq(on_text(Hue + "for s <- [#textured, #masked] do\n" +
+            "  w = open( \"t\", {canvas: #hidden, size: (24, 40), font: \"fixed,40\"} ).set( {fg: \"red\", bg: \"blue\", fillstyle: s, pattern: \"2,1,2\"} )\n" +
+            "  w.draw_string( 0, 35, \"H\" )\n  for y <- [10, 11] do write( join([tint(p) | p <- w.pixel(0, y, 24, 1)]) )\n"),
+        "...+rbr+........+brb+...\n" +
+        "...+brb+........+rbr+...\n" +
+        "....r.r.........+.r.+...\n" +
+        "...+.r.+.........r.r....\n" +
+        "succeeded")
+
+@test
+DRAW_STRING_IN_REVERSE_EXCLUSIVE_ORS_AS_ITS_FILL_STYLE_DOES()
+    // Under `#reverse` a glyph's pattern ones have red ^ blue exclusive-ored in (white to green) and,
+    // under `#textured`, its zeros blue (white to yellow); drawing the string again restores the canvas.
+    assert_eq(on_text(Hue + "for s <- [#textured, #masked] do\n" +
+            "  w = open( \"t\", {canvas: #hidden, size: (7, 12)} ).set( {fg: \"red\", bg: \"blue\", fillstyle: s, pattern: \"2,1,2\", drawop: #reverse} )\n" +
+            "  w.draw_string( 0, 10, \"H\" )\n  hue( w )\n  w.draw_string( 0, 10, \"H\" )\n  hue( w )\n"),
+        ".......\n.......\n.......\n" +
+        ".g..y..\n.y..g..\n.g..y..\n.ygyg..\n.g..y..\n.y..g..\n.g..y..\n" +
+        ".......\n.......\n" + Blank12 +
+        ".......\n.......\n.......\n" +
+        ".g.....\n....g..\n.g.....\n..g.g..\n.g.....\n....g..\n.g.....\n" +
+        ".......\n.......\n" + Blank12 +
+        "succeeded")
+
+// Twelve rows of a blank canvas seven wide.
+private const Blank12: string = ".......\n.......\n.......\n.......\n.......\n.......\n.......\n.......\n.......\n.......\n.......\n.......\n"
+
+@test
+WRITING_IN_REVERSE_INKS_FG_XOR_BG_AS_A_COPY()
+    // Icon's terminal text is XDrawImageString, which ignores the drawing operation and the fill style
+    // and paints the cell in the GC's background and the glyph in its foreground -- the pixel fg ^ bg
+    // Icon sets under `#reverse`. Red on blue writes solid magenta glyphs on a blue cell, and writing
+    // again changes nothing; black on white writes white on white. At 40 points a stem's middle pixels
+    // are wholly covered, so they take the ink exactly.
+    assert_eq(on_text(Hue + "w = open( \"t\", {canvas: #hidden, size: (24, 48), font: \"fixed,40\"} )\n" +
+            "def row( w ) = write( join([tint(p) | p <- w.pixel(0, w.get(\"ascent\") - 25, 24, 1)]) )\n" +
+            "w.set( {fg: \"red\", bg: \"blue\", fillstyle: #textured, pattern: \"2,1,2\", drawop: #reverse} ).writes( \"H\" )\nrow( w )\n" +
+            "w.goto_rc( 1, 1 ).writes( \"H\" )\nrow( w )\n" +
+            "w.set( {fg: \"black\", bg: \"white\"} ).goto_rc( 1, 1 ).writes( \"H\" )\nrow( w )\n"),
+        "bbb+mmm+bbbbbbbb+mmm+bbb\n" +
+        "bbb+mmm+bbbbbbbb+mmm+bbb\n" +
+        "........................\n" +
         "succeeded")

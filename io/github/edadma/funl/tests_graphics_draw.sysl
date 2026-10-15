@@ -295,23 +295,54 @@ REVERSE_EXCLUSIVE_ORS_FG_XOR_BG_SO_A_COLOUR_BECOMES_ANOTHER()
         "0,0,65535, 65535,0,0\n" +
         "succeeded")
 
+// `hue(w)` printing canvas `w` by exact colour: `.` white, `#` black, `r` red, `b` blue, `g` green
+// (white ^ red ^ blue), `y` yellow (white ^ blue), `+` anything else.
+private const Hue: string =
+    "def tint( p ) = if p == \"65535,65535,65535\" then \".\" else if p == \"0,0,0\" then \"#\" else if p == \"65535,0,0\" then \"r\" else if p == \"0,0,65535\" then \"b\" " +
+    "else if p == \"0,65535,0\" then \"g\" else if p == \"65535,65535,0\" then \"y\" else \"+\"\n" +
+    "def hue( w ) = for y <- 0 to w.get(\"height\") - 1 do write( join([tint(p) | p <- w.pixel(0, y, w.get(\"width\"), 1)]) )\n"
+
 @test
-REVERSE_EXCLUSIVE_ORS_ONLY_A_PATTERNS_ONES_UNDER_EITHER_FILL_STYLE()
-    assert_eq(drawn(8, 4, "w.set( {fillstyle: #textured, pattern: \"4,#9696\", drawop: #reverse} ).fill_rectangle( 0, 0, 8, 2 )\n" +
-            "w.set( {fillstyle: #masked} ).fill_rectangle( 0, 2, 8, 2 )\nshow( w )\nw.fill_rectangle()\nshow( w )\n" +
-            "w.set( {fillstyle: #solid, linestyle: #striped, linewidth: 1} ).draw_line( 0, 0, 7, 0 )\nshow( w )\n"),
-        "#..##..#\n" +
-        ".##..##.\n" +
-        "#..##..#\n" +
-        ".##..##.\n" +
+REVERSE_EXCLUSIVE_ORS_FG_XOR_BG_INTO_A_PATTERNS_ONES_AND_BG_INTO_TEXTURED_ZEROS()
+    // Icon's GC under `#reverse` is GXxor with foreground pixel fg ^ bg and background pixel bg:
+    // `#textured` (FillOpaqueStippled) exclusive-ors the first into the ones and the second into the
+    // zeros, `#masked` (FillStippled) the first into the ones alone. On white, red ^ blue turns a
+    // pixel green and blue turns it yellow; the same drawing again restores both.
+    assert_eq(drawn(8, 4, Hue + "w.set( {fg: \"red\", bg: \"blue\", fillstyle: #textured, pattern: \"4,#9696\", drawop: #reverse} ).fill_rectangle( 0, 0, 8, 2 )\n" +
+            "w.set( {fillstyle: #masked} ).fill_rectangle( 0, 2, 8, 2 )\nhue( w )\n" +
+            "w.fill_rectangle( 0, 2, 8, 2 ).set( {fillstyle: #textured} ).fill_rectangle( 0, 0, 8, 2 )\nhue( w )\n"),
+        "gyyggyyg\n" +
+        "yggyyggy\n" +
+        "g..gg..g\n" +
+        ".gg..gg.\n" +
         "........\n" +
         "........\n" +
         "........\n" +
         "........\n" +
-        "####....\n" +
+        "succeeded")
+
+@test
+REVERSE_EXCLUSIVE_ORS_BG_INTO_A_STRIPED_LINES_GAPS()
+    // X's LineDoubleDash paints the odd dashes in the background pixel, which under GXxor is bg
+    // exclusive-ored in: the dashes turn green and the gaps yellow, and drawing again restores both.
+    assert_eq(drawn(8, 1, Hue + "w.set( {fg: \"red\", bg: \"blue\", linestyle: #striped, drawop: #reverse} ).draw_line( 0, 0, 7, 0 )\nhue( w )\n" +
+            "w.draw_line( 0, 0, 7, 0 )\nhue( w )\n"),
+        "ggggyyyy\n" +
         "........\n" +
-        "........\n" +
-        "........\n" +
+        "succeeded")
+
+@test
+A_STRIPED_LINES_GAPS_TAKE_THE_FILL_STYLE_AS_X_PAINTS_ODD_DASHES()
+    // `#masked`: the gaps paint the pattern's ones in the background and leave its zeros alone;
+    // `#textured`: the gaps are painted exactly as the dashes are, and so, in reverse, exclusive-or
+    // red ^ blue into the ones (red to blue) and blue into the zeros (blue to black).
+    assert_eq(drawn(8, 2, Hue + "w.set( {fg: \"red\", bg: \"blue\", linestyle: #striped, fillstyle: #masked, pattern: \"2,1,2\"} ).draw_line( 0, 0, 7, 0 )\n" +
+            "w.set( {fillstyle: #textured} ).draw_line( 0, 1, 7, 1 )\nhue( w )\n" +
+            "w.set( {drawop: #reverse} ).draw_line( 0, 1, 7, 1 )\nhue( w )\n"),
+        "r.r.b.b.\n" +
+        "brbrbrbr\n" +
+        "r.r.b.b.\n" +
+        "#b#b#b#b\n" +
         "succeeded")
 
 @test
