@@ -53,22 +53,23 @@ to_stderr(t: string)
 end_line(v: *Vm)
     if v.line.bytes.len > 0 then put_out(v, "\n")
 
-// The arguments of a call as text, separated by `, ` as `write` separates them.
-private joined_args(base: usize, argc: usize) -> string
+// The arguments of a call as text, separated by `sep`: `, ` as `write` separates them unless given.
+private joined_args(base: usize, argc: usize, sep: string = ", ") -> string
     var out = str_builder()
 
     for i in 0..<argc
-        if i > 0 then out.push(", ")
+        if i > 0 then out.push(sep)
 
         out.push(render(arg(base, i)))
 
     out.finish()
 
-// `writes(a, ...)` and `ewrites(a, ...)`: the arguments written with no newline after them, to
-// standard output or, with `err`, standard error; a line a call leaves unfinished is continued by the
-// next write to the same stream. `ewrite` is `ewrites` with the newline (`ended`).
+// `writes(a, ...)` and `ewrites(a, ...)`: the arguments written one straight after another, as Icon
+// writes them, with no separator and no newline, to standard output or, with `err`, standard error; a
+// line a call leaves unfinished is continued by the next write to the same stream. `ewrite` is the
+// separated, newline-ended form (`ended`), as `write` is.
 private put_to(err: bool, base: usize, argc: usize, ended: bool = false) -> Result[Value, Fault]
-    val text = joined_args(base, argc)
+    val text = joined_args(base, argc, if ended then ", " else "")
 
     val v = current()
 
