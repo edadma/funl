@@ -158,7 +158,7 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | I13 Icon's string comparison operators | none; polymorphic comparison covers them | [icon](icon.md#string-comparison) |
 | I14 Icon's implicit conversion | none; a function per conversion | [icon](icon.md#string-comparison) |
 | I15 Mutable records (decided: a record is a term) | keep immutable; add `with(r, {f: x})` | [icon](icon.md#records) |
-| I16 Radix literals `16rFF` (decided: juxtaposition) | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` | [icon](icon.md#bits-radix-and-conversion) |
+| I16 Radix literals `16rFF` (decided, user, 2026-10-15: built) | the `NrDDD` literal, bases 2-36, any size; `0x`/`0o`/`0b` stay | [icon](icon.md#bits-radix-and-conversion) |
 | I17 Writing to a file | handle methods, `f.write(x)`; `write` stays "print these" | [icon](icon.md#input-and-output) |
 | I18 How keywords are spelled | `&name`, one token when `&` touches a letter | [icon](icon.md#keywords) |
 | I19 `&error` and `runerr` (decided: `catch`) | nothing more; `catch` and `throw` cover them | [icon](icon.md#errors) |

@@ -186,8 +186,8 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
    `detab`, the cset argument of `trim`/`trim_start`/`trim_end`, `image`, `type`, `str`. Waits on
    nothing.
 2. **Conversions and literals**: `integer`, `real`, `numeric` from strings (`16rFF` included);
-   `0x`/`0o`/`0b` literals past 64 bits. Waits on nothing (the `NrDDD` literal waits on I16, and
-   is not built under the recommendation).
+   `0x`/`0o`/`0b` literals past 64 bits. The `NrDDD` literal is built (I16, decided
+   user, 2026-10-15).
 3. **Set and cset algebra**: `+`, `-` on csets, `**` on sets and csets, `complement`, the
    complement flag, `lower`/`upper`/`ascii`/`cset_all`. Waits on nothing.
 4. **Buffers as deques, and deletion**: `push`, `pop`, `get`, `pull`, `put`; `delete`, `m -= k`,

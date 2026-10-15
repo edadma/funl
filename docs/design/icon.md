@@ -529,14 +529,11 @@ cannot be assigned.
 |---|---|---|
 | `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
 | `&pi`, `&e`, `&phi` | the keywords (item 10); the values `pi`, `e` and `phi` exist | new |
-| `16rFF` literal | see I16 | |
+| `16rFF` literal | the same (I16) | done |
 
-> **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
-> number literal touching a name multiplies, so `2r1` today is `2 * r1`. (a) **no `NrDDD` literal**:
-> `0x`, `0o`, `0b` unlimited in size, and `integer("16rFF")` for the others; (b) `NrDDD` as a
-> literal for `N` from 2 to 36, taking it away from juxtaposition. **Recommendation: (a).** `2r`
-> meaning "twice r" is exactly the case juxtaposition was decided for; other bases are rare enough
-> for a conversion.
+> **Decided (user, 2026-10-15) — I16, radix literals.** `NrDDD` is a literal, `N` from 2 to 36 and
+> the digits in either case, any size, `_` between digits; it takes `N r name` away from juxtaposition.
+> `integer("16rFF")` reads the same form, by the same reader.
 
 ## Input and output
 
@@ -682,7 +679,7 @@ own book, rather than part of the language.
 | I13 | Icon's string comparison operators | none; polymorphic comparison covers them |
 | I14 | implicit conversion | none; conversion functions |
 | I15 | mutable records | keep immutable; add `with(r, {f: x})` |
-| I16 | radix literals | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` |
+| I16 | radix literals | the `NrDDD` literal, decided (user, 2026-10-15) |
 | I17 | writing to a file | handle methods, `f.write(x)` |
 | I18 | how keywords are spelled | `&name`, one token |
 | I19 | `&error` and `runerr` | nothing more; `catch` and `throw` cover them |

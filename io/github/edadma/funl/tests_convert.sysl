@@ -54,7 +54,3 @@ A_NUMBER_TOO_LARGE_OR_A_VALUE_OF_ANOTHER_KIND_FAULTS()
     faulted_with("write( integer([1]) )\n", "'integer' wants a number or a string and was given the list [1]")
     faulted_with("write( numeric(#a) )\n", "'numeric' wants a number or a string")
     faulted_with("free x\nwrite( real(x) )\n", "'real' wants a number or a string")
-
-@test
-A_RADIX_LITERAL_IS_NOT_JUXTAPOSITION_IN_A_PROGRAM()
-    assert_eq(ran_funl("val rFF = 10\nwrite( 16rFF, integer('16rFF') )\n"), "160, 255\nsucceeded")
