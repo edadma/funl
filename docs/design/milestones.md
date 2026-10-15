@@ -252,7 +252,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    (canvas plus context), `open` with `canvas: #hidden` over plutovg, `set`/`get`/`attributes` with
    their failures and faults, colour specifications and `color_value`, `pixel`, `image_bytes`,
    `clone`, `couple`, `uncouple`, `close` closing every handle on the canvas. Waits on G1, G2, G3,
-   G5, G6, G12.
+   G5, G6, G12. Done, except `image_bytes`, which waits on finding F4 (plutovg's PNG stream writer).
 2. **Drawing**: `draw_point`, `draw_line`, `draw_segment`, the rectangles, polygons, circles and
    arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
    `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1.

@@ -54,15 +54,25 @@ struct Method
     arity: usize
     how: MethodHow
 
-// A kind of handle: the name it prints with, its release hook and its methods.
+// A kind of handle: the name it prints with, its release hook, what its finalizer does when that is
+// not the release hook, and its methods.
 struct HandleKind
     name: string
     release: ReleaseGo
+    forgotten: Option[ReleaseGo]
     methods: Buf[Method]
 
 // Register a kind of handle and answer its id, which `new_handle` and `register_method` take.
 register_handle_kind(v: *Vm, name: string, release: ReleaseGo) -> u32
-    v.handle_kinds.push(HandleKind(name, release, buf()))
+    v.handle_kinds.push(HandleKind(name, release, None, buf()))
+    u32(v.handle_kinds.len() - 1)
+
+// Register a kind of handle whose finalizer does less than `close()` does: `release` runs for
+// `close()`, and `forgotten` for a handle the collector finds unreachable. A window is the case: its
+// `close()` closes the canvas under every handle on it, while a forgotten handle gives back only its
+// own share, since another handle may still be drawing.
+register_handle_kind_forgetting(v: *Vm, name: string, release: ReleaseGo, forgotten: ReleaseGo) -> u32
+    v.handle_kinds.push(HandleKind(name, release, Some(forgotten), buf()))
     u32(v.handle_kinds.len() - 1)
 
 // Give kind `kind` the method `name`, taking `arity` arguments besides the handle (`Variadic` for any
@@ -92,6 +102,23 @@ close_handle(h: *HandleObj)
     current().handle_kinds.at(usize(h.kind)).release(h)
     h.res = null
     h.vals.release()
+
+// Close `h` with `hook` in place of its kind's release hook, once: what a method that closes its own
+// handle in some narrower way than `close()` does (a window's `uncouple()`).
+retire_handle(h: *HandleObj, hook: ReleaseGo)
+    if h.closed then return
+
+    h.closed = true
+    hook(h)
+    h.res = null
+    h.vals.release()
+
+// The collector's backstop for `h`, a handle nothing reaches: its kind's `forgotten` hook where it has
+// one, and otherwise exactly what `close()` would have done.
+forget_handle(h: *HandleObj)
+    current().handle_kinds.at(usize(h.kind)).forgotten match
+        Some(hook) -> retire_handle(h, hook)
+        None -> close_handle(h)
 
 // Argument `i` of a method or builtin, which must be an open handle of kind `kind`.
 open_handle(base: usize, i: usize, kind: u32, what: string) -> Result[*HandleObj, Fault]

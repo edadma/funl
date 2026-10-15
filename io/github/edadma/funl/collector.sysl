@@ -79,11 +79,11 @@ trace_handle(p: *u8, h: *gc.Heap)
     mark_values(h, o.vals)
 
 // The backstop for a handle the program never closed: its kind's release hook gives the resource
-// back, exactly as `close()` would have.
+// back, exactly as `close()` would have, unless the kind says a forgotten handle gives back less.
 finalize_handle(p: *u8)
     val o: *HandleObj = ptr_cast(p)
 
-    close_handle(o)
+    forget_handle(o)
 
 // A promise keeps alive what it was kept with, or the ball its fault threw. The machines waiting
 // for it are parked, and `roots` walks those.

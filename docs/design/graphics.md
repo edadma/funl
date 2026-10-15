@@ -54,90 +54,42 @@ These are reported to the org, not routed around ([Rule 9](#closed-by-design)):
 - **F3 — plutovg writes PNG only** (`write_png`; JPEG output is listed as not bound). Icon's
   `WriteImage` writes GIF, and on some builds JPEG and PNG. PNG is enough for parity of capability
   (see [G8](#images)); the finding is recorded so the gap is known, not because FunL waits on it.
+- **F4 — plutovg cannot write a PNG into memory.** `plutovg_surface_write_to_png_stream` (and its
+  JPEG twin) take a `plutovg_write_func_t` callback and a closure, and are in the vendored header and
+  absent from `plutovg.sysl`, whose only PNG writer is `write_png(path)`. `image_bytes` waits on it;
+  writing a scratch file and reading it back would be the workaround [Rule 9](#closed-by-design)
+  forbids.
 
 ## The window
 
-**A window is a `Handle` of kind `window`** — the [decided](modules.md#questions-decided) handle:
-a `gc` object, a per-kind method table, `close()`, a finalizer as backstop. Like the SQLite
-database, **everything is a method on it**:
+**The window handle, its canvas and context, `open` with `canvas: #hidden`, `clone`, `couple`,
+`close`, `uncouple`, the attribute map and colour specifications are built** — see the library page,
+[`funl:graphics`](../library/graphics.md). What remains of this section is for the later items.
 
-```
-import { open } from funl:graphics
-
-w = open( "hello", {size: (400, 300), fg: "dark blue"} )
-w.draw_line( 10, 10, 390, 290 )
-w.fill_circle( 200, 150, 60 )
-w.draw_string( 20, 280, "press a key" )
-w.event()
-w.close()
-```
-
-**Icon's window value is two things: a canvas and a graphics context**, and FunL keeps the split
-because `Clone` and `Couple` are defined by it:
-
-- **the canvas** is the drawing surface (a plutovg surface), and when it is on screen the SDL window
-  and texture it is shown through, its event queue, its size, title, position, the text cursor's
-  row and column, and the pointer;
-- **the context** is how drawing is done: `fg`, `bg`, `font`, `linewidth`, `linestyle`,
-  `fillstyle`, `pattern`, `drawop`, the clip rectangle, the origin `dx`/`dy`, `reverse`, `leading`.
-
-A `window` handle holds one of each. **`w.clone(attrs)` is `Clone`**: a new handle on the same
-canvas with a copy of the context, `attrs` applied to the copy. **`couple(w1, w2)` is `Couple`**:
-a new handle on `w1`'s canvas with `w2`'s context, shared, so a change through either is seen by
-both.
-
-**Methods, not functions taking the window, and no implicit window** ([G1](#the-questions-collected)).
-Icon's functions take an optional first argument defaulting to `&window`; FunL's handle rule makes the
-window the receiver, which is as short as Icon's explicit form and shorter than its implicit one is
-clear. **`&window` is kept** (keywords are [I18](language.md#icon-parity)'s `&name`): assignable, set by
+**`&window` is kept** (keywords are [I18](language.md#icon-parity)'s `&name`): assignable, set by
 `open` to the window it makes, failing when no window is open, so a helper procedure can draw on "the
 current window" as Icon's do — `&window.draw_line(…)`.
 
-**`close()` is Icon's `WClose`**: the canvas goes, and every handle on it is closed with it — a
-clone's or a couple's later call faults with `existence_error(handle, H)`, as any closed handle's
-does. **`w.uncouple()` is `Uncouple`**: this handle alone is closed, and the canvas closes when its
-last handle does. The kind's release function, which `close()` and the finalizer already call, does
-the first; the finalizer of a forgotten handle does the second ([G2](#the-questions-collected)).
+**Setting `canvas: #normal` later shows a hidden canvas**, in a build that has windows (item 7); today
+it faults, as opening one does.
 
-### Opening
+### The attributes still to come
 
-`open(title, attrs)` answers a window; `attrs` is an optional map. It **fails** where Icon's
-`open(…, "g")` fails — a display that cannot be reached, a font or colour in `attrs` that does not
-exist — since each is "no such thing" ([the failure rule](modules.md#questions-decided)). Icon's mode
-letter `"g"` is not needed: the module's `open` only opens windows, and files stay
-[`funl:fs`'s `open`](icon.md#input-and-output).
+The map, its failures and its faults are built, with the attributes whose meaning needs nothing from
+a later item. **Each later item adds its own attributes to the same table**, with Icon's meaning and
+values in the form the library page gives (numbers `Int`, pairs tuples, `on`/`off` booleans,
+enumerations symbols, the rest strings):
 
-**`canvas: #hidden` opens a canvas with no window on screen** — Icon's own attribute value, given its
-full meaning: a hidden canvas is drawn on, read back with `pixel`, written with `write_image`, and
-takes events put on its queue with `enqueue`, and it needs no SDL, no display and no logged-in
-console. It is what the tests use ([below](#testing-without-a-screen)). Setting `canvas: #normal`
-later shows it, in a build that has windows.
+| attribute | item |
+|---|---|
+| `pattern` (Icon's pattern specifications, and its failure) | 2, drawing |
+| `image` (a file loaded at open, the canvas sized to it) | 4, images |
+| `font`, `leading`, `x`, `y`, `row`, `col`; read-only `ascent`, `descent`, `fheight`, `fwidth` | 5, fonts and text |
+| `cursor`, `echo`, `inputmask` | 6, events |
+| `pos`, `posx`, `posy`, `pointer`, `pointerx`, `pointery`; read-only `displaywidth`, `displayheight` | 7, windows on screen |
 
-### Attributes are a map
-
-Icon reads and sets attributes with strings, `WAttrib(w, "fg=red", "linewidth")`. **FunL uses a
-map, with natural values** ([G3](#the-questions-collected)):
-
-```
-w.set( {fg: "red", linewidth: 3, linestyle: #dashed} )
-w.get( "linewidth" )                   -- 3
-w.attributes()                         -- an immutable map of every attribute
-```
-
-- **`set(m)`** applies every entry and answers the window; it **fails** on a value Icon's `WAttrib`
-  would fail on (an unknown colour or font, a size the display refuses) with nothing applied, and
-  **faults** on a key that is no attribute, `domain_error(window_attribute, K)`, or on a read-only
-  one, `permission_error(modify, window_attribute, K)`.
-- **`get(name)`** answers one value; **`attributes()`** a snapshot of all.
-- **Values**: numbers are `Int`; a pair Icon writes `"400,300"` is a tuple `(400, 300)`; `on`/`off`
-  are `true`/`false`; an enumeration is a symbol (`#dashed`, `#hidden`, `#reverse`); a colour, a
-  font, a title, a pattern and a file name are strings.
-
-| attribute | | Icon's |
-|---|---|---|
-| canvas | `size`, `width`, `height`, `pos`, `posx`, `posy`, `label` (the title), `canvas` (`#normal`, `#hidden`, `#maximal`, `#iconic`), `resize`, `image` (a file loaded at open), `pointer`, `pointerx`, `pointery`, `x`, `y`, `row`, `col` (the text cursor), `cursor`, `echo`, `inputmask` | as Icon has them |
-| context | `fg`, `bg`, `reverse`, `font`, `linewidth`, `linestyle` (`#solid`, `#dashed`, `#striped`), `fillstyle` (`#solid`, `#textured`, `#masked`), `pattern`, `drawop` (`#copy`, `#reverse`), `clipx`, `clipy`, `clipw`, `cliph`, `dx`, `dy`, `leading` | as Icon has them |
-| read-only | `ascent`, `descent`, `fheight`, `fwidth`, `depth`, `displaywidth`, `displayheight`, `density` | `density` is FunL's ([G6](#coordinates)) |
+**The default size, 80 columns by 12 lines of the default font, is 480 by 156 until item 5** carries
+`"fixed"`; item 5 computes it from that face's metrics, as Icon's `wopen` does.
 
 Not adopted: `display` (an X server's name), `gamma`, `iconpos`, `iconlabel`, `iconimage`,
 `windowlabel` separate from `label` — they describe X11, and SDL has no meaning for them.
@@ -164,7 +116,6 @@ or a spread passes a computed list.
 | `CopyArea(w1, w2, x, y, wd, ht, x2, y2)` | `w1.copy_area(w2, x, y, wd, ht, x2, y2)` — `w2` may be `w1`, and an overlapping copy is done through a scratch surface |
 | `Clip(x, y, wd, ht)`, `Clip()` | `w.clip(x, y, wd, ht)`, `w.clip()` — also the `clip*` attributes |
 | `Fg(s)`, `Bg(s)`, `Font(s)`, `Pattern(s)`, `DrawOp(s)` | the attributes; `w.set({fg: s})` |
-| `Pixel(x, y, wd, ht)` | `w.pixel(x, y, wd, ht)` — a generator of colours, row by row, as Icon's |
 | `TextWidth(s)` | `w.text_width(s)` |
 | `Raise()`, `Lower()` | `w.raise()`, `w.lower()` |
 | `WDefault(prog, opt)` | not adopted: X resources ([out of scope](#out-of-scope)) |
@@ -203,12 +154,10 @@ reads is the same on every machine.
 
 ### Colours
 
-**A colour is Icon's colour specification, a string**: a name with Icon's modifiers (`"red"`,
-`"light blue"`, `"very dark greenish gray"`), `"#rgb"`, `"#rrggbb"`, `"#rrrrggggbbbb"`, or
-`"r,g,b"` with components 0 to 65535. **`color_value(s)` normalises** to the `"r,g,b"` form, as
-Icon's `ColorValue` does, and fails on a string that is no colour. `pixel` generates colours in that
-same form, so a test compares strings. Icon's `"transparent"` and `"opaque"` modifiers are taken for
-`fg` (painting at half and full coverage being what a 24-bit display can show of them); the window
+**Colour specifications, `color_value` and `pixel` are built** ([the library
+page](../library/graphics.md#colours)). Icon's `"transparent"` and `"opaque"` modifiers are taken for
+`fg` (painting at half and full coverage being what a 24-bit display can show of them), which is
+drawing's, item 2: today `fg` refuses them as it refuses any string that is no colour. The window
 itself has no alpha.
 
 **Palettes are module functions**: `palette_chars(p)`, `palette_color(p, s)`, `palette_key(p, c)`,
@@ -259,7 +208,7 @@ image to an Icon palette, is not adopted: it exists for colour-mapped displays.
 
 **`w.image_bytes(x, y, wd, ht)`** answers the same PNG as a [`Bytes`](modules.md#questions-decided)
 value without a file — a FunL addition, small, and what a test or a program sending an image over
-`funl:http` wants.
+`funl:http` wants. **It waits on F4**: plutovg's binding cannot yet encode a PNG into memory.
 
 ## Events
 
@@ -389,18 +338,18 @@ able to test every facility with no window on screen, and it can:
 
 | | question | recommendation |
 |---|---|---|
-| G1 | methods on the window, or functions taking it (with an implicit `&window`) | methods, as every handle has; `&window` kept as an assignable keyword, no implicit-window function forms |
-| G2 | what `close()` closes | the canvas, as `WClose`, closing every handle on it; `uncouple()` closes only the one |
-| G3 | how attributes are read and set | a map with natural values: `set(m)`, `get(name)`, `attributes()`; no `"name=value"` strings |
+| G1 | methods on the window, or functions taking it (with an implicit `&window`) | **Decided (user, 2026-10-15)**: methods, as every handle has; `&window` kept as an assignable keyword, no implicit-window function forms |
+| G2 | what `close()` closes | **Decided (user, 2026-10-15)**: the canvas, as `WClose`, closing every handle on it; `uncouple()` closes only the one |
+| G3 | how attributes are read and set | **Decided (user, 2026-10-15)**: a map with natural values: `set(m)`, `get(name)`, `attributes()`; no `"name=value"` strings |
 | G4 | the default font | a permissively licensed monospaced face carried in the binary as `"fixed"`, so text is the same everywhere and in tests |
 | G5 | anti-aliasing | accept plutovg's; integer coordinates drawn through pixel centres so points, axis lines and rectangles are pixel-exact |
-| G6 | coordinates on a high-density screen | points, with the surface at `density` times the pixels; a hidden canvas always density 1 |
+| G6 | coordinates on a high-density screen | **Decided (user, 2026-10-15)**: points, with the surface at `density` times the pixels; a hidden canvas always density 1 |
 | G7 | `drawop: #reverse` | built, as a coverage mask exclusive-ored into the pixels, not anti-aliased |
 | G8 | image formats | read what stb_image reads; write PNG only, refusing another extension |
 | G9 | key releases | reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
 | G10 | whose are `&x`, `&y`, `&control`, … | the running machine's (each task its own), set by `event()` |
 | G11 | the promise form of `Event()` | a method, `w.next_event()`, answering a promise of an event map; it sets no keywords |
-| G12 | module and feature | one module, `funl:graphics`, in the core over vendored plutovg (hidden canvases work in every build); on-screen windows behind a `graphics` feature over `sdl3`, on in `default`; without it, opening a visible window faults naming the feature |
+| G12 | module and feature | **Decided (user, 2026-10-15)**: one module, `funl:graphics`, in the core over vendored plutovg (hidden canvases work in every build); on-screen windows behind a `graphics` feature over `sdl3`, on in `default`; without it, opening a visible window faults naming the feature |
 
 **G12 in full.** plutovg's C is vendored and links nothing, so the drawing half costs no link line
 and can be in the core, where `--no-default-features` builds and tests it. SDL3 is not on every

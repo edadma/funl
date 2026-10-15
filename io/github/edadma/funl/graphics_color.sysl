@@ -1,0 +1,338 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text as text
+
+// `funl:graphics`'s colours: Icon's colour specifications read into components from 0 to 65535.
+//
+// **A specification is one of four forms**, tried in Icon's order: three numbers `"r,g,b"`, each 0 to
+// 65535; `#` and three, six, nine or twelve hexadecimal digits, one to four per component; or a colour
+// phrase, `"very dark greenish gray"`. A string that is none of them is no colour, and every caller
+// fails on it.
+//
+// **The phrase is Icon's grammar and Icon's arithmetic**, so a name gives the numbers Icon's
+// `ColorValue` does:
+//
+//     [[very] lightness] [saturation] [hue[ish]] hue
+//
+// with the lightness `pale`, `light`, `medium`, `dark` or `deep` (`pale` is very light and `deep` very
+// dark), the saturation `weak`, `moderate`, `strong` or `vivid`, and the hues in `Hues`. Words are
+// separated by one space or one hyphen, in any case. The named hues are points in hue, lightness and
+// saturation; two hue words blend them, half and half for `"red orange"` and a quarter of the first
+// for `"reddish orange"`; the modifiers then move lightness and scale saturation, and the result is
+// converted to red, green and blue. The arithmetic is single precision where Icon's is, so the last
+// unit of a component agrees.
+
+// A colour: red, green and blue, each from 0 to 65535.
+struct Rgb
+    r: long
+    g: long
+    b: long
+
+// A named hue: its word, its `-ish` form, and where it stands in hue (degrees), lightness and
+// saturation (percent).
+private struct Hue
+    name: string
+    ish: string
+    hue: long
+    lgt: long
+    sat: long
+
+private val Hues: [15]Hue = [
+    Hue("black", "blackish", 0, 0, 0),
+    Hue("blue", "bluish", 240, 50, 100),
+    Hue("brown", "brownish", 30, 25, 100),
+    Hue("cyan", "cyanish", 180, 50, 100),
+    Hue("gray", "grayish", 0, 50, 0),
+    Hue("green", "greenish", 120, 50, 100),
+    Hue("grey", "greyish", 0, 50, 0),
+    Hue("magenta", "magentaish", 300, 50, 100),
+    Hue("orange", "orangish", 15, 50, 100),
+    Hue("pink", "pinkish", 345, 75, 100),
+    Hue("purple", "purplish", 270, 50, 100),
+    Hue("red", "reddish", 0, 50, 100),
+    Hue("violet", "violetish", 270, 75, 100),
+    Hue("white", "whitish", 0, 100, 0),
+    Hue("yellow", "yellowish", 60, 50, 100)]
+
+// The colour specification `spec` names, or `None` when it names none.
+parse_color(spec: string) -> Option[Rgb]
+    var from: usize = 0
+
+    while from < spec.bytes.len && is_blank(spec.bytes[from])
+        from += 1
+
+    val s = spec[from..<spec.bytes.len]
+
+    numbered(s) match
+        Some(x) -> return x
+        None -> ()
+
+    if s.bytes.len > 0 && s.bytes[0] == u8('#') then return hexadecimal(s[1..<s.bytes.len])
+
+    phrase(s)
+
+// The normal form of colour `c`, `"r,g,b"`, which `color_value` and `pixel` answer.
+color_text(c: Rgb) -> string = s"${c.r},${c.g},${c.b}"
+
+private is_blank(b: u8) -> bool = b == u8(' ') || b == u8('\t') || b == u8('\n') || b == u8('\r') || b == 12 || b == 11
+
+private is_digit(b: u8) -> bool = b >= u8('0') && b <= u8('9')
+
+// -- "r,g,b" -------------------------------------------------------------------------------------------
+
+// `Some` when `s` has the shape of three numbers separated by commas -- the colour they make, or
+// `None` inside when one is out of range -- and `None` when it has some other shape. Each number may
+// have blanks before it and a fraction, which is dropped; nothing may follow the third.
+private numbered(s: string) -> Option[Option[Rgb]]
+    var parts: Buf[real] = buf()
+    var i: usize = 0
+
+    for k in 0..<3
+        while i < s.bytes.len && is_blank(s.bytes[i])
+            i += 1
+
+        val (x, next) = number_at(s, i) match
+            Some(found) -> found
+            None -> return None
+
+        parts.push(x)
+        i = next
+
+        if k < 2
+            if i >= s.bytes.len || s.bytes[i] != u8(',') then return None
+            i += 1
+
+    if i != s.bytes.len then return None
+
+    for x in parts.view()
+        if x < 0.0 || x > 65535.0 then return Some(None)
+
+    Some(Some(Rgb(long(parts.at(0)), long(parts.at(1)), long(parts.at(2)))))
+
+// The decimal number at `i` of `s`, an optional sign, digits and a fraction, and where it ends.
+private number_at(s: string, at: usize) -> Option[(real, usize)]
+    var i = at
+    var negative = false
+
+    if i < s.bytes.len && (s.bytes[i] == u8('+') || s.bytes[i] == u8('-'))
+        negative = s.bytes[i] == u8('-')
+        i += 1
+
+    var x = 0.0
+    var digits = 0
+
+    while i < s.bytes.len && is_digit(s.bytes[i])
+        x = x * 10.0 + real(s.bytes[i] - u8('0'))
+        digits += 1
+        i += 1
+
+    if i < s.bytes.len && s.bytes[i] == u8('.')
+        i += 1
+
+        var scale = 0.1
+
+        while i < s.bytes.len && is_digit(s.bytes[i])
+            x += scale * real(s.bytes[i] - u8('0'))
+            scale /= 10.0
+            digits += 1
+            i += 1
+
+    if digits == 0 then return None
+
+    Some((if negative then -x else x, i))
+
+// -- "#rrggbb" -----------------------------------------------------------------------------------------
+
+// The colour of the hexadecimal digits `s`: three, six, nine or twelve of them, a third per component,
+// scaled to 16 bits as Icon scales them.
+private hexadecimal(s: string) -> Option[Rgb]
+    val n = s.bytes.len
+    val each = n / 3
+
+    val mul: long = n match
+        3 -> 0x1111
+        6 -> 0x0101
+        9 -> 0x0010
+        12 -> 0x0001
+        _ -> return None
+
+    var c: [3]long = [0, 0, 0]
+
+    for k in 0..<3
+        for i in usize(k) * each..<usize(k + 1) * each
+            val d = hex_digit(s.bytes[i]) match
+                Some(d) -> d
+                None -> return None
+
+            c[k] = c[k] * 16 + d
+
+    Some(Rgb(c[0] * mul, c[1] * mul, c[2] * mul))
+
+private hex_digit(b: u8) -> Option[long]
+    if is_digit(b) then return Some(long(b - u8('0')))
+    if b >= u8('a') && b <= u8('f') then return Some(long(b - u8('a')) + 10)
+    if b >= u8('A') && b <= u8('F') then return Some(long(b - u8('A')) + 10)
+    None
+
+// -- the phrase ----------------------------------------------------------------------------------------
+
+// The words of phrase `s`, lowered, split at every space and hyphen: two separators together make an
+// empty word, which is no word of the grammar, as Icon has it.
+private words_of(spec: string) -> Buf[string]
+    var end = spec.bytes.len
+
+    while end > 0 && is_blank(spec.bytes[end - 1])
+        end -= 1
+
+    val s = text.to_lower(spec[0..<end])
+    var out: Buf[string] = buf()
+    var from: usize = 0
+
+    for i in 0..<s.bytes.len
+        if s.bytes[i] == u8(' ') || s.bytes[i] == u8('-')
+            out.push(s[from..<i])
+            from = i + 1
+
+    out.push(s[from..<s.bytes.len])
+    out
+
+private hue_named(w: string) -> Option[Hue]
+    for h in Hues
+        if h.name == w then return Some(h)
+
+    None
+
+private hue_ish(w: string) -> Option[Hue]
+    for h in Hues
+        if h.ish == w then return Some(h)
+
+    None
+
+private lightness(w: string) -> Option[long] = w match
+    "dark" -> Some(0)
+    "deep" -> Some(0)
+    "light" -> Some(100)
+    "medium" -> Some(50)
+    "pale" -> Some(100)
+    _ -> None
+
+private saturation(w: string) -> Option[long] = w match
+    "moderate" -> Some(50)
+    "strong" -> Some(75)
+    "vivid" -> Some(100)
+    "weak" -> Some(25)
+    _ -> None
+
+// The colour of Icon colour phrase `s`.
+private phrase(s: string) -> Option[Rgb]
+    val words = words_of(s)
+    val n = words.len()
+    var i: usize = 0
+    var very = false
+    var lgt: f32 = -1.0
+    var sat: f32 = 1.0
+
+    if words.at(0) == "very"
+        very = true
+        i += 1
+        if i >= n then return None
+
+    lightness(words.at(i)) match
+        Some(l) ->
+            if words.at(i) == "pale" || words.at(i) == "deep" then very = true
+            i += 1
+            if i >= n then return None
+            if l != 50 then lgt = f32(l) / 100.0
+        None -> if very then return None
+
+    saturation(words.at(i)) match
+        Some(v) ->
+            sat = f32(v) / 100.0
+            i += 1
+            if i >= n then return None
+        None -> ()
+
+    var blend: f32 = 0.0
+    var h1: f32 = 0.0
+    var l1: f32 = 0.0
+    var s1: f32 = 0.0
+
+    if i + 1 < n
+        val (first, weight) = hue_named(words.at(i)) match
+            Some(h) -> (h, f32(0.5))
+            None ->
+                hue_ish(words.at(i)) match
+                    Some(h) -> (h, f32(0.25))
+                    None -> return None
+
+        blend = weight
+        h1 = f32(first.hue)
+        l1 = f32(first.lgt) / 100.0
+        s1 = f32(first.sat) / 100.0
+        i += 1
+
+    if i + 1 != n then return None
+
+    val second = hue_named(words.at(i)) match
+        Some(h) -> h
+        None -> return None
+
+    var h2 = f32(second.hue)
+    var l2 = f32(second.lgt) / 100.0
+    var s2 = f32(second.sat) / 100.0
+
+    if blend > 0.0
+        val bl2 = 1.0 - blend
+
+        if s1 == 0.0
+            ()
+        else if s2 == 0.0
+            h2 = h1
+        else if h2 - h1 > 180.0
+            h2 = blend * h1 + bl2 * (h2 - 360.0)
+        else if h1 - h2 > 180.0
+            h2 = blend * (h1 - 360.0) + bl2 * h2
+        else
+            h2 = blend * h1 + bl2 * h2
+
+        if h2 < 0.0 then h2 += 360.0
+
+        l2 = blend * l1 + bl2 * l2
+        s2 = blend * s1 + bl2 * s2
+
+    // Icon divides by the double `3.0`, so these two are computed wide and stored narrow.
+    if lgt >= 0.0
+        l2 = if very then f32((2.0 * f64(lgt) + f64(l2)) / 3.0) else f32((f64(lgt) + 2.0 * f64(l2)) / 3.0)
+
+    s2 *= sat
+
+    var r2 = l2
+    var g2 = l2
+    var b2 = l2
+
+    if s2 != 0.0
+        val m2 = if l2 < 0.5 then l2 * (1.0 + s2) else l2 + s2 - l2 * s2
+        val m1 = 2.0 * l2 - m2
+
+        r2 = f32(hls_value(f64(m1), f64(m2), f64(h2) + 120.0))
+        g2 = f32(hls_value(f64(m1), f64(m2), f64(h2)))
+        b2 = f32(hls_value(f64(m1), f64(m2), f64(h2) - 120.0))
+
+    Some(Rgb(long(65535.0 * r2), long(65535.0 * g2), long(65535.0 * b2)))
+end phrase
+
+// One component of a colour given in hue, lightness and saturation (Foley and van Dam, first
+// edition, p. 619), as Icon's `rgbval` computes it.
+private hls_value(n1: f64, n2: f64, at: f64) -> f64
+    var hue = at
+
+    if hue > 360.0
+        hue -= 360.0
+    else if hue < 0.0
+        hue += 360.0
+
+    if hue < 60.0 then return n1 + (n2 - n1) * hue / 60.0
+    if hue < 180.0 then return n2
+    if hue < 240.0 then return n1 + (n2 - n1) * (240.0 - hue) / 60.0
+    n1
