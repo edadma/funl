@@ -8,7 +8,8 @@ import sh.sysl.plutovg as pv
 // `funl:graphics`'s text and fonts (`docs/library/graphics.md`): the font a context draws with, its
 // metrics, `text_width`, `draw_string`, and the window as a text terminal -- a cursor moved by
 // `goto_rc` and `goto_xy`, written at by `write` and `writes`, scrolling the canvas when a line
-// passes its bottom.
+// passes its bottom, and read from by `read` and `reads`, which take keys off the event queue and echo
+// them at the cursor.
 //
 // **A font is Icon's specification, `"family,style,…,size"`**, and a face is found for it in one
 // plutovg font-face cache: `"fixed"` is the face carried in this binary, the generic families
@@ -79,6 +80,8 @@ install_text(v: *Vm, w: u32)
     register_method(v, w, "goto_xy", Variadic, do_goto_xy)
     register_method(v, w, "write", Variadic, (b, n) -> put(b, n, "write"))
     register_method(v, w, "writes", Variadic, (b, n) -> put(b, n, "writes"))
+    register_method(v, w, "read", 0, (b, n) -> read_keys(b, 0, "read"))
+    register_method(v, w, "reads", 1, do_reads)
 
 // -- faces -----------------------------------------------------------------------------------------
 
@@ -289,10 +292,9 @@ private int_arg(base: usize, i: usize, name: string) -> Result[long, Fault]
 
 // The canvas of `c` ready to draw text in `ctx`: its state saved, the clip rectangle applied and the
 // face chosen. `restore()` on the canvas ends it.
-private begun(c: WinCanvas, ctx: WinContext, f: Face) -> &pv.Canvas = begun_on(c.drawn, ctx, f)
+private begun(c: WinCanvas, ctx: WinContext, f: Face) -> &pv.Canvas
+    val d = c.drawn
 
-// Plutovg canvas `d` ready to draw text in `ctx`, as `begun` makes a window's.
-private begun_on(d: &pv.Canvas, ctx: WinContext, f: Face) -> &pv.Canvas
     d.save()
 
     if ctx.clipw >= 0 && ctx.cliph >= 0
@@ -304,9 +306,19 @@ private begun_on(d: &pv.Canvas, ctx: WinContext, f: Face) -> &pv.Canvas
 
 private painted_in(d: &pv.Canvas, c: Rgb) = d.rgb(channel(c.r), channel(c.g), channel(c.b))
 
-// The foreground, at the coverage its specification asks for: a half for a `"transparent"` one.
-private inked(d: &pv.Canvas, ctx: WinContext) =
-    d.rgba(channel(ctx.fg_rgb.r), channel(ctx.fg_rgb.g), channel(ctx.fg_rgb.b), ctx.fg_alpha)
+// The terminal's ink, at the coverage the foreground's specification asks for -- a half for a
+// `"transparent"` one. It is X's GC foreground, which `XDrawImageString` paints with whatever the
+// drawing operation: the foreground, and under `drawop: #reverse`, where Icon sets that pixel to
+// `fg ^ bg`, the foreground exclusive-ored with the background.
+private inked(d: &pv.Canvas, ctx: WinContext)
+    if !is_reversing(ctx)
+        d.rgba(channel(ctx.fg_rgb.r), channel(ctx.fg_rgb.g), channel(ctx.fg_rgb.b), ctx.fg_alpha)
+        return
+
+    d.rgba(xored(ctx.fg_rgb.r, ctx.bg_rgb.r), xored(ctx.fg_rgb.g, ctx.bg_rgb.g), xored(ctx.fg_rgb.b, ctx.bg_rgb.b), ctx.fg_alpha)
+
+// The eight-bit components of `a` and `b` exclusive-ored, as a channel.
+private xored(a: long, b: long) -> f32 = f32(long(eight_bit(a) ^ eight_bit(b))) / 255.0
 
 // `w.text_width(s)`: how far `s` would advance in the window's font, in whole pixels.
 private do_text_width(base: usize, argc: usize) -> Result[Option[Value], Fault]
@@ -318,11 +330,11 @@ private do_text_width(base: usize, argc: usize) -> Result[Option[Value], Fault]
     d.set_font(f.font, f.size)
     Ok(Some(Int(rounded(d.text_extents(s).advance))))
 
-// `w.draw_string(x, y, s, …)`: each string drawn in the foreground colour with its baseline starting
-// at `(x, y)`, moved by the origin; only the glyphs are painted, and the cursor stays where it was.
-// Every argument is checked before anything is drawn. Answers the window. Under `drawop: #reverse`
-// the glyphs are drawn onto a coverage mask and exclusive-ored into the canvas, so drawing the same
-// strings again restores it.
+// `w.draw_string(x, y, s, …)`: each string drawn with its baseline starting at `(x, y)`, moved by the
+// origin; only the glyphs are painted, and the cursor stays where it was. Every argument is checked
+// before anything is drawn. Answers the window. The glyphs are painted as every drawing is, as X's
+// `XDrawString` paints them under the GC: in the fill style and pattern, and under `drawop: #reverse`
+// onto a coverage mask exclusive-ored into the canvas, so drawing the same strings again restores it.
 private do_draw_string(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val given = argc - 1
 
@@ -336,34 +348,20 @@ private do_draw_string(base: usize, argc: usize) -> Result[Option[Value], Fault]
         int_arg(base, 2 + 3 * i, "draw_string")?
         text_arg(base, 3 + 3 * i, "draw_string")?
 
-    val c = canvas_at(w.at)
-    val ctx = context_at(w.ctx)
-    var mask: Option[&pv.Surface] = None
-    var d = c.drawn
+    val pen = began(w)?
+    val ctx = pen.ctx
+    val f = face_at(ctx.face)
 
-    if is_reversing(ctx)
-        val (s, m) = reverse_mask(c)?
-
-        d = m
-        mask = Some(s)
-
-    begun_on(d, ctx, face_at(ctx.face))
-
-    if mask.is_some() then d.rgb(1.0, 1.0, 1.0) else inked(d, ctx)
+    pen.d.set_font(f.font, f.size)
+    painted(pen)
 
     for i in 0..<given / 3
         val x = int_arg(base, 1 + 3 * i, "draw_string")? + ctx.dx
         val y = int_arg(base, 2 + 3 * i, "draw_string")? + ctx.dy
 
-        d.fill_text(text_arg(base, 3 + 3 * i, "draw_string")?, f32(x), f32(y))
+        pen.d.fill_text(text_arg(base, 3 + 3 * i, "draw_string")?, f32(x), f32(y))
 
-    d.restore()
-
-    mask match
-        Some(s) -> exclusive_ored(c, ctx, s)
-        None -> ()
-
-    Ok(Some(Handle(w.h)))
+    finished(pen)
 
 // -- the text cursor -------------------------------------------------------------------------------
 
@@ -485,3 +483,126 @@ private scrolled(c: WinCanvas, ctx: WinContext, n: long)
     painted_in(d, ctx.bg_rgb)
     d.fill()
     d.restore()
+
+// -- reading from the window -----------------------------------------------------------------------
+
+// A key `read` or `reads` has kept: its text, where the cursor was before its echo, and the stretch of
+// line the echo was on -- counted up at each line break and carriage return the echo makes, so a
+// rub-out erases only what is still on the cursor's line.
+private struct Kept
+    s: string
+    x: long
+    stretch: long
+
+// Whether `key` rubs out the key before it: backspace or delete.
+private is_rubout(key: string) -> bool = key.bytes.len == 1 && (key.bytes[0] == 8 || key.bytes[0] == 127)
+
+private is_line_end(key: string) -> bool = key == "\n" || key == "\r"
+
+// Whether `w`'s queue holds the keys that finish a read: a line's end for `read` (`n` 0), `n`
+// characters left after the rub-outs for `reads`.
+private finishes(w: Win, n: long) -> bool
+    val q = canvas_at(w.at).queue
+    var l: long = 0
+
+    for i in 0..<q.len()
+        val ev = q.at(i)
+
+        if typed_key(ev)
+            if is_rubout(ev.key)
+                if l > 0 then l -= 1
+            else if n == 0 && is_line_end(ev.key)
+                return true
+            else
+                l += 1
+
+                if n > 0 && l == n then return true
+
+    false
+
+// `w.reads(n)`: the next `n` characters typed in `w`, line ends included.
+private do_reads(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val x = deref(arg(base, 1))
+
+    val n = x match
+        Int(k) -> k
+        Var(_) -> return Err(instantiation_error("instantiation error: 'reads' was given an unbound variable"))
+        _ -> return Err(kind_error(x, "integer", s"'reads' wants an integer count and was given ${described(x)}"))
+
+    if n < 1 then return Err(domain_error("positive_integer", x, s"'reads' wants a count of at least 1 and was given $n"))
+
+    read_keys(base, n, "reads")
+
+// `w.read()` (`n` 0) and `w.reads(n)`, as Icon's `read(W)` and `reads(W, n)`: keys taken off `w`'s
+// queue, oldest first, each setting the event keywords as `event()` does, until a newline or carriage
+// return -- which ends `read`'s line and is not part of it -- or until `reads` has `n` characters.
+// Every other event, a key's release among them, is taken and passed over. Backspace and delete rub
+// out the character before them, if there is one. While `echo` is on, each key kept is written at the
+// cursor as `writes` writes it -- a carriage return as a carriage return and a newline -- and a
+// rub-out moves the cursor back over its character, painting its cell in the background colour, when
+// that character is still on the cursor's line. A window on screen is shown, and waited on whenever
+// its queue runs dry, so each key is echoed as it is typed. A hidden canvas's queue that cannot finish
+// the read faults, leaving the queue and the canvas as they were: a hidden canvas takes events only
+// from `enqueue`, which the program cannot call while it waits.
+private read_keys(base: usize, n: long, name: string) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, name)?
+
+    if !on_screen(w.at) && !finishes(w, n)
+        val wanted = if n == 0 then "a line's end" else s"$n characters"
+
+        return Err(system_error(s"'$name': the queue does not hold $wanted, and no more can come while the program waits: a hidden canvas takes events only from `enqueue`"))
+
+    val ctx = context_at(w.ctx)
+    var kept: Buf[Kept] = buf()
+    var stretch: long = 0
+
+    show_screens()
+
+    loop
+        if canvas_at(w.at).queue.is_empty() then wait_on_screens(() -> !canvas_at(w.at).queue.is_empty())
+
+        val ev = taken(w)
+
+        if typed_key(ev)
+            val k = ev.key
+            val c = canvas_at(w.at)
+
+            if is_rubout(k)
+                kept.pop() match
+                    Some(t) -> if c.echo && t.stretch == stretch && t.x < c.x then canvases.set(w.at, Some(rubbed(c, ctx, t.x)))
+                    None -> ()
+            else if n == 0 && is_line_end(k)
+                if c.echo then canvases.set(w.at, Some(typed(c, ctx, "\n")))
+
+                break
+            else
+                kept.push(Kept(k, c.x, stretch))
+
+                if c.echo
+                    canvases.set(w.at, Some(typed(c, ctx, if k == "\r" then "\r\n" else k)))
+
+                    if is_line_end(k) then stretch += 1
+
+                if long(kept.len()) == n then break
+
+    var out = str_builder()
+
+    for i in 0..<kept.len()
+        out.push(kept.at(i).s)
+
+    kept.release()
+    Ok(Some(new_str(out.finish())?))
+
+// Canvas `c` with its cursor moved back to `x` on its line, the cells between painted in the background
+// colour, as a rub-out echoes.
+private rubbed(cv: WinCanvas, ctx: WinContext, x: long) -> WinCanvas
+    var c = cv
+    val f = face_at(ctx.face)
+    val d = begun(c, ctx, f)
+
+    d.rect(f32(x), f32(c.y - f.ascent), f32(c.x - x), f32(f.height()))
+    painted_in(d, ctx.bg_rgb)
+    d.fill()
+    d.restore()
+    c.x = x
+    c

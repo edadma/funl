@@ -46,14 +46,10 @@ These are reported to the org, not routed around ([Rule 9](#closed-by-design)):
   once. kairos's `Driver` has one `idle_until`; a driver that waits on SDL with a timeout and takes in
   libuv's finished work through the inner driver's `poll` is generic machinery, and belongs in
   kairos (a driver wrapping another with an extra source) rather than privately in FunL.
-- **F3 — plutovg writes PNG only** (`write_png`; JPEG output is listed as not bound). Icon's
+- **F3 — plutovg writes PNG only** to a file (`write_png`; `jpg_bytes` encodes a JPEG in memory). Icon's
   `WriteImage` writes GIF, and on some builds JPEG and PNG. PNG is enough for parity of capability
-  (see [G8](#images)); the finding is recorded so the gap is known, not because FunL waits on it.
-- **F4 — plutovg cannot write a PNG into memory.** `plutovg_surface_write_to_png_stream` (and its
-  JPEG twin) take a `plutovg_write_func_t` callback and a closure, and are in the vendored header and
-  absent from `plutovg.sysl`, whose only PNG writer is `write_png(path)`. `image_bytes` waits on it;
-  writing a scratch file and reading it back would be the workaround [Rule 9](#closed-by-design)
-  forbids.
+  (see [G8](#the-questions-collected)); the finding is recorded so the gap is known, not because FunL
+  waits on it.
 - **F6 — SDL has no call that lowers a window.** `SDL_RaiseWindow` has no opposite in SDL3, so
   Icon's `Lower()` (`w.lower()` in the table below) is not built: whether FunL drops it or reaches
   each platform's own call is a question for the user.
@@ -71,13 +67,12 @@ items.
 ### The attributes still to come
 
 The map, its failures and its faults are built, with the attributes whose meaning needs nothing from
-a later item. **Each later item adds its own attributes to the same table**, with Icon's meaning and
+a later item. **Each later item added its own attributes to the same map**, with Icon's meaning and
 values in the form the library page gives (numbers `Int`, pairs tuples, `on`/`off` booleans,
-enumerations symbols, the rest strings):
+enumerations symbols, the rest strings).
 
-| attribute | item |
-|---|---|
-| `image` (a file loaded at open, the canvas sized to it) | 4, images |
+Every attribute that table named is now built: `image` with the images, the font's with the text,
+and the screen's with the windows on screen.
 
 `pointer` is read as item 7 built it, paired with `pointerx` and `pointery`: where the pointer is, as
 `pos` is where the window is. Icon's `pointer` -- the pointer's *shape* -- has no attribute here yet:
@@ -114,43 +109,14 @@ directly works in device pixels, `density` to the point, as `pixel`, `copy_area`
 
 **Colour specifications, `color_value` and `pixel` are built** ([the library
 page](../library/graphics.md#colours)), and so are `fg`'s `"transparent"` and `"opaque"` modifiers
-([painting styles](../library/graphics.md#painting-styles)). The window itself has no alpha.
-
-**Palettes are module functions**: `palette_chars(p)`, `palette_color(p, s)`, `palette_key(p, c)`,
-`palette_grays(p)` over Icon's `c1`–`c6` and `g2`–`g256`, written in FunL and carried as source
-([the native rule](modules.md#built-in-modules-funlname): only what FunL cannot do is native).
-
-**`NewColor`, `FreeColor` and `Color`** — mutable colour-map entries — answer as Icon's do on a
-true-colour display: `new_color` fails. Icon's book allows exactly this, and no display FunL runs on
-has a colour map.
+([painting styles](../library/graphics.md#painting-styles)), the palettes and `new_color`
+([palettes](../library/graphics.md#palettes)). The window itself has no alpha.
 
 ## Text and fonts
 
-**Fonts, their metrics, `draw_string` and the window as a text terminal are built** — see the library
-page, [`funl:graphics`](../library/graphics.md#text-and-fonts). What remains is the terminal's input:
-`w.read()` and `w.reads(n)` take keys from the event queue, echoing them at the cursor while `echo`
-is on, until a newline or `n` characters (item 6). With `w.write` and `w.writes` they are the stream
-methods [I17](icon.md#input-and-output) gives a file handle, so a procedure that writes to "a stream"
-writes to a window unchanged.
-
-## Images
-
-| Icon | FunL |
-|---|---|
-| `ReadImage(s, x, y, p)` | `w.read_image(file, x, y)` — draws the file at `x, y`; fails when the file is missing or not an image |
-| `WriteImage(s, x, y, wd, ht)` | `w.write_image(file, x, y, wd, ht)` — the rectangle (the whole canvas by default) as a PNG |
-| `DrawImage(x, y, spec)` | `w.draw_image(x, y, spec)` — Icon's image strings, `"wd,palette,data"` and the bi-level `"wd,#hex"` form, `~` transparent and `\377` as Icon has them |
-| `open(…, "image=f")` | the `image` attribute at open, sized to the image |
-
-**Reading takes what plutovg's stb_image takes**: PNG, JPEG, BMP, GIF (its first frame), TGA, PSD,
-HDR, PIC and PNM ([G8](#the-questions-collected)). **Writing is PNG** whatever the file is called; a
-name ending in another known image extension faults with `domain_error(image_format, Ext)` rather than
-writing PNG bytes under a misleading name (F3). `read_image`'s palette argument, which reduces an
-image to an Icon palette, is not adopted: it exists for colour-mapped displays.
-
-**`w.image_bytes(x, y, wd, ht)`** answers the same PNG as a [`Bytes`](modules.md#questions-decided)
-value without a file — a FunL addition, small, and what a test or a program sending an image over
-`funl:http` wants. **It waits on F4**: plutovg's binding cannot yet encode a PNG into memory.
+**Fonts, their metrics, `draw_string` and the window as a text terminal — `write`, `writes`, `read`
+and `reads` with `echo` — are built**; see the library page,
+[`funl:graphics`](../library/graphics.md#text-and-fonts).
 
 ## Events
 
@@ -216,7 +182,7 @@ loop and kairos run on; macOS refuses them from any other. FunL starts no thread
 | G5 | anti-aliasing | **Decided (user, 2026-10-15)**: accept plutovg's; integer coordinates stroked through pixel centres (filled shapes on the grid) so points, axis lines and rectangles are pixel-exact |
 | G6 | coordinates on a high-density screen | **Decided (user, 2026-10-15)**: points, with the surface at `density` times the pixels; a hidden canvas always density 1 |
 | G7 | `drawop: #reverse` | **Decided (user, 2026-10-15)**: a coverage mask exclusive-ored into the pixels, not anti-aliased |
-| G8 | image formats | read what stb_image reads; write PNG only, refusing another extension |
+| G8 | image formats | **Decided (user, 2026-10-15)**: read what stb_image reads; write PNG only, refusing another image format's extension with `domain_error(image_format, Ext)` |
 | G9 | key releases | **Decided (user, 2026-10-15)**: reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
 | G10 | whose are `&x`, `&y`, `&control`, … | **Decided (user, 2026-10-15)**: the running machine's (each task its own), set by `event()` |
 | G11 | the promise form of `Event()` | a method, `w.next_event()`, answering a promise of an event map; it sets no keywords |

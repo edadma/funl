@@ -179,7 +179,9 @@ what was held, and `&interval` the milliseconds since the window's event before.
 
 **`event()` on an empty queue waits for one** while its window is on screen, showing the canvases
 first, and so does `active()` when no window has an event; `pending()` shows them and takes in what
-has come before it counts.
+has come before it counts. **`read()` and `reads(n)` wait for keys the same way**, showing the
+canvases each time the queue runs dry, so each key's [echo](graphics.md#reading-from-a-window)
+appears as it is typed.
 
 ## Density
 

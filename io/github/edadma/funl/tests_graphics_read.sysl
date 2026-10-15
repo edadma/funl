@@ -1,0 +1,100 @@
+module io.github.edadma.funl
+@tests
+
+// `funl:graphics`'s reading from a window (`docs/library/graphics.md`, "Reading from a window"):
+// `read` and `reads` taking keys off a hidden canvas's queue, passing over every other event, rubbing
+// out with backspace and delete, echoing at the cursor while `echo` is on -- exactly the pixels
+// `writes` would have drawn -- and faulting, the queue untouched, when the queue cannot finish them.
+
+// FunL program `body` run with `w`, `v` and `b` hidden 60 by 26 canvases: `same()` says whether `w`'s
+// pixels are `v`'s, so that the echo drew what `v.writes` drew, and `ink(x)` counts the rows of `x` with
+// anything drawn in them. Each compares a row at a time, so the program's live data stays small enough
+// for the suite's heap that is collected at every step.
+private on_read(body: string) -> string =
+    ran_funl("import { open } from funl:graphics\n" +
+        "w = open( \"w\", {canvas: #hidden, size: (60, 26)} )\n" +
+        "v = open( \"v\", {canvas: #hidden, size: (60, 26)} )\n" +
+        "b = open( \"b\", {canvas: #hidden, size: (60, 26)} )\n" +
+        "def row( x, y ) = join( [p | p <- x.pixel(0, y, 60, 1)], \";\" )\n" +
+        "def same() = if [y | y <- 0..<26 if row(w, y) != row(v, y)].length == 0 then #same else #differ\n" +
+        "def ink( x ) = [y | y <- 0..<26 if row(x, y) != row(b, y)].length\n" +
+        "def keys( x, ks ) = for k <- ks do x.enqueue( k )\n" +
+        body)
+
+@test
+READ_TAKES_A_LINE_WITHOUT_ITS_END_AND_ECHOES_IT_AS_WRITES_WOULD()
+    assert_eq(on_read("keys( w, [\"h\", \"i\", \"\\r\", \"n\", \"o\", \"\\n\", \"z\"] )\n" +
+            "write( w.read(), w.get(\"row\"), w.get(\"col\") )\nwrite( w.read(), w.get(\"row\"), w.get(\"col\"), w.pending() )\n" +
+            "v.writes( \"hi\\nno\\n\" )\nwrite( same(), if ink(w) > 0 then #inked else #blank )\n"),
+        "hi, 2, 1\nno, 2, 1, 1\nsame, inked\nsucceeded")
+
+@test
+AN_EMPTY_LINE_READS_AS_THE_EMPTY_STRING()
+    assert_eq(on_read("keys( w, [\"\\r\", \"\\b\", \"\\n\"] )\nwrite( image(w.read()), image(w.read()), w.get(\"row\"), ink(w) )\n"),
+        "\"\", \"\", 2, 0\nsucceeded")
+
+@test
+BACKSPACE_AND_DELETE_RUB_OUT_THE_CHARACTER_BEFORE_THEM_AND_ITS_ECHO()
+    assert_eq(on_read("keys( w, [\"\\b\", \"a\", \"x\", \"\\b\", \"b\", \"y\", \"z\", \"\\x7f\", \"\\x7f\", \"c\", \"\\n\"] )\n" +
+            "write( w.read(), w.get(\"row\") )\nv.writes( \"abc\\n\" )\nwrite( same() )\n" +
+            "keys( w, [\"q\", \"r\", \"\\b\", \"\\b\", \"\\b\"] )\nw.enqueue( \"\\r\" )\nwrite( image(w.read()), w.get(\"col\") )\n" +
+            "v.writes( \"\\n\" )\nwrite( same() )\n"),
+        "abc, 2\nsame\n\"\", 1\nsame\nsucceeded")
+
+@test
+A_RUB_OUT_MOVES_THE_CURSOR_BACK_AND_PAINTS_THE_CELL_IN_THE_BACKGROUND()
+    assert_eq(on_read("w.set( {bg: \"red\"} )\nkeys( w, [\"a\", \"b\"] )\nw.reads( 2 )\nwrite( w.get(\"col\"), w.pixel(7, 0) )\n" +
+            "keys( w, [\"\\b\", \"c\"] )\nwrite( w.reads(1), w.get(\"col\") )\n" +
+            "keys( w, [\"d\", \"\\b\", \"\\b\"] )\nw.enqueue( \"\\r\" )\nw.read()\n" +
+            "write( w.get(\"row\"), [p | p <- w.pixel(18, 0, 6, 13) if p != \"65535,0,0\"].length, [p | p <- w.pixel(12, 0, 6, 13) if p != \"65535,0,0\"].length > 0 )\n"),
+        "3, 65535,0,0\nc, 4\n2, 0, 0\nsucceeded")
+
+@test
+READS_TAKES_N_CHARACTERS_LINE_ENDS_INCLUDED_AND_LEAVES_THE_REST()
+    assert_eq(on_read("keys( w, [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\"] )\nwrite( w.reads(4), w.get(\"col\"), w.pending() )\n" +
+            "write( w.reads(1), w.reads(1), w.pending() | #empty )\n" +
+            "keys( w, [\"x\", \"\\r\", \"y\", \"\\n\", \"z\"] )\nwrite( image(w.reads(4)), w.get(\"row\"), w.get(\"col\"), w.pending() )\n" +
+            "v.writes( \"abcdef\" )\nv.writes( \"x\\r\\ny\\n\" )\nwrite( same() )\n"),
+        "abcd, 5, 2\ne, f, empty\n\"x\\ry\\n\", 2, 1, 1\nsame\nsucceeded")
+
+@test
+A_RUB_OUT_PAST_A_LINE_BREAK_TAKES_THE_BREAK_AND_ERASES_NOTHING()
+    assert_eq(on_read("keys( w, [\"a\", \"\\n\", \"\\b\", \"\\b\", \"b\", \"c\", \"d\"] )\nwrite( w.reads(3), w.get(\"row\"), w.get(\"col\") )\n" +
+            "v.writes( \"a\\nbcd\" )\nwrite( same() )\n"),
+        "bcd, 2, 4\nsame\nsucceeded")
+
+@test
+WITH_ECHO_OFF_THE_KEYS_ARE_READ_AND_NOTHING_IS_DRAWN()
+    assert_eq(on_read("w.set( {echo: false} )\nkeys( w, [\"a\", \"x\", \"\\b\", \"b\", \"\\r\", \"c\", \"d\"] )\n" +
+            "write( w.read(), w.reads(2), w.get(\"row\"), w.get(\"col\"), ink(w) )\n"),
+        "ab, cd, 1, 1, 0\nsucceeded")
+
+@test
+EVERY_OTHER_EVENT_IS_PASSED_OVER_AND_SETS_THE_KEYWORDS_AS_EVENT_DOES()
+    assert_eq(on_read("w.set( {inputmask: \"mk\"} )\nw.enqueue( #lpress, 5, 6 )\nw.enqueue( \"a\", 7, 8, \"r\" )\nw.enqueue( #move, 1, 2 )\n" +
+            "w.enqueue( \"b\", 13, 14, \"c\", 9 )\nw.enqueue( #home )\nw.enqueue( \"c\", 20, 30, \"r\" )\n" +
+            "write( w.reads(1), &x, &y, &interval, if &control then #control else #plain, w.pending() )\n" +
+            "w.enqueue( \"\\n\", 3, 4 )\nwrite( image(w.read()), &x, &y, if &control then #control else #plain, if &released then #up else #down )\n" +
+            "v.writes( \"b\\n\" )\nwrite( same() )\n"),
+        "b, 13, 14, 9, control, 2\n\"\", 3, 4, plain, down\nsame\nsucceeded")
+
+@test
+A_QUEUE_THAT_CANNOT_FINISH_THE_READ_FAULTS_AND_IS_LEFT_AS_IT_WAS()
+    assert_eq(on_read("w.set( {inputmask: \"k\"} )\nwrite( w.read() catch e -> e )\nkeys( w, [\"a\", \"b\", #lpress, \"\\b\"] )\nw.enqueue( \"\\r\", 0, 0, \"r\" )\n" +
+            "write( w.read() catch e -> e )\nwrite( w.reads(3) catch e -> e )\nwrite( w.pending(), ink(w), w.get(\"col\") )\n" +
+            "write( w.reads(1), w.event(), w.event(), w.pending() )\n"),
+        "error(system_error, context(_G2, \"'read': the queue does not hold a line's end, and no more can come while the program waits: a hidden canvas takes events only from `enqueue`\"))\n" +
+        "error(system_error, context(_G5, \"'read': the queue does not hold a line's end, and no more can come while the program waits: a hidden canvas takes events only from `enqueue`\"))\n" +
+        "error(system_error, context(_G8, \"'reads': the queue does not hold 3 characters, and no more can come while the program waits: a hidden canvas takes events only from `enqueue`\"))\n" +
+        "5, 0, 1\na, b, lpress, 2\nsucceeded")
+
+@test
+READS_WANTS_A_POSITIVE_INTEGER_AND_A_CLOSED_WINDOW_IS_AN_ERROR()
+    assert_eq(on_read("w.enqueue( \"a\" )\nfor n <- [0, -1, \"1\", 1.0] do write( w.reads(n) catch e -> e )\n" +
+            "w.close()\nwrite( w.read() catch e -> e )\nwrite( w.reads(1) catch e -> e )\n"),
+        "error(domain_error(positive_integer, 0), context(_G2, \"'reads' wants a count of at least 1 and was given 0\"))\n" +
+        "error(domain_error(positive_integer, -1), context(_G5, \"'reads' wants a count of at least 1 and was given -1\"))\n" +
+        "error(type_error(integer, \"1\"), context(_G8, \"'reads' wants an integer count and was given the string '1'\"))\n" +
+        "error(type_error(integer, 1), context(_G11, \"'reads' wants an integer count and was given the real 1\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G14, \"'read' was called on the handle <closed window handle>\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G17, \"'reads' was called on the handle <closed window handle>\"))\nsucceeded")

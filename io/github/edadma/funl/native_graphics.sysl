@@ -42,8 +42,9 @@ import sysl.text.chars_of
 // (`EventKeys`). `&window` is the VM's: `open` sets it, a program may assign it, and the collector
 // marks it.
 
-// What `funl:graphics` exports, each name the short form of a native `install_graphics` registered as
-// `graphics.name`.
+// What `funl:graphics` exports natively, each name the short form of a native `install_graphics`
+// registered as `graphics.name`. The palette functions are exported beside them from the module's
+// FunL (`graphics_source.sysl`).
 private val GraphicsNames: [4]string = ["open", "couple", "color_value", "active"]
 
 private const WindowKind: string = "window"
@@ -64,6 +65,7 @@ struct WinCanvas
     drawn: &pv.Canvas
     handles: usize
     label: string
+    image: string
     width: long
     height: long
     resize: bool
@@ -177,7 +179,7 @@ private var generations: Buf[long] = buf()
 var contexts: Buf[Option[WinContext]] = buf()
 
 // Every attribute, in the order `attributes()` gives them.
-private val Attributes: [43]string = ["size", "width", "height", "label", "canvas", "resize", "pos", "posx", "posy",
+private val Attributes: [44]string = ["size", "width", "height", "label", "image", "canvas", "resize", "pos", "posx", "posy",
     "pointer", "pointerx", "pointery", "cursor", "echo", "inputmask", "fg", "bg", "reverse",
     "linewidth", "linestyle", "fillstyle", "pattern", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density",
     "displaywidth", "displayheight", "font", "leading", "ascent", "descent", "fheight", "fwidth", "x", "y", "row", "col"]
@@ -202,6 +204,7 @@ install_graphics(v: *Vm)
     register_method(v, w, "raise", 0, do_raise)
     register_stepping_method(v, w, "pixel", Variadic, start_pixel, step_pixel)
     install_drawing(v, w)
+    install_images(v, w)
     register_method(v, w, "enqueue", Variadic, do_enqueue)
     register_method(v, w, "event", 0, do_event)
     register_method(v, w, "pending", 0, do_pending)
@@ -443,10 +446,12 @@ private do_color_value(base: usize, argc: usize, cursor: long) -> Result[Answer,
 
 // -- attributes ------------------------------------------------------------------------------------
 
-// The canvas and context an attribute map is applied to, before anything is kept.
+// The canvas and context an attribute map is applied to, before anything is kept, and the image the
+// map's `image` loaded, laid on the canvas once it has the image's size.
 private struct Pending
     cv: WinCanvas
     ctx: WinContext
+    img: Option[&pv.Surface]
 
 // Every key of `m` an attribute that may be set: a fault for the first that is not.
 private settable(m: *MapObj, name: string) -> Result[unit, Fault]
@@ -467,13 +472,14 @@ private settable(m: *MapObj, name: string) -> Result[unit, Fault]
 
 // The attributes of `m` applied, in order, to the canvas at `at` and to context `ctx`: the context
 // as it is afterwards, the canvas's changes kept, or `None` -- and nothing kept -- when a value is one
-// Icon's `WAttrib` would refuse.
-private applied(at: usize, ctx: WinContext, m: *MapObj, name: string) -> Result[Option[WinContext], Fault]
+// Icon's `WAttrib` would refuse. A `fresh` canvas, one being opened, is painted in the background
+// colour the map leaves before an `image` is laid on it.
+private applied(at: usize, ctx: WinContext, m: *MapObj, name: string, fresh: bool) -> Result[Option[WinContext], Fault]
     settable(m, name)?
 
     canvases.set(at, Some(live_state(canvas_at(at))))
 
-    var p = Pending(canvas_at(at), ctx)
+    var p = Pending(canvas_at(at), ctx, None)
 
     for i in 0..<m.keys.len()
         p = assigned(p, key_text(m.keys.at(i)).unwrap(), deref(m.vals.at(i)), name)? match
@@ -494,6 +500,13 @@ private applied(at: usize, ctx: WinContext, m: *MapObj, name: string) -> Result[
             None -> return Ok(None)
 
     kept.fill = p.ctx.bg_rgb
+
+    if fresh then kept.surface.clear(channel(p.ctx.bg_rgb.r), channel(p.ctx.bg_rgb.g), channel(p.ctx.bg_rgb.b))
+
+    p.img match
+        Some(img) -> lay_image(kept, img, 0, 0, Area(0, 0, kept.width, kept.height))
+        None -> ()
+
     canvases.set(at, Some(kept))
     canvases.set(at, Some(onto_screen(kept, now, name)?))
     Ok(Some(p.ctx))
@@ -644,6 +657,20 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
         q.cv.label = x match
             Str(s) -> s.s
             _ -> return Ok(None)
+    else if k == "image"
+        // The canvas takes the image's size, and the image is laid on it once the map is applied.
+        val file = x match
+            Str(s) -> s.s
+            _ -> return Ok(None)
+
+        val img = pv.load_image(file) match
+            Some(s) -> s
+            None -> return Ok(None)
+
+        q.cv.width = long(img.width())
+        q.cv.height = long(img.height())
+        q.cv.image = file
+        q.img = Some(img)
     else if k == "canvas"
         val mode = one_of(x, ["normal", "hidden", "maximal", "iconic"]) match
             Some(id) -> atom_name(id)
@@ -807,6 +834,7 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
         "width" -> Int(c.width)
         "height" -> Int(c.height)
         "label" -> new_str(c.label)?
+        "image" -> if c.image == "" then Undefined else new_str(c.image)?
         "canvas" -> atom(live_state(c).state)
         "resize" -> boolean(c.resize)
         "posx" -> part(pos, false)
@@ -880,7 +908,7 @@ private state_asked(m: Option[*MapObj]) -> Result[Option[unit], Fault]
 // The attributes of `m`, when there is a map, applied as `applied` applies them; with none, the canvas
 // only carried onto the screen.
 private applied_or_none(at: usize, ctx: WinContext, m: Option[*MapObj]) -> Result[Option[WinContext], Fault] = m match
-    Some(p) -> applied(at, ctx, p, "open")
+    Some(p) -> applied(at, ctx, p, "open", true)
     None ->
         canvases.set(at, Some(onto_screen(canvas_at(at), canvas_at(at), "open")?))
         Ok(Some(ctx))
@@ -930,7 +958,7 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     // A canvas is shown unless `canvas: #hidden` says otherwise; its window is made once every
     // attribute is in, so it opens at the size and place they ask for.
-    val at = keep_canvas(WinCanvas(s, drawn, 1, title, wd, ht, false, "normal", -1, 1, None, None, start.bg_rgb, 0,
+    val at = keep_canvas(WinCanvas(s, drawn, 1, title, "", wd, ht, false, "normal", -1, 1, None, None, start.bg_rgb, 0,
         face_at(start.face).ascent, false, true, "", buf(), wins, current()))
     val k = keep_context(start)
 
@@ -949,7 +977,9 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     // With no size given, the canvas is 80 columns by 12 lines of the font it was opened with, and
     // with no place given, the text cursor is at row 1, column 1 of that font, as Icon's `wopen` has.
-    if !mentioned(attrs, ["size", "width", "height"]) && ctx.face != start.face
+    // An `image` gives the canvas its size, and is not painted over: `applied` painted the canvas in
+    // its background before laying the image on it.
+    if !mentioned(attrs, ["size", "width", "height", "image"]) && ctx.face != start.face
         val (fw, fh) = text_area(ctx.face)
 
         resized(canvas_at(at), fw, fh, ctx.bg_rgb) match
@@ -969,8 +999,6 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
         c.y = face_at(ctx.face).ascent + ctx.dy
         canvases.set(at, Some(c))
 
-    // A new canvas is painted in the background colour it was opened with.
-    canvas_at(at).surface.clear(channel(ctx.bg_rgb.r), channel(ctx.bg_rgb.g), channel(ctx.bg_rgb.b))
     contexts.set(k, Some(ctx))
     current().window = Handle(h)
     Ok(Gives(Handle(h)))
@@ -1003,7 +1031,7 @@ private do_set(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val w = window_arg(base, 0, "set")?
     val m = map_arg(base, 1, "set")?
 
-    applied(w.at, context_at(w.ctx), m, "set")? match
+    applied(w.at, context_at(w.ctx), m, "set", false)? match
         Some(c) ->
             contexts.set(w.ctx, Some(c))
             Ok(Some(Handle(w.h)))
@@ -1050,7 +1078,7 @@ private do_clone(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     attrs match
         Some(m) ->
-            copy = applied(w.at, copy, m, "clone")? match
+            copy = applied(w.at, copy, m, "clone", false)? match
                 Some(c) -> c
                 None ->
                     h.closed = true
@@ -1253,8 +1281,13 @@ private do_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val code = if ev.is_key then new_str(ev.key)? else Atom(ev.sym)
 
     // The string made, the event is taken: nothing allocates from here on.
-    canvas_at(w.at).queue.remove(0)
+    taken(w)
+    Ok(Some(code))
 
+// The oldest event on `w`'s queue, which holds one, taken off it and the running machine's event
+// keywords set from it, as `event()` sets them -- the pointer in `w`'s coordinates, its origin taken off.
+taken(w: Win) -> WinEvent
+    val ev = canvas_at(w.at).queue.remove(0)
     val ctx = context_at(w.ctx)
     val x = ev.x - ctx.dx
     val y = ev.y - ctx.dy
@@ -1265,7 +1298,11 @@ private do_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val high = if ctx.leading > 0 then ctx.leading else f.height()
 
     current().keys = EventKeys(x, y, cell(y, high), cell(x, f.fwidth), ev.interval, ev.mods)
-    Ok(Some(code))
+    ev
+
+// Whether `ev` is a key pressed -- what `read` and `reads` take as typing, where they pass over every
+// other event, a key's release among them.
+typed_key(ev: WinEvent) -> bool = ev.is_key && (ev.mods & ModReleased) == 0
 
 // `w.pending()`: how many events are on `w`'s queue; fails when there are none.
 private do_pending(base: usize, argc: usize) -> Result[Option[Value], Fault]
