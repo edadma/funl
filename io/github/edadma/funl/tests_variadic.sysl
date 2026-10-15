@@ -105,6 +105,18 @@ A_SPREAD_CALL_FAULTS_ON_A_COUNT_NONE_TAKES_AND_ON_WHAT_IS_NOT_A_SEQUENCE()
         "domain_error(finite, 1..)\ninstantiation_error\nsucceeded")
     assert(has(unplaced(ran_funl(two + "write( two(..5) )\n")), "`..` spreads a list, a tuple, an array, a buffer or a range into a call's arguments, and was given the integer 5"), "message")
 
+// `x.name(..xs)` is a method call: a map's function-valued field takes the spread arguments, written
+// ones beside them, none at all, and in tail position.
+@test
+A_SPREAD_INTO_A_FIELDS_FUNCTION_IS_A_METHOD_CALL()
+    val m = "m = {add: (a, b) -> a + b, seven: () -> 7, all: (..r) -> r}\n"
+
+    assert_eq(ran_funl(m + "write( m.add(..[1, 2]), m.add(1, ..[5]), m.seven(..[]), m.all(1, ..[], 2, ..(3, 4)) )\n" +
+            "def last( m, xs ) = m.add( ..xs )\nwrite( last(m, [20, 22]) )\n"),
+        "3, 6, 7, [1, 2, 3, 4]\n42\nsucceeded")
+    assert_eq(ran_funl(m + "write( m.add(..[1]) catch error(e, _) -> e )\nwrite( m.add(..5) catch error(e, _) -> e )\nwrite( m.none(..[1]) | 'no field' )\n"),
+        "existence_error(procedure, /(lambda, 1))\ntype_error(list, 5)\nno field\nsucceeded")
+
 @test
 A_SPREAD_CALL_OF_A_RELATION_IS_REFUSED_AS_ITS_VALUE_IS()
     assert(has(complaints("def r( x ) :- x ~ 1\nfree y\nr( ..[y] )\n"), "`r`"), "relation")

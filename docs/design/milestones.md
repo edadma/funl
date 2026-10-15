@@ -263,7 +263,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    `new_color` failing; `image_bytes`. Waits on item 1 and G8. Done.
 5. **Fonts and text**: the `"fixed"` face carried in the binary, family lookup through the font-face
    cache, `font` and its failure, the metric attributes, `text_width`, `draw_string`; the text cursor
-   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1.
+   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1. Done.
 6. **Events on a hidden canvas**: the queue, `enqueue`, `event()`, `pending`, `active`, every event
    code, the keywords `&x`, `&y`, `&row`, `&col`, `&interval`, `&control`, `&shift`, `&meta`,
    `&released`, `&window` and the event-code keywords, per machine; `read`/`reads` with `echo`.
