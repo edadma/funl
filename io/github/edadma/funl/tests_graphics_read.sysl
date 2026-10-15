@@ -6,15 +6,18 @@ module io.github.edadma.funl
 // out with backspace and delete, echoing at the cursor while `echo` is on -- exactly the pixels
 // `writes` would have drawn -- and faulting, the queue untouched, when the queue cannot finish them.
 
-// FunL program `body` run with `w` and `v` hidden 60 by 26 canvases: `shot(x)` is a canvas's pixels as
-// one string, so `shot(w) == shot(v)` says the echo drew what `v.writes` drew, and `ink(x)` counts the
-// pixels that are not white.
+// FunL program `body` run with `w`, `v` and `b` hidden 60 by 26 canvases: `same()` says whether `w`'s
+// pixels are `v`'s, so that the echo drew what `v.writes` drew, and `ink(x)` counts the rows of `x` with
+// anything drawn in them. Each compares a row at a time, so the program's live data stays small enough
+// for the suite's heap that is collected at every step.
 private on_read(body: string) -> string =
     ran_funl("import { open } from funl:graphics\n" +
         "w = open( \"w\", {canvas: #hidden, size: (60, 26)} )\n" +
         "v = open( \"v\", {canvas: #hidden, size: (60, 26)} )\n" +
-        "def shot( x ) = join( [p | p <- x.pixel(0, 0, 60, 26)], \";\" )\n" +
-        "def ink( x ) = [p | p <- x.pixel(0, 0, 60, 26) if p != \"65535,65535,65535\"].length\n" +
+        "b = open( \"b\", {canvas: #hidden, size: (60, 26)} )\n" +
+        "def row( x, y ) = join( [p | p <- x.pixel(0, y, 60, 1)], \";\" )\n" +
+        "def same() = if [y | y <- 0..<26 if row(w, y) != row(v, y)].length == 0 then #same else #differ\n" +
+        "def ink( x ) = [y | y <- 0..<26 if row(x, y) != row(b, y)].length\n" +
         "def keys( x, ks ) = for k <- ks do x.enqueue( k )\n" +
         body)
 
@@ -22,7 +25,7 @@ private on_read(body: string) -> string =
 READ_TAKES_A_LINE_WITHOUT_ITS_END_AND_ECHOES_IT_AS_WRITES_WOULD()
     assert_eq(on_read("keys( w, [\"h\", \"i\", \"\\r\", \"n\", \"o\", \"\\n\", \"z\"] )\n" +
             "write( w.read(), w.get(\"row\"), w.get(\"col\") )\nwrite( w.read(), w.get(\"row\"), w.get(\"col\"), w.pending() )\n" +
-            "v.writes( \"hi\\nno\\n\" )\nwrite( if shot(w) == shot(v) then #same else #differ, if ink(w) > 0 then #inked else #blank )\n"),
+            "v.writes( \"hi\\nno\\n\" )\nwrite( same(), if ink(w) > 0 then #inked else #blank )\n"),
         "hi, 2, 1\nno, 2, 1, 1\nsame, inked\nsucceeded")
 
 @test
@@ -33,9 +36,9 @@ AN_EMPTY_LINE_READS_AS_THE_EMPTY_STRING()
 @test
 BACKSPACE_AND_DELETE_RUB_OUT_THE_CHARACTER_BEFORE_THEM_AND_ITS_ECHO()
     assert_eq(on_read("keys( w, [\"\\b\", \"a\", \"x\", \"\\b\", \"b\", \"y\", \"z\", \"\\x7f\", \"\\x7f\", \"c\", \"\\n\"] )\n" +
-            "write( w.read(), w.get(\"row\") )\nv.writes( \"abc\\n\" )\nwrite( if shot(w) == shot(v) then #same else #differ )\n" +
+            "write( w.read(), w.get(\"row\") )\nv.writes( \"abc\\n\" )\nwrite( same() )\n" +
             "keys( w, [\"q\", \"r\", \"\\b\", \"\\b\", \"\\b\"] )\nw.enqueue( \"\\r\" )\nwrite( image(w.read()), w.get(\"col\") )\n" +
-            "v.writes( \"\\n\" )\nwrite( if shot(w) == shot(v) then #same else #differ )\n"),
+            "v.writes( \"\\n\" )\nwrite( same() )\n"),
         "abc, 2\nsame\n\"\", 1\nsame\nsucceeded")
 
 @test
@@ -51,13 +54,13 @@ READS_TAKES_N_CHARACTERS_LINE_ENDS_INCLUDED_AND_LEAVES_THE_REST()
     assert_eq(on_read("keys( w, [\"a\", \"b\", \"c\", \"d\", \"e\", \"f\"] )\nwrite( w.reads(4), w.get(\"col\"), w.pending() )\n" +
             "write( w.reads(1), w.reads(1), w.pending() | #empty )\n" +
             "keys( w, [\"x\", \"\\r\", \"y\", \"\\n\", \"z\"] )\nwrite( image(w.reads(4)), w.get(\"row\"), w.get(\"col\"), w.pending() )\n" +
-            "v.writes( \"abcdef\" )\nv.writes( \"x\\r\\ny\\n\" )\nwrite( if shot(w) == shot(v) then #same else #differ )\n"),
+            "v.writes( \"abcdef\" )\nv.writes( \"x\\r\\ny\\n\" )\nwrite( same() )\n"),
         "abcd, 5, 2\ne, f, empty\n\"x\\ry\\n\", 2, 1, 1\nsame\nsucceeded")
 
 @test
 A_RUB_OUT_PAST_A_LINE_BREAK_TAKES_THE_BREAK_AND_ERASES_NOTHING()
     assert_eq(on_read("keys( w, [\"a\", \"\\n\", \"\\b\", \"\\b\", \"b\", \"c\", \"d\"] )\nwrite( w.reads(3), w.get(\"row\"), w.get(\"col\") )\n" +
-            "v.writes( \"a\\nbcd\" )\nwrite( if shot(w) == shot(v) then #same else #differ )\n"),
+            "v.writes( \"a\\nbcd\" )\nwrite( same() )\n"),
         "bcd, 2, 4\nsame\nsucceeded")
 
 @test
@@ -72,7 +75,7 @@ EVERY_OTHER_EVENT_IS_PASSED_OVER_AND_SETS_THE_KEYWORDS_AS_EVENT_DOES()
             "w.enqueue( \"b\", 13, 14, \"c\", 9 )\nw.enqueue( #home )\nw.enqueue( \"c\", 20, 30, \"r\" )\n" +
             "write( w.reads(1), &x, &y, &interval, if &control then #control else #plain, w.pending() )\n" +
             "w.enqueue( \"\\n\", 3, 4 )\nwrite( image(w.read()), &x, &y, if &control then #control else #plain, if &released then #up else #down )\n" +
-            "v.writes( \"b\\n\" )\nwrite( if shot(w) == shot(v) then #same else #differ )\n"),
+            "v.writes( \"b\\n\" )\nwrite( same() )\n"),
         "b, 13, 14, 9, control, 2\n\"\", 3, 4, plain, down\nsame\nsucceeded")
 
 @test
