@@ -20,9 +20,10 @@ OPEN_WITH_A_HIDDEN_CANVAS_ANSWERS_A_WINDOW_HANDLE()
 EVERY_ATTRIBUTE_HAS_ICONS_DEFAULT()
     assert_eq(on_canvas("write( w.attributes() )\n"),
         "{\"size\": (4, 3), \"width\": 4, \"height\": 3, \"label\": \"test\", \"image\": undefined, \"canvas\": hidden, \"resize\": false, " +
+        "\"pos\": undefined, \"posx\": undefined, \"posy\": undefined, \"pointer\": undefined, \"pointerx\": undefined, \"pointery\": undefined, " +
         "\"cursor\": false, \"echo\": true, \"inputmask\": \"\", \"fg\": \"black\", \"bg\": \"white\", \"reverse\": false, \"linewidth\": 1, \"linestyle\": solid, \"fillstyle\": solid, " +
         "\"pattern\": \"black\", \"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
-        "\"depth\": 24, \"density\": 1, \"font\": \"fixed\", \"leading\": 13, \"ascent\": 10, \"descent\": 3, \"fheight\": 13, \"fwidth\": 6, " +
+        "\"depth\": 24, \"density\": 1, \"displaywidth\": undefined, \"displayheight\": undefined, \"font\": \"fixed\", \"leading\": 13, \"ascent\": 10, \"descent\": 3, \"fheight\": 13, \"fwidth\": 6, " +
         "\"x\": 0, \"y\": 10, \"row\": 1, \"col\": 1}\nsucceeded")
 
 @test
@@ -54,6 +55,8 @@ SET_FAULTS_ON_A_KEY_THAT_IS_NO_ATTRIBUTE_OR_IS_READ_ONLY()
         "error(domain_error(window_attribute, colour), context(_G17, \"'get': `colour` is no window attribute\"))\n" +
         "error(type_error(string, 7), context(_G20, \"'get' wants an attribute's name, a string, and was given the integer 7\"))\nsucceeded")
 
+// Without the `graphics` feature; `tests_screen.sysl` has the window on screen in a build with it.
+#if !feature_graphics
 @test
 A_VISIBLE_WINDOW_FAULTS_NAMING_THE_FEATURE()
     assert_eq(on_canvas("write( open(\"x\") catch e -> e )\nwrite( open(\"x\", {size: (9, 9)}) catch e -> e )\nwrite( open(\"x\", {canvas: #normal}) catch e -> e )\nwrite( w.set({canvas: #iconic}) catch e -> e )\n" +
@@ -64,6 +67,7 @@ A_VISIBLE_WINDOW_FAULTS_NAMING_THE_FEATURE()
         "error(system_error, context(_G11, \"'set': a window on screen is not in this build -- it is behind the `graphics` feature\"))\n" +
         "hidden\nfailed\n" +
         "error(type_error(string, 42), context(_G14, \"'open' wants a title, a string, and was given the integer 42\"))\nsucceeded")
+#endif
 
 @test
 OPEN_FAILS_ON_AN_ATTRIBUTE_ICON_REFUSES()

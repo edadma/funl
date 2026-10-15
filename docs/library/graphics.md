@@ -12,7 +12,9 @@ events waiting; and the [palette](#palettes) functions.
 
 This page covers windows on a **hidden canvas**: a picture drawn in memory and read back, with no
 window on screen, [drawing](#drawing) on it, [text and fonts](#text-and-fonts), [images](#images)
-read, written and drawn, and its events, put on its queue by the program.
+read, written and drawn, and its events, put on its queue by the program. [Windows on
+screen](graphics-screen.md) has the rest of a window's life: shown, moved, resized and closed by its
+user, whose keys and clicks reach the same queue.
 
 ## Hidden canvases
 
@@ -37,18 +39,11 @@ write( w )
 <closed window handle>
 ```
 
-**A window on screen is not in this build yet.** Opening one, which is what `open` does when
-`canvas` is not `#hidden`, faults and names the feature it needs:
-
-```funl
-import { open } from funl:graphics
-
-w = open( "hello" )
-```
-
-```error
-'open': a window on screen is not in this build -- it is behind the `graphics` feature
-```
+**Without `canvas: #hidden`, `open` shows the window on screen**
+([Windows on screen](graphics-screen.md)). That is behind the `graphics` feature, which a `funl`
+build has unless it was built with `--no-default-features`; in a build without it, opening a window
+on screen faults with a `system_error` saying that a window on screen is not in this build and is
+behind the `graphics` feature.
 
 A canvas opened with no `size` is Icon's default, 80 columns by 12 lines of the font it is opened
 with — 480 by 156 in the default font, `"fixed"` ([Text and fonts](#text-and-fonts)). It starts
@@ -78,7 +73,7 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "image": undefined, "canvas": hidden, "resize": false, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "image": undefined, "canvas": hidden, "resize": false, "pos": undefined, "posx": undefined, "posy": undefined, "pointer": undefined, "pointerx": undefined, "pointery": undefined, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "displaywidth": undefined, "displayheight": undefined, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
 ```
 
 | attribute | value | default |
@@ -87,8 +82,10 @@ red, 3, dashed
 | `width`, `height` | an integer from 1 to 32767 | |
 | `label` | the title, a string | `open`'s title |
 | `image` | an image file, read onto the canvas, which takes its size ([images](#images)) | `undefined` |
-| `canvas` | `#hidden` (`#normal`, `#maximal` and `#iconic` are on-screen states) | |
+| `canvas` | `#hidden`, or `#normal` for a window on screen | `#normal` |
 | `resize` | whether the user may resize the window | `false` |
+| `pos`, `posx`, `posy` | where the window is on its display, `(x, y)`; a hidden canvas keeps it for when it is shown | `undefined` until set or shown |
+| `pointer`, `pointerx`, `pointery` | where the pointer is over the window, `(x, y)`; setting it moves the pointer; a hidden canvas has none, and setting it fails | `undefined` until known |
 | `cursor` | whether the text cursor is shown | `false` |
 | `echo` | whether keys read as text are drawn as they are typed | `true` |
 | `inputmask` | the events reported beyond the usual: `"m"` motion with no button held, `"k"` a key's release ([events](#events)) | `""` |
@@ -102,7 +99,8 @@ red, 3, dashed
 | `clipx`, `clipy`, `clipw`, `cliph` | the clip rectangle; setting one when there is none starts from the whole canvas, and `undefined` takes it away | `undefined` |
 | `dx`, `dy` | the origin, added to every coordinate | `0` |
 | `depth` | read-only: bits per pixel | `24` |
-| `density` | read-only: device pixels per point, always 1 on a hidden canvas | `1` |
+| `density` | read-only: device pixels per point, 2 on a high-density display, always 1 on a hidden canvas | `1` |
+| `displaywidth`, `displayheight` | read-only: the size of the display the window is on; a hidden canvas has none | `undefined` |
 | `font` | a font specification, a string ([Text and fonts](#text-and-fonts)) | `"fixed"` |
 | `leading` | an integer: the pixels between one line's baseline and the next | the font's `fheight` |
 | `ascent`, `descent` | read-only: how far the font rises above the baseline and falls below it | `10`, `3` |
@@ -840,9 +838,10 @@ q, up
 so one task's events never change what another reads, and a task starts with `&x` and `&y` at 0 and
 no modifier held.
 
-**Nothing can queue an event while the program waits for one** in this build, where every canvas is
-hidden, so `event()` on an empty queue, and `active()` when no window has an event, fault rather than
-wait for ever:
+**A window on screen is waited on**: `event()` on its empty queue, and `active()` when no window has
+an event, wait for its user to press a key or click ([Windows on screen](graphics-screen.md#events-from-the-screen)).
+**Nothing can queue an event on a hidden canvas while the program waits for one**, so there they
+fault rather than wait for ever:
 
 ```funl
 import { open } from funl:graphics

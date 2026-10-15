@@ -471,9 +471,12 @@ private scrolled(c: WinCanvas, ctx: WinContext, n: long)
     val stride = usize(c.surface.stride())
     val rows = usize(c.height)
 
-    for y in 0..<rows - by
+    // The rows moved are device pixels, `density` of them to the point.
+    val k = usize(c.density)
+
+    for y in 0..<(rows - by) * k
         for b in 0..<stride
-            data[y * stride + b] = data[(y + by) * stride + b]
+            data[y * stride + b] = data[(y + by * k) * stride + b]
 
     val d = c.drawn
 

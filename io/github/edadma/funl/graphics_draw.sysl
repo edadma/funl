@@ -184,7 +184,8 @@ is_reversing(ctx: WinContext) -> bool = is_named(ctx.drawop, "reverse")
 // A coverage mask for drawing in reverse on canvas `c`: a clear surface the size of the canvas's, and
 // a plutovg canvas drawing on it. What is drawn there, opaque, `exclusive_ored` then applies.
 reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
-    val s = pv.surface(int(c.width), int(c.height)) match
+    // In device pixels, as the canvas's surface is: `density` of them to the point.
+    val s = pv.surface(int(c.width * c.density), int(c.height * c.density)) match
         Some(s) -> s
         None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
 
@@ -193,6 +194,8 @@ reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
     val d = pv.canvas(s) match
         Some(d) -> d
         None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+
+    if c.density != 1 then d.scale(f32(c.density), f32(c.density))
 
     Ok((s, d))
 
@@ -211,8 +214,8 @@ exclusive_ored(c: WinCanvas, ctx: WinContext, m: &pv.Surface)
     val xg = premultiplied(fg.g, 1.0) ^ premultiplied(bg.g, 1.0)
     val xr = premultiplied(fg.r, 1.0) ^ premultiplied(bg.r, 1.0)
 
-    for y in 0..<c.height
-        for x in 0..<c.width
+    for y in 0..<c.height * c.density
+        for x in 0..<c.width * c.density
             if from[usize(y * from_stride + 4 * x + 3)] >= 128
                 val o = usize(y * to_stride + 4 * x)
 
@@ -615,12 +618,17 @@ private do_copy_area(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val from_stride = long(src.surface.stride())
     var scratch: Buf[u8] = buf()
 
-    for y in top..<bottom
-        for x in left..<right
-            val fx = sx + x - x2
-            val fy = sy + y - y2
+    // The copy is made in device pixels: a window on a high-density display has `density` of them to
+    // the point, and the two canvases' densities may differ.
+    val dd = dst.density
+    val sd = src.density
 
-            if fx >= 0 && fy >= 0 && fx < src.width && fy < src.height
+    for y in top * dd..<bottom * dd
+        for x in left * dd..<right * dd
+            val fx = (sx - x2) * sd + x * sd / dd
+            val fy = (sy - y2) * sd + y * sd / dd
+
+            if fx >= 0 && fy >= 0 && fx < src.width * sd && fy < src.height * sd
                 val o = usize(fy * from_stride + 4 * fx)
 
                 for k in 0..<4
@@ -635,8 +643,8 @@ private do_copy_area(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val to_stride = long(dst.surface.stride())
     var at: usize = 0
 
-    for y in top..<bottom
-        for x in left..<right
+    for y in top * dd..<bottom * dd
+        for x in left * dd..<right * dd
             val o = usize(y * to_stride + 4 * x)
 
             for k in 0..<4

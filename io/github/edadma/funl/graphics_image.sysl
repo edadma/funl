@@ -67,15 +67,27 @@ private on_canvas(c: WinCanvas, ctx: WinContext, x: long, y: long, wd: long, ht:
 
     a
 
-// The pixel at offset `o` made colour `c`, opaque, as the surface stores it.
-private paint(data: []u8, o: usize, c: Rgb)
-    data[o] = premultiplied(c.b, 1.0)
-    data[o + 1] = premultiplied(c.g, 1.0)
-    data[o + 2] = premultiplied(c.r, 1.0)
-    data[o + 3] = 255
+// **Coordinates here are points, as everywhere in the module**: a canvas on a high-density display has
+// `density` device pixels to the point each way, so a point of an image is a square of them.
 
-// Image `img` laid on canvas `c` with its corner at `x`, `y`, touching only the pixels of `area`: an
-// opaque pixel replaces the canvas's, a transparent one leaves it, and one in between is laid over it.
+// Point `x`, `y` of canvas `c`, whose pixels are `data`, made colour `rgb`, opaque, as the surface
+// stores it.
+private paint(c: WinCanvas, data: []u8, x: long, y: long, rgb: Rgb)
+    val d = c.density
+    val stride = long(c.surface.stride())
+
+    for j in y * d..<(y + 1) * d
+        for i in x * d..<(x + 1) * d
+            val o = usize(j * stride + 4 * i)
+
+            data[o] = premultiplied(rgb.b, 1.0)
+            data[o + 1] = premultiplied(rgb.g, 1.0)
+            data[o + 2] = premultiplied(rgb.r, 1.0)
+            data[o + 3] = 255
+
+// Image `img` laid on canvas `c` with its corner at `x`, `y`, a pixel of it to a point, touching only
+// the points of `area`: an opaque pixel replaces the canvas's, a transparent one leaves it, and one in
+// between is laid over it.
 lay_image(c: WinCanvas, img: &pv.Surface, x: long, y: long, area: Area)
     val from = img.data()
     val from_stride = long(img.stride())
@@ -83,6 +95,7 @@ lay_image(c: WinCanvas, img: &pv.Surface, x: long, y: long, area: Area)
     val to_stride = long(c.surface.stride())
     val wd = long(img.width())
     val ht = long(img.height())
+    val dens = c.density
 
     for iy in 0..<ht
         val ty = y + iy
@@ -95,17 +108,22 @@ lay_image(c: WinCanvas, img: &pv.Surface, x: long, y: long, area: Area)
             if tx < area.left || tx >= area.right then continue
 
             val s = usize(iy * from_stride + 4 * ix)
-            val d = usize(ty * to_stride + 4 * tx)
             val alpha = long(from[s + 3])
 
-            if alpha == 255
-                for k in 0..<4
-                    to[d + usize(k)] = from[s + usize(k)]
-            else if alpha > 0
-                for k in 0..<3
-                    to[d + usize(k)] = u8(long(from[s + usize(k)]) + (long(to[d + usize(k)]) * (255 - alpha) + 127) / 255)
+            if alpha == 0 then continue
 
-                to[d + 3] = 255
+            for j in ty * dens..<(ty + 1) * dens
+                for i in tx * dens..<(tx + 1) * dens
+                    val d = usize(j * to_stride + 4 * i)
+
+                    if alpha == 255
+                        for k in 0..<4
+                            to[d + usize(k)] = from[s + usize(k)]
+                    else
+                        for k in 0..<3
+                            to[d + usize(k)] = u8(long(from[s + usize(k)]) + (long(to[d + usize(k)]) * (255 - alpha) + 127) / 255)
+
+                        to[d + 3] = 255
 
 // -- reading and writing ---------------------------------------------------------------------------
 
@@ -132,7 +150,8 @@ private do_read_image(base: usize, argc: usize) -> Result[Option[Value], Fault]
     Ok(Some(Handle(w.h)))
 
 // The rectangle of arguments `from` to `from + 3` on window `w`, as the drawing methods read one,
-// cut to the canvas, and copied into a surface of its own; `None` when none of it is on the canvas.
+// cut to the canvas, and copied into a surface of its own in device pixels; `None` when none of it is
+// on the canvas.
 private cut(base: usize, argc: usize, from: usize, w: Win, name: string) -> Result[Option[&pv.Surface], Fault]
     val c = canvas_at(w.at)
     val ctx = context_at(w.ctx)
@@ -141,18 +160,22 @@ private cut(base: usize, argc: usize, from: usize, w: Win, name: string) -> Resu
 
     if is_empty(a) then return Ok(None)
 
-    val out = pv.surface(int(a.right - a.left), int(a.bottom - a.top)) match
+    val d = c.density
+    val wd = (a.right - a.left) * d
+    val ht = (a.bottom - a.top) * d
+
+    val out = pv.surface(int(wd), int(ht)) match
         Some(s) -> s
-        None -> return Err(resource_error("memory", s"'$name' could not have the pixels of a ${a.right - a.left} by ${a.bottom - a.top} image"))
+        None -> return Err(resource_error("memory", s"'$name' could not have the pixels of a $wd by $ht image"))
 
     val from_data = c.surface.data()
     val from_stride = long(c.surface.stride())
     val to = out.data()
     val to_stride = long(out.stride())
 
-    for y in a.top..<a.bottom
-        for b in 0..<4 * (a.right - a.left)
-            to[usize((y - a.top) * to_stride + b)] = from_data[usize(y * from_stride + 4 * a.left + b)]
+    for y in 0..<ht
+        for b in 0..<4 * wd
+            to[usize(y * to_stride + b)] = from_data[usize((a.top * d + y) * from_stride + 4 * a.left * d + b)]
 
     Ok(Some(out))
 
@@ -347,7 +370,6 @@ private bi_level(w: Win, codes: Buf[u32], from: usize, width: long, clear: bool,
     val ctx = context_at(w.ctx)
     val area = on_canvas(c, ctx, x, y, width, height, true)
     val data = c.surface.data()
-    val stride = long(c.surface.stride())
 
     for r in 0..<height
         for px in 0..<width
@@ -361,16 +383,24 @@ private bi_level(w: Win, codes: Buf[u32], from: usize, width: long, clear: bool,
             val on = ((d >> (px % 4)) & 1) == 1
 
             if on
-                paint(data, usize(ty * stride + 4 * tx), ctx.fg_rgb)
+                paint(c, data, tx, ty, ctx.fg_rgb)
             else if !clear
-                paint(data, usize(ty * stride + 4 * tx), ctx.bg_rgb)
+                paint(c, data, tx, ty, ctx.bg_rgb)
 
     digits.release()
     true
 
 // The image of `codes` from `from` in palette `p`, `width` pixels a row.
 private in_palette(w: Win, codes: Buf[u32], from: usize, width: long, p: long, x: long, y: long) -> bool
-    val table = palette_table(p)
+    var table = palette_table(p)
+    val drawn = keyed(w, codes, from, width, table, x, y)
+
+    table.release()
+    drawn
+
+// The image of `codes` from `from`, `width` pixels a row, in the palette whose colours by key code are
+// `table`; false when it is no image.
+private keyed(w: Win, codes: Buf[u32], from: usize, width: long, table: Buf[Option[Rgb]], x: long, y: long) -> bool
     var count: long = 0
 
     for i in from..<codes.len()
@@ -390,7 +420,6 @@ private in_palette(w: Win, codes: Buf[u32], from: usize, width: long, p: long, x
     val ctx = context_at(w.ctx)
     val area = on_canvas(c, ctx, x, y, width, height, true)
     val data = c.surface.data()
-    val stride = long(c.surface.stride())
     var at: long = 0
 
     for i in from..<codes.len()
@@ -408,7 +437,7 @@ private in_palette(w: Win, codes: Buf[u32], from: usize, width: long, p: long, x
         if tx < area.left || tx >= area.right || ty < area.top || ty >= area.bottom then continue
 
         colour match
-            Some(rgb) -> paint(data, usize(ty * stride + 4 * tx), rgb)
+            Some(rgb) -> paint(c, data, tx, ty, rgb)
             None -> ()
 
     true
