@@ -1,0 +1,225 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{chars_of, from_utf8_unchecked, str_builder}
+
+// The string builtins that lay a string out or turn it into a number: `repl`, `left`, `center` and
+// `right`, which fit a string to a field, `char` and `ord`, which convert between a one-character
+// string and its code point, and `entab` and `detab`, which trade tabs for spaces.
+//
+// **Lengths and columns are in characters**, as everywhere in FunL, and a column counts from 1.
+
+install_string_layout(v: *Vm)
+    register(v, "repl", 2, do_repl)
+    register_between(v, "left", 2, 3, (b, n) -> fitted(b, n, "left", Flush))
+    register_between(v, "center", 2, 3, (b, n) -> fitted(b, n, "center", Middle))
+    register_between(v, "right", 2, 3, (b, n) -> fitted(b, n, "right", Back))
+    register(v, "char", 1, do_char)
+    register(v, "ord", 1, do_ord)
+    register_between(v, "entab", 1, 16, (b, n) -> tabbed(b, n, "entab", true))
+    register_between(v, "detab", 1, 16, (b, n) -> tabbed(b, n, "detab", false))
+
+private int_at(base: usize, i: usize, name: string) -> Result[long, Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Int(n) -> Ok(n)
+        _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
+
+// `repl(s, n)`: `s` written `n` times over.
+private do_repl(base: usize, argc: usize) -> Result[Value, Fault]
+    val s = text_arg(base, 0, "repl")?
+    val n = int_at(base, 1, "repl")?
+
+    if n < 0 then return Err(domain_error("not_less_than_zero", Int(n), s"'repl' repeats a string $n times"))
+
+    var out = str_builder()
+
+    for _ in 0..<usize(n)
+        out.push(s)
+
+    Ok(new_str(out.finish())?)
+
+// Where `s` stands in its field: at the left with the padding after it, at the right with the padding
+// before it, or in the middle.
+private enum Place
+    Flush
+    Middle
+    Back
+
+// The pad character for column `k` of a padded run, from 0, when the run of `len` columns takes its
+// characters from `pad` starting at its left end (`from_left`) or ending at its right end.
+private pad_char(pad: *Buf[char], k: usize, len: usize, from_left: bool) -> char
+    val m = pad.len()
+
+    if from_left then pad.at(k % m) else pad.at((m - (len - k) % m) % m)
+
+// `left(s, n, p)`, `center(s, n, p)` and `right(s, n, p)`: `s` in a field `n` characters wide, the
+// rest made of the pad string `p` (a space when none is given) replicated. **A value that is not a
+// string is written as `write` would**; one longer than the field is cut from the side the padding
+// goes on, `center` taking equally from both.
+//
+// **`left` replicates the pad from the right end of the field and `right` from the left end**, so the
+// pad is cut or complete at the outer edge; `center` pads each side from its own outer edge.
+private fitted(base: usize, argc: usize, name: string, place: Place) -> Result[Value, Fault]
+    val n = int_at(base, 1, name)?
+
+    if n < 0 then return Err(domain_error("not_less_than_zero", Int(n), s"'$name' makes a field of $n characters"))
+
+    val width = usize(n)
+
+    val text = deref(arg(base, 0)) match
+        Str(p) -> p.s
+        x -> render(x)
+
+    val pad_text = if argc == 3 then text_arg(base, 2, name)? else " "
+
+    if pad_text == "" then return Err(domain_error("non_empty_string", arg(base, 2), s"'$name' was given an empty pad"))
+
+    var pad = chars_in(pad_text)
+    var cs = chars_in(text)
+    val have = cs.len()
+    var out = str_builder()
+
+    if have >= width
+        val extra = have - width
+        val from = place match
+            Flush -> 0
+            Middle -> extra / 2
+            Back -> extra
+
+        for i in from..<(from + width)
+            out.push_char(cs.at(i))
+
+        return Ok(new_str(out.finish())?)
+
+    val gap = width - have
+    val before = place match
+        Flush -> 0
+        Middle -> gap / 2
+        Back -> gap
+    val after = gap - before
+
+    for k in 0..<before
+        out.push_char(pad_char(&pad, k, before, true))
+
+    out.push(text)
+
+    for k in 0..<after
+        out.push_char(pad_char(&pad, k, after, false))
+
+    Ok(new_str(out.finish())?)
+
+// `char(i)`: the one-character string whose code point is `i`.
+private do_char(base: usize, argc: usize) -> Result[Value, Fault]
+    val i = int_at(base, 0, "char")?
+
+    if i < 0 || i > 1114111 || (i >= 55296 && i <= 57343)
+        return Err(domain_error("code_point", Int(i), s"'char' wants a Unicode code point, and $i is not one"))
+
+    var out = str_builder()
+
+    out.push_char(char(u32(i)))
+    Ok(new_str(out.finish())?)
+
+// `ord(s)`: the code point of the one character of `s`.
+private do_ord(base: usize, argc: usize) -> Result[Value, Fault]
+    val s = str_arg(base, 0, "ord")?
+
+    if s.chars != 1 then return Err(domain_error("one_character_string", arg(base, 0), s"'ord' wants a string of one character, and was given one of ${s.chars}"))
+
+    Ok(Int(long(u32(char_at(s, 0)))))
+
+// The tab stops: the columns the cursor jumps to, from column 1. `stops` are the columns given;
+// past the last, the stops go on at the distance between the last two (from column 1 for a single one).
+private struct Stops
+    cols: Buf[long]
+
+    // The first stop after column `c`.
+    after(self, c: long) -> long
+        var prev: long = 1
+        val n = self.cols.len()
+
+        for i in 0..<n
+            val s = self.cols.at(i)
+
+            if s > c then return s
+
+            prev = s
+
+        val step = if n >= 2 then self.cols.at(n - 1) - self.cols.at(n - 2) else prev - 1
+        val last = prev
+        val beyond = c - last
+
+        last + (beyond / step + 1) * step
+
+private stops_from(base: usize, argc: usize, name: string) -> Result[Stops, Fault]
+    var cols: Buf[long] = buf()
+
+    if argc == 1
+        cols.push(9)
+        return Ok(Stops(cols))
+
+    var prev: long = 1
+
+    for i in 1..<argc
+        val c = int_at(base, i, name)?
+
+        if c <= prev then return Err(domain_error("tab_stop", Int(c), s"'$name' wants tab stops in increasing order from column 2, and $c is not past $prev"))
+
+        cols.push(c)
+        prev = c
+
+    Ok(Stops(cols))
+
+// `detab(s, i…)` replaces each tab of `s` with the spaces that reach the next tab stop; `entab(s, i…)`
+// replaces the spaces that reach a tab stop with a tab. Stops are columns counted from 1, every 8
+// columns (9, 17, …) when none is given; a line break starts a new line at column 1.
+private tabbed(base: usize, argc: usize, name: string, tabs: bool) -> Result[Value, Fault]
+    val s = text_arg(base, 0, name)?
+    val stops = stops_from(base, argc, name)?
+    var out = str_builder()
+    var col: long = 1
+    var pending: usize = 0
+
+    for c in chars_of(s.bytes)
+        if c == '\n' || c == '\r'
+            for _ in 0..<pending
+                out.push(" ")
+
+            pending = 0
+            col = 1
+            out.push_char(c)
+        elif c == '\t'
+            val next = stops.after(col)
+
+            if tabs
+                for _ in 0..<pending
+                    out.push(" ")
+
+                pending = 0
+                out.push("\t")
+            else
+                for _ in 0..<usize(next - col)
+                    out.push(" ")
+
+            col = next
+        elif tabs && c == ' '
+            pending += 1
+            col += 1
+
+            if stops.after(col - 1) == col
+                out.push("\t")
+                pending = 0
+        else
+            for _ in 0..<pending
+                out.push(" ")
+
+            pending = 0
+            col += 1
+            out.push_char(c)
+
+    for _ in 0..<pending
+        out.push(" ")
+
+    Ok(new_str(out.finish())?)

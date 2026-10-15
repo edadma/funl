@@ -4,8 +4,9 @@ import sh.sysl.dal
 import sh.sysl.dal.Number
 import sysl.math.{checked_add, checked_mul, checked_sub, Float}
 
-// FunL's arithmetic and ordering operators. `+` on a list or a range is `list_add` (`seq.sysl`), and
-// `+` and `-` on a set or a map are `combined` and `removed` (`data.sysl`).
+// FunL's arithmetic and ordering operators. `+` on a list or a range is `list_add` (`seq.sysl`),
+// `+` and `-` on a set or a map are `combined` and `removed` and `**` on sets `intersected`
+// (`data.sysl`), and `+`, `-` and `**` on csets are `cset_algebra` (`cset.sysl`).
 //
 // **Numbers are `dal`'s tower under FunL's policy** (`number.sysl`): an integer that overflows grows
 // into a big one, `7 / 2` is the rational `7/2`, an exact result is demoted to the smallest kind that
@@ -38,6 +39,10 @@ enum BinOp
     Divides
 
     Pow
+
+    // `**`: intersection, of two sets or two csets.
+    Inter
+
     Lt
     Le
     Gt
@@ -57,6 +62,7 @@ op_text(o: BinOp) -> string
         Modulo -> "mod"
         Divides -> "div"
         Pow -> "^"
+        Inter -> "**"
         Lt -> "<"
         Le -> "<="
         Gt -> ">"
@@ -67,6 +73,10 @@ op_text(o: BinOp) -> string
 arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], Fault]
     val x = deref(a)
     val y = deref(b)
+
+    x match
+        CSet(p) -> if o == Add || o == Sub || o == Inter then return Ok(Some(cset_algebra(o, p.set, y)?))
+        _ -> ()
 
     o match
         Lt -> return ordered(o, x, y)
@@ -87,6 +97,7 @@ arith(o: BinOp, a: Value, b: Value) -> Result[Option[Value], Fault]
 
             if is_str(x) || is_str(y) then return Ok(Some(new_str(render(x) + render(y))?))
         Sub -> if combines(x) then return Ok(Some(removed(x, y)?))
+        Inter -> return Ok(Some(intersected(x, y)?))
         _ -> ()
 
     // The fast path: two 64-bit integers whose sum, difference or product is one too.

@@ -1,0 +1,103 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+import sysl.text.str_builder
+
+// The cset algebra: `+` union, `-` difference and `**` intersection; `complement(c)`; and the
+// named csets `ascii` and `cset_all` beside `letters`, `digits` and `alphanum` (`scan.sysl`).
+//
+// **A complement is a cset with its flag set** (`CharSet`, `strings.sysl`): "every character but
+// these", since FunL's characters are Unicode and the rest cannot be listed. Every operation reads
+// the flag. Only what has to list the characters -- a cset's length, `!c` -- has no answer for a
+// complement, and faults: `domain_error(finite, Cset)`, as an endless range's length does.
+
+install_csets(v: *Vm)
+    register(v, "complement", 1, do_complement)
+    register_constant(v, "ascii", make_ascii)
+    register_constant(v, "cset_all", make_cset_all)
+
+// `c op y` for cset `c`: `+`, `-` or `**` with `y`, a cset or a string standing for the set of its
+// characters.
+cset_algebra(o: BinOp, c: CharSet, y: Value) -> Result[Value, Fault]
+    var d = y match
+        CSet(q) -> q.set
+        Str(q) -> char_set(q.s)
+        Var(_) -> return Err(instantiation_error(s"instantiation error: '${op_text(o)}' was given an unbound variable"))
+        _ -> return Err(type_error("cset", y, s"'${op_text(o)}' on a cset wants a cset or a string and was given ${described(y)}"))
+
+    val made = o match
+        Add -> c.union(d)
+        Sub -> c.minus(d)
+        _ -> c.intersection(d)
+
+    // A set made from a string here is this call's own.
+    y match
+        Str(_) -> d.wide.release()
+        _ -> ()
+
+    Ok(new_cset(made)?)
+
+// How many characters cset `c` holds; a complement faults, saying it `has no length` or, for `!`,
+// `cannot be listed`.
+cset_count(x: Value, c: CharSet, what: string) -> Result[long, Fault]
+    if c.inverted then return Err(unlisted(x, what))
+
+    Ok(long(c.size()))
+
+// The characters of cset `c`, one-character strings in ascending order, pushed onto `out`; a
+// complement faults.
+cset_chars(x: Value, c: CharSet, out: *Buf[Value]) -> Result[unit, Fault]
+    if c.inverted then return Err(unlisted(x, "cannot be listed"))
+
+    for k in 0..<c.size()
+        out.push(char_str(c.nth(k))?)
+
+    Ok(())
+
+// The `k`-th character of cset `c` as a one-character string, for `!c`; a complement faults.
+cset_nth(x: Value, c: CharSet, k: usize) -> Result[Value, Fault]
+    if c.inverted then return Err(unlisted(x, "cannot be listed"))
+
+    Ok(char_str(c.nth(k))?)
+
+// Whether value `x` is a one-character string that cset `c` holds, for `x in c`.
+cset_member(x: Value, c: CharSet) -> Result[bool, Fault]
+    deref(x) match
+        Str(p) -> Ok(p.chars == 1 && c.has(char_at(p, 0)))
+        Var(_) -> Err(instantiation_error("instantiation error: 'in' was given an unbound variable"))
+        _ -> Ok(false)
+
+// The fault for listing a complement: there are as many characters as Unicode has, less a few.
+private unlisted(x: Value, what: string) -> Fault =
+    domain_error("finite", x, s"the complement ${render(x)} $what: it holds every character but the ones it names")
+
+private char_str(c: char) -> Result[Value, string]
+    var out = str_builder()
+
+    out.push_char(c)
+    new_str(out.finish())
+
+// `complement(c)`: the characters not in `c`, a cset or a string.
+private do_complement(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+
+    x match
+        CSet(p) -> Ok(new_cset(p.set.complemented())?)
+        Str(p) ->
+            var c = char_set(p.s)
+
+            c.inverted = true
+            Ok(new_cset(c)?)
+        _ -> Err(kind_error(x, "cset", s"'complement' wants a cset or a string and was given ${described(x)}"))
+
+// `ascii`: the 128 ASCII characters.
+private make_ascii(base: usize, argc: usize) -> Result[Value, Fault]
+    var set = empty_chars()
+
+    for u in 0..<128
+        set.add(char(u32(u)))
+
+    Ok(new_cset(set)?)
+
+// `cset_all`: every character, the complement of the empty cset.
+private make_cset_all(base: usize, argc: usize) -> Result[Value, Fault] = Ok(new_cset(empty_chars().complemented())?)

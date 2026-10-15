@@ -124,10 +124,30 @@ funl_policy() -> Policy = dal.funl()
 // Prolog's: ISO's, with `/` on two integers exact rather than a float under `prefer_rationals`.
 prolog_policy() -> Policy = dal.iso_prolog(current().flags.prefer_rationals)
 
-// A number literal's text read under FunL's policy: an integer past 64 bits, or a real.
-literal_value(text: string) -> Result[Value, string] = funl_policy().parse(text) match
+// A number literal's text read under FunL's policy: an integer past 64 bits, in decimal or after a
+// `0x`, `0o` or `0b`, or a real.
+literal_value(text: string) -> Result[Value, string] = literal_number(text) match
     Ok(n) -> num_value(n)
     Err(e) -> Err(s"'$text' is not a number: $e")
+
+// The number a literal's text names, a sign before it allowed: the tower reads a decimal one, and a
+// radix one is read here, since the tower knows only decimal.
+literal_number(text: string) -> Result[Number, NumberError]
+    val b = text.bytes
+    val at: usize = if b.len > 0 && (b[0] == u8('-') || b[0] == u8('+')) then 1 else 0
+
+    if b.len < at + 3 || b[at] != u8('0') then return funl_policy().parse(text)
+
+    val r = b[at + 1]
+    val base = if r == u8('x') || r == u8('X') then 16 elif r == u8('o') || r == u8('O') then 8 elif r == u8('b') || r == u8('B') then 2 else 10
+
+    if base == 10 then return funl_policy().parse(text)
+
+    big.parse_radix(text[0..<at] + text[at + 2..<b.len], base) match
+        Some(v) -> Ok(v.to_long() match
+            Some(k) -> Number.Int(k)
+            None -> Number.Big(v))
+        None -> Err(NumberError.Syntax)
 
 // An operation's answer as a value, or its refusal as an error term. `what` is the operation as a
 // message shows it, and `culprit` the operand a type error names.
