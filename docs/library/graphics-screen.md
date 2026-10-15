@@ -42,6 +42,7 @@ Between those, a hundred drawing calls cost one copy to the screen, the latitude
 | `w.sync()` | `flush`, then every pending request to the window -- its size, place, maximizing -- waited for |
 | `w.delay(ms)` | shows the canvases, then waits `ms` milliseconds, the windows answering their user meanwhile; answers `w` |
 | `w.raise()` | brings `w`'s window in front of the others, and answers `w` |
+| `w.lower()` | sends `w`'s window behind the others, and answers `w` |
 
 On a hidden canvas each of them answers `w` and shows nothing, so a program written for the screen
 runs unchanged on a hidden canvas.
@@ -50,12 +51,33 @@ runs unchanged on a hidden canvas.
 import { open } from funl:graphics
 
 w = open( "paced", {size: (40, 30)} )
-write( w.flush(), w.delay(10), w.raise() )
+write( w.flush(), w.delay(10), w.raise(), w.lower() )
 w.close()
 ```
 
 ```output
-<window handle>, <window handle>, <window handle>
+<window handle>, <window handle>, <window handle>, <window handle>
+```
+
+**SDL has no call that lowers a window, so `lower` reaches the platform's own**: on macOS it sends
+the window's `NSWindow` `orderBack:`. A window with no native window behind it -- one SDL's dummy
+driver keeps in memory -- has nothing to lower, and `lower` answers it. Where the window system has no
+way to lower a window, `lower` faults with `system_error` saying so: Wayland's protocol has no such
+request. Windows and X11, where FunL does not build yet, fault the same way until their calls are
+written.
+
+Two windows show it at the screen: the second opens in front of the first, and after a moment
+`lower` sends it behind, so the first shows whole. Run it at the screen; it is not run here, since a
+window that only memory keeps has no order to change.
+
+```funl
+import { open } from funl:graphics
+
+back = open( "back", {size: (300, 200), bg: "red"} )
+front = open( "front", {size: (300, 200), bg: "blue", pos: (100, 80)} )
+front.delay(1500)
+front.lower()
+front.delay(1500)
 ```
 
 **A program that ends with a window still on screen keeps it there until its user closes it**, as

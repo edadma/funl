@@ -192,3 +192,17 @@ private[funl] do_raise(base: usize, argc: usize) -> Result[Option[Value], Fault]
     if c.screen >= 0 then screen_raise(usize(c.screen))
 
     Ok(Some(Handle(w.h)))
+
+// `w.lower()`: `w`'s window sent behind the others; answers `w`. A hidden canvas has no window to
+// lower, as it has none to raise. Where the platform's window system cannot lower a window, the call
+// faults with `system_error` saying so.
+private[funl] do_lower(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "lower")?
+    val c = canvas_at(w.at)
+
+    if c.screen >= 0 then
+        screen_lower(usize(c.screen)) match
+            Ok(_) -> ()
+            Err(why) -> return Err(system_error(s"'lower': $why"))
+
+    Ok(Some(Handle(w.h)))

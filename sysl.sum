@@ -9,4 +9,5 @@ github.com/sysl-lang/parsing v0.13.0 sha256:d392b5d4449238ba518b59699b211298d7b3
 github.com/sysl-lang/plutovg v0.2.4 sha256:6d501ebbff14ec19caa345fdba90ef3a8a9f20ce3a70bbef8ab311d3570790b5
 github.com/sysl-lang/sdl3 v0.3.6 sha256:b0e094232e35075c641427e1e46b5f6924b16322b6fa52e0cbf9b47e77a357f2
 github.com/sysl-lang/sdl3 v0.3.7 sha256:64556c1b84f9d5885b8b92ccff215cf61fb3c29c7a7924a2bc6032620c8196eb
+github.com/sysl-lang/sdl3 v0.3.8 sha256:efce036ab74ee6bbbf6d4d776d900a46a2216afcdd7df285938f4c0f4721fcfe
 github.com/sysl-lang/sqlite3 v0.7.0 sha256:5ad09d7ce307300ae132220e49b911a351a4b7074417f99ff068a892226b97e5

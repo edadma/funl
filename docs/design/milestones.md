@@ -273,8 +273,9 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    window id, `#close`, resize keeping pixels, several windows, the canvas attributes (`label`,
    `pos`, `size`, `pointer`, `resize`, `canvas`), `raise`/`lower`, waiting at program end. First
    proves the dummy video driver opens from a `Background` shell; tested only on it. Waits on item 6.
-   Done, except `lower` (F6: SDL has no call for it) and `canvas: #maximal`/`#iconic` (F5: the
-   `sdl3` package does not bind maximize and minimize), which fault naming what they need.
+   Done, except `canvas: #maximal`/`#iconic` (F5: the `sdl3` package does not bind maximize and
+   minimize), which fault naming what they need; `lower` is built natively per platform (F6, decided
+   by the user 2026-10-15), macOS's through the Objective-C runtime.
 8. **Events and the loop**: `next_event()` and its event map, the driver over SDL and libuv, `delay`
    as a timer inside a task, the one queue shared by both forms. Waits on item 7, G11 and F2.
 

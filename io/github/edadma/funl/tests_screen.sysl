@@ -74,6 +74,19 @@ LABEL_RESIZE_AND_RAISE_REACH_THE_WINDOW_AND_FLUSH_SYNC_AND_DELAY_ANSWER_IT()
             "h = open( \"hid\", {canvas: #hidden} )\nwrite( h.flush(), h.raise() )\nh.close()\nw.close()\n"),
         "renamed\n<window handle>, <window handle>, <window handle>, <window handle>, <window handle>\n<window handle>, <window handle>\nsucceeded")
 
+// SDL's dummy driver keeps a window in memory with no native handle, so there is nothing on screen to
+// lower: `lower` answers the window, and the window goes on working; a closed window faults.
+@test
+LOWER_ANSWERS_A_WINDOW_WITH_NO_NATIVE_HANDLE_AND_A_CLOSED_WINDOW_FAULTS()
+    assert_eq(on_screen("write( w.lower(), w.raise(), w.lower().get(\"size\") )\nw.close()\nwrite( w.lower() catch e -> e )\n"),
+        "<window handle>, <window handle>, (4, 3)\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G2, \"'lower' was called on the handle <closed window handle>\"))\nsucceeded")
+
+@test
+LOWER_IS_A_METHOD_OF_EVERY_WINDOW_ON_SCREEN()
+    assert_eq(on_screen("v = open( \"second\", {size: (2, 2)} )\nwrite( v.lower(), w.lower(), v.raise() )\nv.close()\nw.close()\n"),
+        "<window handle>, <window handle>, <window handle>\nsucceeded")
+
 @test
 CANVAS_STATES_REACH_THE_WINDOW_AND_THE_ATTRIBUTE_READS_WHAT_SDL_REPORTS()
     assert_eq(on_screen("write( w.get(\"canvas\") )\nw.set( {canvas: #maximal} )\nwrite( w.get(\"canvas\") )\n" +
@@ -341,3 +354,11 @@ A_PROGRAM_ENDS_AT_ONCE_WHEN_IT_CLOSED_ITS_WINDOWS_OR_KEPT_THEM_HIDDEN()
 FLUSH_SYNC_DELAY_AND_RAISE_ON_A_HIDDEN_CANVAS_ANSWER_IT()
     assert_eq(ran_funl("import { open } from funl:graphics\nh = open( \"hid\", {canvas: #hidden} )\nwrite( h.flush(), h.sync(), h.delay(1), h.raise() )\nh.close()\n"),
         "<window handle>, <window handle>, <window handle>, <window handle>\nsucceeded")
+
+// In every build: a hidden canvas has no window to lower either, and `lower` answers it; once it is
+// closed, `lower` faults as every method does.
+@test
+LOWER_ON_A_HIDDEN_CANVAS_ANSWERS_IT_AND_FAULTS_ONCE_CLOSED()
+    assert_eq(ran_funl("import { open } from funl:graphics\nh = open( \"hid\", {canvas: #hidden} )\nwrite( h.lower(), h.lower().get(\"canvas\") )\nh.close()\nwrite( h.lower() catch e -> e )\n"),
+        "<window handle>, hidden\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G2, \"'lower' was called on the handle <closed window handle>\"))\nsucceeded")

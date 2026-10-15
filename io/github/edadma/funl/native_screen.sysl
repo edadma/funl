@@ -1,4 +1,9 @@
 module io.github.edadma.funl
+#if feature_graphics
+#if macos
+@link("objc")
+#endif
+#endif
 
 import sysl.buf.{Buf, buf}
 import sh.sysl.plutovg as pv
@@ -6,7 +11,7 @@ import sh.sysl.plutovg as pv
 import sh.sysl.sdl3 as sdl
 import sh.sysl.sdl3.c as sc
 import sysl.slices.as_ptr
-import sysl.text.from_utf8_unchecked
+import sysl.text.{cstring, from_utf8_unchecked}
 #endif
 
 // The window on screen under `funl:graphics`, over the `sysl-lang/sdl3` package (`graphics.md` in the
@@ -182,6 +187,46 @@ screen_resizable(at: usize, on: bool) = screen_at(at).window.set_resizable(on)
 screen_visible(at: usize, on: bool) = if on then screen_at(at).window.show() else screen_at(at).window.hide()
 
 screen_raise(at: usize) = screen_at(at).window.raise()
+
+// The window at `at` sent behind every other window, or why it cannot be. SDL has no call for it, so
+// each platform's own is reached through the window's native handle. A window with no handle -- one
+// SDL's dummy driver keeps in memory -- has nothing on screen to lower, and lowering it does nothing.
+screen_lower(at: usize) -> Result[unit, string]
+    val props = screen_at(at).window.properties()
+
+#if macos
+    // The window's `NSWindow`, sent `orderBack:` with a nil sender through the Objective-C runtime.
+    props.pointer(sdl.PROP_WINDOW_COCOA_WINDOW_POINTER) match
+        Some(ns) ->
+            val sel = cstring("orderBack:")
+
+            objc_send_object(ns, objc_selector(sel.ptr), null)
+        None -> ()
+
+    Ok(())
+#else
+    if props.has(sdl.PROP_WINDOW_WAYLAND_SURFACE_POINTER) then
+        return Err("a window cannot be lowered under Wayland, whose protocol has no request for it")
+
+    if props.has(sdl.PROP_WINDOW_WIN32_HWND_POINTER) then
+        return Err("lowering a window is not built on Windows")
+
+    if props.has(sdl.PROP_WINDOW_X11_WINDOW_NUMBER) then
+        return Err("lowering a window is not built on X11")
+
+    Ok(())
+#endif
+end screen_lower
+
+#if macos
+// The Objective-C runtime's selector named `name`, a NUL-terminated `SEL` spelling.
+private extern "sel_registerName" objc_selector(name: *u8) -> *u8
+
+// `objc_msgSend` typed as a message taking one object and answering nothing -- `(id, SEL, id) -> void`.
+// On arm64 the runtime's entry must be called through the exact prototype of the method it reaches,
+// never as a variadic function.
+private extern "objc_msgSend" objc_send_object(receiver: *u8, selector: *u8, argument: *u8)
+#endif
 
 // The window at `at` asked to be in canvas state `state` -- `"maximal"`, `"iconic"` or `"normal"` --
 // and SDL's pending requests waited for. A window manager may refuse; `screen_state` tells what it did.
@@ -415,6 +460,8 @@ screen_resizable(at: usize, on: bool) = ()
 screen_visible(at: usize, on: bool) = ()
 
 screen_raise(at: usize) = ()
+
+screen_lower(at: usize) -> Result[unit, string] = Ok(())
 
 screen_arrange(at: usize, state: string) = ()
 

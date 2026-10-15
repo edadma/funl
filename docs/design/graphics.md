@@ -50,9 +50,6 @@ These are reported to the org, not routed around ([Rule 9](#closed-by-design)):
   `WriteImage` writes GIF, and on some builds JPEG and PNG. PNG is enough for parity of capability
   (see [G8](#the-questions-collected)); the finding is recorded so the gap is known, not because FunL
   waits on it.
-- **F6 — SDL has no call that lowers a window.** `SDL_RaiseWindow` has no opposite in SDL3, so
-  Icon's `Lower()` (`w.lower()` in the table below) is not built: whether FunL drops it or reaches
-  each platform's own call is a question for the user.
 
 ## The window
 
@@ -61,7 +58,11 @@ These are reported to the org, not routed around ([Rule 9](#closed-by-design)):
 [`funl:graphics`](../library/graphics.md). **So is the window on screen** — the `graphics` feature,
 showing on wait, `flush`, `sync`, `delay`, `raise`, `pos`, `pointer`, the display's size, density,
 a resize keeping the picture, several windows, and the wait at the program's end — on
-[Windows on screen](../library/graphics-screen.md). What remains of this section is for the later
+[Windows on screen](../library/graphics-screen.md). **`lower` — Decided (user, 2026-10-15)**: SDL3
+has no call that lowers a window, so `w.lower()` is built natively from the window's SDL properties —
+on macOS its `NSWindow` sent `orderBack:` through the Objective-C runtime; Wayland, whose protocol has
+no such request, faults, and Windows and X11 fault until FunL builds there; a window with no native
+handle (SDL's dummy driver) has nothing to lower and answers itself, as a hidden canvas does. What remains of this section is for the later
 items.
 
 ### The attributes still to come
@@ -91,7 +92,6 @@ for the later items:
 |---|---|
 | `DrawString(x, y, s)` | `w.draw_string(x, y, s)` — `y` is the baseline, as Icon's |
 | `TextWidth(s)` | `w.text_width(s)` |
-| `Raise()`, `Lower()` | `w.raise()`, `w.lower()` |
 | `WDefault(prog, opt)` | not adopted: X resources ([out of scope](#out-of-scope)) |
 
 **`drawop: #reverse` is built** ([G7](#the-questions-collected)) — see [the library
