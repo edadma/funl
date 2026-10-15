@@ -220,6 +220,29 @@ A filled circle or arc is a pie, its inside running to the centre. Angles are in
 from the positive `x` axis; since `y` grows downwards, a positive angle turns clockwise on the
 screen. `theta` defaults to 0 and `alpha` to a whole turn.
 
+**A computed list of numbers is passed by spreading it**, `w.draw_line(..xs)`, as into any call
+([functions](../reference/functions.md) § "Spreading arguments"), beside written arguments or not:
+
+```funl
+import { open } from funl:graphics
+
+def dot( p ) = if p == "0,0,0" then "#" else if p == "65535,65535,65535" then "." else "+"
+def show( w ) = for y <- 0 to w.get("height") - 1 do write( join([dot(p) | p <- w.pixel(0, y, w.get("width"), 1)]) )
+
+w = open( "steps", {canvas: #hidden, size: (8, 5)} )
+corners = [(0, 4), (0, 3), (2, 3), (2, 2), (4, 2), (4, 1), (6, 1), (6, 0)]
+w.draw_line( ..[n | (x, y) <- corners, n <- [x, y]] ).draw_point( 7, ..[4] )
+show( w )
+```
+
+```output
+......#.
+....###.
+..###...
+###.....
+#......#
+```
+
 ### Coordinates
 
 **Coordinates are numbers, measured from the canvas's top left corner, with `dx` and `dy` added

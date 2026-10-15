@@ -293,3 +293,4 @@ op_label(op: Op) -> string = op match
     Op.ArgsAdd(_) -> "ArgsAdd"
     Op.ArgsSpread -> "ArgsSpread"
     Op.CallSpread(_) -> "CallSpread"
+    Op.CallMethodSpread(_, _) -> "CallMethodSpread"

@@ -580,6 +580,11 @@ enum Op
     // Pop an argument list, and call the function value beneath it with its elements, as `CallValue`
     // does (`tail` as `TailCallValue`, and then followed by `Return`).
     CallSpread(tail: bool)
+
+    // Pop an argument list, and call what `MethodOf(name)` left beneath it with its elements, as
+    // `CallMethod(name, count, tail)` does. A generating method resumed by running it again finds
+    // the count of its arguments on top in place of the list (`call_method_spread`).
+    CallMethodSpread(name: u32, tail: bool)
 end Op
 
 // What an argument is keyed by in a relation's or a function's index. A head argument of any other

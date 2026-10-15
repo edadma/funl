@@ -453,14 +453,33 @@ end value_of
 apply(e: *Emit, c: Ctx, f: &Expr, args: Buf[&Expr], tail: bool) -> Result[unit, string]
     e.at_line(line_of(c, f.span.start))
 
-    if has_spread(args)
-        compile_value(e, c, f)?
-        return spread_call(e, c, args, tail)
-
-    // `m.f(args)`, `m` a module: a call of what the module exports as `f`, made directly.
+    // `m.f(args)`, `m` a module: a call of what the module exports as `f`, made directly -- or, spread,
+    // through the value it exports.
     qualified_callee(c, f) match
-        Some(m) -> return call_meaning(e, c, c.res.picked(f, callee_name(f), m, args.len()), callee_name(f), args, tail)
+        Some(m) ->
+            if has_spread(args)
+                compile_value(e, c, f)?
+                return spread_call(e, c, args, tail)
+
+            return call_meaning(e, c, c.res.picked(f, callee_name(f), m, args.len()), callee_name(f), args, tail)
         None -> ()
+
+    // A spread call counts its arguments when it runs: `x.name(..xs)` is still a method call, its
+    // arguments one list that `CallMethodSpread` unpacks.
+    if has_spread(args)
+        f.kind match
+            FieldE(x, name) ->
+                compile_value(e, c, x)?
+                e.op(MethodOf(intern(name)))
+                spread_args(e, c, args)?
+                e.op(CallMethodSpread(intern(name), tail))
+
+                if tail then e.op(Return)
+
+                return Ok(())
+            _ ->
+                compile_value(e, c, f)?
+                return spread_call(e, c, args, tail)
 
     val method = f.kind match
         FieldE(x, name) ->
