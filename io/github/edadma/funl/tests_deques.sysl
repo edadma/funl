@@ -115,6 +115,7 @@ A_BUFFER_WHOSE_FRONT_HAS_MOVED_IS_SEARCHED_ITERATED_COPIED_SORTED_AND_STORED_IN_
 
 @test
 A_BUFFER_EMPTIED_FROM_EITHER_END_STARTS_AFRESH()
+    assert_eq(ran_funl("b = buffer([1, 2])\nget(b)\npush(b, 7)\nget(b)\nwrite( ?b, b )\n"), "2, Buffer(2)\nsucceeded")
     assert_eq(ran_funl("b = buffer()\npush(b, 1)\nwrite( pull(b), b, pop(b) | \"empty\" )\nput(b, 2)\npush(b, 1)\nwrite( get(b), pull(b), b, get(b) | \"empty\", pull(b) | \"empty\" )\nfor i <- 1..40 do push(b, i)\nfor i <- 1..40 do pull(b)\nwrite( b, b.length, b(0) | \"none\" )\npush(b, #a)\nput(b, #b)\nwrite( b, b(-1) | \"none\", b(2) | \"none\" )\n"),
         "1, Buffer(), empty\n1, 2, Buffer(), empty, empty\nBuffer(), 0, none\nBuffer(a, b), none, none\nsucceeded")
 
