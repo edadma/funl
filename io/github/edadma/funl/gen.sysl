@@ -20,7 +20,8 @@ import sysl.text.{from_utf8_unchecked, is_char_boundary}
 // The cursor of `!c` is two cells: what is left of the collection, and a position in it. A list's
 // position stays 0 and its cell moves down the list; a tuple's, a set's, an array's, a buffer's, a
 // byte string's and a map's position is an index, a string's a byte offset and a range's its next element, the collection
-// itself staying put. A map produces its entries as pairs `(key, value)`.
+// itself staying put. A map produces its entries as pairs `(key, value)`. A co-expression's cursor is
+// the co-expression itself, and each step activates it (`gen_coexpr`).
 
 // `GenStart`: the collection on top becomes its first cursor. Under `draw` (a binding `p <- e`) a
 // string, a tuple or a map is not a collection, and it and any other value is drawn as it is, the
@@ -60,6 +61,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
         Map(_) -> ()
         MutMap(_) -> ()
         CSet(_) -> ()
+        CoExpr(_) -> ()
         Range(r) -> first = r.from
         Var(_) ->
             val what = if draw then "`<-`" else "`!`"
@@ -72,7 +74,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
                 v.stack.push(Int(0))
                 return Ok(())
 
-            val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map, a string, a byte string or a cset, and was given ${described(c)}"
+            val msg = s"`!` generates the elements of a list, a range, a tuple, a set, an array, a buffer, a map, a string, a byte string, a cset or a co-expression, and was given ${described(c)}"
 
             return Err(type_error("collection", c, msg))
 
@@ -100,6 +102,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
         Nil | Unit ->
             v.stack.truncate(top - 2)
             return Ok(false)
+        CoExpr(o) -> return gen_coexpr(v, o, top)
         Cons(p) ->
             elem = p.head
             rest = deref(p.tail)

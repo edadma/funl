@@ -169,6 +169,70 @@ write( p )
 `p` is a relation or a builtin, which is called rather than used as a value
 ```
 
+## Calling by name
+
+`proc(name)` is the function the string `name` stands for: one of the program's own top-level
+functions, or else a builtin or a prelude function. It fails when nothing is called `name`. A program's
+own function hides a builtin of the same name, as it does in a call written out.
+
+```funl
+def double( x ) = x * 2
+
+f = proc( "double" )
+write( f(21) )
+write( proc("abs")(-3) )
+write( if proc("no_such_name") then 'found' else 'none' )
+```
+
+```output
+42
+3
+none
+```
+
+`proc(name, n)` asks for the definition of `n` parameters; it fails when the name has none of that count.
+Without a count, a name of several arities gives the whole family, which picks its member by the count of
+each call, as the bare name does.
+
+```funl
+def f( a ) = 'one'
+def f( a, b ) = 'two'
+
+write( proc("f", 2)(0, 0) )
+
+g = proc( "f" )
+write( g(0), g(0, 0) )
+```
+
+```output
+two
+one, two
+```
+
+Only top-level names and builtins are reached: a local variable has no name when the program runs, and
+a string followed by parentheses is still an index, so `"write"(1)` is the character `r` and `proc("write")(1)`
+is the call. `proc` is given a string, and a count that is an integer:
+
+```funl
+write( proc(3) )
+```
+
+```error
+'proc' wants the name as a string and was given
+```
+
+`builtins()` generates the names of the builtins, each once.
+
+```funl
+n = 0
+every builtins() do n += 1
+write( if n > 50 then 'many' else 'few' )
+```
+
+```output
+many
+```
+
 ## Clauses, tried in order
 
 A function may be defined by several clauses. They are tried in order, and **the first whose

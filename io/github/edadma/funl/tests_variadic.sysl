@@ -188,6 +188,13 @@ A_SETTLED_VARIADIC_IS_CALLED_WITHOUT_A_MARK_AND_A_SPREAD_CALL_KEEPS_ONE()
 
     assert_eq(marks, "Mark")
 
+@test
+PROC_FINDS_A_VARIADIC_FUNCTION_FOR_THE_COUNTS_ITS_FIXED_ARITIES_LEAVE()
+    val text = "def f( a ) = 'one'\ndef f( a, ..r ) = 'rest ' + r\n" +
+        "write( proc('f')(1), proc('f')(1, 2), proc('f', 1)(1), proc('f', 3)(1, 2, 3) )\nwrite( proc('f', 0) | 'none' )\n"
+
+    assert_eq(ran_funl(text), "one, rest [2], one, rest [2, 3]\nnone\nsucceeded")
+
 // The variadic logger of Icon's `procedure log(level, parts[])`, called with a list as `log ! L`.
 @test
 AN_ICON_VARIADIC_LOGGER_TRANSLATES_AND_PRINTS_WHAT_ICON_PRINTS()

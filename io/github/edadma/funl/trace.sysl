@@ -1,0 +1,265 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, StrBuilder, str_builder}
+
+// Tracing and introspection: `&trace`, `display()`, `&dump`, `collect()`, `&collections` and
+// `&allocated`.
+//
+// **A FunL chunk carries a name table** (`Chunk.file`, `line`, `clauses`): where the function was
+// written, and each clause's slot names with the instruction the clause begins at, so the slot names
+// of a running frame are those of the clause its instruction lies in. The compiler fills it for every
+// function, lambda and top level (`name_function`, `name_top_level`); no other chunk has one.
+//
+// **`&trace` costs a test of one field where it is off**, on a call, a return and a failure. While it
+// is not zero, each event of a traced chunk -- a FunL function's or lambda's -- writes one line to
+// standard error through the machine's `eput`, and a positive count falls by one a line; a negative
+// one traces for ever. A line is the file and line the function was written at, a `| ` for each call
+// the event is inside, and the event:
+//
+//     test.funl:1 | f(1, "a")          a call, with each argument's image
+//     test.funl:1 | f returned 2       a return that leaves nothing to resume
+//     test.funl:1 | f suspended 2      a return that leaves the function resumable
+//     test.funl:1 | f resumed          failure going back into a suspended function
+//     test.funl:1 | f failed           failure leaving a function for good
+//
+// Suspension and resumption are what `ret` and `fail` already do: a return that leaves entries above
+// the frame's own pushes a `Restore`, and failure meeting it re-enters the frame. Failure that pops
+// back past a frame's entries leaves it, and every frame between the one running and the one resumed
+// has failed.
+
+install_tracing(v: *Vm)
+    register(v, "&trace", 0, (b, n) -> Ok(Int(current().trace)))
+    register(v, "&trace=", 1, (b, n) -> store_trace(b))
+    register(v, "&dump", 0, (b, n) -> Ok(Int(current().dump)))
+    register(v, "&dump=", 1, (b, n) -> store_dump(b))
+    register(v, "&collections", 0, (b, n) -> Ok(Int(long(current().collections))))
+    register(v, "&allocated", 0, (b, n) -> allocated_now())
+    register(v, "display", 0, (b, n) -> display_now())
+    register(v, "collect", 0, (b, n) -> collect_asked())
+
+// -- the name table ----------------------------------------------------------------------------------
+
+// Fill function `r`'s name table: where its first clause was written, and each clause's slot names
+// from the instruction `starts` placed it at.
+name_function(e: *Emit, res: *Resolved, r: Rel, starts: Buf[usize])
+    e.file = res.src.name
+    e.line = if r.clauses.len() > 0 then long(res.src.locate(r.clauses.at(0).head.start).line) else 0
+    e.traced = true
+
+    for i in 0..<r.clauses.len()
+        e.clauses.push(ClauseNames(e.labels.at(starts.at(i)), slot_names(res.scopes.at(r.scopes.at(i)))))
+
+// Fill a top level's name table: one clause, from the first instruction.
+name_top_level(e: *Emit, res: *Resolved)
+    e.file = res.src.name
+    e.line = 1
+    e.clauses.push(ClauseNames(0, slot_names(res.scopes.at(res.top))))
+
+private slot_names(sc: Scope) -> Buf[string]
+    var out: Buf[string] = buf()
+
+    for n in sc.names.view()
+        out.push(n.value)
+
+    out
+
+// -- the keywords ------------------------------------------------------------------------------------
+
+// The integer a counting keyword is assigned, or the fault of assigning it anything else.
+private count_given(base: usize, name: string) -> Result[long, Fault]
+    val x = deref(arg(base, 0))
+
+    x match
+        Int(n) -> Ok(n)
+        Var(_) -> Err(instantiation_error(s"instantiation error: '&$name' was given an unbound variable"))
+        _ -> Err(type_error("integer", x, s"'&$name' wants a 64-bit integer and was given ${described(x)}"))
+
+// `&trace = n`.
+private store_trace(base: usize) -> Result[Value, Fault]
+    current().trace = count_given(base, "trace")?
+    Ok(deref(arg(base, 0)))
+
+// `&dump = n`.
+private store_dump(base: usize) -> Result[Value, Fault]
+    current().dump = count_given(base, "dump")?
+    Ok(deref(arg(base, 0)))
+
+// `&allocated`: the bytes the program has allocated in the collected heap since it started, as the
+// collector's schedule counts them.
+private allocated_now() -> Result[Value, Fault]
+    val v = current()
+
+    Ok(Int(long(v.allocated_earlier + v.allocated)))
+
+// `collect()`: collect now.
+private collect_asked() -> Result[Value, Fault]
+    collect_now(current())
+    Ok(Unit)
+
+// -- display() and &dump -----------------------------------------------------------------------------
+
+// `display()`: the report, to standard error.
+private display_now() -> Result[Value, Fault]
+    val v = current()
+
+    v.eput(display_text(v))
+    Ok(Unit)
+
+// What `display()` writes: the innermost FunL function running and its named locals, unless that is
+// the top level itself, then the top level's names; each `name = image`, in the order the names
+// were declared.
+display_text(v: *Vm) -> string
+    var b = str_builder()
+    var f = v.frame
+    var ip = v.ip
+
+    // A frame with no name table -- a builtin's own, entered through its function value -- is passed
+    // over for the function that called it.
+    while f != null && v.chunks.at(f.chunk).clauses.len() == 0
+        ip = f.return_ip
+        f = f.caller
+
+    if f != null && f != v.globals
+        b.push(s"${v.chunks.at(f.chunk).name} local identifiers:\n")
+        frame_names(&b, v, f, ip)
+        b.push("\n")
+
+    b.push("top-level identifiers:\n")
+
+    if v.globals != null then frame_names(&b, v, v.globals, 0)
+
+    b.finish()
+
+// `f`'s named slots, one line each, as the clause instruction `ip` (just past it) lies in names them.
+// A hidden slot -- one the compiler made, whose name begins with `$` -- is left out.
+private frame_names(b: *StrBuilder, v: *Vm, f: *FrameObj, ip: usize)
+    val c = v.chunks.at(f.chunk)
+
+    if c.clauses.len() == 0 then return
+
+    val at = if ip > 0 then ip - 1 else 0
+    var k: usize = 0
+
+    for i in 0..<c.clauses.len()
+        if c.clauses.at(i).start <= at then k = i
+
+    val names = c.clauses.at(k).names
+
+    for s in 0..<names.len()
+        val n = names.at(s)
+
+        if n.starts_with("$") then continue
+
+        val x = if s < f.slots.len() then f.slots.at(s) else Undefined
+
+        b.push(s"   $n = ${image_of(x)}\n")
+
+// The end of a run with `&dump` not zero: the report, headed.
+dump_at_end(v: *Vm)
+    if v.dump == 0 then return
+
+    v.eput(s"Termination dump:\n\n${display_text(v)}")
+
+// -- &trace ------------------------------------------------------------------------------------------
+
+// How deep frame `f` is in calls, as `&level` counts it: 1 for the top level, one more for each
+// frame it will return to.
+frame_level(f: *FrameObj) -> long
+    var g = f
+    var n: long = 0
+
+    while g != null
+        n += 1
+        g = g.caller
+
+    n
+
+private traced(v: *Vm, f: *FrameObj) -> bool = f != null && v.chunks.at(f.chunk).traced
+
+// One trace line about frame `f`, counted down, while `&trace` is not zero.
+private trace_line(v: *Vm, f: *FrameObj, event: string)
+    if v.trace == 0 then return
+
+    val c = v.chunks.at(f.chunk)
+    var b = str_builder()
+    var depth = frame_level(f)
+
+    b.push(s"${c.file}:${c.line} ")
+
+    while depth > 1
+        b.push("| ")
+        depth -= 1
+
+    b.push(event)
+    b.push("\n")
+
+    if v.trace > 0 then v.trace -= 1
+
+    v.eput(b.finish())
+
+// Frame `f` has just been entered with its arguments.
+trace_call(v: *Vm, f: *FrameObj)
+    if !traced(v, f) then return
+
+    var b = str_builder()
+
+    for i in 0..<f.args.len()
+        if i > 0 then b.push(", ")
+
+        b.push(image_of(f.args.at(i)))
+
+    trace_line(v, f, s"${v.chunks.at(f.chunk).name}(${b.finish()})")
+
+// Frame `f` is returning `value`, resumable afterwards when `suspends`.
+trace_return(v: *Vm, f: *FrameObj, value: Value, suspends: bool)
+    if !traced(v, f) then return
+
+    trace_line(v, f, s"${v.chunks.at(f.chunk).name} ${if suspends then "suspended" else "returned"} ${image_of(value)}")
+
+// Failure has moved the running frame from `before` to `after` (`null` when it ran out of entries
+// altogether): the frames left behind on the way up have failed, innermost first, and the frames
+// re-entered on the way down are resumed, outermost first.
+trace_moved(v: *Vm, before: *FrameObj, after: *FrameObj)
+    if before == after || before == null then return
+
+    if on_chain(after, before)
+        var f = before
+
+        while f != null && f != after
+            if traced(v, f) then trace_line(v, f, s"${v.chunks.at(f.chunk).name} failed")
+
+            f = f.caller
+
+        return
+
+    if !on_chain(before, after) then return
+
+    var resumed: Buf[*FrameObj] = buf()
+    var g = after
+
+    while g != null && g != before
+        resumed.push(g)
+        g = g.caller
+
+    var i = resumed.len()
+
+    while i > 0
+        i -= 1
+
+        val r = resumed.at(i)
+
+        if traced(v, r) then trace_line(v, r, s"${v.chunks.at(r.chunk).name} resumed")
+
+// Whether `target` is `from` or a frame `from` will return to; `null` is beneath every frame.
+private on_chain(target: *FrameObj, from: *FrameObj) -> bool
+    if target == null then return true
+
+    var f = from
+
+    while f != null
+        if f == target then return true
+
+        f = f.caller
+
+    false

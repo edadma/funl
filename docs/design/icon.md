@@ -131,48 +131,15 @@ It compiles as the partial function does, inline: a `Mark` per clause, the subje
 
 ### Limitation
 
-**Icon:** `e1 \ e2` evaluates `e2` first. Its value must be a non-negative integer (a negative one
-is a run-time error). `e1` is then evaluated and produces at most that many results; when it has
-produced them, it is not resumed again. **`e2` is an ordinary expression and may generate**: if the
-context backtracks past `e1`, it resumes `e2`, and each new limit starts `e1` afresh — so
-`(1 to 3) \ (1 | 2)` produces `1`, then `1, 2`. A limit of 0 fails at once without evaluating `e1`.
-Every time the limitation itself is evaluated afresh (a loop's next turn) `e2` is evaluated again.
-
-**FunL today:** `\` is integer division, which floors — a Decided block. The capability is
-**covered by the prelude**: `take(n, () -> e)` draws at most `n` values from the thunk and generates
-them, so `every write(take(3, () -> !xs))` is `every write(!xs \ 3)`.
-
-**Proposed:** an infix word, **`e limit n`**, because the thunk form is a mouthful for something as
-everyday as "the first three":
-
-```
-every write( !words limit 3 )
-every write( (1 | 2 | 3) limit 2 )
-```
-
-`limit` binds looser than `|`, `to` and `by`, and tighter than comparison, `&`, `and` and
-assignment, so the limited thing rarely needs parentheses (Icon's `\` binds tighter than `^`, so
-Icon programs parenthesize almost every use).
-
-**Machine:** the count must survive backtracking into `e`, which restores `e`'s operand cells, so
-it cannot be an operand cell. It is a **compiler-allocated slot**, since an ordinary store to a slot
-is not undone by backtracking ([frames](vm.md#frames-slots-and-closures)):
-
-```
-<n>                 generator; its choice points stay, so backtracking re-limits
-LimitSet(t)         slot t = n; n not an integer faults (type_error), negative faults
-                    (domain_error); t == 0 fails
-MarkThrough         e's region begins
-<e>
-LimitCount(t)       t -= 1; if t == 0, cut control back to the region's mark, dropping e's
-                    choice points, so the next failure reaches n's generator
-```
-
-> **Open question I3 — limitation.** (a) the infix word `limit`; (b) take back `\` for
-> limitation and move integer division to `//` alone (which already exists), reopening the Decided
-> block; (c) nothing new, `take(n, () -> e)` only. **Recommendation: (a).** (b) is Icon's
-> spelling but breaks every program and page that divides with `\`, and the decision that `\`
-> floors would have to move with it; (c) is covered but costs a lambda at every use.
+> **Decided (user, 2026-10-15) — I3, limitation: the infix word `e limit n`**; `\` stays integer
+> division. Built with Icon's semantics (`n` first, a generating `n` re-limits `e`, 0 fails without
+> evaluating `e`; a non-integer limit is a type error, a negative one a domain error) on
+> `LimitSet`/`LimitCount` and two hidden slots, the count and the place of `e`'s mark (`limit.sysl`).
+> The mark's place is recorded because `|x` and a suspended generator leave marks of their own open
+> above it. `limit` binds between a cons and a comparison (tighter than `|`, which this section's
+> draft put above it — FunL's `|` is looser than `&` and comparison, so no level satisfied the whole
+> draft), and is a word only in an operator's place. The language is described in
+> [Generators](../reference/generators.md#limit-takes-the-first-few-values).
 
 ## Procedures
 
@@ -222,153 +189,45 @@ like any captured frame.
 > is that helper's; (b) would make two closures that capture different frames share mutable state,
 > which nothing else in FunL does.
 
-### Calling by name
-
-**Icon:** `proc(s)` is the procedure, builtin or operator named by the string `s` (`proc("+", 2)`);
-**string invocation** `"write"(x)` and `"+"(1, 2)` calls it directly; `function()` generates the
-names of the builtins; `name(v)` and `variable(s)` go between a variable and its name; `invocable`
-tells the linker what string invocation may reach.
-
-**FunL today:** a function or builtin named without a call is a value, and `import * as m` gives a
-module as a map of its names, so `m(name)` is calling by name *within a module*. A string followed
-by `(…)` is indexing it — `"write"(1)` is the character `r`, by the [one way to
-index](language.md#data) — so string invocation is closed to FunL.
-
-**Proposed:** `proc(name)` and `proc(name, n)` — the function value the program's top level, then
-the builtins and the prelude, give that name, optionally that arity; an operator's spelling, `"+"`,
-gives its section `(+)`; it fails for a name nothing defines. `builtins()` generates the builtins'
-names. `invocable` is not needed: nothing is linked away. **`name(v)` and `variable(s)` are not
-adopted**: a local is a numbered slot, resolved when compiled, and has no name at run time.
-
-> **Open question I6 — reflection by name.** (a) `proc` over top-level names and builtins only, no
-> `variable`/`name`, no string invocation; (b) also `variable(s)` for top-level variables, keeping
-> a name table for the top-level frame. **Recommendation: (a).** Top-level names are already in a
-> table the compiler builds; locals by name would need a name per slot at run time for a feature
-> almost no Icon program uses. String invocation would reopen indexing and buys nothing over
-> `proc(s)(…)`.
-
 ## Co-expressions
 
-**Icon:** `create e` makes a co-expression: `e`, with a copy of the current procedure's locals,
-ready to run on a control stack of its own. Nothing runs yet.
+> **Decided (user, 2026-10-15) — I7: Icon's spelling**, `create e`, `@c`, `v @ c`, `^c`, `*c`,
+> `!c`; **I8: `create` copies the innermost frame and shares the frames outside it.** Built
+> (`coexpr.sysl`) as this section drafted it: a co-expression is a `Machine` set aside in a
+> `CoExprObj` -- its chunk ending in `CoYield`, two copies of the creating frame, its activator, its
+> count -- switched by `Activate` and `CoYield` with buffer handles, never a stack copy; a fault
+> nothing inside catches ends it and is raised again at the `@`; `&current`, `&source` and `&main`
+> are keywords, and `&features` generates `"co-expressions"`. See
+> [co-expressions](../reference/coexpressions.md). Where the draft was silent or did not fit:
+>
+> - `1..` is a range value in FunL, not a generator, so the draft's `create 1..` is `create !(1..)`.
+> - Prefix `*x`, listed above as covered, did not exist: it is built here, the length of anything
+>   that is not a co-expression. `(*c)` and `(^c)` stay operator sections; `@^c` needs none.
+> - `create` reads its operand as loosely as `not` does, so `create !xs | !ys` is one co-expression.
+> - `x <- c`, as a binding, generates by activation as `!c` does.
+> - Activating the running co-expression produces the transmitted value at once.
+> - A result or a failure goes to the activator, or -- that one having ended, or being suspended at
+>   a result of its own, which symmetric activation can bring about -- to `&main`, which is always
+>   waiting at an `@` while anything else runs.
+> - `return`, `yield`, and `break` or `continue` leaving `create` are refused when compiled, as is
+>   `await` inside `create` until item 18.
+> - At the top level the innermost frame is the top level's, so a co-expression made there copies
+>   the top-level names; a top-level function it calls still reads the originals.
 
-- **`@C` activates it**: `e` runs until it produces a result, which becomes the value of `@C`, and
-  `C` is suspended. The next `@C` resumes `e` for its next result. When `e` runs out, `@C` fails,
-  and every later `@C` fails too. `@C` itself produces at most one value: it is not resumed by
-  backtracking in the activator.
-- **`x @ C` transmits `x`**: `x` becomes the value of the `@` inside `C` at which `C` last gave up
-  control. On the first activation there is no such `@`, and `x` is discarded; likewise when `C` is
-  resumed because its expression produced a result (it is resumed by backtracking, and the value has
-  nowhere to go). A co-expression can activate any other, `&main` included, so co-expressions are
-  symmetric coroutines: `@&source` gives control back to the activator and waits for its next value.
-- **`^C` refreshes**: a new co-expression with `C`'s expression and the locals as they were when
-  `C` was *created*, never yet activated. `C` itself is unchanged.
-- **`*C`** is the number of results `C` has produced. `!C` generates the results of activating `C`
-  until it fails; `|@C` does the same.
-- **`&current`** is the running co-expression, **`&source`** the one that activated it, and
-  **`&main`** the one the program started in.
-- A local the co-expression assigns is its own copy; a global it assigns is everyone's.
+**With `async` tasks** (milestone 11 item 18). A co-expression is not a task: the loop never
+schedules it, and it runs only when activated. It **runs as part of the task that activates it**
+(built: the task's promise, number and `&main` go with the running machine across every switch). An
+`await` inside a co-expression parks the running machine — the co-expression's — and the task waits;
+its activator chain stays suspended in its objects, and when the promise settles, the task resumes
+inside the co-expression. A co-expression belongs to the task that created it: activating it from
+another task is the fault `permission_error(activate, coexpression, C)`, as binding another task's
+variable is refused. Each task has its own `&main`, the machine it started on (built).
 
-**FunL today:** generators are resumed only by backtracking inside their own bounded expression,
-so two generators cannot be stepped in lockstep, and a generator cannot be handed to some other part
-of the program to be pulled from later. `async` tasks have a control stack of their own, but the
-event loop decides when they run. The [modules chapter](modules.md#what-the-machine-needs-a-task-is-a-machine-set-aside)
-names co-expressions as the nearest relative of a task, and the machinery is the same.
-
-**Proposed: Icon's spelling.** `create` is a new word; `@`, `^` and `*` as prefix operators and
-`@` infix are free in expressions:
-
-```
-val words = create !split(text)
-val nums = create 1..
-
-while w = @words
-  write(@nums, ' ', w)
-
-def consumer()
-  repeat
-    val line = @&source
-    write('got ' + line)
-
-val c = create consumer()
-@c
-'first' @ c
-'second' @ c
-```
-
-- `@` already marks a named pattern, `p@(a, b)`, which is a name touching `@` inside a pattern.
-  In an expression, `v @ c` is transmission; in a parameter or a `for` binding it is still the
-  named pattern. The compiler decides when it knows which side of `->` or `<-` the text is on, as
-  it already does for a lambda's parameters.
-- `^c` is refresh and `*c` the count of results, matching `*x` as length (a co-expression's
-  "length" is how far it has gone). `!c` generates by activation.
-- **A fault inside a co-expression** ends it (later activations fail) and is raised again at the
-  `@` that activated it, where a `catch` can take it — the rule `await` already follows for a
-  task's fault. Icon stops the program; FunL lets the activator decide.
-- `x is coexpression` tests for one; it prints as `<co-expression 3 (2 results)>`.
-
-**Machine.** A co-expression is a **`Machine` set aside**, exactly as a task is: an operand stack,
-control stack with its saved cells, trail, frame chain, scan state and regex captures, moved out
-whole by `park` and back by `unpark`.
-
-```
-struct CoExprObj
-    machine: Machine        // its state while it is not running
-    start: *Chunk           // e, compiled as a lambda body is
-    frame: *FrameObj        // the copy of the creating frame it runs in
-    pristine: *FrameObj     // a second copy, for ^C
-    activator: *CoExprObj   // &source
-    results: usize          // *C
-    task: u32               // the task that created it
-    state: Fresh | Suspended | Done
-```
-
-- **`Create`** compiles `e` into its own chunk, as a lambda body is, ending in `CoYield`. At run
-  time it copies the current frame — its slots, shallowly, keeping its static link, so locals are
-  copied and anything further out is shared, which is Icon's rule — and keeps a second copy for
-  refresh. Copying one frame is the whole cost of `create`.
-- **`Activate`** parks the running machine into `&current`'s object, unparks the target's, and
-  records `&current` as its activator. A fresh target starts at its chunk with the transmitted value
-  dropped; one suspended at an `@` of its own gets the transmitted value written over that `@`'s
-  operand slot — the slot an `await`'s promise occupies when a task resumes. A target that is
-  `Done` makes `@` fail without switching.
-- **`CoYield`** is the end of `e`: like `yield`, it pushes a `Choice` back into `e` first, then
-  counts the result, parks the co-expression and unparks its activator with the result where the
-  activator's `@` left its value. The next activation of a co-expression suspended here **fails into
-  its own control stack**, which resumes `e` for its next value; the transmitted value is dropped,
-  as Icon drops it. When `e`'s failure reaches the bottom of its control stack, the co-expression is
-  `Done` and the activator's `@` fails.
-- **`@` leaves nothing resumable in the activator**: it is one value or failure, a bounded call.
-- **Refresh** makes a new object from `start` and a fresh copy of `pristine`.
-- Switching is a swap of buffer handles, never a copy of a stack, so a co-expression costs one
-  frame copy to make and nothing per value beyond a `yield`'s.
-
-**With `async` tasks.** A co-expression is not a task: the loop never schedules it, and it runs
-only when activated. It **runs as part of the task that activates it**. An `await` inside a
-co-expression parks the running machine — the co-expression's — and the task waits; its activator
-chain stays suspended in its objects, and when the promise settles, the task resumes inside the
-co-expression. A co-expression belongs to the task that created it: activating it from another
-task is the fault `permission_error(activate, coexpression, C)`, as binding another task's variable
-is refused. Each task has its own `&main`, the machine it started on.
-
-**What the collector sees.** A `CoExprObj` is a collected object whose tracer walks its parked
-machine as the running one is walked, both frame copies, and its activator. The running chain is
-reached from the VM's `&current` and the activator links; a co-expression parked inside a waiting
-task is reached through the task's parked machine. A co-expression nothing refers to is collected,
-its finalizer releasing its machine's buffers — a generator abandoned half way costs nothing more.
-
-> **Open question I7 — co-expression spelling.** (a) Icon's `create`, `@c`, `v @ c`, `^c`, `*c`,
-> `!c`; (b) JavaScript's generator objects: `create e` and methods `c.next()`, `c.next(v)`,
-> `c.refresh()`, `c.count`. **Recommendation: (a).** The operators are free, short, and are what
-> an Icon reader looks for; `@` keeps its named-pattern reading wherever a pattern is parsed. (b)
-> fits FunL's handles but makes the symmetric `@&source` hand-off read as a method on a keyword.
-
-> **Open question I8 — does `create` copy the locals?** Icon copies the creating procedure's
-> locals, so a co-expression and its creator do not see each other's later assignments. A FunL
-> lambda shares its frame. (a) **copy the innermost frame, share the frames outside it** (Icon's
-> rule, and what `^c` needs to have something to go back to); (b) share, as a lambda does, and
-> refresh restarts the expression only. **Recommendation: (a).** Sharing would make
-> `create !xs` in a loop see the loop's later `xs`, and refresh would have nothing to restore.
+**What the collector sees.** A `CoExprObj`'s tracer walks its parked machine as the running one is
+walked, both frame copies, and its activator; the running chain is reached from the VM's `&current`
+and `&main` (built). A co-expression nothing refers to is collected, its finalizer releasing its
+machine's buffers — a generator abandoned half way costs nothing more; item 18 proves it under the
+stress heap.
 
 > **Open question I9 — logic variables inside a co-expression.** A binding a co-expression makes
 > is trailed on its own trail, so only its own backtracking undoes it; the activator's backtracking
@@ -380,19 +239,6 @@ its finalizer releasing its machine's buffers — a generator abandoned half way
 > useless for walking a relation's solutions, the obvious use.
 
 ## Scanning
-
-### `&subject` and `&pos`
-
-**Icon:** the scan's subject and position are the keywords `&subject` and `&pos`. Both can be
-read anywhere, and assigned: `&subject := s` starts scanning `s` at position 1, and `&pos := i`
-moves (failing when `i` is out of range). Outside any scan they are `""` and `1`. Assigning `&pos`
-is an assignment, not undone by backtracking.
-
-**Proposed:** the keywords as Icon has them (their spelling is [I18](#keywords)). Outside every
-scan the machine's subject is `""` and its position 1, so they read as Icon's do. **`&pos = i` is
-an ordinary assignment and `&pos <- i` the reversible one**, which Icon cannot say: the scan
-position's existing trail entry is what `<-` pushes. An assignment outside a scan sets the outer
-scan environment, which a scan saves on entry and puts back on leaving.
 
 ### Sections and indexing
 
@@ -453,16 +299,6 @@ converted. Icon's two families exist only because of the conversion, so FunL's o
 > call away. A string where a cset is wanted is already accepted, which is the one conversion Icon
 > programs lean on everywhere.
 
-### Csets
-
-The cset algebra is built (`+`, `-`, `**`, `complement`, `ascii`, `cset_all`; see
-[scanning](../reference/scanning.md#character-sets)). What remains:
-
-- **`lower` and `upper` as cset names beside `letters`.** Both names are already the case-mapping
-  functions `lower(s)` and `upper(s)`, so neither can also be a named cset without a decision: a
-  different spelling (`lowercase`/`uppercase`, `lower_letters`), or Icon's `&lcase`/`&ucase` only,
-  under [I18](#keywords). Icon's keywords for the other named csets wait on I18 as well.
-
 ## Structures
 
 | Icon | FunL | |
@@ -490,15 +326,11 @@ cannot be assigned.
 | Icon | FunL | |
 |---|---|---|
 | `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
-| `&pi`, `&e`, `&phi` | the keywords (item 10); the values `pi`, `e` and `phi` exist | new |
-| `16rFF` literal | see I16 | |
+| `16rFF` literal | the same (I16) | done |
 
-> **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
-> number literal touching a name multiplies, so `2r1` today is `2 * r1`. (a) **no `NrDDD` literal**:
-> `0x`, `0o`, `0b` unlimited in size, and `integer("16rFF")` for the others; (b) `NrDDD` as a
-> literal for `N` from 2 to 36, taking it away from juxtaposition. **Recommendation: (a).** `2r`
-> meaning "twice r" is exactly the case juxtaposition was decided for; other bases are rare enough
-> for a conversion.
+> **Decided (user, 2026-10-15) — I16, radix literals.** `NrDDD` is a literal, `N` from 2 to 36 and
+> the digits in either case, any size, `_` between digits; it takes `N r name` away from juxtaposition.
+> `integer("16rFF")` reads the same form, by the same reader.
 
 ## Input and output
 
@@ -534,39 +366,27 @@ with a newline; no standard input, no standard error, no open file.
 
 ## Keywords
 
-**Icon's keywords are names that begin with `&`.** FunL needs a spelling for the ones it adopts:
+> **Decided (user, 2026-10-15) — I18: `&name` as Icon has it**, one token when `&` touches a letter;
+> `a &b` is refused with a note naming `a & b`. Built: the token and its refusal, `&subject` and
+> `&pos` (`&pos <- i` reversible), the csets, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the
+> clocks, `&version`, `&host`, `&progname`, `&features` (`"co-expressions"` among
+> them), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). Built since:
+> `&trace` (calls, returns, suspensions, resumptions and failures, counted down per line; the line
+> is Icon's, with the function's first clause standing for the place), `&dump`, `display()`,
+> `collect()`, `&collections` and `&allocated` (one number each: sysl's heap has no regions, so
+> `&storage` and `&regions` are not adopted), over a name table the compiler keeps per chunk
+> (`trace.sysl`). What remains:
 
 | keyword | FunL |
 |---|---|
-| `&subject`, `&pos` | adopted, assignable ([scanning](#subject-and-pos)) |
-| `&current`, `&source`, `&main` | adopted ([co-expressions](#co-expressions)) |
-| `&lcase`, `&ucase`, `&letters`, `&digits`, `&ascii`, `&cset` | adopted |
-| `&null`, `&fail` | adopted: `undefined` and `fail` |
-| `&pi`, `&e`, `&phi` | adopted |
-| `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)) |
-| `&random` | adopted, assignable |
-| `&time` (CPU milliseconds), `&clock`, `&date`, `&dateline` | adopted, read from the host as `funl:time` reads it |
-| `&version`, `&host`, `&progname` | adopted |
-| `&features` | adopted: generates `"co-expressions"`, `"large integers"`, the platform, and each FunL feature built in (`http`, `async`, `profile`) |
-| `&file`, `&line` | adopted: the source file and line where written, fixed when compiled |
-| `&level` | adopted: the depth of calls, counted along the frame chain |
-| `&trace` | adopted, assignable: while it is not zero, calls, returns, `yield`s, failures and resumptions are written to standard error, one line each, and it counts down per line as Icon's does; the check is a test on the call and return instructions only |
-| `&collections`, `&allocated`, `&storage`, `&regions` | `&collections` and `&allocated` from sysl's collector; the region keywords are not adopted (sysl's heap has no regions); `collect()` asks for a collection |
-| `&dump` | adopted: a non-zero value prints `display()`'s report when the program ends; `display()` prints the running function's named locals and the top-level names, from a name table the compiler keeps per chunk |
-| `&error`, `&errornumber`, `&errortext`, `&errorvalue` | see I19 |
-| `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | graphics; see I21 |
+| `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)): the three standard streams as the file handles item 9 makes |
+| `&error`, `&errornumber`, `&errortext`, `&errorvalue` | not adopted ([I19](#errors)) |
+| `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | adopted in [Graphics](graphics.md#events) |
 
-**Machine:** `&name` is one token. Each keyword is either a constant folded when compiled, an
-instruction reading a machine field (`&subject`, `&pos`, `&current`, `&level`), or a call of a
-native. Assignable ones compile to a store instruction that checks the value's kind.
-
-> **Open question I18 — how keywords are spelled.** (a) **`&name` as Icon has it, lexed as one
-> token when `&` touches a letter**; conjunction keeps `&` with space after it, and `a &b`, which
-> today is a conjunction, is refused with a note naming `a & b`; (b) a module of plain names,
-> `import { subject, pos } from funl:icon`; (c) plain builtin names, `subject`, `pos`.
-> **Recommendation: (a).** Keywords are a namespace a reader recognises at a glance, a program's
-> names cannot shadow them, and the cost is one refusal for a spacing nobody writes. (c) collides
-> with `pos(i)`, which is a different thing from `&pos`.
+**Machine (as built, `keywords.sysl`):** a keyword is fixed when parsed (`&null`, `&fail`, `&file`,
+`&line`), a builtin constant folded when compiled, or a call of a builtin registered under the
+keyword's own spelling (`&pos`), which no FunL name can reach. A store is a builtin `&name=` or
+`&name<-` that checks the value's kind. The remaining keywords join the same table.
 
 ## Errors
 
@@ -579,12 +399,10 @@ recovery that fails turns it into failure — `e catch _ -> fail` is Icon's `&er
 expression. `throw(x)` and `error(msg)` raise. This is **covered**, by a [decided](language.md#every-expression-succeeds-or-fails)
 design that scopes the conversion to an expression instead of a global counter.
 
-> **Open question I19 — `&error` and `runerr`.** (a) nothing more: `catch` covers `&error`,
-> `throw` covers `runerr`, and the error keywords are not adopted; (b) add `&error` as a global
-> counter that makes every fault a failure, beside `catch`. **Recommendation: (a).** A global
-> switch that turns faults into failures anywhere — in a library, in Prolog — breaks every
-> guarantee the decided design makes about faults, and `catch` already says the same thing where
-> it is meant.
+> **Decided (user, 2026-10-15) — I19: nothing more.** `catch` covers `&error`, `throw` covers
+> `runerr`, and the error keywords are not adopted: a global switch that turns faults into failures
+> anywhere — in a library, in Prolog — would break every guarantee the decided design makes about
+> faults.
 
 ## The preprocessor
 
@@ -619,11 +437,9 @@ some thirty keywords (`&window`, `&x`, `&y`, the mouse events) and about seventy
 (`WOpen`, `DrawLine`, `Event`, …). They are an optional part of an Icon build, described in their
 own book, rather than part of the language.
 
-> **Open question I21 — the graphics facilities.** (a) out of parity's scope: a later
-> `funl:graphics` native module over a sysl binding, designed on its own terms when wanted;
-> (b) in scope, with Icon's function set and keywords. **Recommendation: (a).** They are a
-> library, not the language, and a window needs a design of its own (which thread owns it, how
-> events reach the loop that runs `async` tasks) rather than a transcription of 1990s X11 calls.
+> **Decided (user, 2026-10-15) — I21, the graphics facilities: in scope**, as the native module
+> `funl:graphics`, with a design of its own: [Graphics](graphics.md), whose open questions are
+> G1–G12, built as milestone 12.
 
 ## The questions, collected
 
@@ -644,9 +460,9 @@ own book, rather than part of the language.
 | I13 | Icon's string comparison operators | none; polymorphic comparison covers them |
 | I14 | implicit conversion | none; conversion functions |
 | I15 | mutable records | keep immutable; add `with(r, {f: x})` |
-| I16 | radix literals | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` |
+| I16 | radix literals | the `NrDDD` literal, decided (user, 2026-10-15) |
 | I17 | writing to a file | handle methods, `f.write(x)` |
 | I18 | how keywords are spelled | `&name`, one token |
 | I19 | `&error` and `runerr` | nothing more; `catch` and `throw` cover them |
 | I20 | a preprocessor | conditional compilation only |
-| I21 | the graphics facilities | out of scope; a later native module |
+| I21 | the graphics facilities | decided: in scope, [Graphics](graphics.md) |

@@ -782,7 +782,12 @@ prolog_exports(index: usize, at: Span, report: *Report, why: Refusal) -> Refusal
         val n = if function then arity + 1 else arity
         val key = pred_key(x.name, n)
 
-        if is_builtin(key) then continue
+        // ISO's `permission_error(modify, static_procedure, ...)`: a builtin's key is never redefined.
+        if is_builtin(key)
+            now = refusal(now, report, Taken(x.name, n))
+            refused = true
+            report.add(error(at, s"`$key` is a builtin predicate, and ${x.what} cannot define it"))
+            continue
 
         val origin = Origin(md.file, x.what)
 

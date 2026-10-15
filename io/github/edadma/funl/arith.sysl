@@ -219,6 +219,7 @@ described(x: Value) -> string
         Bytes(_) -> s"the byte string ${render(x)}"
         Handle(_) -> s"the handle ${render(x)}"
         Promise(_) -> s"the promise ${render(x)}"
+        CoExpr(_) -> s"the co-expression ${render(x)}"
         Var(_) -> "an unbound variable"
         y -> render(y)
 
