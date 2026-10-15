@@ -136,6 +136,7 @@ Each is argued where it arises; this is the list.
 | M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
 | Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [icon](icon.md) |
+| I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [icon](icon.md#keywords) |
 
 ## Open questions
 
@@ -160,7 +161,6 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | I15 Mutable records (decided: a record is a term) | keep immutable; add `with(r, {f: x})` | [icon](icon.md#records) |
 | I16 Radix literals `16rFF` (decided: juxtaposition) | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` | [icon](icon.md#bits-radix-and-conversion) |
 | I17 Writing to a file | handle methods, `f.write(x)`; `write` stays "print these" | [icon](icon.md#input-and-output) |
-| I18 How keywords are spelled | `&name`, one token when `&` touches a letter | [icon](icon.md#keywords) |
 | I19 `&error` and `runerr` (decided: `catch`) | nothing more; `catch` and `throw` cover them | [icon](icon.md#errors) |
 | I20 A preprocessor | conditional compilation on platform and features only | [icon](icon.md#the-preprocessor) |
 | I21 Icon's graphics facilities | out of parity's scope; a later native module | [icon](icon.md#graphics) |

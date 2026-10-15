@@ -419,19 +419,6 @@ its finalizer releasing its machine's buffers — a generator abandoned half way
 
 ## Scanning
 
-### `&subject` and `&pos`
-
-**Icon:** the scan's subject and position are the keywords `&subject` and `&pos`. Both can be
-read anywhere, and assigned: `&subject := s` starts scanning `s` at position 1, and `&pos := i`
-moves (failing when `i` is out of range). Outside any scan they are `""` and `1`. Assigning `&pos`
-is an assignment, not undone by backtracking.
-
-**Proposed:** the keywords as Icon has them (their spelling is [I18](#keywords)). Outside every
-scan the machine's subject is `""` and its position 1, so they read as Icon's do. **`&pos = i` is
-an ordinary assignment and `&pos <- i` the reversible one**, which Icon cannot say: the scan
-position's existing trail entry is what `<-` pushes. An assignment outside a scan sets the outer
-scan environment, which a scan saves on entry and puts back on leaving.
-
 ### Sections and indexing
 
 **Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the
@@ -528,7 +515,6 @@ cannot be assigned.
 | Icon | FunL | |
 |---|---|---|
 | `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
-| `&pi`, `&e`, `&phi` | the keywords (item 10); the values `pi`, `e` and `phi` exist | new |
 | `16rFF` literal | see I16 | |
 
 > **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
@@ -572,39 +558,26 @@ with a newline; no standard input, no standard error, no open file.
 
 ## Keywords
 
-**Icon's keywords are names that begin with `&`.** FunL needs a spelling for the ones it adopts:
+> **Decided (user, 2026-10-15) — I18: `&name` as Icon has it**, one token when `&` touches a letter;
+> `a &b` is refused with a note naming `a & b`. Built: the token and its refusal, `&subject` and
+> `&pos` (`&pos <- i` reversible), the csets, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the
+> clocks, `&version`, `&host`, `&progname`, `&features` (without `"co-expressions"` until they
+> exist), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). What remains:
 
 | keyword | FunL |
 |---|---|
-| `&subject`, `&pos` | adopted, assignable ([scanning](#subject-and-pos)) |
-| `&current`, `&source`, `&main` | adopted ([co-expressions](#co-expressions)) |
-| `&lcase`, `&ucase`, `&letters`, `&digits`, `&ascii`, `&cset` | adopted |
-| `&null`, `&fail` | adopted: `undefined` and `fail` |
-| `&pi`, `&e`, `&phi` | adopted |
-| `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)) |
-| `&random` | adopted, assignable |
-| `&time` (CPU milliseconds), `&clock`, `&date`, `&dateline` | adopted, read from the host as `funl:time` reads it |
-| `&version`, `&host`, `&progname` | adopted |
-| `&features` | adopted: generates `"co-expressions"`, `"large integers"`, the platform, and each FunL feature built in (`http`, `async`, `profile`) |
-| `&file`, `&line` | adopted: the source file and line where written, fixed when compiled |
-| `&level` | adopted: the depth of calls, counted along the frame chain |
+| `&current`, `&source`, `&main` | adopted ([co-expressions](#co-expressions)); `&features` then generates `"co-expressions"` too |
+| `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)): the three standard streams as the file handles item 9 makes |
 | `&trace` | adopted, assignable: while it is not zero, calls, returns, `yield`s, failures and resumptions are written to standard error, one line each, and it counts down per line as Icon's does; the check is a test on the call and return instructions only |
 | `&collections`, `&allocated`, `&storage`, `&regions` | `&collections` and `&allocated` from sysl's collector; the region keywords are not adopted (sysl's heap has no regions); `collect()` asks for a collection |
 | `&dump` | adopted: a non-zero value prints `display()`'s report when the program ends; `display()` prints the running function's named locals and the top-level names, from a name table the compiler keeps per chunk |
 | `&error`, `&errornumber`, `&errortext`, `&errorvalue` | see I19 |
 | `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | graphics; see I21 |
 
-**Machine:** `&name` is one token. Each keyword is either a constant folded when compiled, an
-instruction reading a machine field (`&subject`, `&pos`, `&current`, `&level`), or a call of a
-native. Assignable ones compile to a store instruction that checks the value's kind.
-
-> **Open question I18 — how keywords are spelled.** (a) **`&name` as Icon has it, lexed as one
-> token when `&` touches a letter**; conjunction keeps `&` with space after it, and `a &b`, which
-> today is a conjunction, is refused with a note naming `a & b`; (b) a module of plain names,
-> `import { subject, pos } from funl:icon`; (c) plain builtin names, `subject`, `pos`.
-> **Recommendation: (a).** Keywords are a namespace a reader recognises at a glance, a program's
-> names cannot shadow them, and the cost is one refusal for a spacing nobody writes. (c) collides
-> with `pos(i)`, which is a different thing from `&pos`.
+**Machine (as built, `keywords.sysl`):** a keyword is fixed when parsed (`&null`, `&fail`, `&file`,
+`&line`), a builtin constant folded when compiled, or a call of a builtin registered under the
+keyword's own spelling (`&pos`), which no FunL name can reach. A store is a builtin `&name=` or
+`&name<-` that checks the value's kind. The remaining keywords join the same table.
 
 ## Errors
 

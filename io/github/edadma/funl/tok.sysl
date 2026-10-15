@@ -29,6 +29,9 @@ enum Tok
     // text and the expressions in its holes.
     InterpLit
 
+    // `&name`, a keyword: `&` touching the first letter of a name, the name without its `&`.
+    AmpName(text: string)
+
     // Words.
     Def
     Free
@@ -152,6 +155,7 @@ describe(t: Tok) -> string
         StrLit(_) -> "a string"
         RegexLit(_) -> "a regex"
         InterpLit -> "a string"
+        AmpName(s) -> s"`&$s`"
         Newline -> "the end of the line"
         Indent -> "an indented line"
         Dedent -> "the end of the block"
@@ -351,6 +355,14 @@ continues_line(t: Tok) -> bool
         OpEq(_) -> true
         _ -> false
 
+// Whether an operand can end with this token, so what follows it is an operator: a name, a literal, a
+// keyword, a closing bracket.
+ends_operand(t: Tok) -> bool
+    t match
+        Name(_) | AtomLit(_) | IntLit(_) | NumLit(_) | StrLit(_) | RegexLit(_) | InterpLit | AmpName(_) -> true
+        RParen | RBracket | RBrace | UndefinedW | TrueW | FalseW -> true
+        _ -> false
+
 // The arrow of a lambda: below everything, so a lambda's body reaches as far right as it can.
 const ArrowPower: u16 = 5
 
@@ -437,6 +449,7 @@ starts_expr(t: Tok) -> bool
         StrLit(_) -> true
         RegexLit(_) -> true
         InterpLit -> true
+        AmpName(_) -> true
         UndefinedW -> true
         Every -> true
         If -> true

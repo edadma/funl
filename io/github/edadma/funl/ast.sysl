@@ -223,6 +223,14 @@ enum ExprKind
     // matches at the scan position, and its value is the text it matched.
     RegexE(pat: &Pat, groups: usize)
 
+    // `&name`, a keyword the machine answers when it is evaluated (`keywords.sysl`): `&pos`, `&clock`.
+    // The keywords fixed when parsed -- `&null`, `&fail`, `&file`, `&line` -- never become one.
+    KeywordE(name: string)
+
+    // `&name = e`, or with `<-` (`back`) undone when backtracked into: each of `e`'s values stored in
+    // an assignable keyword and produced.
+    SetKeywordE(name: string, e: &Expr, back: bool)
+
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
 end ExprKind

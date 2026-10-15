@@ -67,6 +67,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         StrLit(s) -> expr(StrE(s), t.span)
         RegexLit(r) -> regex_literal(p, r, t.span)
         InterpLit -> interpolated(p, t)
+        AmpName(n) -> keyword_expr(p, n, t.span)
         UndefinedW -> expr(UndefE, t.span)
         TrueW -> expr(BoolE(true), t.span)
         FalseW -> expr(BoolE(false), t.span)
