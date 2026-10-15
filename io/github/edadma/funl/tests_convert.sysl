@@ -1,0 +1,60 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `integer`, `real` and `numeric`: a string read as a number literal is, Icon's `NrDDD` radix form,
+// the failure on a string that is no number, and the faults.
+
+private faulted_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+A_STRING_CONVERTS_AS_THE_SAME_LITERAL_READS()
+    assert_eq(ran_funl("write( integer('42') + 1, integer('1_000'), integer('0xFF'), integer('0o17'), integer('0B101') )\n"),
+        "43, 1000, 255, 15, 5\nsucceeded")
+    assert_eq(ran_funl("write( numeric('2.5e3'), numeric('2e-1'), numeric('1_000.25'), numeric('123456789012345678901234567890') )\n"),
+        "2500, 0.2, 1000.25, 123456789012345678901234567890\nsucceeded")
+    assert_eq(ran_funl("write( numeric('0x1_0000_0000_0000_0000'), integer('-0xFFFFFFFFFFFFFFFFFF'), numeric('-9223372036854775808') )\n"),
+        "18446744073709551616, -4722366482869645213695, -9223372036854775808\nsucceeded")
+
+@test
+EACH_CONVERSION_MAKES_ITS_OWN_KIND()
+    assert_eq(ran_funl("write( integer('2.5'), integer('-2.5'), integer(2.5), integer(7/2), integer(5) )\n"), "3, -3, 3, 4, 5\nsucceeded")
+    assert_eq(ran_funl("write( real('3') is real, real(1/4), real('-2.5e3'), real(3) is real )\n"), "3, 0.25, -2500, 3\nsucceeded")
+    assert_eq(ran_funl("write( numeric('7') is integer, numeric('0.5') is real, numeric(7/2), numeric(2.5) )\n"), "7, 0.5, 7/2, 2.5\nsucceeded")
+
+@test
+A_SIGN_AND_SURROUNDING_SPACES_ARE_TAKEN()
+    assert_eq(ran_funl("write( integer(' -17 '), integer('+5'), numeric(\"\\t-0.5\\n\"), integer('-0b11') )\n"), "-17, 5, -0.5, -3\nsucceeded")
+
+@test
+ICONS_RADIX_FORM_READS_ANY_BASE_FROM_2_TO_36()
+    assert_eq(ran_funl("write( integer('16rFF'), integer('16rff'), integer('36rZZ'), integer('2r1010'), integer('8R777'), integer('-16rF_F') )\n"),
+        "255, 255, 1295, 10, 511, -255\nsucceeded")
+    assert_eq(ran_funl("write( integer('36rZZZZZZZZZZZZZZZZZZZZ') is integer, numeric('16r10000000000000000') )\n"),
+        "13367494538843734067838845976575, 18446744073709551616\nsucceeded")
+
+@test
+A_STRING_THAT_IS_NO_NUMBER_FAILS()
+    for s in ["", " ", "ten", "-", "+", "1.", ".5", "1e", "1 2", "--1", "0x", "0x_1", "1__0", "1_", "7/2",
+              "37r1", "1r1", "0r1", "16rFG", "16r", "2r102", "100r1", "1.5.2", "0xFFp", "inf", "nan"]
+        assert_eq(ran_funl(s"write( if numeric('$s') then 'yes' else 'no' )\n"), "no\nsucceeded")
+
+    assert_eq(ran_funl("write( [integer(s) | s <- ['1', 'two', '16rA', ' 3 ', 'x']] )\n"), "[1, 10, 3]\nsucceeded")
+
+@test
+A_NUMBER_TOO_LARGE_OR_A_VALUE_OF_ANOTHER_KIND_FAULTS()
+    faulted_with("write( real('1e999') )\n", "'1e999' is too large for a float")
+    faulted_with("write( integer('1e999') )\n", "'1e999' is too large for a float")
+    faulted_with("write( real(10 ^ 400) )\n", "is too large for a float")
+    faulted_with("write( integer([1]) )\n", "'integer' wants a number or a string and was given the list [1]")
+    faulted_with("write( numeric(#a) )\n", "'numeric' wants a number or a string")
+    faulted_with("free x\nwrite( real(x) )\n", "'real' wants a number or a string")
+
+@test
+A_RADIX_LITERAL_IS_NOT_JUXTAPOSITION_IN_A_PROGRAM()
+    assert_eq(ran_funl("val rFF = 10\nwrite( 16rFF, integer('16rFF') )\n"), "160, 255\nsucceeded")

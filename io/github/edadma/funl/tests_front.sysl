@@ -53,12 +53,17 @@ A_FLOAT_LITERAL_IS_ONE_TOKEN_READ_AS_A_REAL()
     assert_eq(ran_funl("write( 1e3, 1E3, 12.5e-3 + 1, 7e+2, 2e-1, 1_000.25 )\n"), "1000, 1000, 1.0125, 700, 0.2, 1000.25\nsucceeded")
 
 @test
-AN_INTEGER_LITERAL_PAST_64_BITS_IS_READ_AND_ONE_IN_A_RADIX_IS_REFUSED()
+AN_INTEGER_LITERAL_PAST_64_BITS_IS_READ_IN_ANY_OF_THE_FOUR_BASES()
     assert_eq(ran_funl("write( 9223372036854775808, 123456789012345678901234567890 )\n"),
         "9223372036854775808, 123456789012345678901234567890\nsucceeded")
     assert_eq(ran_funl("write( -9223372036854775808 )\n"), "-9223372036854775808\nsucceeded")
-    assert_eq(complaints("write( 0x1_0000_0000_0000_0000 )\n"), "error 1:10 this number is the number is too large to hold\n")
-    assert_eq(complaints("write( 0xFFFF_FFFF_FFFF_FFFF )\n"), "error 1:8 this integer is too large to hold\n")
+    assert_eq(ran_funl("write( 0x1_0000_0000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF, 0x8000000000000000, 0x7FFFFFFFFFFFFFFF )\n"),
+        "18446744073709551616, 18446744073709551615, 9223372036854775808, 9223372036854775807\nsucceeded")
+    assert_eq(ran_funl("write( 0o7777777777777777777777777, 0B1_0000000000000000000000000000000000000000000000000000000000000000 )\n"),
+        "37778931862957161709567, 18446744073709551616\nsucceeded")
+    assert_eq(ran_funl("write( -0x8000000000000000, 0xFFFFFFFFFFFFFFFFFF + 1 is integer, 0x1_0000_0000_0000_0000 - 1 == 0xFFFF_FFFF_FFFF_FFFF )\n"),
+        "-9223372036854775808, 4722366482869645213696, 18446744073709551615\nsucceeded")
+    assert_eq(complaints("write( 0x1_0000_0000_0000_000_ )\n"), "error 1:31 this number is not a digit\n")
 
 @test
 A_DOT_OR_AN_E_AFTER_AN_INTEGER_THAT_IS_NO_FLOAT_LEAVES_THE_INTEGER_ALONE()

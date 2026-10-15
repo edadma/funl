@@ -616,13 +616,9 @@ not Icon's linear congruential one, so seeded runs repeat within FunL but not ac
 | Icon | FunL | |
 |---|---|---|
 | `iand`, `ior`, `ixor`, `icom`, `ishift(i, j)` | the same names, over the whole integer tower as if two's complement were infinitely long; `ishift` left for positive `j`, right (flooring) for negative | new; Prolog has `/\`, `\/`, `xor`, `<<`, `>>` |
-| `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
 | `dtor`, `rtod` | the same | new |
 | `&pi`, `&e`, `&phi` | `pi`, `e`, `phi` and the keywords | new |
 | `16rFF` literal | see I16 | |
-
-The `0x`, `0o` and `0b` literals stop being limited to 64 bits: a long one is a big integer, as a
-long decimal one is.
 
 > **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
 > number literal touching a name multiplies, so `2r1` today is `2 * r1`. (a) **no `NrDDD` literal**:
