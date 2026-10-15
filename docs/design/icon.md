@@ -491,16 +491,6 @@ converted. Icon's two families exist only because of the conversion, so FunL's o
 > call away. A string where a cset is wanted is already accepted, which is the one conversion Icon
 > programs lean on everywhere.
 
-### Csets
-
-The cset algebra is built (`+`, `-`, `**`, `complement`, `ascii`, `cset_all`; see
-[scanning](../reference/scanning.md#character-sets)). What remains:
-
-- **`lower` and `upper` as cset names beside `letters`.** Both names are already the case-mapping
-  functions `lower(s)` and `upper(s)`, so neither can also be a named cset without a decision: a
-  different spelling (`lowercase`/`uppercase`, `lower_letters`), or Icon's `&lcase`/`&ucase` only,
-  under [I18](#keywords). Icon's keywords for the other named csets wait on I18 as well.
-
 ## Structures
 
 | Icon | FunL | |

@@ -29,6 +29,8 @@ install_scan(v: *Vm)
     register_constant(v, "letters", make_letters)
     register_constant(v, "digits", make_digits)
     register_constant(v, "alphanum", make_alphanum)
+    register_constant(v, "lowercase", make_lowercase)
+    register_constant(v, "uppercase", make_uppercase)
 
 // The string being scanned.
 //
@@ -284,5 +286,21 @@ private make_alphanum(base: usize, argc: usize) -> Result[Value, Fault]
 
     for c in "0123456789".chars
         set.add(c)
+
+    Ok(new_cset(set)?)
+
+private make_lowercase(base: usize, argc: usize) -> Result[Value, Fault]
+    var set = char_set("")
+
+    for u in 0..<26
+        set.add(char(u32(97 + u)))
+
+    Ok(new_cset(set)?)
+
+private make_uppercase(base: usize, argc: usize) -> Result[Value, Fault]
+    var set = char_set("")
+
+    for u in 0..<26
+        set.add(char(u32(65 + u)))
 
     Ok(new_cset(set)?)
