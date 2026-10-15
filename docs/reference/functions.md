@@ -221,6 +221,55 @@ write( proc(3) )
 'proc' wants the name as a string and was given
 ```
 
+### Operators by their spelling
+
+`proc` also answers an operator's source spelling, as Icon's does, and the count says which: `proc("-", 1)`
+is unary minus and `proc("-", 2)` binary minus. **As in Icon, the count defaults to 1**, so `proc("-")` is
+unary minus and `proc("+")` fails, `+` having no unary form. The function is the operator itself, so it
+generates, fails and faults as the operator does: a comparison produces its right operand or fails, `!`
+and `to` generate, and `/` by zero is the same fault.
+
+| Count | Spellings |
+|---|---|
+| 2 | `+ - * / \ // % mod div ^ **`, `< <= > >= == !=`, `:`, `in`, `not in`, `to`, `until`, `..`, `..<`, `..+`, and `[]` (the element `c(i)`) |
+| 1 | `-`, `!`, `?`, `=` (the scan match `=s`), `\`, `/`, `*` (the size, `.length`), and `..` (an unending range) |
+
+```funl
+add = proc( "+", 2 )
+write( add(3, 4), proc("-")(5), proc("-", 2)(5, 3) )
+write( foldl(proc("*", 2), 1, [1, 2, 3, 4]) )
+write( proc("<", 2)(3, 5) )
+write( if proc("<", 2)(5, 3) then 'holds' else 'fails' )
+every write( proc("!", 1)([7, 8]) )
+write( proc("[]", 2)([5, 6, 7], 1) )
+write( if proc("+") then 'unary plus' else 'no unary plus' )
+```
+
+```output
+7, -5, 2
+24
+5
+fails
+7
+8
+6
+no unary plus
+```
+
+What is not an operator in Icon's sense is control, and `proc` fails for it: `&`, `|`, `and`, `or`, `not`,
+`~`, `<-`, assignment and its operator forms such as `+=`, scanning `?` and `limit`, whose operands are not
+values. So does a spelling that is no operator, and a count the operator has no form for.
+
+```funl
+write( if proc("&", 2) then 'found' else 'control' )
+write( if proc("!", 2) then 'found' else 'no binary !' )
+```
+
+```output
+control
+no binary !
+```
+
 `builtins()` generates the names of the builtins, each once.
 
 ```funl
