@@ -148,6 +148,21 @@ write( '[' + trim('\t\n line \r\n') + ']' )
 [line]
 ```
 
+A second argument, a cset or a string of characters, names the characters to take off in place of
+spaces; `trim_end('xxhixx', 'x')` is `'xxhi'`.
+
+```funl
+write( trim('-+hi+-', '+-') )
+write( trim_start('xxhixx', cset('x')) )
+write( trim_end('xxhixx', 'x') )
+```
+
+```output
+hi
+hixx
+xxhi
+```
+
 ## `upper` and `lower`
 
 `upper(s)` is `s` with every letter in upper case, and `lower(s)` in lower case. The mapping is
@@ -301,6 +316,114 @@ write( decode('héllo') )
 
 ```error
 'decode' wants a byte string and was given the string 'héllo'
+```
+
+## Fitting, repeating and converting
+
+`repl(s, n)` writes `s` `n` times over. `left(s, n, p)`, `center(s, n, p)` and `right(s, n, p)` put
+`s` in a field `n` characters wide, the rest made of the pad string `p` (a space when it is left
+out), and cut `s` from the side the padding would go on when it is too long. A value that is not a
+string is written as `write` would first.
+
+**`left` replicates the pad from the right end of the field and `right` from the left end**, so
+the pad is whole at the outer edge; `center` pads each side from its own outer edge, the extra
+column going to the right, and cuts the same number from both ends.
+
+```funl
+write( repl('ab', 3) )
+write( '[' + left('abc', 6) + ']' )
+write( right('abc', 10, 'xy') )
+write( left('abc', 10, 'xy') )
+write( center('ab', 7, '*') )
+write( right(42, 6, '0') )
+write( left('abcdef', 3), right('abcdef', 3), center('abcde', 2) )
+```
+
+```output
+ababab
+[abc   ]
+xyxyxyxabc
+abcyxyxyxy
+**ab***
+000042
+abc, def, bc
+```
+
+An empty pad is refused:
+
+```funl
+write( left('a', 3, '') )
+```
+
+```error
+'left' was given an empty pad
+```
+
+`char(i)` is the one-character string whose Unicode code point is `i`, and `ord(s)` the code
+point of the one character of `s`.
+
+```funl
+write( char(955), ord('A'), ord(char(128512)) )
+```
+
+```output
+λ, 65, 128512
+```
+
+```funl
+write( ord('ab') )
+```
+
+```error
+'ord' wants a string of one character, and was given one of 2
+```
+
+`detab(s, i…)` replaces each tab with the spaces that reach the next tab stop, and `entab(s, i…)`
+replaces spaces that reach a tab stop with a tab. Stops are columns counted from 1: every 8 columns
+(9, 17, …) when none is given. With stops given, the last interval repeats past the last one, and
+the first interval runs from column 1. A line break starts a new line at column 1. `image` shows
+the result below with its tabs spelled out.
+
+```funl
+write( image(detab('a\tb')) )
+write( image(entab('a       b')) )
+write( image(detab('ab\tc', 5)) )
+```
+
+```output
+"a       b"
+"a\tb"
+"ab  c"
+```
+
+```funl
+write( detab('a', 5, 5) )
+```
+
+```error
+'detab' wants tab stops in increasing order from column 2, and 5 is not past 5
+```
+
+`str(x)` is any value as a string: a string is itself, anything else as `write` shows it.
+`image(x)` is the value as source text: a string is quoted and escaped, a cset is `cset("…")`,
+and a `$` is doubled as a double-quoted string needs. `type(x)` is the name `is` uses for the kind
+of `x`, the most specific one, and a record's constructor name for a record.
+
+```funl
+data shape = circle(r)
+write( str(12) + str(1.5) )
+write( image('say "hi"') )
+write( image(cset('cab')) )
+write( image(['a', 2]) )
+write( type(1), type(true), type('s'), type([1]), type(circle(2)) )
+```
+
+```output
+121.5
+"say \"hi\""
+cset("abc")
+["a", 2]
+integer, boolean, string, list, circle
 ```
 
 ## Putting them together

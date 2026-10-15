@@ -454,17 +454,6 @@ an ordinary assignment and `&pos <- i` the reversible one**, which Icon cannot s
 position's existing trail entry is what `<-` pushes. An assignment outside a scan sets the outer
 scan environment, which a scan saves on entry and puts back on leaving.
 
-### `=s` and `bal`
-
-**Icon:** `=s` is `tab(match(s))`: it moves past `s` if the subject continues with it and produces
-`s`, reversibly. `bal(c1, c2, c3, s, i, j)` generates each position in `s[i:j]` at which a character
-of `c1` occurs with the text before it balanced in `c2` (openers) and `c3` (closers); the defaults
-are every character, `'('` and `')'`, and in a scan the subject and the position.
-
-**Proposed:** both as Icon has them. `=s` is a prefix operator compiled as `tab(match(s))`; prefix
-`=` begins nothing else in FunL. `bal` is a builtin generator beside `upto`, positions Icon's
-([decided](language.md#string-scanning)).
-
 ### Sections and indexing
 
 **Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the
@@ -485,25 +474,7 @@ which builds a new string and stores it.
 
 ## Strings and csets
 
-### The functions
-
-| Icon | FunL | |
-|---|---|---|
-| `repl(s, n)` | `repl(s, n)` | new; `replicate` stays the list one |
-| `left(s, n, p)`, `right(s, n, p)`, `center(s, n, p)` | the same names; `p` defaults to `' '` | new `left`, `center`; `right` gains the pad |
-| `reverse(s)` | see I12 | |
-| `map(s1, s2, s3)` | see I11 | |
-| `char(i)`, `ord(s)` | the same, over Unicode code points rather than 0–255 | new |
-| `trim(s, c)` (trailing only) | `trim_end(s, c)`; `trim` and `trim_start` gain the cset too | |
-| `entab(s, i…)`, `detab(s, i…)` | the same; tab stops default to every 8 columns | new |
-| `image(x)` | `image(x)`: the value as source text — a string quoted and escaped, a cset as `cset("…")` | new |
-| `type(x)` | `type(x)`: the name `is` uses for `x`'s kind, a record's constructor name for a record | new |
-| `string(x)` | `str(x)`; `string` is the pattern combinator | new |
-| `cset(x)` | `cset(x)` | covered |
-
-**Padding is Icon's**: `left` pads on the right with the pad string replicated from the right end,
-`right` pads on the left replicated from the left end, and a string longer than `n` is cut from the
-side the padding goes on. Lengths are characters, as everywhere in FunL.
+### `map` and `reverse`
 
 > **Open question I11 — `map(s1, s2, s3)`.** Icon's character mapping replaces each character of
 > `s1` that occurs in `s2` with the one at the same place in `s3`, the last occurrence in `s2`
@@ -604,13 +575,9 @@ not Icon's linear congruential one, so seeded runs repeat within FunL but not ac
 | Icon | FunL | |
 |---|---|---|
 | `iand`, `ior`, `ixor`, `icom`, `ishift(i, j)` | the same names, over the whole integer tower as if two's complement were infinitely long; `ishift` left for positive `j`, right (flooring) for negative | new; Prolog has `/\`, `\/`, `xor`, `<<`, `>>` |
-| `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
 | `dtor`, `rtod` | the same | new |
 | `&pi`, `&e`, `&phi` | `pi`, `e`, `phi` and the keywords | new |
 | `16rFF` literal | see I16 | |
-
-The `0x`, `0o` and `0b` literals stop being limited to 64 bits: a long one is a big integer, as a
-long decimal one is.
 
 > **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
 > number literal touching a name multiplies, so `2r1` today is `2 * r1`. (a) **no `NrDDD` literal**:

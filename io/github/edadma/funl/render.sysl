@@ -25,12 +25,20 @@ private struct Named
     names: Buf[string]
     open: bool
 
-render(v: Value) -> string
+    // Write every string and cset as source text, escaped, even the outermost.
+    src: bool
+
+render(v: Value) -> string = rendered(v, false)
+
+// `v` as `image` shows it: a value written as source text, so every string is quoted and escaped.
+image_of(v: Value) -> string = rendered(v, true)
+
+private rendered(v: Value, src: bool) -> string
     var out = str_builder()
     val c = cycles_of(v)
 
     if c.heads.len() == 0
-        var n = Named(c, buf(), false)
+        var n = Named(c, buf(), false, src)
 
         write_value(&out, &n, v, 0)
         return out.finish()
@@ -40,7 +48,7 @@ render(v: Value) -> string
     for k in 1..c.heads.len()
         names.push(cycle_name(k))
 
-    var n = Named(c, names, false)
+    var n = Named(c, names, false, src)
 
     out.push("@(")
     write_value(&out, &n, v, 1)
@@ -56,7 +64,7 @@ render(v: Value) -> string
 
     out.push("])")
     out.finish()
-end render
+end rendered
 
 // The name `x` is printed as, where it is the head of a cycle.
 private name_of(n: *Named, x: Value) -> Option[string]
@@ -103,7 +111,9 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
             out.push_uint(p.id)
         Unit -> out.push("()")
         Str(p) ->
-            if depth == 0
+            if n.src
+                out.push(quoted(p.s))
+            elif depth == 0
                 out.push(p.s)
             else
                 out.push("\"")
@@ -127,9 +137,9 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
             // `complement` would make it of those it leaves out.
             if p.set.inverted then out.push("complement(")
 
-            out.push("cset(\"")
-            out.push(p.set.text())
-            out.push("\")")
+            out.push("cset(")
+            out.push(quoted(p.set.text()))
+            out.push(")")
 
             if p.set.inverted then out.push(")")
         Bytes(p) ->

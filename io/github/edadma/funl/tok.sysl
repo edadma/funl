@@ -449,6 +449,7 @@ starts_expr(t: Tok) -> bool
         Otherwise -> true
         Minus -> true
         Bang -> true
+        Equals -> true
         Bar -> true
         YieldW -> true
         AsyncW -> true
