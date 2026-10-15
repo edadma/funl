@@ -190,7 +190,7 @@ A_BUFFER_GROWS_BY_PLUS_EQUALS_AND_SHRINKS_BY_REMOVE_LAST()
         "Buffer(1, (2, 3)), Buffer(7, 8), 2\n(2, 3), Buffer(1), Buffer(1, 2, 3)\nsucceeded")
     faults_with("val b = buffer()\nwrite( b.removeLast )\n", "'removeLast' was asked of an empty buffer")
     faults_with("val n = 5\nn += 1\n", "`+=` on a `val` adds to the buffer or the mutable set it holds, and this one holds the integer 5")
-    faults_with("val b = buffer()\nb -= 1\n", "`-=` on a `val` takes out of the mutable set it holds, and this one holds Buffer()")
+    faults_with("val b = buffer()\nb -= 1\n", "`-=` on a `val` takes out of the mutable set or map it holds, and this one holds Buffer()")
     assert_eq(complaints("val n = 5\nn *= 1\n"), "error 2:1 `n` is a `val`, and cannot be assigned\n")
 
 @test
