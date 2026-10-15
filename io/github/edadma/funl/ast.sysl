@@ -155,6 +155,10 @@ enum ExprKind
     // `|e`: `e`'s values, then `e`'s values again, for as long as each round produces one.
     RepAltE(e: &Expr)
 
+    // `e limit n`: `n` first, and for each of its values at most that many of `e`'s. The count and
+    // the place of the mark around `e` are kept in two hidden slots of block `id` (`limit.sysl`).
+    LimitE(id: usize, e: &Expr, n: &Expr)
+
     // `i to j` (`inclusive`) or `i until j`, with an optional `by k`: the integers from `i` towards `j`.
     RangeE(from: &Expr, to: &Expr, by: Option[&Expr], inclusive: bool)
 

@@ -20,6 +20,7 @@ import sysl.buf.{Buf, buf}
 //     !c                     c; GenStart(false); GenNext
 //     i to j by k            i; j; k; PushInt(0); GenRange(true)
 //     |e                     top: MarkThrough; e; ChangeMark(top)
+//     e limit n              n; LimitSet(t); MarkThrough; SaveMark(m); e; LimitCount(t, m)   -- `limit.sysl`
 //     yield e                Choice(after); e; [ScanLeave(n)]; Return; after: PushUnit
 //     return e               e; [ScanLeave(n)]; ReturnCommit
 //     s ? e                  s; ScanBegin; e; ScanEnd
@@ -261,6 +262,17 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(MarkThrough)
             compile_value(e, c, a)?
             e.op(ChangeMark(top))
+        LimitE(id, a, n) ->
+            val inner = c.in_block(id)?
+            val count = slot_of_name(inner, limit_count_name(id))?
+            val mark = slot_of_name(inner, limit_mark_name(id))?
+
+            compile_value(e, c, n)?
+            e.op(LimitSet(count))
+            e.op(MarkThrough)
+            e.op(SaveMark(mark))
+            compile_value(e, c, a)?
+            e.op(LimitCount(count, mark))
         YieldE(a) -> suspend(e, c, a, false)?
         AwaitE(a) ->
             // **Bounded, like `return`**: the operand's first value, its choice points discarded,
