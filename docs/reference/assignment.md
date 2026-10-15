@@ -34,6 +34,20 @@ write( a, b )
 2, 1
 ```
 
+Assignment is the loosest operator, so `x = e & f` assigns the value of `e & f`; Icon's
+`(x := e) & f` is written `(x = e) & f`:
+
+```funl
+x = 1 & 2
+write( x )
+(x = 5) & write( x )
+```
+
+```output
+2
+5
+```
+
 A multiple assignment gives as many values as it has names:
 
 ```funl
