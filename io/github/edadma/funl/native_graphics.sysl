@@ -42,10 +42,10 @@ import sysl.text.chars_of
 // (`EventKeys`). `&window` is the VM's: `open` sets it, a program may assign it, and the collector
 // marks it.
 
-// What `funl:graphics` exports natively, each name the short form of a native `install_graphics`
-// registered as `graphics.name`. The palette functions are exported beside them from the module's
-// FunL (`graphics_source.sysl`).
-private val GraphicsNames: [4]string = ["open", "couple", "color_value", "active"]
+// What `funl:graphics` exports, each name the short form of a native `install_graphics` registered
+// as `graphics.name`.
+private val GraphicsNames: [8]string = ["open", "couple", "color_value", "active", "palette_chars", "palette_color", "palette_key",
+    "palette_grays"]
 
 private const WindowKind: string = "window"
 private const PixelsKind: string = "window pixels"

@@ -3,7 +3,8 @@ module io.github.edadma.funl
 
 // `funl:graphics`'s images and palettes (`docs/library/graphics.md`): `draw_image` with Icon's image
 // strings, `read_image`, `write_image` and `image_bytes` round-tripping through PNG on hidden canvases,
-// the `image` attribute, `new_color` failing, and the palette functions written in FunL.
+// the `image` attribute, `new_color`, `free_color` and `color` with no colour map, and the palette
+// functions.
 
 private const Imports: string = "import { open, palette_chars, palette_color, palette_key, palette_grays } from funl:graphics\n"
 
@@ -64,7 +65,7 @@ DRAW_IMAGE_FAULTS_ON_ARGUMENTS_OF_THE_WRONG_KIND_OR_COUNT()
 // -- palettes ------------------------------------------------------------------------------------
 
 // Every key of every kind of palette, drawn by `draw_image`, reads back as the colour `palette_color`
-// gives it: the palettes in sysl and in FunL agree.
+// gives it: the image decoder and the palette functions agree key for key.
 @test
 EVERY_KEY_DRAWS_THE_COLOUR_PALETTE_COLOR_GIVES_IT()
     assert_eq(ran_funl(Imports + "for p <- ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'g2', 'g64', 'g65', 'g256']\n" +
@@ -130,10 +131,30 @@ A_PALETTE_FUNCTION_FAILS_ON_AN_UNKNOWN_PALETTE_OR_KEY_AND_FAULTS_ON_THE_WRONG_KI
         "error(type_error(string, c1), context(_G11, \"'palette_grays' wants a palette, a string, and was given the atom c1\"))\nsucceeded")
 
 @test
-THE_MODULE_MAP_HOLDS_ITS_NATIVES_AND_ITS_FUNL_FUNCTIONS()
+THE_MODULE_MAP_HOLDS_ITS_NATIVES()
     assert_eq(ran_funl("import * as g from funl:graphics\nwrite( g.palette_chars('c2'), g('palette_grays')('c2'), g('color_value')('red') )\n" +
             "m = g\nwrite( m.length, m.open, m.palette_key, m('palette_key')('c1', 'red') )\n"),
-        "kbgcrmywx, kxw, 65535,0,0\n8, <function graphics.open>, <function palette_key>, A\nsucceeded")
+        "kbgcrmywx, kxw, 65535,0,0\n8, <function graphics.open>, <function graphics.palette_key>, A\nsucceeded")
+
+// A palette's name read as Icon's `sscanf(s, "%c%d%c")` reads it: white space and a sign before the
+// number, leading zeros, and a NUL ending the string; nothing else after the number.
+@test
+A_PALETTE_NAME_IS_READ_AS_ICONS_SSCANF_READS_IT()
+    assert_eq(ran_funl(Imports + "for p <- ['c+2', 'c 2', 'c \\t\\n\\r\\v\\f2', 'c002', 'g+0002', 'c 00000000000000000000002', \"c2${char(0)}x\", \"c 2${char(0)}\"] do write( palette_chars(p) )\n" +
+            "for p <- ['c2 ', 'c-2', 'g-2', 'c+-2', 'c +', 'c+ 2', 'c2.0', 'c 99999999999999999999', \"c${char(0)}2\", 'C2', ' c2'] do write( palette_chars(p) | #failed )\n" +
+            "write( palette_color('c +1', 'A'), palette_key('g\\t16', 'white'), palette_grays(' g2' ) | #failed, palette_grays('g 2') )\n"),
+        "kbgcrmywx\nkbgcrmywx\nkbgcrmywx\nkbgcrmywx\n01\nkbgcrmywx\nkbgcrmywx\nkbgcrmywx\n" +
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\n" +
+        "65535,0,0, F, failed, 01\nsucceeded")
+
+// The palette functions are natives of the module, and nothing they are made of is a name a program
+// can reach: no helper is a global, and a native's prefixed name is no name at all.
+@test
+NO_PALETTE_HELPER_IS_VISIBLE_TO_A_PROGRAM()
+    assert_eq(complaints("write( _palette('palette_chars', 'c1') )\n"), "error 1:8 `_palette` is not defined\n")
+    assert_eq(complaints("write( _palette_char('palette_color', 'A') )\n"), "error 1:8 `_palette_char` is not defined\n")
+    assert_eq(complaints("write( _color_rgb('palette_key', 'red') )\n"), "error 1:8 `_color_rgb` is not defined\n")
+    assert_eq(complaints("import { palette_chars } from funl:graphics\nwrite( pkeys(2), C1Cube )\n"), "error 2:8 `pkeys` is not defined\nerror 2:18 `C1Cube` is not defined\n")
 
 @test
 PROLOG_REACHES_THE_PALETTE_FUNCTIONS_QUALIFIED()
@@ -258,6 +279,25 @@ AN_IMAGE_THAT_CANNOT_BE_READ_FAILS_OPEN_AND_SET_APPLYING_NOTHING()
             "write( open('v', {canvas: #hidden, image: d + '/none.png'}) | #failed, open('v', {canvas: #hidden, image: d + '/note.txt'}) | #failed, open('v', {canvas: #hidden, image: 7}) | #failed )\n" +
             "write( w.set({fg: 'red', image: d + '/none.png'}) | #failed )\nwrite( w.get('fg'), w.get('size'), w.get('image') )\n"),
         "failed, failed, failed\nfailed\nblack, (4, 3), undefined\nsucceeded")
+
+// With no colour map, `free_color` has nothing to free and answers the window, as Icon's `FreeColor`
+// does for an ordinary colour or an index no mutable colour has; `color` finds no mutable colour and
+// fails, as Icon's `Color` does, after the same checks of its arguments.
+@test
+FREE_COLOR_AND_COLOR_AS_ICONS_DO_WITH_NO_MUTABLE_COLOURS()
+    assert_eq(on_canvas("write( w.free_color('red'), w.free_color(-1, 'no such colour', 5, '1,2,3') )\n" +
+            "write( w.color(-1) | #failed, w.color(0) | #failed, w.color(-1, 'red') | #failed, w.color(-1, 'red', -2, -1) | #failed, w.color(-1, 'red', 'x', 7) | #failed )\n" +
+            "write( w.free_color() catch e -> e )\nwrite( w.free_color('red', [1]) catch e -> e )\n" +
+            "write( w.color() catch e -> e )\nwrite( w.color(-1, 'red', -2) catch e -> e )\nwrite( w.color('red') catch e -> e )\n" +
+            "w.close()\nwrite( w.free_color('red') catch e -> e )\nwrite( w.color(-1) catch e -> e )\n"),
+        "<window handle>, <window handle>\nfailed, failed, failed, failed, failed\n" +
+        "error(existence_error(procedure, /(free_color, 0)), context(_G2, \"'free_color' takes one or more colours and was given none\"))\n" +
+        "error(type_error(string, [1]), context(_G5, \"'free_color' wants a colour, a string or an integer, and was given the list [1]\"))\n" +
+        "error(existence_error(procedure, /(color, 0)), context(_G8, \"'color' takes an index, or pairs of an index and a colour, and was given 0 arguments\"))\n" +
+        "error(existence_error(procedure, /(color, 3)), context(_G11, \"'color' takes an index, or pairs of an index and a colour, and was given 3 arguments\"))\n" +
+        "error(type_error(integer, \"red\"), context(_G14, \"'color' wants a mutable colour's index, an integer, and was given the string 'red'\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G17, \"'free_color' was called on the handle <closed window handle>\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G20, \"'color' was called on the handle <closed window handle>\"))\nsucceeded")
 
 @test
 NEW_COLOR_FAILS_AS_ICONS_DOES_ON_A_TRUE_COLOUR_DISPLAY()
