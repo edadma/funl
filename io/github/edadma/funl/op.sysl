@@ -130,6 +130,10 @@ enum Op
     // `Return`, discarding every entry the frame made first: a deterministic exit.
     ReturnCommit
 
+    // Fail the call: discard every entry the frame made, then fail into what the caller left
+    // resumable. `return e` comes here when `e` fails, as Icon's `return` does.
+    ReturnFail
+
     // Call builtin `id` with the top `argc` values, which stay on the stack until it answers. An `argc`
     // of `Variadic` means as many as the running frame was called with (a builtin's function value).
     // A builtin that calls back (`native_fn.sysl`, `Calling`) is entered in a frame of its own.

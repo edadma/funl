@@ -175,64 +175,66 @@ tasks are parked.
 ## 11. Icon parity
 
 **Rests on:** [Icon parity](icon.md) (user, 2026-10-14: everything Icon 9.5 has); milestone 10,
-whose parked machines co-expressions reuse; **answers needed first:** I1–I21, each named on the
-items that wait for it. The items needing none can start now.
+whose parked machines co-expressions reuse; I1–I21, all decided (user, 2026-10-15) and collected in
+[The language § Icon parity](language.md#icon-parity). **Every item is done except item 9, files**,
+which waits on sysl alpha.14 (its work is parked on the branch `m11-files`), and the three keywords
+of item 10 that wait on it.
 
 Each item is one agent's deliverable: built, tested with string-literal programs (an error path
 included), its `docs/reference/` or `docs/library/` page written with programs the suite runs, its
 section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order:
 
 1. **String functions**: `repl`, `left`/`center`/`right` with a pad, `char`, `ord`, `entab`,
-   `detab`, the cset argument of `trim`/`trim_start`/`trim_end`, `image`, `type`, `str`. Waits on
-   nothing.
+   `detab`, the cset argument of `trim`/`trim_start`/`trim_end`, `image`, `type`, `str`. Done.
 2. **Conversions and literals**: `integer`, `real`, `numeric` from strings (`16rFF` included);
-   `0x`/`0o`/`0b` literals past 64 bits. The `NrDDD` literal is built (I16, decided
-   user, 2026-10-15).
+   `0x`/`0o`/`0b` literals past 64 bits; the `NrDDD` literal (I16), a base outside 2 to 36 refused
+   as a radix. Done.
 3. **Set and cset algebra**: `+`, `-` on csets, `**` on sets and csets, `complement`, the
-   complement flag, `lower`/`upper`/`ascii`/`cset_all`. Waits on nothing.
+   complement flag, `lower`/`upper`/`ascii`/`cset_all`. Done.
 4. **Buffers as deques, and deletion**: `push`, `pop`, `get`, `pull`, `put`; `delete`, `m -= k`,
-   `s -= x`; `array(n, x)`; `copy`; `same`; `sort(m)` and the prelude's `sortOn`. Waits on nothing.
+   `s -= x`; `array(n, x)`; `copy`; `same`; `sort(m)` and the prelude's `sortOn`. Done.
 5. **Random numbers and bits**: prefix `?` (assignable on mutable collections), `random()`, the
-   seed; `iand`, `ior`, `ixor`, `icom`, `ishift`; `dtor`, `rtod`, `pi`, `e`, `phi`. Waits on nothing.
-6. **Assignment forms**: the `op=` rule (`//=`, `**=` after item 3) and several-target reversible
-   assignment `a, b <- b, a`. Waits on item 3.
-7. **Scanning additions**: prefix `=s`, `bal`. Waits on nothing.
+   seed; `iand`, `ior`, `ixor`, `icom`, `ishift`; `dtor`, `rtod`, `pi`, `e`, `phi`. Done.
+6. **Assignment forms**: the `op=` rule (`//=`, `**=`) and several-target reversible assignment
+   `a, b <- b, a`. Done.
+7. **Scanning additions**: prefix `=s`, `bal`. Done.
 8. **Standard streams**: `read()`, `reads(n)`, `writes`, `ewrite`, `ewrites`, `stop`; `chdir` in
-   `funl:fs`. Waits on nothing.
+   `funl:fs`. Done.
 9. **Files**: `open` and the file handle's methods in `funl:fs`, `!f`, pipes over `funl:process`;
-   `funl:term` with `getch`, `getche`, `kbhit`. Waits on I17.
-10. **Keywords**: the `&name` token and refusal of `a &b`; every adopted keyword that needs no later
-    item — `&subject` and `&pos` assignable (`&pos <- i` reversible), the csets, `&null`, `&fail`,
-    the constants, `&input`/`&output`/`&errout` (after item 8), `&random` (after item 5), the clocks,
-    `&version`, `&host`, `&progname`, `&features`, `&file`, `&line`, `&level`. Waits on I18.
-11. **`until` loop**. Done (I1 decided: both, by position).
-12. **Limitation**: `e limit n` with `LimitSet`/`LimitCount`, re-limiting when `n` generates. Waits
-    on I3.
-13. **`match`**: the postfix block, failing on no match, and `(e)` value patterns. Waits on I2.
-14. **`static` and `initial`**: the statics object on the closure, `LoadStatic`/`StoreStatic`/`Initial`.
-    Waits on I4.
-15. **Variadic functions and spread**: `..rest` parameters, `f(..xs)` resolved at run time, `arity`.
-    Waits on I5.
-16. **Calling by name**: `proc`, `builtins()`. Waits on I6.
+   `funl:term` with `getch`, `getche`, `kbhit` ([icon](icon.md#input-and-output); I17 decided:
+   handle methods). **Open**: waits on sysl alpha.14; parked on the branch `m11-files`.
+10. **Keywords**: the `&name` token and refusal of `a &b`; `&subject` and `&pos` assignable (`&pos
+    <- i` reversible), the csets, `&null`, `&fail`, the constants, `&random`, the clocks,
+    `&version`, `&host`, `&progname`, `&features`, `&file`, `&line`, `&level`. Done, except
+    **`&input`/`&output`/`&errout`, which wait on item 9**.
+11. **`until` loop** (I1: both, by position). Done.
+12. **Limitation**: `e limit n` with `LimitSet`/`LimitCount`, re-limiting when `n` generates (I3).
+    Done.
+13. **`match`**: the postfix block, failing on no match, and `(e)` value patterns (I2). Done.
+14. **`static` and `initial`**: the statics object on the closure, `LoadStatic`/`StoreStatic`/`Initial`
+    (I4). Done.
+15. **Variadic functions and spread**: `..rest` parameters, `f(..xs)` resolved at run time, `arity`
+    (I5). Done.
+16. **Calling by name**: `proc`, `builtins()` (I6). Done.
 17. **Co-expressions, the machine**: `create` (frame copies), `Activate`, `CoYield`, transmission,
-    `^`, `*`, `!`, faults raised at the `@`, `&current`/`&source`/`&main` (after item 10). Waits on
-    I7 and I8.
+    `^`, `*`, `!`, faults raised at the `@`, `&current`/`&source`/`&main` (I7, I8). Done.
 18. **Co-expressions with tasks and logic**: `await` inside a co-expression, the cross-task
     activation fault, bindings on a co-expression's own trail, and collection of abandoned
-    co-expressions under the stress heap. Waits on item 17 and I9.
+    co-expressions under the stress heap (I9). Done.
 19. **Tracing and introspection**: `&trace`, `display()`, `&dump`, `collect()`, `&collections`,
     `&allocated`, `&storage`, `&regions`, the per-chunk name table, and the per-chunk line table
-    that places a trace line at the call site and a fault at its line. Waits on item 10.
+    that places a trace line at the call site and a fault at its line. Done.
 20. **Answers that reopen a decision**: `translate` (I11), `reverse` of a string (I12), `with`
-    (I15), assignment to a string section (I10). Waits on those four; each answered "no" drops its
-    part.
-21. **The preprocessor**: the directives the answer to I20 keeps, over the token stream, with
-    positions through `$include`. I20 decided: Icon's whole preprocessor.
+    (I15), assignment to a string section (I10). Done.
+21. **The preprocessor**: Icon's whole preprocessor (I20), over the token stream, with positions
+    through `$include`. Done.
 
 **Done when:** an Icon program of each kind in the chapter — a co-expression pipeline, a scanner
 with `bal` and `&pos`, a `static` memo, a variadic logger, a file filter reading standard input —
 has a FunL translation as a string literal in a unit test that prints what Icon prints; every
-`icon.md` section is gone, and the page with it.
+`icon.md` section is gone, and the page with it. **The programs are done** (`tests_icon_programs.sysl`,
+with a sixth over `limit`, `until`, `match`, `proc`, `&trace`, `translate` and the preprocessor);
+`icon.md` holds only item 9's section and the three keywords that wait on it.
 
 ## 12. Graphics
 

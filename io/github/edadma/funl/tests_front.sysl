@@ -82,15 +82,22 @@ A_RADIX_LITERAL_DOES_NOT_MULTIPLY_A_NAME()
 
 @test
 A_BAD_RADIX_LITERAL_IS_ONE_ERROR_AT_ITS_MISTAKE()
-    assert_eq(complaints("write( 1r1 )\n"), "error 1:8 this number is not a digit\n")
-    assert_eq(complaints("write( 37rZ )\n"), "error 1:8 this number is not a digit\n")
-    assert_eq(complaints("write( 0r1 )\n"), "error 1:8 this number is not a digit\n")
-    assert_eq(complaints("write( 100r1 )\n"), "error 1:8 this number is not a digit\n")
     assert_eq(complaints("write( 2r102 )\n"), "error 1:12 this number is not a digit\n")
     assert_eq(complaints("write( 16rFG )\n"), "error 1:12 this number is not a digit\n")
     assert_eq(complaints("write( 16r )\n"), "error 1:11 this number is no digits\n")
     assert_eq(complaints("write( 16r_F )\n"), "error 1:11 this number is not a digit\n")
     assert_eq(complaints("write( 16rF_ )\n"), "error 1:13 this number is not a digit\n")
+
+// A base outside 2 to 36 is a mistake in the radix, said as one, at the base, with what follows the
+// `r` taken with it so the one mistake is one report.
+@test
+A_RADIX_OUTSIDE_2_TO_36_IS_REFUSED_AS_A_RADIX()
+    assert_eq(complaints("write( 1r1 )\n"), "error 1:8 a radix must be 2 to 36\n")
+    assert_eq(complaints("write( 37rZ )\n"), "error 1:8 a radix must be 2 to 36\n")
+    assert_eq(complaints("write( 0r1 )\n"), "error 1:8 a radix must be 2 to 36\n")
+    assert_eq(complaints("write( 100r1 )\n"), "error 1:8 a radix must be 2 to 36\n")
+    assert_eq(complaints("write( 37rZZ_9 )\n"), "error 1:8 a radix must be 2 to 36\n")
+    assert_eq(complaints("write( 2r1, 36rZ )\n"), "")
 
 @test
 A_DOT_OR_AN_E_AFTER_AN_INTEGER_THAT_IS_NO_FLOAT_LEAVES_THE_INTEGER_ALONE()

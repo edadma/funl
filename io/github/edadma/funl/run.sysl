@@ -300,6 +300,11 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         ReturnCommit ->
             ret_commit(v)?
             Ok(Next)
+        ReturnFail ->
+            if v.frame == null || v.frame.caller == null then return Err(Broken("ReturnFail with no caller to fail into"))
+
+            cut_to(v, v.frame.entry, false)
+            Ok(Fails)
         Native(id, argc) -> call_native(v, id, passed(v, argc))
         Callback(id, failed) -> callback_turn(v, id, failed)
         LoadArgs ->

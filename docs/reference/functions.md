@@ -1295,6 +1295,31 @@ every write( allOf([7, 8, 9]) )
 9
 ```
 
+**When `e` fails, `return e` fails the call**, as Icon's does: the function gives no value, and no
+statement after the `return` runs. So `return fail` is how a function fails from the middle of its
+body, where a plain `fail` is only a statement that fails and moves on:
+
+```funl
+def positive( x )
+  return x > 0
+
+def check( x )
+  if x == 0 then return fail
+  write( 'checked ' + str(x) )
+  x
+
+write( positive(5), positive(-5) | 'not positive' )
+write( check(0) | 'no value' )
+write( check(2) )
+```
+
+```output
+0, not positive
+no value
+checked 2
+2
+```
+
 Inside parentheses, in a call's arguments and at the head of `every`, `name = e` is an assignment
 expression: it stores each value of `e` in `name` and produces it. Here `k` is bound once for each
 value of the outer range:

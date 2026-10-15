@@ -404,13 +404,18 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         return true
 
     if is_digit(c)
-        val radix_number = radix_form(s.src[s.at..<s.src.len]) >= 0
+        val base = radix_form(s.src[s.at..<s.src.len])
+        val radix_number = base >= 0
 
         read_number_literal(s) match
             Ok(Small(n)) -> out.push(IntLit(n), Span(start, s.at))
             Ok(Text(t)) -> out.push(NumLit(t), Span(start, s.at))
             Err(e) ->
-                val d = error(where(e), s"this number is $e")
+                // A base outside 2 to 36 is refused at the base, as a radix rather than as a digit.
+                val d = if radix_number && (base < 2 || base > 36)
+                    error(where(e), "a radix must be 2 to 36")
+                else
+                    error(where(e), s"this number is $e")
 
                 if radix_number
                     report.add(d.with_note("a radix number is a base from 2 to 36, an `r`, then digits of that base: `16rFF`, `2r1010`"))

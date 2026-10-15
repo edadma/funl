@@ -1,0 +1,403 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+
+// Icon programs of each kind the Icon parity chapter covers, translated to FunL, each printing what
+// the Icon original prints. The Icon program is written above each test with the output Icon gives
+// it; Icon's `write(a, b)` writes its arguments with nothing between, so the translations write with
+// `writes` where Icon writes several values. A trace line, which Icon writes in its own column layout,
+// is compared by its events, not its spacing.
+
+// The transcript of FunL program `text` reading the lines `lines` from standard input and nothing
+// more: what it wrote, a line written to standard error after `stderr: `, then the status.
+private struct Lines
+    lines: Buf[string]
+    at: usize
+
+private fed_lines(text: string, lines: []string) -> string
+    var script: Buf[string] = buf()
+
+    for l in lines
+        script.push(l)
+
+    val f: &Lines = Lines(script, 0)
+    val said = new_capture()
+    val status = run_source("test.funl", text, (prompt) -> next_line(f), (t) -> captured(said, t), (t) -> captured_err(said, t))
+
+    s"${transcript(said)}status: $status"
+
+private next_line(f: &Lines) -> Option[string]
+    if f.at >= f.lines.len() then return None
+
+    val l = f.lines.at(f.at)
+
+    f.at += 1
+    Some(l)
+
+// -- a co-expression pipeline -----------------------------------------------------------------------
+
+// A producer, a filter pulling from it, and a consumer the main program hands each value to by
+// transmission. The consumer fails when it is told to end, so the `@` that told it fails too.
+//
+//     procedure long_words(c)
+//        while w := @c do
+//           if *w > 3 then suspend w
+//     end
+//
+//     procedure consumer()
+//        count := 0
+//        repeat {
+//           w := @&source
+//           if w == "END" then {
+//              write("total ", count)
+//              fail
+//           }
+//           count +:= 1
+//           write(count, ": ", w)
+//        }
+//     end
+//
+//     procedure main()
+//        words := create !["an", "apple", "kiwi", "fig", "banana", "ox", "cherry"]
+//        long := create long_words(words)
+//        cons := create consumer()
+//        @cons
+//        while w := @long do w @ cons
+//        write(("END" @ cons) | "consumer finished")
+//        write(@long | "filter finished")
+//     end
+//
+// Icon writes
+//
+//     1: apple
+//     2: kiwi
+//     3: banana
+//     4: cherry
+//     total 4
+//     consumer finished
+//     filter finished
+@test
+ICON_A_CO_EXPRESSION_PIPELINE_WITH_TRANSMISSION()
+    val text = raw"""
+        def long_words( c )
+          while w = @c
+            if w.length > 3 then yield w
+
+        def consumer()
+          var count = 0
+          repeat
+            val w = @&source
+            if w == 'END'
+              writes( 'total ', count, '\n' )
+              return fail
+            count += 1
+            writes( count, ': ', w, '\n' )
+
+        val words = create !['an', 'apple', 'kiwi', 'fig', 'banana', 'ox', 'cherry']
+        val long = create long_words( words )
+        val cons = create consumer()
+        @cons
+        while w = @long do w @ cons
+        write( ('END' @ cons) | 'consumer finished' )
+        write( @long | 'filter finished' )
+        """
+
+    assert_eq(ran_funl(text), "1: apple\n2: kiwi\n3: banana\n4: cherry\ntotal 4\nconsumer finished\nfilter finished\nsucceeded")
+
+// -- a scanner with `bal` and `&pos` ----------------------------------------------------------------
+
+// Fields separated by commas that are not inside brackets, then `&pos` assigned to look again from
+// the start and from the last character.
+//
+//     procedure main()
+//        every line := !["f(a,b),g(c),h", "x+(y*z),[w,v]"] do
+//           line ? {
+//              while field := tab(bal(',', '([', ')]')) do {
+//                 write(field, " ends at ", &pos)
+//                 move(1)
+//              }
+//              write(tab(0), " is last")
+//              &pos := 1
+//              write("first: ", tab(upto('(')))
+//              &pos := -1
+//              write("last char: ", move(1))
+//           }
+//     end
+//
+// Icon writes
+//
+//     f(a,b) ends at 7
+//     g(c) ends at 12
+//     h is last
+//     first: f
+//     last char: h
+//     x+(y*z) ends at 8
+//     [w,v] is last
+//     first: x+
+//     last char: ]
+@test
+ICON_A_SCANNER_WITH_BAL_AND_POS()
+    val text = raw"""
+        every line = !['f(a,b),g(c),h', 'x+(y*z),[w,v]']
+          line ?
+            while field = tab( bal(',', '([', ')]') )
+              writes( field, ' ends at ', &pos, '\n' )
+              move( 1 )
+            writes( tab(0), ' is last\n' )
+            &pos = 1
+            writes( 'first: ', tab(upto('(')), '\n' )
+            &pos = -1
+            writes( 'last char: ', move(1), '\n' )
+        """
+
+    assert_eq(ran_funl(text), "f(a,b) ends at 7\ng(c) ends at 12\nh is last\nfirst: f\nlast char: h\n" +
+        "x+(y*z) ends at 8\n[w,v] is last\nfirst: x+\nlast char: ]\nsucceeded")
+
+// -- a `static` memo --------------------------------------------------------------------------------
+
+// Fibonacci remembered in a static table made by `initial` on the first call, with a global counting
+// the calls: 59 for `fib(30)`, 41 more for `fib(50)` (each new `n` from 50 down to 31 makes two
+// calls), and one for a `fib(50)` already remembered.
+//
+//     global calls
+//
+//     procedure fib(n)
+//        static memo
+//        initial {
+//           memo := table()
+//           write("made the memo")
+//        }
+//        calls +:= 1
+//        if member(memo, n) then return memo[n]
+//        return memo[n] := if n < 2 then n else fib(n - 1) + fib(n - 2)
+//     end
+//
+//     procedure main()
+//        calls := 0
+//        write(fib(30), " after ", calls, " calls")
+//        write(fib(50), " after ", calls, " calls")
+//        write(fib(50), " after ", calls, " calls")
+//     end
+//
+// Icon writes
+//
+//     made the memo
+//     832040 after 59 calls
+//     12586269025 after 100 calls
+//     12586269025 after 101 calls
+@test
+ICON_A_STATIC_MEMO()
+    val text = raw"""
+        var calls = 0
+
+        def fib( n )
+          static memo
+          initial
+            memo = map()
+            write( 'made the memo' )
+          calls += 1
+          if n in memo then return memo(n)
+          return (memo(n) = if n < 2 then n else fib( n - 1 ) + fib( n - 2 ))
+
+        writes( fib(30), ' after ', calls, ' calls\n' )
+        writes( fib(50), ' after ', calls, ' calls\n' )
+        writes( fib(50), ' after ', calls, ' calls\n' )
+        """
+
+    assert_eq(ran_funl(text), "made the memo\n832040 after 59 calls\n12586269025 after 100 calls\n12586269025 after 101 calls\nsucceeded")
+
+// -- a variadic logger ------------------------------------------------------------------------------
+
+// A logger taking any number of parts, a second one passing its own on by spreading them, a list
+// spread into a call, and the counts `args` reports, negative for a variadic procedure.
+//
+//     procedure say(level, args[])
+//        writes("[", level, "]")
+//        every writes(" ", !args)
+//        write()
+//        return *args
+//     end
+//
+//     procedure warn(args[])
+//        return say!(["WARN"] ||| args)
+//     end
+//
+//     procedure main()
+//        say("INFO", "started", 3, "workers")
+//        n := warn("disk", "90%")
+//        write(n)
+//        say("DEBUG")
+//        parts := ["a", "b", "c"]
+//        say!(["INFO"] ||| parts)
+//        write(say!["ERROR", "x"])
+//        write(args(say), " ", args(warn))
+//     end
+//
+// Icon writes
+//
+//     [INFO] started 3 workers
+//     [WARN] disk 90%
+//     2
+//     [DEBUG]
+//     [INFO] a b c
+//     [ERROR] x
+//     1
+//     -2 -1
+@test
+ICON_A_VARIADIC_LOGGER_WITH_SPREAD()
+    val text = raw"""
+        def say( level, ..args )
+          writes( '[', level, ']' )
+          every writes( ' ', !args )
+          writes( '\n' )
+          args.length
+
+        def warn( ..args ) = say( 'WARN', ..args )
+
+        say( 'INFO', 'started', 3, 'workers' )
+        n = warn( 'disk', '90%' )
+        write( n )
+        say( 'DEBUG' )
+        parts = ['a', 'b', 'c']
+        say( 'INFO', ..parts )
+        write( say(..['ERROR', 'x']) )
+        writes( arity(say), ' ', arity(warn), '\n' )
+        """
+
+    assert_eq(ran_funl(text), "[INFO] started 3 workers\n[WARN] disk 90%\n2\n[DEBUG]\n[INFO] a b c\n[ERROR] x\n1\n-2 -1\nsucceeded")
+
+// -- a filter reading standard input ----------------------------------------------------------------
+
+// Each line that is not blank, numbered by its place in the input and upper-cased, then a count.
+// `trim` takes trailing blanks off, so a line of spaces is blank. Icon upper-cases with `map` over the
+// letter csets; FunL's `translate` takes strings only (no implicit conversion), and `upper` says it.
+//
+//     procedure main()
+//        count := kept := 0
+//        while line := read() do {
+//           count +:= 1
+//           if *trim(line) = 0 then next
+//           kept +:= 1
+//           writes(right(count, 3), ": ", map(line, &lcase, &ucase))
+//           write()
+//        }
+//        write(kept, " of ", count, " lines")
+//     end
+//
+// Given the lines `hello world`, an empty line, three spaces and `the end`, Icon writes
+//
+//       1: HELLO WORLD
+//       4: THE END
+//     2 of 4 lines
+//
+// and given no input at all, `0 of 0 lines`.
+@test
+ICON_A_FILTER_READING_STANDARD_INPUT()
+    val text = raw"""
+        var count = 0
+        var kept = 0
+
+        while line = read()
+          count += 1
+          if trim( line ).length == 0 then continue
+          kept += 1
+          writes( right(count, 3), ': ', upper(line), '\n' )
+
+        writes( kept, ' of ', count, ' lines\n' )
+        """
+
+    assert_eq(fed_lines(text, ["hello world", "", "   ", "the end"]), "  1: HELLO WORLD\n  4: THE END\n2 of 4 lines\nstatus: 0")
+    assert_eq(fed_lines(text, []), "0 of 0 lines\nstatus: 0")
+
+// -- `limit`, `until`, `match`, `proc`, `&trace`, `translate` and the preprocessor ------------------
+
+// Icon's `case` is FunL's `match`, `\` is `limit` and `map` is `translate`. `&trace` is on for one
+// call, which Icon traces as the call and its return, and off again for the next.
+//
+//     $define FIRST 2
+//     $ifdef _UNIX
+//     $define OS "unix"
+//     $else
+//     $define OS "other"
+//     $endif
+//
+//     procedure kind(n)
+//        return case n of {
+//           0: "zero"
+//           1 | 2: "small"
+//           default: "big"
+//        }
+//     end
+//
+//     procedure main()
+//        every write(!["a", "b", "c", "d"] \ FIRST)
+//        i := 1
+//        until i > 20 do i *:= 3
+//        write(i)
+//        every n := 0 to 3 do write(n, " ", kind(n))
+//        f := proc("kind")
+//        write(f(7))
+//        write(proc("+", 2)(3, 4))
+//        &trace := -1
+//        x := kind(9)
+//        &trace := 0
+//        write(x)
+//        write(kind(10))
+//        write(map("hello", "lo", "01"))
+//        write(OS)
+//     end
+//
+// Icon writes, the two trace lines to standard error
+//
+//     a
+//     b
+//     27
+//     0 zero
+//     1 small
+//     2 small
+//     3 big
+//     big
+//     7
+//     ... | kind(9)
+//     ... | kind returned "big"
+//     big
+//     big
+//     he001
+//     unix
+@test
+ICON_LIMIT_UNTIL_MATCH_PROC_TRACE_TRANSLATE_AND_THE_PREPROCESSOR()
+    val text = raw"""
+        $define FIRST 2
+        $ifdef _UNIX
+        $define OS 'unix'
+        $else
+        $define OS 'other'
+        $endif
+
+        def kind( n ) =
+          n match
+            0 -> 'zero'
+            (1 | 2) -> 'small'
+            _ -> 'big'
+
+        every write( !['a', 'b', 'c', 'd'] limit FIRST )
+        var i = 1
+        until i > 20 do i *= 3
+        write( i )
+        every n = 0 to 3 do writes( n, ' ', kind(n), '\n' )
+        f = proc( 'kind' )
+        write( f(7) )
+        write( proc('+', 2)(3, 4) )
+        &trace = -1
+        x = kind( 9 )
+        &trace = 0
+        write( x )
+        write( kind(10) )
+        write( translate('hello', 'lo', '01') )
+        write( OS )
+        """
+
+    assert_eq(ran_funl(text), "a\nb\n27\n0 zero\n1 small\n2 small\n3 big\nbig\n7\n" +
+        "stderr: test.funl:23 | kind(9)\nstderr: test.funl:9 | kind returned \"big\"\n" +
+        "big\nbig\nhe001\nunix\nsucceeded")

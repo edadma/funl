@@ -8,7 +8,7 @@ weight: 59
 **FunL has Icon 9.5's graphics facilities** — windows, drawing, text and fonts, colours and
 palettes, images, events, clipping, several windows at once and the shared contexts of `Clone` and
 `Couple` — as a native module, `funl:graphics` (user, 2026-10-15, question I21 of
-[Icon parity](icon.md#graphics)). The reference is Griswold, Jeffery and Townsend, *Graphics
+[Icon parity](language.md#icon-parity)). The reference is Griswold, Jeffery and Townsend, *Graphics
 Programming in Icon*. As with the rest of the parity work, **parity is of capability, not of
 spelling**: an Icon graphics program has a FunL translation about as short that draws the same
 picture and answers the same events.
@@ -89,7 +89,7 @@ both.
 **Methods, not functions taking the window, and no implicit window** ([G1](#the-questions-collected)).
 Icon's functions take an optional first argument defaulting to `&window`; FunL's handle rule makes the
 window the receiver, which is as short as Icon's explicit form and shorter than its implicit one is
-clear. **`&window` is kept** (keywords are [I18](icon.md#keywords)'s `&name`): assignable, set by
+clear. **`&window` is kept** (keywords are [I18](language.md#icon-parity)'s `&name`): assignable, set by
 `open` to the window it makes, failing when no window is open, so a helper procedure can draw on "the
 current window" as Icon's do — `&window.draw_line(…)`.
 
@@ -146,7 +146,7 @@ Not adopted: `display` (an X server's name), `gamma`, `iconpos`, `iconlabel`, `i
 
 Every Icon drawing function is a method; a function that takes a repeated group of arguments
 (`DrawLine(x1, y1, x2, y2, x3, y3, …)`, `DrawPoint(x1, y1, x2, y2, …)`, `DrawRectangle` with several
-rectangles) takes the same flat list, so a variadic call ([I5](icon.md#variadic-procedures-and-list-invocation))
+rectangles) takes the same flat list, so a variadic call ([I5](../reference/functions.md#variadic-functions))
 or a spread passes a computed list.
 
 | Icon | FunL |

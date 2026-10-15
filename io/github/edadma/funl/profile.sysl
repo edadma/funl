@@ -176,6 +176,7 @@ op_label(op: Op) -> string = op match
     Op.TailCall(_, _) -> "TailCall"
     Op.Return -> "Return"
     Op.ReturnCommit -> "ReturnCommit"
+    Op.ReturnFail -> "ReturnFail"
     Op.Native(_, _) -> "Native"
     Op.Callback(_, _) -> "Callback"
     Op.GetVar(_, _) -> "GetVar"

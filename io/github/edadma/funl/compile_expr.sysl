@@ -23,7 +23,7 @@ import sysl.buf.{Buf, buf}
 //     |e                     top: MarkThrough; e; ChangeMark(top)
 //     e limit n              n; LimitSet(t); MarkThrough; SaveMark(m); e; LimitCount(t, m)   -- `limit.sysl`
 //     yield e                Choice(after); e; [ScanLeave(n)]; Return; after: PushUnit
-//     return e               e; [ScanLeave(n)]; ReturnCommit
+//     return e               Choice(no); e; [ScanLeave(n)]; ReturnCommit; no: [ScanLeave(n)]; ReturnFail
 //     s ? e                  s; ScanBegin; e; ScanEnd
 //     e catch p -> r         SaveHeight(h); PushTrap(r); e; ExitTrap(h); ...   -- `catch.sysl`
 //     create e               Create(k)                 -- chunk k: e; CoYield    -- `coexpr.sysl`
@@ -238,11 +238,22 @@ private value_of(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 None -> return Err(s"lambda $id was never resolved")
         ReturnE(v) ->
             v match
-                Some(a) -> compile_value(e, c, a)?
-                None -> e.op(PushUnit)
+                Some(a) ->
+                    // **`return e` fails the call when `e` fails**, as Icon's does: `e`'s failure
+                    // comes to `failed` rather than moving on to the next statement.
+                    val failed = e.label()
 
-            leave_scans(e, c.scans)
-            e.op(ReturnCommit)
+                    e.op(Choice(failed))
+                    compile_value(e, c, a)?
+                    leave_scans(e, c.scans)
+                    e.op(ReturnCommit)
+                    e.place(failed)
+                    leave_scans(e, c.scans)
+                    e.op(ReturnFail)
+                None ->
+                    e.op(PushUnit)
+                    leave_scans(e, c.scans)
+                    e.op(ReturnCommit)
         FailE -> e.op(Fail)
         ListE(items) ->
             for a in items.view()
