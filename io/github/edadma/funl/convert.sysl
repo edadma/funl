@@ -25,8 +25,8 @@ install_conversions(v: *Vm)
     register_generator(v, "real", 1, (b, n, c) -> converted(b, "real"))
     register_generator(v, "numeric", 1, (b, n, c) -> converted(b, "numeric"))
 
-// `name(x)`: `x` read as a number when it is a string, then made an integer (rounded, as `round`
-// does), a real, or left the number it is.
+// `name(x)`: `x` read as a number when it is a string, then made an integer (truncated toward zero, as Icon's
+// `integer` does; `round` rounds), a real, or left the number it is.
 private converted(base: usize, name: string) -> Result[Answer, Fault]
     val x = deref(arg(base, 0))
 
@@ -39,7 +39,7 @@ private converted(base: usize, name: string) -> Result[Answer, Fault]
 
             x
 
-    if name == "integer" then return Ok(Gives(math_unary("integer", n)?))
+    if name == "integer" then return Ok(Gives(math_unary("truncate", n)?))
     if name == "real" then return Ok(Gives(real_of(dal.to_real(num_of(n).unwrap()), name, n)?))
 
     Ok(Gives(n))

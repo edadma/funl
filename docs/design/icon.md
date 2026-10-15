@@ -559,7 +559,7 @@ with a newline; no standard input, no standard error, no open file.
 | `&collections`, `&allocated`, `&storage`, `&regions` | `&collections` and `&allocated` from sysl's collector; the region keywords are not adopted (sysl's heap has no regions); `collect()` asks for a collection |
 | `&dump` | adopted: a non-zero value prints `display()`'s report when the program ends; `display()` prints the running function's named locals and the top-level names, from a name table the compiler keeps per chunk |
 | `&error`, `&errornumber`, `&errortext`, `&errorvalue` | see I19 |
-| `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | graphics; see I21 |
+| `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | adopted in [Graphics](graphics.md#events) |
 
 **Machine:** `&name` is one token. Each keyword is either a constant folded when compiled, an
 instruction reading a machine field (`&subject`, `&pos`, `&current`, `&level`), or a call of a
@@ -624,11 +624,9 @@ some thirty keywords (`&window`, `&x`, `&y`, the mouse events) and about seventy
 (`WOpen`, `DrawLine`, `Event`, …). They are an optional part of an Icon build, described in their
 own book, rather than part of the language.
 
-> **Open question I21 — the graphics facilities.** (a) out of parity's scope: a later
-> `funl:graphics` native module over a sysl binding, designed on its own terms when wanted;
-> (b) in scope, with Icon's function set and keywords. **Recommendation: (a).** They are a
-> library, not the language, and a window needs a design of its own (which thread owns it, how
-> events reach the loop that runs `async` tasks) rather than a transcription of 1990s X11 calls.
+> **Decided (user, 2026-10-15) — I21, the graphics facilities: in scope**, as the native module
+> `funl:graphics`, with a design of its own: [Graphics](graphics.md), whose open questions are
+> G1–G12, built as milestone 12.
 
 ## The questions, collected
 
@@ -654,4 +652,4 @@ own book, rather than part of the language.
 | I18 | how keywords are spelled | `&name`, one token |
 | I19 | `&error` and `runerr` | nothing more; `catch` and `throw` cover them |
 | I20 | a preprocessor | conditional compilation only |
-| I21 | the graphics facilities | out of scope; a later native module |
+| I21 | the graphics facilities | decided: in scope, [Graphics](graphics.md) |

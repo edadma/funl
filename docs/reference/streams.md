@@ -11,9 +11,9 @@ These are builtins; none needs an import.
 
 ## `write` and `writes`
 
-`write(a, b, ...)` writes its arguments, separated by `, `, and ends the line. `writes` writes them
-and does not: the next write to the same stream carries on from where it stopped, so a line is built
-in pieces.
+`write(a, b, ...)` writes its arguments, separated by `, `, and ends the line. `writes(a, b, ...)` writes
+them one straight after another, with no separator, as Icon does, and does not end the line: the next
+write to the same stream carries on from where it stopped, so a line is built in pieces.
 
 ```funl
 writes( "one" )
@@ -24,9 +24,11 @@ write( "next line" )
 ```
 
 ```output
-onetwo, 2three
+onetwo2three
 next line
 ```
+
+`write( "x", 1 )` is `x, 1`; `writes( "x", 1 )` is `x1`.
 
 A newline inside the text ends a line as it should:
 
