@@ -500,8 +500,11 @@ A_RELATION_INSIDE_A_FUNCTION_IS_REFUSED()
         "error 2:7 `p` is a relation, and a relation is defined at the top level\n")
 
 @test
-A_NAMED_PATTERN_OUTSIDE_A_PATTERN_IS_REFUSED()
-    assert_eq(complaints("val x = 1\nwrite( y@x )\n"), "error 2:8 `name@pattern` is a pattern, and this is not where one is matched\n")
+A_NAMED_PATTERN_OUTSIDE_A_PATTERN_IS_TRANSMISSION()
+    // Where an expression is read, `y@x` transmits `y` to the co-expression `x`, so `y` is a name
+    // the program has to define.
+    assert_eq(complaints("val x = 1\nwrite( y@x )\n"), "error 2:8 `y` is not defined\n")
+    assert_eq(ran_funl("val x = create @&source\ny = 'sent'\n@x\nwrite( y@x )\n"), "sent\nsucceeded")
 
 @test
 AN_OPERATOR_WITH_NO_RIGHT_OPERAND_OUTSIDE_A_SECTION_IS_REFUSED()

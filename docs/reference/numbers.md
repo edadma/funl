@@ -40,6 +40,23 @@ write( 2e-1 )
 0.2
 ```
 
+Any other base from 2 to 36 is written Icon's way, `NrDDD`: the base in decimal, an `r` (or `R`) and
+the digits, which past 9 are letters in either case. It is one number of any size, with `_` between
+digits as in the other forms, so `16rFF` is 255 and not `16` times a name `rFF`. A base outside 2 to 36,
+a digit the base does not have, or no digits at all is an error.
+
+```funl
+write( 16rFF, 16rff, 2r1010, 36rZZ, 8R777 )
+write( 16r1_0000_0000_0000_0000 )
+write( 36rZZZZZZZZZZZZZZZZZZZZ )
+```
+
+```output
+255, 255, 10, 1295, 511
+18446744073709551616
+13367494538843734067838845976575
+```
+
 ## Integers grow without bound
 
 An integer result too large for 64 bits is carried as a big integer, and one that comes back into
@@ -444,20 +461,20 @@ write( copysign(3, -0.0), copysign(-2.5, 1) )
 -3, 2.5
 ```
 
-`floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `round`)
+`floor`, `ceiling`, `round` (halves away from zero), `truncate` and `integer` (the same as `truncate`)
 answer integers, and exactly: a rational is rounded as a rational, an integer is its own. `sign`
 keeps its argument's kind, and `float` makes a real. `integer` takes a string too, and so do `real`
 and `numeric` ([below](#converting-a-string-to-a-number)).
 
 ```funl
 write( floor(7/2), ceiling(7/2), round(7/2), truncate(-7/2), floor(-7/2) )
-write( floor(2.5), round(-2.5), integer(2.5), floor(5) )
+write( floor(2.5), round(-2.5), integer(2.7), floor(5) )
 write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )
 ```
 
 ```output
 3, 4, 4, -3, -4
-2, -3, 3, 5
+2, -3, 2, 5
 -1, 1, 0, 0.25, 3
 ```
 
@@ -727,25 +744,24 @@ repeated
 Arithmetic never reads a number out of a string; `integer`, `real` and `numeric` do. Each takes a
 number or a string. A string is read as a number literal is, so it converts exactly when the same
 characters in a program would be a number, and the three then make of it what they make of a
-number: `integer` rounds as `round` does, `real` makes a real, and `numeric` leaves the number the
+number: `integer` truncates toward zero as `truncate` does, `real` makes a real, and `numeric` leaves the number the
 kind it is.
 
 ```funl
 write( integer('42') + 1, integer('1_000'), integer('0xFF') )
-write( integer('2.5'), real('3'), real(1/4) )
+write( integer('2.7'), integer('-2.7'), real('3'), real(1/4) )
 write( numeric('7'), numeric('0.5'), numeric(7/2) )
 ```
 
 ```output
 43, 1000, 255
-3, 3, 0.25
+2, -2, 3, 0.25
 7, 0.5, 7/2
 ```
 
-Three things a literal does not have are taken from a string, since a string being converted is data
-rather than program: a sign, spaces around the number, and a radix written `NrDDD`, the base in
-decimal from 2 to 36 and then `r` (in a program, `16rFF` is `16` times the name `rFF`). The digits of
-a base past 10 are letters, in either case.
+Two things a literal does not have are taken from a string, since a string being converted is data
+rather than program: a sign, and spaces around the number. A radix written `NrDDD` is a literal too (see
+*Writing numbers*), so a program's `16rFF` and the string `'16rFF'` are the same number.
 
 ```funl
 write( integer(' -17 '), integer('+5') )

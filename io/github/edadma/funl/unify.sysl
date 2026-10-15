@@ -63,6 +63,9 @@ identical(a: Value, b: Value) -> bool = a match
     Promise(p) -> b match
         Promise(q) -> p == q
         _ -> false
+    CoExpr(p) -> b match
+        CoExpr(q) -> p == q
+        _ -> false
     _ -> false
 
 // Unify `a` with `b`, binding variables. Answers false on a mismatch, leaving whatever bindings it
@@ -193,6 +196,7 @@ private step(x: Value, y: Value, check: bool) -> bool
         // A handle, and a promise, unifies only with itself, which `identical` has already tested.
         Handle(_) -> false
         Promise(_) -> false
+        CoExpr(_) -> false
 
         // **An immutable map unifies by content**: it cannot change, so it is a term -- the same keys,
         // compared as `==` compares them, then each pair of values unified.
@@ -517,6 +521,7 @@ equal_values(a: Value, b: Value, op: string) -> Result[bool, Fault]
                 _ -> false
             Handle(_) -> false
             Promise(_) -> false
+            CoExpr(_) -> false
 
             // An immutable map equals one with the same entries. What changes in place is equal only
             // to itself, which `identical` has already tested.
@@ -649,6 +654,7 @@ private rank(x: Value) -> int = x match
     Bytes(_) -> 18
     Handle(_) -> 19
     Promise(_) -> 20
+    CoExpr(_) -> 21
 
 private ordered(a: u64, b: u64) -> int = if a < b then -1 elif a > b then 1 else 0
 
@@ -721,6 +727,7 @@ private identity(x: Value) -> usize = x match
     CSet(p) -> usize(p)
     Handle(p) -> usize(p)
     Promise(p) -> usize(p)
+    CoExpr(p) -> usize(p)
     _ -> 0
 
 // Push each pair of parts of two terms whose heads already agree (`heads`) and whose arity does.

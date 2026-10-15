@@ -34,7 +34,13 @@ column_shift(file: string) -> usize = if is_literate_funl(file) then literate_in
 // A literate file's diagnostics are moved onto `doc` before they are drawn, so the line quoted under
 // the `-->` line is the document's own, indent and all, and the caret sits under the column that line
 // names. A plain file's `program` is `doc` and nothing moves.
-render_report(report: Report, doc: Source, program: Source) -> string
+//
+// `places` is the preprocessor's map of the program the report's spans index (`preproc.sysl`): where
+// a file was included, a definition expanded or a line renumbered, each diagnostic is drawn against
+// the file it points into.
+render_report(report: Report, doc: Source, program: Source, places: SourceMap) -> string
+    if !places.plain() then return render_mapped(report, doc, places)
+
     if !is_literate_funl(doc.name) then return report.render(program)
 
     var moved = full_report()

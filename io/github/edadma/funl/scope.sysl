@@ -56,6 +56,10 @@ struct Rel
     // The scope of each clause, once its clauses are resolved.
     scopes: Buf[usize]
 
+    // A variadic function, `def f(a, ..rest)`: its last parameter, counted in `arity`, is the list of
+    // every argument after the others, so it takes any count from `arity - 1` up (`variadic.sysl`).
+    variadic: bool
+
 // Whether `r` is an `async` function: one of its clauses was written under `async`.
 is_async_rel(r: Rel) -> bool
     for c in r.clauses.view()
@@ -119,6 +123,11 @@ struct Scope
     // Whether a `return` is written in this scope's own code: its commit is a cut, which leaves the
     // reversible changes made inside the statement it leaves to the caller's mark.
     returns: bool
+
+    // Whether this is a function's statics scope (`static` and `initial`): the variables that belong
+    // to the function value rather than to a call, one block of them for each clause, held in the
+    // statics frame that is the static link of every frame the function's calls make.
+    statics: bool
 
     count(self) -> usize = self.names.len()
 
@@ -208,7 +217,7 @@ child_scope(parent: usize, parent_block: usize) -> Scope
     var decls: Map[string, Decl] = map()
 
     blocks.push(Block(decls, NoScope))
-    Scope(blocks, buf(), map(), 0, parent, parent_block, map(), map(), false, false)
+    Scope(blocks, buf(), map(), 0, parent, parent_block, map(), map(), false, false, false)
 
 // What a name means where it is written.
 enum Meaning
@@ -249,6 +258,12 @@ struct LoopSlots
     // where its body settles.
     continued: bool
 
+// What one call reaches, kept against the call's own node: two calls the parser made at one
+// position (`=s` is `tab(match(s))`, both written where the `=` is) are two calls.
+struct Pick
+    call: &Expr
+    meaning: Meaning
+
 // What the resolver decided about a whole program.
 struct Resolved
     rels: Buf[Rel]
@@ -283,10 +298,14 @@ struct Resolved
     // The code being resolved, which positions are read in.
     src: Source
 
-    // What each call of a name reaches, by the offset of the name, as the resolver decided it --
-    // knowing whether the call is in a goal (`called_in`), and before the program's own definitions
-    // became Prolog predicates.
-    picks: Map[usize, Meaning]
+    // Where each part of `src` came from, for a position named in a message's text.
+    places: SourceMap
+
+    // What each call of a name reaches, as the resolver decided it -- knowing whether the call is in
+    // a goal (`called_in`), and before the program's own definitions became Prolog predicates. Kept
+    // by the call's node (`Pick.call`, compared by identity), filed under the offset its span starts
+    // at so a lookup reads only the calls written there.
+    picks: Map[usize, Buf[Pick]]
 
     // What each name an `import { ... }` declares means, and each `import * as` alias its map
     // (`module.sysl`).
@@ -437,8 +456,11 @@ struct Resolved
 
             at = s.parent
             b = s.parent_block
-            p = Anywhere
             d += 1
+
+            // A clause's statics are written in its own code, so they are looked up from where the
+            // name is: a static is in scope from its declaration on, as a local is.
+            if at == NoScope || !self.scopes.at(at).statics then p = Anywhere
 
         // A relation clause has no parent, yet it sees what the top level's root block fixes: a
         // constructor, a `val`, and a function a `where` defines there (`logic.md` § "Variables in a
@@ -560,13 +582,17 @@ struct Resolved
                 // definition, which Prolog was given.
                 val own = self.own_key(ms, argc)
 
+                // The file's own fixed arity of the count, then its variadic (`variadic.sysl`).
+                for x in ms.view()
+                    if self.is_top(name, x) && !self.is_rest(x) && self.takes(name, x, argc) then return x
+
                 for x in ms.view()
                     if self.is_top(name, x) && self.takes(name, x, argc) then return x
 
                 if goal
                     for x in ms.view()
                         x match
-                            Function(r, _) -> if self.is_top(name, x) && self.rels.at(r).arity + 1 == argc then return x
+                            Function(r, _) -> if self.is_top(name, x) && self.as_relation(r, argc) then return x
                             _ -> ()
 
                 for x in ms.view()
@@ -574,12 +600,15 @@ struct Resolved
                         Predicate(_) -> if own then continue
                         _ -> ()
 
+                    if !self.is_rest(x) && self.takes(name, x, argc) then return x
+
+                for x in ms.view()
                     if self.takes(name, x, argc) then return x
 
                 if goal
                     for x in ms.view()
                         x match
-                            Function(r, _) -> if self.rels.at(r).arity + 1 == argc then return x
+                            Function(r, _) -> if self.as_relation(r, argc) then return x
                             _ -> ()
 
                 // A library predicate is reached last, after the prelude.
@@ -606,7 +635,7 @@ struct Resolved
 
         self.prelude.get(name) match
             Some(p) -> p match
-                Function(r, _) -> if self.rels.at(r).arity == argc then p else m
+                Function(r, _) -> if rel_takes(self.rels.at(r), argc) then p else m
                 Family(_, ps) ->
                     for x in ps.view()
                         if self.takes(name, x, argc) then return x
@@ -619,7 +648,7 @@ struct Resolved
     // definition of that arity, a builtin that takes the count, or a predicate the program loaded
     // with it -- not the Prolog library's, which comes after the prelude.
     takes(self, name: string, x: Meaning, argc: usize) -> bool = x match
-        Function(r, _) -> self.rels.at(r).arity == argc
+        Function(r, _) -> rel_takes(self.rels.at(r), argc)
         Relation(r) -> self.rels.at(r).arity == argc
         Builtin(id) -> !is_constant(id) && takes_count(current().natives.at(id), argc)
         Predicate(_) ->
@@ -627,6 +656,18 @@ struct Resolved
 
             pred_defined(key) && !is_library(key)
         _ -> false
+
+    // Whether `m` is a variadic function.
+    is_rest(self, m: Meaning) -> bool = m match
+        Function(r, _) -> self.rels.at(r).variadic
+        _ -> false
+
+    // Whether function `r`, called in a goal with `argc` arguments, is the relation of `argc`: a
+    // function of one parameter fewer, by its Prolog key -- which a variadic one has none of.
+    as_relation(self, r: usize, argc: usize) -> bool
+        val rel = self.rels.at(r)
+
+        !rel.variadic && rel.arity + 1 == argc
 
     // The program's top-level definitions `own` of `name` -- its own, or those an import declares
     // -- with each arity they leave to a Prolog predicate the program imported, a builtin or the
@@ -698,28 +739,53 @@ struct Resolved
                 _ -> false
             None -> false
 
-    // The call written at offset `pos`, of `name` meaning `m` there with `argc` arguments: what the
-    // resolver decided it reaches (`picks`), or `called`'s answer when it decided nothing.
-    picked(self, pos: usize, name: string, m: Meaning, argc: usize) -> Meaning = self.picks.get(pos) match
-        Some(p) -> p
-        None -> self.called(name, m, argc)
+    // The call `call`, of `name` meaning `m` there with `argc` arguments: what the resolver decided
+    // it reaches (`picks`), or `called`'s answer when it decided nothing.
+    picked(self, call: &Expr, name: string, m: Meaning, argc: usize) -> Meaning
+        self.picks.get(call.span.start) match
+            Some(ps) ->
+                for p in ps.view()
+                    if p.call == call then return p.meaning
+            None -> ()
+
+        self.called(name, m, argc)
+
+    // Keeps what the call `call` reaches, for `picked`; a call walked again keeps the later answer.
+    pick(*self, call: &Expr, m: Meaning)
+        val at = call.span.start
+
+        self.picks.get(at) match
+            Some(ps) ->
+                var kept = ps
+
+                for i in 0..<kept.len()
+                    if kept.at(i).call == call
+                        kept.set(i, Pick(call, m))
+                        return
+
+                kept.push(Pick(call, m))
+            None ->
+                var ps: Buf[Pick] = buf()
+                ps.push(Pick(call, m))
+                self.picks.put(at, ps)
 
     // Whether one of the FunL definitions among `ms` is the Prolog predicate of `argc` arguments: a
     // relation of `argc`, or a function of one fewer.
     own_key(self, ms: Buf[Meaning], argc: usize) -> bool
         for x in ms.view()
             x match
-                Function(r, _) -> if self.rels.at(r).arity + 1 == argc then return true
+                Function(r, _) -> if self.as_relation(r, argc) then return true
                 Relation(r) -> if self.rels.at(r).arity == argc then return true
                 _ -> ()
 
         false
 
-    // Whether one of the definitions `own` takes `arity` arguments.
+    // Whether one of the definitions `own` takes `arity` arguments -- a variadic one takes every
+    // count from its fixed parameters up.
     defines(self, own: Buf[Meaning], arity: usize) -> bool
         for x in own.view()
             x match
-                Function(r, _) -> if self.rels.at(r).arity == arity then return true
+                Function(r, _) -> if rel_takes(self.rels.at(r), arity) then return true
                 Relation(r) -> if self.rels.at(r).arity == arity then return true
                 Builtin(id) -> if takes_count(current().natives.at(id), arity) then return true
                 _ -> ()
@@ -805,7 +871,7 @@ private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map(), map(), buf(), buf())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, prog.places, map(), map(), map(), map(), map(), map(), map(), map(), map(), map(), buf(), buf())
 
     res.top = new_scope_id(&res)
 
@@ -871,9 +937,17 @@ new_scope_id(res: *Resolved) -> usize
 // **A new arity is refused when Prolog would see it as one already defined**: a function of `n`
 // parameters is the predicate of `n + 1` arguments, so function `f/1` and relation `f/2` are both
 // `f/2` to Prolog (`language.md` § "One name, several arities").
-private add_top_clause(res: *Resolved, c: Clause, report: *Report)
+//
+// **A variadic function is no Prolog predicate** (`variadic.sysl`), so it shares no key with
+// anything; a name has one.
+private add_top_clause(res: *Resolved, written: Clause, report: *Report)
+    val c = gathered(written, report) match
+        Some(x) -> x
+        None -> return
+
     val f = is_function(c.kind)
     val n = c.params.len()
+    val variadic = is_variadic_clause(written)
 
     var rs: Buf[usize] = res.by_name.get(c.name) match
         Some(x) -> x
@@ -882,7 +956,7 @@ private add_top_clause(res: *Resolved, c: Clause, report: *Report)
     for i in rs.view()
         var r = res.rels.at(i)
 
-        if r.arity != n then continue
+        if r.arity != n || r.variadic != variadic then continue
 
         val first = r.clauses.at(0)
 
@@ -897,12 +971,14 @@ private add_top_clause(res: *Resolved, c: Clause, report: *Report)
         res.rels.set(i, r)
         return
 
+    if variadic && second_variadic(res, rs, c, report) then return
+
     val key = if f then n + 1 else n
 
     for i in rs.view()
         val r = res.rels.at(i)
 
-        if (if r.function then r.arity + 1 else r.arity) == key
+        if !variadic && !r.variadic && (if r.function then r.arity + 1 else r.arity) == key
             val first = r.clauses.at(0)
 
             report.add(error(c.head, s"`${c.name}` is ${definition_text(f, n)} here and ${definition_text(r.function, r.arity)} already, and both are `${c.name}/$key` to Prolog")
@@ -912,7 +988,7 @@ private add_top_clause(res: *Resolved, c: Clause, report: *Report)
 
     rs.push(res.rels.len())
     res.by_name.put(c.name, rs)
-    res.rels.push(Rel(c.name, n, single(c), reserve_chunk(c.name), f, if f then res.top else NoScope, 0, buf()))
+    res.rels.push(Rel(c.name, n, single(c), reserve_chunk(c.name), f, if f then res.top else NoScope, 0, buf(), variadic))
 end add_top_clause
 
 // "a function of 1 parameter", "a relation of 2 arguments".
@@ -1109,10 +1185,12 @@ private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report
     val r = res.rels.at(ri)
     var ids: Buf[usize] = buf()
     val waits = is_async_rel(r)
+    val statics = statics_scope(res, ri)
 
-    for c in r.clauses.view()
+    for i in 0..<r.clauses.len()
+        val c = r.clauses.at(i)
         val sid = new_scope_id(res)
-        var sc = child_scope(r.outer, r.outer_block)
+        var sc = if statics == NoScope then child_scope(r.outer, r.outer_block) else child_scope(statics, i + 1)
         var w = walker(res, report, pending, &sc, sid, false, true, waits)
 
         for p in c.params.view()
@@ -1142,7 +1220,12 @@ private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report
                         Some(x) -> walk(&w, x)
                         None -> ()
 
+                    w.body = g.body.kind match
+                        BlockE(id, _) -> id
+                        _ -> NoScope
+
                     walk(&w, g.body)
+                    w.body = NoScope
             _ -> ()
 
         res.scopes.set(sid, sc)
@@ -1153,3 +1236,76 @@ private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report
     done.scopes = ids
     res.rels.set(ri, done)
 end resolve_function
+
+// The statics scope of function `ri` (icon.md § "`static` and `initial`"), made when the body of one
+// of its clauses begins with `static` or `initial` among its statements, or `NoScope`. It lies
+// between the function's clauses and the scope the function was written in, with a block for each
+// clause, as the statics frame lies between each call's frame and the frame the function value was
+// made in. A named function's value is one per frame it is defined in, kept in a hidden slot of that
+// scope's root block, so its direct calls and its uses as a value share one statics frame; a
+// lambda's is made afresh each time the lambda is evaluated.
+private statics_scope(res: *Resolved, ri: usize) -> usize
+    val r = res.rels.at(ri)
+    var found = false
+
+    for c in r.clauses.view()
+        c.kind match
+            FunctionC(b) -> if body_declares_statics(b) then found = true
+            _ -> ()
+
+    if !found then return NoScope
+
+    val id = new_scope_id(res)
+    var st = child_scope(r.outer, r.outer_block)
+
+    st.statics = true
+
+    for _ in r.clauses.view()
+        st.open(0)
+
+    res.scopes.set(id, st)
+
+    if names_function(res, r.outer, r.name, ri)
+        var o = res.scopes.at(r.outer)
+
+        o.declare(0, statics_home(r.chunk), r.clauses.at(0).head, Anywhere, true)
+        res.scopes.set(r.outer, o)
+
+    id
+end statics_scope
+
+// Whether a guarded body of `b` is a block with `static` or `initial` among its statements.
+private body_declares_statics(b: FnBody) -> bool
+    for g in b.guards.view()
+        g.body.kind match
+            BlockE(_, stmts) ->
+                for s in stmts.view()
+                    s match
+                        StaticS(_, _, _) -> return true
+                        InitialS(_) -> return true
+                        _ -> ()
+            _ -> ()
+
+    false
+
+// Whether scope `sid` defines function `ri` under `name`: a named function, not a lambda. The top
+// level's are its definitions; a body's are its `def`s and `where` functions.
+private names_function(res: *Resolved, sid: usize, name: string, ri: usize) -> bool
+    if sid == NoScope then return false
+
+    if holds_rel(res.scopes.at(sid).fns.get(name), ri) then return true
+
+    sid == res.top && holds_rel(res.by_name.get(name), ri)
+
+private holds_rel(rs: Option[Buf[usize]], ri: usize) -> bool
+    rs match
+        Some(xs) ->
+            for x in xs.view()
+                if x == ri then return true
+        None -> ()
+
+    false
+
+// The hidden name of the slot holding the value of the named function compiled into chunk `chunk`,
+// in the root block of the scope it is defined in.
+statics_home(chunk: usize) -> string = "$static #" + s"$chunk"

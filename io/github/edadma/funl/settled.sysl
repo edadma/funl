@@ -104,7 +104,7 @@ settles(c: Ctx, x: &Expr) -> bool
         AssignE(n, a) -> is_local(c, n, x.span.end) && settles(c, a)
         CompoundE(n, o, a) -> faults_only(o) && is_local(c, n, x.span.start) && settles(c, a)
         StepE(n, _, _) -> is_local(c, n, x.span.start)
-        CallE(n, at, args) -> c.res.picked(at.start, n, c.meaning(n, at.start), args.len()) match
+        CallE(n, at, args) -> c.res.picked(x, n, c.meaning(n, at.start), args.len()) match
             Builtin(id) -> settling_builtin(id, n) && all_settle(c, args)
             Function(r, _) -> settled_function(c.res, r, args.len()) && all_settle(c, args)
             _ -> false
@@ -115,9 +115,9 @@ settles(c: Ctx, x: &Expr) -> bool
         _ -> false
 
 // Whether a call of definition `r` with `argc` arguments reaches a function that settles: one called
-// at its own arity, not as the relation of one more.
+// at its own arity, not as the relation of one more -- for a variadic one, any count it takes.
 private settled_function(res: *Resolved, r: usize, argc: usize) -> bool =
-    r < res.settled.len() && res.settled.at(r) && res.rels.at(r).arity == argc
+    r < res.settled.len() && res.settled.at(r) && rel_takes(res.rels.at(r), argc)
 
 // Whether block `id`, of statements `stmts`, settles -- in tail position when `tail`: its last
 // statement is an expression that does, or is a statement, after which the block's value is `()`.

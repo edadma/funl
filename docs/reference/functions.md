@@ -169,6 +169,119 @@ write( p )
 `p` is a relation or a builtin, which is called rather than used as a value
 ```
 
+## Calling by name
+
+`proc(name)` is the function the string `name` stands for: one of the program's own top-level
+functions, or else a builtin or a prelude function. It fails when nothing is called `name`. A program's
+own function hides a builtin of the same name, as it does in a call written out.
+
+```funl
+def double( x ) = x * 2
+
+f = proc( "double" )
+write( f(21) )
+write( proc("abs")(-3) )
+write( if proc("no_such_name") then 'found' else 'none' )
+```
+
+```output
+42
+3
+none
+```
+
+`proc(name, n)` asks for the definition of `n` parameters; it fails when the name has none of that count.
+Without a count, a name of several arities gives the whole family, which picks its member by the count of
+each call, as the bare name does.
+
+```funl
+def f( a ) = 'one'
+def f( a, b ) = 'two'
+
+write( proc("f", 2)(0, 0) )
+
+g = proc( "f" )
+write( g(0), g(0, 0) )
+```
+
+```output
+two
+one, two
+```
+
+Only top-level names and builtins are reached: a local variable has no name when the program runs, and
+a string followed by parentheses is still an index, so `"write"(1)` is the character `r` and `proc("write")(1)`
+is the call. `proc` is given a string, and a count that is an integer:
+
+```funl
+write( proc(3) )
+```
+
+```error
+'proc' wants the name as a string and was given
+```
+
+### Operators by their spelling
+
+`proc` also answers an operator's source spelling, as Icon's does, and the count says which: `proc("-", 1)`
+is unary minus and `proc("-", 2)` binary minus. **As in Icon, the count defaults to 1**, so `proc("-")` is
+unary minus and `proc("+")` fails, `+` having no unary form. The function is the operator itself, so it
+generates, fails and faults as the operator does: a comparison produces its right operand or fails, `!`
+and `to` generate, and `/` by zero is the same fault.
+
+| Count | Spellings |
+|---|---|
+| 2 | `+ - * / \ // % mod div ^ **`, `< <= > >= == !=`, `:`, `in`, `not in`, `to`, `until`, `..`, `..<`, `..+`, and `[]` (the element `c(i)`) |
+| 1 | `-`, `!`, `?`, `=` (the scan match `=s`), `\`, `/`, `*` (the size, `.length`), and `..` (an unending range) |
+
+```funl
+add = proc( "+", 2 )
+write( add(3, 4), proc("-")(5), proc("-", 2)(5, 3) )
+write( foldl(proc("*", 2), 1, [1, 2, 3, 4]) )
+write( proc("<", 2)(3, 5) )
+write( if proc("<", 2)(5, 3) then 'holds' else 'fails' )
+every write( proc("!", 1)([7, 8]) )
+write( proc("[]", 2)([5, 6, 7], 1) )
+write( if proc("+") then 'unary plus' else 'no unary plus' )
+```
+
+```output
+7, -5, 2
+24
+5
+fails
+7
+8
+6
+no unary plus
+```
+
+What is not an operator in Icon's sense is control, and `proc` fails for it: `&`, `|`, `and`, `or`, `not`,
+`~`, `<-`, assignment and its operator forms such as `+=`, scanning `?` and `limit`, whose operands are not
+values. So does a spelling that is no operator, and a count the operator has no form for.
+
+```funl
+write( if proc("&", 2) then 'found' else 'control' )
+write( if proc("!", 2) then 'found' else 'no binary !' )
+```
+
+```output
+control
+no binary !
+```
+
+`builtins()` generates the names of the builtins, each once.
+
+```funl
+n = 0
+every builtins() do n += 1
+write( if n > 50 then 'many' else 'few' )
+```
+
+```output
+many
+```
+
 ## Clauses, tried in order
 
 A function may be defined by several clauses. They are tried in order, and **the first whose
@@ -361,6 +474,141 @@ write( map(pt, [1, 2]) )
 ```output
 pt(3), pt(3, 4)
 [pt(1), pt(2)]
+```
+
+## Variadic functions
+
+A function whose last parameter is written `..rest` takes any number of arguments from its other
+parameters' count up; `rest` is the list of the ones past them, empty when there are none:
+
+```funl
+def log( level, ..parts ) = write( level + ': ' + join(parts, ' ') )
+
+log( 'info', 'started', 'ok' )
+log( 'warn', 'disk' )
+```
+
+```output
+info: started ok
+warn: disk
+```
+
+`..rest` is a parameter, not a pattern: it comes last, once, and is a name (or `_`). The list it
+binds is taken apart in the body.
+
+```funl
+def g( ..xs, last ) = last
+```
+
+```error
+`..rest` is a function's last parameter
+```
+
+A variadic function is one more member of its name's family, **for every count no fixed arity of
+the name takes**: a call of two arguments reaches `f/2` when there is one, and the variadic
+otherwise. A fixed arity is the fast case of a variadic one.
+
+```funl
+def f( a )          = 'one'
+def f( a, b )       = 'two'
+def f( a, ..rest )  = 'rest ' + rest
+
+write( f(1), f(1, 2), f(1, 2, 3) )
+
+g = f
+write( g(1), g(1, 2, 3, 4) )
+```
+
+```output
+one, two, rest [2, 3]
+one, rest [2, 3, 4]
+```
+
+A name has one variadic definition, and a relation has none: a relation takes a list argument.
+
+```funl
+def f( a, ..r )    = r
+def f( a, b, ..r ) = r
+```
+
+```error
+`f` is variadic here from 2 arguments and already from 1 argument
+```
+
+A call with fewer arguments than the fixed ones is refused, or, through a value, faults:
+
+```funl
+def two( a, b, ..rest ) = [a, b, rest]
+
+write( two(1) )
+```
+
+```error
+`two` takes 2 or more arguments, and this call gives 1
+```
+
+A variadic function is FunL's only. Prolog's predicates have one arity each, so it has no Prolog
+key: a function `f` of `n` parameters beside it is still `f/(n+1)` to Prolog, and the variadic is
+not seen there. In a goal it is called as the function it is, never as the relation of one more
+argument.
+
+### Spreading arguments: `f(..xs)`
+
+`..e` among a call's arguments spreads the elements of a list, a tuple, an array, a buffer or a range
+into them — anywhere in the arguments, and any number of times. The call's count is then known only
+when it runs, so it is made through the function's value, which picks the arity then:
+
+```funl
+def f( a )          = 'one'
+def f( a, b )       = 'two'
+def f( a, ..rest )  = 'rest ' + rest
+
+args = [1, 2]
+write( f(..args), f(..[1]), f(0, ..1..3) )
+write( max(..[3, 9, 2]), (x -> x * 2)(..[4]) )
+```
+
+```output
+two, one, rest [1, 2, 3]
+9, 8
+```
+
+A count no arity takes is a fault when the call is made, and so is spreading anything that is not a
+sequence:
+
+```funl
+def f( a ) = a
+
+write( f(..[1, 2]) catch error(e, _) -> e )
+write( f(..5) catch error(e, _) -> e )
+```
+
+```output
+existence_error(procedure, /(f, 2))
+type_error(list, 5)
+```
+
+`..` is nowhere else: `[..xs]` is refused; `xs + ys` joins two lists.
+
+### `arity`
+
+`arity(f)` generates the counts a function value takes, in increasing order. A variadic member's is
+its number of parameters, `..rest` counted, negated — as Icon's `args` reports it:
+
+```funl
+def f( a )          = 'one'
+def f( a, b )       = 'two'
+def f( a, ..rest )  = 'rest ' + rest
+
+every write( arity(f) )
+write( arity(x -> x), arity(write) )
+```
+
+```output
+-2
+1
+2
+1, -1
 ```
 
 ## Patterns
@@ -625,6 +873,121 @@ write( sumsq(3, 4) )
 25
 ```
 
+## `static` and `initial`
+
+`static name = e` among the statements of a function's body declares a variable that belongs to the
+function rather than to a call: it keeps its value from one call to the next, recursive calls
+included. `e` is evaluated once, on the first call, before the body runs. `static name` alone starts
+`undefined`. `initial` followed by an expression, an assignment or an indented block runs it once,
+on the first call, before the body; it is how a static with no initializer gets its first value.
+
+```funl
+def next_id()
+  static count = 0
+  count += 1
+  count
+
+def squares( k )
+  static cache
+  initial
+    cache = map()
+    write( 'made the cache' )
+  cache(k) = k * k
+  cache.length
+
+write( next_id(), next_id(), next_id() )
+write( squares(2), squares(3), squares(2) )
+```
+
+```output
+1, 2, 3
+made the cache
+1, 2, 2
+```
+
+The initializers and the `initial` statements of a body run in the order they are written, all of
+them before the body's first statement. The flag that says they have run is set before they start,
+so a recursive call made from inside one does not run them again, and one that fails or faults is
+not tried again on the next call.
+
+A static is in scope from its declaration to the end of the body, and only in the clause, or the
+guarded body, that declares it. It is written at the head of the body, not in a block inside it, and
+it cannot take the name of one of the clause's parameters:
+
+```funl
+def f( n )
+  if n > 0
+    static k = 0
+  n
+```
+
+```error
+`static` is written only among the statements of a function's body, not in a block inside it, and not outside a function
+```
+
+### Each function value has its own
+
+A static is part of the function value. A named function is one value wherever it is called or
+named, so its direct calls and its uses as a value share the statics. A function defined inside
+another body, or a lambda, is made afresh each time that body runs, and each value it makes counts
+on its own:
+
+```funl
+def tick()
+  static n = 0
+  n += 1
+
+f = tick
+write( tick(), f(), tick() )
+
+def counter()
+  def step()
+    static n = 0
+    n += 1
+  step
+
+a = counter()
+b = counter()
+write( a(), a(), b(), a() )
+
+make = () -> (x) ->
+  static total = 0
+  total += x
+
+g = make()
+h = make()
+write( g(1), g(2), h(10), g(3) )
+```
+
+```output
+1, 2, 3
+1, 2, 1, 3
+1, 3, 10, 6
+```
+
+### Backtracking
+
+A static assigned with `=` keeps its value when the expression it is part of fails back past the
+assignment; one assigned with `<-` gets its previous value back, as any variable does:
+
+```funl
+def plain()
+  static v = 0
+  (v = 5) > 10
+  v
+
+def trial()
+  static v = 0
+  (v <- 5) > 10
+  v
+
+write( plain(), trial() )
+```
+
+```output
+5, 0
+```
+
 ## A block of definitions
 
 `def` on a line of its own opens a block of clauses for several functions. The functions in one
@@ -681,6 +1044,7 @@ A marker stands on a line of its own, at the column of the line that opened the 
 | `val x =` or `var x =` with an indented value | `end x`; `end val` too after a `val`, and only `end val` after a pattern |
 | an `if` with its `elif`s and `else` | one `end if`, after the whole chain |
 | a loop, labelled or not | `end while`, `end for`, `end repeat`, `end every` |
+| `e match` and its clauses | `end match` |
 
 A lambda, a partial function, a `?` scan, a `catch` arm, a `( ; )` sequence and `data` take no marker.
 A marker is optional, and is written only on a block of seven lines or more, counting from the line
@@ -971,4 +1335,115 @@ write( only(1) )
 
 ```error
 argument match not found
+```
+
+## `match`
+
+`e match` and an indented block of clauses is a partial function written after its subject, as
+Icon's `case` is: the clauses are a partial function literal's, tried in order with committed
+choice, and the first that takes `e`'s value gives the result.
+
+```funl
+def kind( n ) =
+  n match
+    0 -> 'zero'
+    m | m < 0 -> 'negative'
+    _ -> 'positive'
+
+write( kind(0), kind(-4), kind(9) )
+```
+
+```output
+zero, negative, positive
+```
+
+**No clause taking the value fails the `match`**, where a partial function faults: a `match` is an
+expression in a goal-directed program, and its failure is the ordinary kind, which `or`, `not` and
+`if` take in hand.
+
+```funl
+def roman( d ) =
+  d match
+    1 -> 'I'
+    5 -> 'V'
+    10 -> 'X'
+
+write( roman(5) )
+write( roman(7) or '?' )
+```
+
+```output
+V
+?
+```
+
+**The subject is made once, and only its first value is matched**; a clause's guard refusing it does
+not resume the subject for another. The chosen clause's body is not bounded, so a body that
+generates makes the `match` generate:
+
+```funl
+def first_big() =
+  (1 | 20 | 300) match
+    n | n > 10 -> n
+
+write( first_big() or 'none' )
+
+def upto( x ) =
+  x match
+    0 -> 'nothing'
+    n -> 1 to n
+
+every write( upto(3) )
+```
+
+```output
+none
+1
+2
+3
+```
+
+**A parenthesized expression in a clause's pattern compares with its value**, the first one it
+has, and a name written bare binds as it does in any pattern. This is how a `match` tests against a
+variable, a call or a sum; an alternation of such patterns tries each in turn:
+
+```funl
+val limit = 10
+
+def against( x ) =
+  x match
+    (limit) -> 'at the limit'
+    (limit + 1) -> 'just past it'
+    ((1) | (2)) -> 'small'
+    [(limit), rest] -> rest
+    other -> other
+
+write( against(10), against(11), against(2), against([10, 'tail']), against(5) )
+```
+
+```output
+at the limit, just past it, small, tail, 5
+```
+
+Parentheses that only group a pattern -- around `h:t`, an alternation `p | q` or `name@p` -- keep it
+a pattern, and a clause of several parameters, `(a, b) -> ...`, matches a tuple. An alternation
+written bare before the arrow is a pattern and its guard, as in any lambda, so an alternation of
+values is written in parentheses of its own, `((1) | (2)) -> ...`.
+
+**Each clause's names are its own**, seen by its guard and body and by no other clause. `return`,
+`break` and `continue` in a body leave the function or the loop around the `match`, and a `match`
+takes everything before it but a lambda's arrow, so `a + b match` matches the sum. A long `match`
+may be closed by `end match`.
+
+A line of the block that is not a clause is refused, as is a `match` with no block under it:
+
+```funl
+def size( n ) =
+  n match
+    0 -> 'none'
+    write( n )
+```
+
+```error
+every line of a `match` block is a clause, `pattern -> result`
 ```

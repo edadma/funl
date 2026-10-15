@@ -93,6 +93,10 @@ enum Value
     // What a call of an `async` function answers: pending until the task settles it with a value, a
     // failure or a fault (`task.sysl`). Opaque, and equal only to itself.
     Promise(p: *PromiseObj)
+
+    // `create e`: an expression with a control stack of its own, run a result at a time by `@`
+    // (`coexpr.sysl`). Opaque, and equal only to itself.
+    CoExpr(p: *CoExprObj)
 end Value
 
 // Follow bound variables until reaching something that is not one.
