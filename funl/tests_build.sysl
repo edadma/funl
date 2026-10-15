@@ -1,0 +1,44 @@
+@tests
+
+import io.github.edadma.funl.run_source
+import sysl.buf.{Buf, buf}
+import sysl.text.str_builder
+#if feature_graphics
+import sh.sysl.sdl3.{HINT_VIDEO_DRIVER, set_hint}
+#endif
+
+// The `funl` executable is built with the features this member is built with, and only those: the
+// member takes the machine without its defaults and forwards each feature it has to the machine's, so
+// a `funl` built without `graphics` has no window on screen even though the machine's own default
+// would have one.
+
+// What program `text` printed when run as `funl` runs it, and its status. A window is made by SDL's
+// dummy video driver, in memory, so nothing opens on screen.
+private ran_as(text: string) -> string
+#if feature_graphics
+    set_hint(HINT_VIDEO_DRIVER, "dummy")
+#endif
+
+    var out: Buf[string] = buf()
+    val status = run_source("build.funl", text, (_) -> None, (t) -> out.push(t), (t) -> out.push(t))
+    var b = str_builder()
+
+    for p in out.view()
+        b.push(p)
+
+    out.release()
+    s"${b.finish()}status $status"
+
+private val Shown: string = "import { open } from funl:graphics\nw = open( \"shown\", {canvas: #normal, size: (4, 3)} )\nwrite( w.get(\"canvas\") )\nw.close()\n"
+
+#if feature_graphics
+@test
+A_FUNL_BUILT_WITH_GRAPHICS_OPENS_A_WINDOW_ON_SCREEN()
+    assert_eq(ran_as(Shown), "normal\nstatus 0")
+#endif
+
+#if !feature_graphics
+@test
+A_FUNL_BUILT_WITHOUT_GRAPHICS_HAS_NO_WINDOW_ON_SCREEN()
+    assert_eq(ran_as(Shown), "funl: main at build.funl:2: 'open': a window on screen is not in this build -- it is behind the `graphics` feature\nstatus 1")
+#endif

@@ -55,17 +55,26 @@ struct Method
     arity: usize
     how: MethodHow
 
-// A kind of handle: the name it prints with, its release hook, its methods, and what `!h` generates
-// (`register_each`), if anything.
+// A kind of handle: the name it prints with, its release hook, what its finalizer does when that is
+// not the release hook, its methods, and what `!h` generates (`register_each`), if anything.
 struct HandleKind
     name: string
     release: ReleaseGo
+    forgotten: Option[ReleaseGo]
     methods: Buf[Method]
     each: Option[StepGo]
 
 // Register a kind of handle and answer its id, which `new_handle` and `register_method` take.
 register_handle_kind(v: *Vm, name: string, release: ReleaseGo) -> u32
-    v.handle_kinds.push(HandleKind(name, release, buf(), None))
+    v.handle_kinds.push(HandleKind(name, release, None, buf(), None))
+    u32(v.handle_kinds.len() - 1)
+
+// Register a kind of handle whose finalizer does less than `close()` does: `release` runs for
+// `close()`, and `forgotten` for a handle the collector finds unreachable. A window is the case: its
+// `close()` closes the canvas under every handle on it, while a forgotten handle gives back only its
+// own share, since another handle may still be drawing.
+register_handle_kind_forgetting(v: *Vm, name: string, release: ReleaseGo, forgotten: ReleaseGo) -> u32
+    v.handle_kinds.push(HandleKind(name, release, Some(forgotten), buf(), None))
     u32(v.handle_kinds.len() - 1)
 
 // Let `!h` generate for a handle of kind `kind`: `step` is called on the handle itself at each
@@ -109,6 +118,23 @@ close_handle(h: *HandleObj)
     h.res = null
     h.vals.release()
 
+// Close `h` with `hook` in place of its kind's release hook, once: what a method that closes its own
+// handle in some narrower way than `close()` does (a window's `uncouple()`).
+retire_handle(h: *HandleObj, hook: ReleaseGo)
+    if h.closed then return
+
+    h.closed = true
+    hook(h)
+    h.res = null
+    h.vals.release()
+
+// The collector's backstop for `h`, a handle nothing reaches: its kind's `forgotten` hook where it has
+// one, and otherwise exactly what `close()` would have done.
+forget_handle(h: *HandleObj)
+    current().handle_kinds.at(usize(h.kind)).forgotten match
+        Some(hook) -> retire_handle(h, hook)
+        None -> close_handle(h)
+
 // Argument `i` of a method or builtin, which must be an open handle of kind `kind`.
 open_handle(base: usize, i: usize, kind: u32, what: string) -> Result[*HandleObj, Fault]
     val x = deref(arg(base, i))
@@ -135,7 +161,12 @@ private closed_handle(x: Value, what: string) -> Fault = existence_error("handle
 // handle in the cursor cell. A run that finds a handle above a handle is such a resumption, since
 // `MethodOf` always leaves `()` above a handle. A handle closed while its method was generating has
 // nothing more to give: the state is closed and the call fails.
-call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
+//
+// **A spread call's count is kept above the arguments** (`spread`): `CallMethodSpread` knows its count
+// only from the list it unpacked, which a resumption no longer has, so a generating method called that
+// way stands `Int(argc)` on top of its arguments, where the choice point saves it with them and the
+// re-run finds it.
+call_method(v: *Vm, name: u32, argc: usize, tail: bool, spread: bool) -> Result[bool, Fault]
     val n = v.stack.len()
 
     if argc + 2 > n then return Err(Broken(s"a method call wants two cells and $argc arguments and the operand stack holds $n"))
@@ -165,7 +196,10 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
             val m = method_named(owner, name, deref(v.stack.at(first + 1)))?
 
             return m.how match
-                Steps(start, step) -> call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
+                Steps(start, step) ->
+                    if spread then v.stack.push(Int(long(argc)))
+
+                    call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
                 Answers(_) -> Err(Broken(s"'$text' was resumed, and does not generate"))
         _ -> ()
 
@@ -204,6 +238,9 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
         Steps(start, step) ->
             v.stack.set(first + 1, v.stack.at(first))
             v.stack.set(first, Int(0))
+
+            if spread then v.stack.push(Int(long(argc)))
+
             return call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
 
     // The `()` goes; the handle becomes argument 0.

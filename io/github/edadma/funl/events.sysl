@@ -170,6 +170,9 @@ next_event(v: *Vm) -> bool
 
     v.stretch = None
 
+    // The program is about to wait, which is when what it drew reaches the screen.
+    show_screens()
+
     v.events match
         Some(lp) -> lp.run()
         None -> return false

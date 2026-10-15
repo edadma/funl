@@ -37,13 +37,19 @@ private enum Flow
     Quits
 
 // Run chunk `chunk` as the top level, from its first instruction. What the run writes has already
-// gone out when it ends, and a line it left unfinished stays so: no newline is added for it.
+// gone out when it ends, and a line it left unfinished stays so: no newline is added for it. With
+// `&dump` not zero, `display()`'s report follows, on standard error.
 run(v: *Vm, chunk: usize) -> Outcome
     forget_events(v)
     v.quit = None
     v.refused = null
+    v.co = null
+    v.co_main = null
 
-    run_loop(v, chunk)
+    val o = run_loop(v, chunk)
+
+    dump_at_end(v)
+    o
 
 private run_loop(v: *Vm, chunk: usize) -> Outcome
     if chunk >= v.chunks.len() then return Faulted(s"there is no chunk $chunk to run")
@@ -84,7 +90,9 @@ private drive(v: *Vm) -> Outcome
             None ->
                 maybe_collect(v)
 
-                val code = v.chunks.at(v.code).code
+                // Through the view, which reads the one field where the chunk lies: `at` would copy
+                // the whole chunk, every field it has, on every instruction.
+                val code = v.chunks.view()[v.code].code
 
                 if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
 
@@ -104,6 +112,12 @@ private drive(v: *Vm) -> Outcome
             Ok(Next) -> ()
             Ok(Fails) ->
                 if !fail(v)
+                    // A co-expression whose expression has no more results is over, and the `@`
+                    // that activated it fails.
+                    if co_over(v)
+                        injected = Some(Ok(Fails))
+                        continue
+
                     if !in_task(v) then return Failed
 
                     if !task_ends(v, PromiseFailed, Undefined, "") then injected = Some(Ok(Idle))
@@ -122,7 +136,13 @@ private drive(v: *Vm) -> Outcome
                     Raises(f) -> injected = Some(Err(f))
                     Ends(o) -> return o
             Err(Broken(e)) ->
-                val said = s"${v.chunks.at(v.code).name}@$at: $e"
+                val said = s"${fault_place(v, v.code, at)}: $e"
+
+                // A fault inside a co-expression ends it and is raised again at the `@` that
+                // activated it.
+                if co_over(v)
+                    injected = Some(Err(Broken(said)))
+                    continue
 
                 if !in_task(v) then return Faulted(said)
 
@@ -130,19 +150,32 @@ private drive(v: *Vm) -> Outcome
             Err(Exits(n)) -> return Halted(n)
             Err(Thrown(ball)) ->
                 // Read before unwinding, which undoes the bindings the ball was made with.
-                val said = s"${v.chunks.at(v.code).name}@$at: ${uncaught_text(ball)}"
+                val said = s"${fault_place(v, v.code, at)}: ${uncaught_text(ball)}"
 
-                // What a task's promise is faulted with, should nothing catch the ball.
-                val kept = if in_task(v) then copy_term(ball) else Ok(Undefined)
+                // What a task's promise is faulted with, or the `@` that activated a co-expression
+                // raises, should nothing catch the ball.
+                val kept = if in_task(v) || in_co(v) then copy_term(ball) else Ok(Undefined)
+
+                // Where the ball was thrown: what `&dump` reports, should nothing catch it.
+                val thrower = v.frame
+                val thrower_code = v.code
 
                 throw_ball(v, ball) match
                     Ok(true) -> ()
                     Ok(false) ->
-                        if !in_task(v) then return Faulted(said)
-
                         val x = kept match
                             Ok(k) -> k
                             Err(e) -> return Faulted(e)
+
+                        if co_over(v)
+                            injected = Some(Err(Thrown(x)))
+                            continue
+
+                        if !in_task(v)
+                            v.frame = thrower
+                            v.code = thrower_code
+                            v.ip = at + 1
+                            return Faulted(said)
 
                         if !task_ends(v, PromiseFaulted, x, said) then injected = Some(Ok(Idle))
                     Err(e) -> return Faulted(e)
@@ -196,6 +229,10 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             Ok(Next)
         UnmarkTo(slot) ->
             unmark_to(v, slot_of(v.frame, slot)?)?
+            Ok(Next)
+        LimitSet(slot) -> Ok(fails_if(limit_set(v, slot)?))
+        LimitCount(count, mark) ->
+            limit_count(v, count, mark)?
             Ok(Next)
         Pop ->
             pop(v)?
@@ -263,6 +300,11 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         ReturnCommit ->
             ret_commit(v)?
             Ok(Next)
+        ReturnFail ->
+            if v.frame == null || v.frame.caller == null then return Err(Broken("ReturnFail with no caller to fail into"))
+
+            cut_to(v, v.frame.entry, false)
+            Ok(Fails)
         Native(id, argc) -> call_native(v, id, passed(v, argc))
         Callback(id, failed) -> callback_turn(v, id, failed)
         LoadArgs ->
@@ -340,7 +382,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             call_fn(v, target, argc, up)?
             Ok(Next)
         TailCallFn(target, argc, up) ->
-            tail_call_fn(v, target, argc, up)?
+            tail_call_fn(v, target, passed(v, argc), up)?
             Ok(Next)
         CallValue(argc) ->
             Ok(fails_if(call_value(v, argc, false)?))
@@ -382,6 +424,14 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             val x = pop(v)?
 
             set_slot(frame_up(v, depth)?, slot, x)?
+            Ok(Next)
+        Initial(slot, skip) ->
+            val st = frame_up(v, 1)?
+
+            slot_of(st, slot)? match
+                Undefined -> set_slot(st, slot, Unit)?
+                _ -> v.ip = skip
+
             Ok(Next)
         Update(depth, slot, o) ->
             val b = pop(v)?
@@ -461,7 +511,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
                     v.stack.push(y)
                     Ok(Next)
                 None -> Ok(Fails)
-        CallMethod(name, argc, tail) -> Ok(fails_if(call_method(v, name, argc, tail)?))
+        CallMethod(name, argc, tail) -> Ok(fails_if(call_method(v, name, argc, tail, false)?))
         StoreBack(depth, slot) ->
             val x = pop(v)?
 
@@ -489,6 +539,20 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             element_set(c, key, x, back)?
             v.stack.push(x)
+            Ok(Next)
+        StoreSection(back) ->
+            val x = pop(v)?
+            val key = pop(v)?
+            val c = pop(v)?
+
+            v.stack.push(x)
+
+            section_set(c, key, x)? match
+                Some(s) -> v.stack.push(s)
+                None ->
+                    element_set(c, key, x, back)?
+                    v.stack.push(c)
+
             Ok(Next)
         UpdateElem(o) ->
             val x = pop(v)?
@@ -631,6 +695,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Await -> Ok(if await_top(v)? then Next else Idle)
         Settle -> Ok(if settle_top(v)? then Next else Idle)
         Orphan -> Ok(if orphan_top(v) then Next else Quits)
+        Create(chunk) ->
+            create_co(v, chunk)?
+            Ok(Next)
+        Activate -> Ok(fails_if(activate(v)?))
+        CoYield ->
+            co_yield(v)?
+            Ok(Next)
         ArgsIn(least, most, to) ->
             val n = v.frame.args.len()
 
@@ -638,6 +709,17 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             Ok(Next)
         NoArity -> Err(no_arity(v))
+        PackRest(fixed) ->
+            pack_rest(v, fixed)?
+            Ok(Next)
+        ArgsAdd(n) ->
+            args_add(v, n)?
+            Ok(Next)
+        ArgsSpread ->
+            args_spread(v)?
+            Ok(Next)
+        CallSpread(tail) -> Ok(fails_if(call_spread(v, tail)?))
+        CallMethodSpread(name, tail) -> Ok(fails_if(call_method_spread(v, name, tail)?))
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it

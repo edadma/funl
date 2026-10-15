@@ -203,8 +203,7 @@ private struct Lines
     text: Buf[string]
     at: usize
 
-// Make the standard streams' handles reachable as `std_in()`, `std_out()` and `std_err()`, give the
-// machine `lines` as its input, then compile `text`.
+// Give the machine `lines` as its input, then compile `text`.
 private with_streams(text: string, lines: []const string) -> Result[usize, string]
     val v = current()
     var held: Buf[string] = buf()
@@ -221,24 +220,27 @@ private with_streams(text: string, lines: []const string) -> Result[usize, strin
             src.at += 1
             Some(src.text.at(src.at - 1))
 
-    register(v, "std_in", 0, (b, n) -> standard_stream(0))
-    register(v, "std_out", 0, (b, n) -> standard_stream(1))
-    register(v, "std_err", 0, (b, n) -> standard_stream(2))
     compiled_text(text)
 
 @test
 THE_STANDARD_STREAMS_ARE_FILE_HANDLES_THROUGH_THE_MACHINES_SINKS()
-    val text = "o = std_out()\nwrite( o, o == std_out() )\nwrites( \"a\" )\no.writes( \"b\" )\no.write( \"c\", 1 )\nstd_err().write( \"oops\" )\n" +
-        "std_err().writes( \"e\", \"f\\n\" )\nwrite( o.flush(), o.where() | #no_position, o.seek(1) | #cannot_seek )\nwrite( o.read() catch error(e, _) -> e )\n"
+    val text = "o = &output\nwrite( o, o == &output )\nwrites( \"a\" )\no.writes( \"b\" )\no.write( \"c\", 1 )\n&errout.write( \"oops\" )\n" +
+        "&errout.writes( \"e\", \"f\\n\" )\nwrite( o.flush(), o.where() | #no_position, o.seek(1) | #cannot_seek )\nwrite( o.read() catch error(e, _) -> e )\n"
 
     assert_eq(ran(() -> with_streams(text, [])), "<file handle>, <file handle>\nabc, 1\nstderr: oops\nstderr: ef\n(), no_position, cannot_seek\npermission_error(input, stream, <file handle>)\nsucceeded")
 
 @test
 STANDARD_INPUT_IS_READ_THROUGH_ITS_HANDLE_AND_SHARED_WITH_READ()
-    val text = "i = std_in()\nwrite( i.read() )\nwrite( i.reads(2) )\nwrite( read() )\nwrite( [l | l <- !i] )\nwrite( i.read() | #end )\nwrite( i.write(1) catch error(e, _) -> e )\n"
+    val text = "i = &input\nwrite( i.read() )\nwrite( i.reads(2) )\nwrite( read() )\nwrite( [l | l <- !i] )\nwrite( i.read() | #end )\nwrite( i.write(1) catch error(e, _) -> e )\n"
 
     assert_eq(ran(() -> with_streams(text, ["first", "second", "third", "fourth"])),
         "first\nse\ncond\n[\"third\", \"fourth\"]\nend\npermission_error(output, stream, <file handle>)\nsucceeded")
+
+@test
+THE_STREAM_KEYWORDS_ARE_ONE_HANDLE_EACH_AND_CANNOT_BE_ASSIGNED()
+    assert_eq(ran_funl("write( &input == &input, &output == &errout, &errout.flush() )\n"), "true, false, ()\nsucceeded")
+    assert_eq(complaints("&input = 1\n&output <- 2\n&errout += 3\n"),
+        "error 1:1 `&input` cannot be assigned\nerror 2:1 `&output` cannot be assigned\nerror 3:1 `&errout` cannot be assigned\n")
 
 // -- funl:term -----------------------------------------------------------------------------------
 

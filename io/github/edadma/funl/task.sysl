@@ -59,10 +59,14 @@ struct Machine
     back_to: usize
     task: u32
     task_fn: usize
+    co: *CoExprObj
+    co_main: *CoExprObj
+    keys: EventKeys
 
-// An empty slot of `Vm.parked`.
-private free_slot() -> Machine =
-    Machine(false, 0, 0, buf(), null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), null, NoMachine, 0, NoMachine)
+// An empty slot of `Vm.parked`, and the machine a co-expression starts on (`coexpr.sysl`).
+empty_machine() -> Machine =
+    Machine(false, 0, 0, buf(), null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), null, NoMachine, 0, NoMachine,
+            null, null, no_event_keys())
 
 // Empty the VM's machine: what `park` leaves, and what a finished task becomes.
 private clear_machine(v: *Vm)
@@ -83,28 +87,20 @@ private clear_machine(v: *Vm)
     v.back_to = NoMachine
     v.task = 0
     v.task_fn = NoMachine
+    v.co = null
+    v.co_main = null
+    v.keys = no_event_keys()
 
-// Set the running machine aside, and answer where it went.
-park(v: *Vm) -> usize
+// The running machine, taken out of the VM, which is left empty.
+take_machine(v: *Vm) -> Machine
     val m = Machine(true, v.code, v.ip, v.stack, v.frame, v.control, v.saved, v.trail, v.mark, v.stamp, v.subject, v.pos,
-                    v.scans, v.captures, v.promise, v.back_to, v.task, v.task_fn)
+                    v.scans, v.captures, v.promise, v.back_to, v.task, v.task_fn, v.co, v.co_main, v.keys)
 
     clear_machine(v)
+    m
 
-    for i in 0..<v.parked.len()
-        if !v.parked.at(i).live
-            v.parked.set(i, m)
-            return i
-
-    v.parked.push(m)
-    v.parked.len() - 1
-end park
-
-// Put machine `id` back as the running one, whatever was running in its place gone.
-unpark(v: *Vm, id: usize)
-    val m = v.parked.at(id)
-
-    v.parked.set(id, free_slot())
+// Make `m` the running machine, whatever was running in its place gone.
+put_machine(v: *Vm, m: Machine)
     v.code = m.code
     v.ip = m.ip
     v.stack = m.stack
@@ -122,6 +118,29 @@ unpark(v: *Vm, id: usize)
     v.back_to = m.back_to
     v.task = m.task
     v.task_fn = m.task_fn
+    v.co = m.co
+    v.co_main = m.co_main
+    v.keys = m.keys
+
+// Set the running machine aside, and answer where it went.
+park(v: *Vm) -> usize
+    val m = take_machine(v)
+
+    for i in 0..<v.parked.len()
+        if !v.parked.at(i).live
+            v.parked.set(i, m)
+            return i
+
+    v.parked.push(m)
+    v.parked.len() - 1
+end park
+
+// Put machine `id` back as the running one, whatever was running in its place gone.
+unpark(v: *Vm, id: usize)
+    val m = v.parked.at(id)
+
+    v.parked.set(id, empty_machine())
+    put_machine(v, m)
 end unpark
 
 // The chunk a task's first frame returns to: `Settle`, made the first time a task starts.
@@ -328,6 +347,13 @@ refused_binding(v: *Vm) -> Fault
     val said = s"${task_named(v, v.task, v.task_fn)} cannot bind a logic variable ${task_by_number(v, x.task)} made"
 
     permission_error("bind", "variable", Var(x), said)
+
+// **Activating a co-expression another task made is a fault naming both tasks**, as binding its
+// variable is: a co-expression runs as part of the task that made it, on that task's variables.
+refused_activation(v: *Vm, o: *CoExprObj) -> Fault
+    val said = s"${task_named(v, v.task, v.task_fn)} cannot activate a co-expression ${task_by_number(v, o.task)} made"
+
+    permission_error("activate", "coexpression", CoExpr(o), said)
 
 // What became of handing the turn to the next ready machine.
 enum Resumed

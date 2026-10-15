@@ -4,19 +4,27 @@
 
 package {
   name    = "funl"
-  version = "0.0.6"
+  version = "0.0.7"
   sysl    = "0.1.0"
 }
 
 dependencies {
-  funl-vm   { workspace = true }
+  funl-vm   { workspace = true, default_features = false }
   linenoise { git = "github.com/sysl-lang/linenoise", version = "0.3.0" }
 }
 
+// **The member owns its features and forwards them to the machine's**, because the machine is taken
+// without its defaults: `--no-default-features` on this member then drops `funl:http`, libuv and
+// SDL windows too, exactly as it does on the root.
+//
 // `sysl build -p funl --features profile` builds a `funl` that counts the instructions a run
 // executes; `FUNL_PROFILE=1` then has it write the table to standard error when the program ends.
 features {
-  profile = ["funl-vm/profile"]
+  default  = [http, async, graphics]
+  http     = ["funl-vm/http"]
+  async    = ["funl-vm/async"]
+  graphics = ["funl-vm/graphics"]
+  profile  = ["funl-vm/profile"]
 }
 
 requires {

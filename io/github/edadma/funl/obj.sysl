@@ -60,6 +60,22 @@ struct PromiseObj
     message: string
     waiters: Buf[usize]
 
+// A co-expression (`coexpr.sysl`): its machine while it is not the one running, the chunk of its
+// expression (`NoMachine` for a task's `&main`, which has none), the copy of its creator's frame it
+// runs in and a second copy that `^c` starts from, the co-expression that last activated it
+// (`&source`), how many results it has produced (`*c`), the number it prints with, the task that made
+// it, and its state (`CoFresh`, `CoRunning`, `CoAtActivate`, `CoAtYield`, `CoDone`).
+struct CoExprObj
+    machine: Machine
+    start: usize
+    frame: *FrameObj
+    pristine: *FrameObj
+    activator: *CoExprObj
+    results: u64
+    id: u64
+    task: u32
+    state: u8
+
 struct CompoundObj
     functor: u32
     args: Buf[Value]
@@ -190,12 +206,17 @@ struct ArrayObj
 //
 // **`task` is the task that made it** (`Vm.task`), and the only one that may bind it: **each task has
 // its own trail and stamp**, so a binding by another could be undone by neither correctly.
+//
+// **`machine` is the co-expression whose machine made it** (`machine_id`), 0 for a task's `&main`. A
+// stamp is dated by its own machine's clock, so it says nothing about another machine's choice
+// points: a variable bound by a machine other than the one that made it is always trailed.
 struct VarObj
     value: Value
     bound: bool
     stamp: u64
     id: u64
     task: u32
+    machine: u64
 
 // A function value: the chunk of its code and the frame it was made in, which becomes the static
 // link of every frame a call of it makes.
@@ -316,6 +337,24 @@ new_promise() -> Result[*PromiseObj, string]
     o.waiters = buf()
     Ok(o)
 
+// A co-expression over chunk `start`, running in `frame` and refreshed from `pristine`, made by task
+// `task` in state `state`, numbered one past the last made.
+new_coexpr(start: usize, frame: *FrameObj, pristine: *FrameObj, task: u32, state: u8) -> Result[*CoExprObj, string]
+    val v = current()
+    val o: *CoExprObj = ptr_cast(take(v, sizeof(CoExprObj), &coexpr_kind)?)
+
+    v.coexprs_made += 1
+    o.machine = empty_machine()
+    o.start = start
+    o.frame = frame
+    o.pristine = pristine
+    o.activator = null
+    o.results = 0
+    o.id = v.coexprs_made
+    o.task = task
+    o.state = state
+    Ok(o)
+
 new_tuple(n: usize) -> Result[*TupleObj, string]
     val v = current()
     val o: *TupleObj = ptr_cast(take(v, sizeof(TupleObj), &tuple_kind)?)
@@ -337,6 +376,7 @@ new_var() -> Result[*VarObj, string]
     o.bound = false
     o.stamp = v.stamp
     o.task = v.task
+    o.machine = machine_id(v)
     o.id = v.var_count
     v.var_count += 1
     Ok(o)

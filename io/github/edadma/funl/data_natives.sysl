@@ -11,6 +11,7 @@ install_data(v: *Vm)
     register_forwarding(v, "map", Variadic, map_or_mapping)
     register(v, "set", Variadic, do_set)
     register(v, "seq", Variadic, do_seq)
+    register(v, "with", 2, (b, n) -> record_with(arg(b, 0), arg(b, 1)))
 
 // `array(n)`: an array of `n` elements, each `undefined` until something is stored. `array(c)`: an
 // array of the elements of `c`. `array(n, x)`: an array of `n` elements, each `x` itself -- one value

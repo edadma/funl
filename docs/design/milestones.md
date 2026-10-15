@@ -174,61 +174,111 @@ tasks are parked.
 
 ## 11. Icon parity
 
-**Rests on:** [Icon parity](icon.md) (user, 2026-10-14: everything Icon 9.5 has); milestone 10,
-whose parked machines co-expressions reuse; **answers needed first:** I1–I21, each named on the
-items that wait for it. The items needing none can start now.
+**Rests on:** [The language § Icon parity](language.md#icon-parity) (user, 2026-10-14: everything
+Icon 9.5 has); milestone 10, whose parked machines co-expressions reuse; I1–I21, all decided (user,
+2026-10-15). **Done.**
 
-Each item is one agent's deliverable: built, tested with string-literal programs (an error path
-included), its `docs/reference/` or `docs/library/` page written with programs the suite runs, its
-section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order:
+Each item was one agent's deliverable: built, tested with string-literal programs (an error path
+included), its `docs/reference/` or `docs/library/` page written with programs the suite runs, and
+fast-forwarded onto `dev`. In dependency order:
 
 1. **String functions**: `repl`, `left`/`center`/`right` with a pad, `char`, `ord`, `entab`,
-   `detab`, the cset argument of `trim`/`trim_start`/`trim_end`, `image`, `type`, `str`. Waits on
-   nothing.
+   `detab`, the cset argument of `trim`/`trim_start`/`trim_end`, `image`, `type`, `str`. Done.
 2. **Conversions and literals**: `integer`, `real`, `numeric` from strings (`16rFF` included);
-   `0x`/`0o`/`0b` literals past 64 bits. Waits on nothing (the `NrDDD` literal waits on I16, and
-   is not built under the recommendation).
+   `0x`/`0o`/`0b` literals past 64 bits; the `NrDDD` literal (I16), a base outside 2 to 36 refused
+   as a radix. Done.
 3. **Set and cset algebra**: `+`, `-` on csets, `**` on sets and csets, `complement`, the
-   complement flag, `lower`/`upper`/`ascii`/`cset_all`. Waits on nothing.
+   complement flag, `lower`/`upper`/`ascii`/`cset_all`. Done.
 4. **Buffers as deques, and deletion**: `push`, `pop`, `get`, `pull`, `put`; `delete`, `m -= k`,
-   `s -= x`; `array(n, x)`; `copy`; `same`; `sort(m)` and the prelude's `sortOn`. Waits on nothing.
+   `s -= x`; `array(n, x)`; `copy`; `same`; `sort(m)` and the prelude's `sortOn`. Done.
 5. **Random numbers and bits**: prefix `?` (assignable on mutable collections), `random()`, the
-   seed; `iand`, `ior`, `ixor`, `icom`, `ishift`; `dtor`, `rtod`, `pi`, `e`, `phi`. Waits on nothing.
-6. **Assignment forms**: the `op=` rule (`//=`, `**=` after item 3) and several-target reversible
-   assignment `a, b <- b, a`. Waits on item 3.
-7. **Scanning additions**: prefix `=s`, `bal`. Waits on nothing.
+   seed; `iand`, `ior`, `ixor`, `icom`, `ishift`; `dtor`, `rtod`, `pi`, `e`, `phi`. Done.
+6. **Assignment forms**: the `op=` rule (`//=`, `**=`) and several-target reversible assignment
+   `a, b <- b, a`. Done.
+7. **Scanning additions**: prefix `=s`, `bal`. Done.
 8. **Standard streams**: `read()`, `reads(n)`, `writes`, `ewrite`, `ewrites`, `stop`; `chdir` in
-   `funl:fs`. Waits on nothing.
+   `funl:fs`. Done.
 9. **Files**: `open` and the file handle's methods in `funl:fs`, `!f`, pipes over `funl:process`;
-   `funl:term` with `getch`, `getche`, `kbhit`. Waits on I17.
-10. **Keywords**: the `&name` token and refusal of `a &b`; every adopted keyword that needs no later
-    item — `&subject` and `&pos` assignable (`&pos <- i` reversible), the csets, `&null`, `&fail`,
-    the constants, `&input`/`&output`/`&errout` (after item 8), `&random` (after item 5), the clocks,
-    `&version`, `&host`, `&progname`, `&features`, `&file`, `&line`, `&level`. Waits on I18.
-11. **`until` loop**. Waits on I1.
-12. **Limitation**: `e limit n` with `LimitSet`/`LimitCount`, re-limiting when `n` generates. Waits
-    on I3.
-13. **`match`**: the postfix block, failing on no match, and `(e)` value patterns. Waits on I2.
-14. **`static` and `initial`**: the statics object on the closure, `LoadStatic`/`StoreStatic`/`Initial`.
-    Waits on I4.
-15. **Variadic functions and spread**: `..rest` parameters, `f(..xs)` resolved at run time, `arity`.
-    Waits on I5.
-16. **Calling by name**: `proc`, `builtins()`. Waits on I6.
+   `funl:term` with `getch`, `getche`, `kbhit` ([fs](../library/fs.md#open-files),
+   [term](../library/term.md); I17 decided: handle methods). Done.
+10. **Keywords**: the `&name` token and refusal of `a &b`; `&subject` and `&pos` assignable (`&pos
+    <- i` reversible), the csets, `&null`, `&fail`, the constants, `&random`, the clocks,
+    `&version`, `&host`, `&progname`, `&features`, `&file`, `&line`, `&level`, `&input`/`&output`/`&errout`. Done.
+11. **`until` loop** (I1: both, by position). Done.
+12. **Limitation**: `e limit n` with `LimitSet`/`LimitCount`, re-limiting when `n` generates (I3).
+    Done.
+13. **`match`**: the postfix block, failing on no match, and `(e)` value patterns (I2). Done.
+14. **`static` and `initial`**: the statics object on the closure, `LoadStatic`/`StoreStatic`/`Initial`
+    (I4). Done.
+15. **Variadic functions and spread**: `..rest` parameters, `f(..xs)` resolved at run time, `arity`
+    (I5). Done.
+16. **Calling by name**: `proc`, `builtins()` (I6). Done.
 17. **Co-expressions, the machine**: `create` (frame copies), `Activate`, `CoYield`, transmission,
-    `^`, `*`, `!`, faults raised at the `@`, `&current`/`&source`/`&main` (after item 10). Waits on
-    I7 and I8.
+    `^`, `*`, `!`, faults raised at the `@`, `&current`/`&source`/`&main` (I7, I8). Done.
 18. **Co-expressions with tasks and logic**: `await` inside a co-expression, the cross-task
     activation fault, bindings on a co-expression's own trail, and collection of abandoned
-    co-expressions under the stress heap. Waits on item 17 and I9.
+    co-expressions under the stress heap (I9). Done.
 19. **Tracing and introspection**: `&trace`, `display()`, `&dump`, `collect()`, `&collections`,
-    `&allocated`, the per-chunk name table. Waits on item 10.
+    `&allocated`, `&storage`, `&regions`, the per-chunk name table, and the per-chunk line table
+    that places a trace line at the call site and a fault at its line. Done.
 20. **Answers that reopen a decision**: `translate` (I11), `reverse` of a string (I12), `with`
-    (I15), assignment to a string section (I10). Waits on those four; each answered "no" drops its
-    part.
-21. **The preprocessor**: the directives the answer to I20 keeps, over the token stream, with
-    positions through `$include`. Waits on I20.
+    (I15), assignment to a string section (I10). Done.
+21. **The preprocessor**: Icon's whole preprocessor (I20), over the token stream, with positions
+    through `$include`. Done.
 
 **Done when:** an Icon program of each kind in the chapter — a co-expression pipeline, a scanner
 with `bal` and `&pos`, a `static` memo, a variadic logger, a file filter reading standard input —
 has a FunL translation as a string literal in a unit test that prints what Icon prints; every
-`icon.md` section is gone, and the page with it.
+`icon.md` section is gone, and the page with it. **Met**: the programs are in
+`tests_icon_programs.sysl`, with a sixth over `limit`, `until`, `match`, `proc`, `&trace`,
+`translate` and the preprocessor, and `icon.md` is gone.
+
+## 12. Graphics
+
+**Rests on:** [Graphics](graphics.md) (user, 2026-10-15: I21 in scope); milestone 9's handles and
+generators; milestone 10's loop; milestone 11's `&name` keywords (item 10) and stream methods (item
+9); **answers needed first:** G1–G12, and two org findings built and released before the items that
+name them: **F1** (plutovg's font-face cache bound) and **F2** (a kairos driver that waits on a
+second source).
+
+Each item is one agent's deliverable, built, tested on hidden canvases with string-literal programs
+(an error path included), its part of `docs/library/graphics.md` written with programs the suite
+runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In dependency order:
+
+1. **The canvas and the context**: `funl:graphics` in the module table, the `window` handle kind
+   (canvas plus context), `open` with `canvas: #hidden` over plutovg, `set`/`get`/`attributes` with
+   their failures and faults, colour specifications and `color_value`, `pixel`, `image_bytes`,
+   `clone`, `couple`, `uncouple`, `close` closing every handle on the canvas. Waits on G1, G2, G3,
+   G5, G6, G12. Done, `image_bytes` with item 4.
+2. **Drawing**: `draw_point`, `draw_line`, `draw_segment`, the rectangles, polygons, circles and
+   arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
+   `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1. Done.
+3. **`drawop: #reverse`**: the coverage mask and the exclusive-or; drawing twice restores. Waits on
+   item 2 and G7. Done.
+4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`
+   attribute, `draw_image` with Icon's image strings, the palette functions (natives over the one
+   palette table, names read as Icon's `sscanf` reads them), `new_color` failing, `free_color` and
+   `color` as Icon's with no mutable colours; `image_bytes`. Waits on item 1 and G8. Done.
+5. **Fonts and text**: the `"fixed"` face carried in the binary, family lookup through the font-face
+   cache, `font` and its failure, the metric attributes, `text_width`, `draw_string`; the text cursor
+   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1. Done.
+6. **Events on a hidden canvas**: the queue, `enqueue`, `event()`, `pending`, `active`, every event
+   code, the keywords `&x`, `&y`, `&row`, `&col`, `&interval`, `&control`, `&shift`, `&meta`,
+   `&released`, `&window` and the event-code keywords, per machine; `read`/`reads` with `echo`.
+   Waits on item 5, milestone 11 item 10, G9 and G10. Done.
+7. **Windows on screen**: the `graphics` feature over `sdl3` (`--no-default-features` refusing a
+   visible canvas), the texture and showing on wait, `flush`, `sync`, `delay`, SDL events routed by
+   window id, `#close`, resize keeping pixels, several windows, the canvas attributes (`label`,
+   `pos`, `size`, `pointer`, `resize`, `canvas`), `raise`/`lower`, waiting at program end. First
+   proves the dummy video driver opens from a `Background` shell; tested only on it. Waits on item 6.
+   Done, except `canvas: #maximal`/`#iconic` (F5: the `sdl3` package does not bind maximize and
+   minimize), which fault naming what they need; `lower` is built natively per platform (F6, decided
+   by the user 2026-10-15), macOS's through the Objective-C runtime.
+8. **Events and the loop**: `next_event()` and its event map, the driver over SDL and libuv, `delay`
+   as a timer inside a task, the one queue shared by both forms. Waits on item 7, G11 and F2.
+
+**Done when:** Icon programs of each kind in the book — a rubber-band rectangle under `#reverse`, a
+click-and-drag sketcher, a text window that echoes what is typed, an image read, annotated and
+written — have FunL translations as string literals in unit tests that run on hidden canvases and
+check the pixels and events Icon's would give; an example under `examples/` opens a real window from
+a console shell; and `graphics.md` is gone, replaced by the library page.

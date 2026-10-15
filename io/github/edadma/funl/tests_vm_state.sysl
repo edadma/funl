@@ -14,10 +14,13 @@ import sysl.text.{Search, from_utf8_unchecked, split}
 private const ModuleDir: string = "io/github/edadma/funl"
 
 // The `gc.Kind` tables in `collector.sysl`, `funl:sqlite`'s tables of connections and running
-// queries in `native_sqlite.sysl`, `funl:fs`'s table of open files in `native_file.sysl`, the package cache a test points elsewhere in `package.sysl`, and
-// the git source a test fetches from in `package_commands.sysl`, and the instruction counter's switch
-// and tally in `profile.sysl`.
-private const ProcessWide: usize = 24
+// queries in `native_sqlite.sysl`, `funl:fs`'s table of open files in `native_file.sysl`,
+// `funl:graphics`'s canvases, their generations and its contexts in `native_graphics.sysl`, its faces,
+// font-face cache and whether the system's fonts are read in `graphics_text.sysl`, its windows on
+// screen, whether SDL's video is up and whether a quit was asked for in `native_screen.sysl`, the
+// package cache a test points elsewhere in `package.sysl`, and the git source a test fetches from in
+// `package_commands.sysl`, and the instruction counter's switch and tally in `profile.sysl`.
+private const ProcessWide: usize = 34
 
 private struct Census
     the_vm: usize
@@ -35,7 +38,7 @@ private census() -> Census
         var above = ""
 
         for line in split(text, "\n")
-            if line.starts_with("var ") || line.starts_with("private var ")
+            if line.starts_with("var ") || line.starts_with("private var ") || line.starts_with("private[funl] var ")
                 if line.contains(" the_vm:") then c.the_vm += 1
                 elif above.contains("process-wide:") then c.marked += 1
                 else c.unargued.push(s"$name: $line")

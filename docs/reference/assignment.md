@@ -34,6 +34,20 @@ write( a, b )
 2, 1
 ```
 
+Assignment is the loosest operator, so `x = e & f` assigns the value of `e & f`; Icon's
+`(x := e) & f` is written `(x = e) & f`:
+
+```funl
+x = 1 & 2
+write( x )
+(x = 5) & write( x )
+```
+
+```output
+2
+5
+```
+
 A multiple assignment gives as many values as it has names:
 
 ```funl
@@ -48,7 +62,8 @@ this assigns 2 variables and gives 1 value
 
 `x op= e` is `x = x op e`, and produces the new value. **Every symbolic arithmetic or set operator
 has the form**: `+=`, `-=`, `*=`, `/=`, `//=`, `\=`, `%=`, `^=` and `**=`. A word operator has none
-(there is no `mod=`). `x++` and `x--` produce the old value and then change it; `++x` and `--x`
+(there is no `mod=`, and `x mod= 3` is refused at compile time rather than read as `x mod (=3)`; with a
+space, `x mod =s` is the scan `=s`). `x++` and `x--` produce the old value and then change it; `++x` and `--x`
 change it and produce the new one.
 
 ```funl

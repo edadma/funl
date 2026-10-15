@@ -10,8 +10,8 @@ import sysl.text.Search
 // `counter(n)` makes one; its methods are `next()` (the next count, failing past the limit),
 // `limit()`, `skip(k)` and `upto(k)`, which generates 0 to k-1, or to the limit if that is lower,
 // from a fresh counter per call. `count_up(n)` generates 0 to n-1 from a fresh counter per call.
-// `released()` answers how many counters have been released, and `collect()` runs the collector
-// now. Every program runs on both heaps.
+// `released()` answers how many counters have been released, and the builtin `collect()` runs the
+// collector now. Every program runs on both heaps.
 
 // process-wide for these tests: the counter kind's id on the VM being run, and how many counters
 // have been made and released since `with_counter` last installed it.
@@ -29,7 +29,6 @@ private with_counter(text: string) -> Result[usize, string]
     register(v, "counter", 1, make_counter)
     register_stepping(v, "count_up", 1, start_count, step_count)
     register(v, "released", 0, released_count)
-    register(v, "collect", 0, collect_here)
     register_method(v, counter_kind, "next", 0, counter_next)
     register_method(v, counter_kind, "limit", 0, counter_limit)
     register_method(v, counter_kind, "skip", 1, counter_skip)
@@ -123,10 +122,6 @@ private step_count(h: *HandleObj) -> Result[Option[Value], Fault]
     Ok(Some(Int(h.n - 1)))
 
 private released_count(base: usize, argc: usize) -> Result[Value, Fault] = Ok(Int(counters_released))
-
-private collect_here(base: usize, argc: usize) -> Result[Value, Fault]
-    collect_now(current())
-    Ok(Unit)
 
 private faults_with(text: string, want: string)
     val said = counted(text)
@@ -224,6 +219,16 @@ A_METHOD_MAY_GENERATE()
         "0\n1\n0\n1\n2\n3\n4\nsucceeded")
     assert_eq(counted("val c = counter(5)\nwrite( [x * 10 | x <- c.upto(4)] )\nwrite( 2 < c.upto(9) )\n"),
         "[0, 10, 20, 30]\n3\nsucceeded")
+
+// Spread into a generating method: each resumption re-runs the call with the count it was first
+// made with, nested generations each keeping their own.
+@test
+A_GENERATING_METHOD_TAKES_SPREAD_ARGUMENTS_AND_RESUMES_WITH_THEIR_COUNT()
+    assert_eq(counted("val c = counter(5)\nevery write( c.upto(..[2]) )\nwrite( [(x, y) | x <- c.upto(..[2]), y <- c.upto(..[3])] )\n" +
+            "write( c.upto(..[]) catch error(e, _) -> e )\nwrite( c.upto(..[1, 2]) catch error(e, _) -> e )\n" +
+            "write( c.upto(..'a') catch error(e, _) -> e )\n"),
+        "0\n1\n[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]\nexistence_error(procedure, /(upto, 0))\nexistence_error(procedure, /(upto, 2))\n" +
+            "type_error(list, \"a\")\nsucceeded")
 
 @test
 A_GENERATING_METHOD_RUNNING_OUT_FAILS_AND_RELEASES_AT_ONCE()

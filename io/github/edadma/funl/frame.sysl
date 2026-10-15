@@ -39,7 +39,8 @@ private check_target(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault]
 call(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault] = open_frame(v, target, argc, null)
 
 // Call function chunk `target`, whose static link is the frame `up` names (see `link`).
-call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] = open_frame(v, target, argc, link(v, up)?)
+call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] =
+    open_frame(v, target, argc, statics_up(v, target, link(v, up)?)?)
 
 // The frame a `MakeClosure`, a `CallFn` or a `LoadSlot` names: `up` static links above the running frame, the
 // top level's frame for `TopUp`, or that of a FunL file Prolog imported for `file_up(m)`.
@@ -58,8 +59,61 @@ link(v: *Vm, up: usize) -> Result[*FrameObj, string]
 
 // Push a function value over `target`, made in the frame `up` names.
 make_closure(v: *Vm, target: usize, up: usize) -> Result[unit, string]
-    v.stack.push(new_closure(target, link(v, up)?)?)
+    v.stack.push(function_value(v, target, link(v, up)?)?)
     Ok(())
+
+// The function value over chunk `target` made in frame `d`.
+//
+// **A function with `static`s owns a statics frame** (`functions.md` § "`static` and `initial`"): its
+// statics and its "done" flags, one slot each, whose static link is `d`, and which is the static link
+// of every frame a call of the value makes. Each function value has its own. A named function's
+// value is one per frame it is defined in -- kept in that frame's slot `home`, made the first time
+// the function is called or named there -- so its direct calls and its uses as a value share the
+// statics; a lambda's every evaluation is a new value with new statics. A function with none is a
+// plain closure over `d`.
+function_value(v: *Vm, target: usize, d: *FrameObj) -> Result[Value, string]
+    if target >= v.chunks.len() then return Err(s"a function value over chunk $target, which does not exist")
+
+    val (count, home) = statics_of_chunk(v, target)
+
+    if count == 0 then return new_closure(target, d)
+
+    if home != NoHome
+        val held = slot_of(d, home)?
+
+        held match
+            Func(_) -> return Ok(held)
+            _ -> ()
+
+    val st = new_frame(target)?
+
+    st.up = d
+
+    for _ in 0..<count
+        st.slots.push(Undefined)
+
+    v.allocated += count * sizeof(Value)
+
+    val made = new_closure(target, st)?
+
+    if home != NoHome then set_slot(d, home, made)?
+
+    Ok(made)
+
+// The static link of a direct call of `target` whose function is defined in frame `d`: the statics
+// frame of the function's value there when it has `static`s, and `d` otherwise.
+private statics_up(v: *Vm, target: usize, d: *FrameObj) -> Result[*FrameObj, string]
+    val (count, _) = statics_of_chunk(v, target)
+
+    if count == 0 then return Ok(d)
+
+    function_value(v, target, d)? match
+        Func(c) -> Ok(c.up)
+        _ -> Err("a function value that is not a function")
+
+// Chunk `target`'s statics, as `Vm.chunk_statics` keeps them: none for a chunk it has no entry for.
+private statics_of_chunk(v: *Vm, target: usize) -> (usize, usize) =
+    if target < v.chunk_statics.len() then v.chunk_statics.at(target) else (0, NoHome)
 
 // A new frame for `target` over the top `argc` values, with static link `up`.
 //
@@ -86,9 +140,12 @@ private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[
     f.cut = v.control.len()
     v.allocated += argc * sizeof(Value)
 
+    if v.trace != 0 then trace_call(v, f, v.code, before_ip(v.ip))
+
     v.frame = f
     v.code = target
     v.ip = 0
+
     Ok(())
 
 // A call in tail position. When nothing resumable was made in the running frame, the frame is reused
@@ -96,7 +153,10 @@ private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[
 // comes back to the `Return` that always follows a `TailCall`.
 tail_call(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault] = tail_into(v, target, argc, null)
 
-tail_call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] = tail_into(v, target, argc, link(v, up)?)
+// A statics frame made here over the running frame marks it captured, so the running frame is not
+// reused under it.
+tail_call_fn(v: *Vm, target: usize, argc: usize, up: usize) -> Result[unit, Fault] =
+    tail_into(v, target, argc, statics_up(v, target, link(v, up)?)?)
 
 // **A frame is reused only when nothing can see it afterwards**: no entry above its own (nothing
 // resumable was made in it), no function value captured it, and the callee's static link is not
@@ -117,8 +177,11 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
     f.cut = v.control.len()
     f.fail_to = NoMark
 
+    if v.trace != 0 then trace_call(v, f, v.code, before_ip(v.ip))
+
     v.code = target
     v.ip = 0
+
     Ok(())
 
 private is_async_chunk(v: *Vm, target: usize) -> bool = target < v.chunks.len() && v.chunks.at(target).is_async
@@ -226,6 +289,8 @@ ret(v: *Vm) -> Result[unit, string]
     val value = v.stack.pop() match
         Some(x) -> x
         None -> return Err("Return with nothing on the operand stack")
+
+    if v.trace != 0 then trace_return(v, f, value, v.control.len() > f.entry)
 
     // A `yield` inside an expression returns with that expression's operands still standing above
     // the frame's base; the `Restore` has saved them, and the caller must not see them.

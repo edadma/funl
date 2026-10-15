@@ -524,7 +524,8 @@ today); and neither Scala 3 nor sysl has it.
 > - **E2.** The constructs are the table above: a `def` clause by its name (`async def`, `export def`,
 >   a rule body and a `where` included), a bare `def` group by `end def`, a block-bodied `val x =` by
 >   `end x` or `end val` (`end val` only, after a pattern), a block-bodied `var x =` by `end x`, an `if`
->   chain by `end if`, and the loops by `end while`, `end for`, `end repeat`, `end every`. A lambda,
+>   chain by `end if`, the loops by `end while`, `end for`, `end repeat`, `end every`, and an
+>   `e match` and its clauses by `end match` (I2, user, 2026-10-15). A lambda,
 >   a partial function, a `?` scan, a `catch` arm, a lone `where`, a `( ; )` sequence and `data` take
 >   none.
 > - **E3.** A labelled loop is closed by its word, `end for`, never by its label.
@@ -671,6 +672,10 @@ k + 2 )` binds `k` once per value of the outer range.
 > in an expression keeps passing every value through, and `yield` is how a block body generates
 > explicitly. **Rejected:** keep `return` unbounded, so `return` means "leave the enclosing
 > statements" and nothing more.
+
+**`return e` fails the call when `e` fails**, which is the rest of Icon's rule: the failure does not
+move on to the next statement as an ordinary statement's would. So `return fail` is Icon's `fail` in a
+procedure, and `return x > 0` answers `0` or fails.
 
 ### Partial function literals
 
@@ -878,6 +883,32 @@ What follows for each neighbour:
 >    the family of `pt/0` and `pt/1`.** `write( pt, pt(1) )` prints `pt, pt(1)`, and `pt is atom`
 >    succeeds — the same reading `pt` has in a pattern, so a name means one thing on both sides of
 >    `=`. Test: `A_CONSTRUCTOR_NAME_OVER_SEVERAL_FIELD_COUNTS_IS_THE_FAMILY_OF_THEM_AS_A_VALUE`.
+
+> **Decided (user, 2026-10-15) — I5, a variadic `def` beside name/arity** (Icon's `procedure
+> p(a, b[])`, `p ! L` and `args(p)`; reference: [functions](../reference/functions.md#variadic-functions)).
+>
+> 10. **`def f(a, ..rest)` is the member of `f`'s family for every count no fixed arity of `f`
+>     takes**: a call of two arguments reaches `f/2` when the file defines one, else the variadic.
+>     At the top level the file's own fixed arities come first, then its variadic, then the
+>     builtins and the prelude, so a program's variadic takes over every count it covers, as a
+>     program's `f/n` takes over `n`. A name has one variadic definition (a second, of another
+>     fixed count, is refused naming both); a relation cannot be variadic. `..rest` is a parameter,
+>     not a pattern: last, once, and a name or `_`; it binds an ordinary list.
+> 11. **A variadic function has no Prolog key.** A predicate has one arity, so the variadic is
+>     FunL's only: Prolog sees the fixed arities beside it as `f/(n+1)` and nothing for it, and the
+>     key clash of question 5 cannot involve it. In a goal it is called as the function it is,
+>     never as the relation of one more argument.
+> 12. **It is compiled as a function of its fixed parameters and the list**, so clause indexing,
+>     `clean_head` and the settled analysis treat `rest` as one more variable parameter. Its chunk
+>     takes any count and begins with `PackRest`, so a direct call, a call through its value and a
+>     family member all pass the arguments as written.
+> 13. **`f(..e)` spreads a list, tuple, array, buffer or range** anywhere among a call's arguments,
+>     any number of times; the call is through `f`'s value, its count found when it runs. A count no
+>     member takes faults, `existence_error(procedure, f/n)`. `..e` anywhere else is refused.
+> 14. **`arity(f)` generates the counts a function value takes, in increasing order**; a variadic
+>     member's is its number of parameters, `..rest` counted, negated — Icon's `args` convention
+>     (`args(p)` is `-2` for `procedure p(a, b[])`), so `arity(write)` is `-1` and a variadic of no
+>     fixed parameters is `-1`, never `0`.
 
 The questions as they were put:
 
@@ -1385,6 +1416,154 @@ indentation or a fence never closed is refused. The name decides and nothing els
 blanked rather than removed (`sh.sysl.parsing`'s `tangle_literate`), so every diagnostic names the
 line and column of the document the reader has open. `funl program.lfunl` and a Prolog file's
 `:- import("file.lfunl")` both read it.
+
+## Icon parity
+
+**FunL does everything Icon 9.5 does** — Griswold's Icon, not Unicon (user, 2026-10-14). **Parity is
+of capability, not of spelling**: an Icon program has a FunL translation about as short that runs
+the same way. Where Icon's name or operator was free in FunL and read well, FunL took it; where FunL
+already said the same thing another way, that way covers it; where parity would have reopened a
+decision, the decision was asked as one of I1–I21, all now decided, and all built.
+
+| Icon | FunL | where |
+|---|---|---|
+| goal-directed evaluation, failure, generators, `every`, `\|`, `\|e`, `&`, `not` | the same | [above](#every-expression-succeeds-or-fails) |
+| `i to j by k` | the same; `i until j` excludes `j` | [above](#generators-an-expression-may-produce-more-than-one-value) |
+| `suspend e` | `yield e`, which yields every value of `e` | [above](#functions-are-generators-when-their-body-is) |
+| `suspend e1 do e2` | `every x = e1 do (yield x; e2)` | |
+| `return e`, bounded, failing the call when `e` fails | the same | [above](#functions-are-generators-when-their-body-is) |
+| `fail` (in a procedure) | `return fail`; a bare `fail` is a statement that fails and moves on | [above](#functions-are-generators-when-their-body-is) |
+| `next` | `continue` | [above](#control-structures-and-which-of-them-are-bounded) |
+| `break e` | `break (e)` | |
+| `while`, `repeat`, `if`, `until` | the same (I1: the loop `until` at the start of an expression, the exclusive range after an operand) | [success and failure](../reference/success-and-failure.md#a-loop-fails-when-it-runs-out) |
+| `case e of { … }` | `e match` over a block of clauses (I2) | [functions](../reference/functions.md#match) |
+| `e \ n` | `e limit n` (I3) | [generators](../reference/generators.md#limit-takes-the-first-few-values) |
+| `procedure … end`, `local`, `global`, `link` | `def`, block-scoped names, top-level names, `import` | [modules](modules.md) |
+| `static`, `initial` | the same (I4) | [functions](../reference/functions.md#static-and-initial) |
+| `procedure p(a, b[])`, `p ! L`, `args(p)` | `def p(a, ..b)`, `p(..L)` anywhere among the arguments, `arity(p)` generating each count (I5) | [functions](../reference/functions.md#variadic-functions) |
+| `proc(s, i)` | the same, over top-level names, builtins and operators' spellings; no string invocation (I6) | [functions](../reference/functions.md#calling-by-name) |
+| `create`, `@`, `^`, `*`, `!` on co-expressions, `&current`, `&source`, `&main` | the same (I7, I8, I9) | [co-expressions](../reference/coexpressions.md) |
+| `record` | `data`; `with(r, {f: x})` for a copy with fields replaced (I15) | [data](../reference/data.md#records) |
+| `x := e`, `x <- e` reversible | `x = e`, `x <- e`; `(x := e) & f` is `(x = e) & f` | [above](#assignment-and-assignment-that-undoes-itself) |
+| `x :=: y` | `x, y = y, x`, for every assignable place: `a(i), a(j) = a(j), a(i)` | |
+| `\x`, `/x` | the same, assignable | [above](#data) |
+| `*x` | `*x`, and `x.length` | |
+| `s1 \|\| s2`, `L1 \|\|\| L2` | `+` | |
+| `(e1, e2, e3)` mutual evaluation; `i(e1, …, en)` selection | a tuple `(e1, e2, e3)` (each must succeed); `(e1, …, en)(i - 1)` | |
+| `s[i:j] := t` | `s(i..j) = t`, 0-based (I10) | [strings](../reference/strings.md#assigning-to-a-section) |
+| `map(s1, s2, s3)`, `reverse(s)` | `translate(s, from, to)` (I11), `reverse(s)` (I12) | [strings](../reference/strings.md#translate) |
+| `table(x)`, `set(L)`, `list` | `map({}, x)`, `set(c)`, `array(n)`, `buffer()` | [above](#data) |
+| `!T` over a table, `key(T)` | `for (k, v) <- !m`; `(k, _) <- !m` | |
+| `member(S, x)`, `insert(S, x)`, `insert(T, k, v)` | `x in S`, `S += x`, `T(k) = v` | |
+| `seq(i, j)` | `!(i..)`, `i to … by j` over a range | |
+| `S1 ++ S2`, `S1 -- S2`, `S1 ** S2` over sets and csets | `+`, `-`, `**` | |
+| `serial(x)` | not adopted: `image` does not print serial numbers | |
+| `upto`, `many`, `any`, `match`, `find`, `tab`, `move`, `pos`, `bal`, `=s`, `s ? e`, `s ?:= e` | the same; `s ?= e` | [scanning](../reference/scanning.md) |
+| `string(x)` of a number, implicitly | interpolation `"${x}"`; `str(x)` | |
+| `integer(x)`, `real(x)`, `numeric(x)`, the `16rFF` literal | the same (I16) | [numbers](../reference/numbers.md) |
+| `read()`, `reads(n)`, `writes`, `stop`, writing to `&errout` | the same; `ewrite`, `ewrites` | [streams](../reference/streams.md) |
+| `open(s, mode)`, pipes, `read(f)`, `reads(f, n)`, `!f`, `seek`, `where`, `flush`, `close` | `funl:fs`'s `open`, which fails as Icon's does, and the file handle's methods `f.read()` … `f.close()`; `!f` | [fs](../library/fs.md#open-files) |
+| `write(f, x…)`, `writes(f, x…)` | `f.write(x…)`, `f.writes(x…)`; `write` stays "print these" (I17) | [fs](../library/fs.md#open-files) |
+| `&input`, `&output`, `&errout` | the same: the standard streams as file handles | [keywords](../reference/keywords.md) |
+| `getch`, `getche`, `kbhit` | the same, in `funl:term` | [term](../library/term.md) |
+| `getenv`, `system`, `exit`, `remove`, `rename`, `delay`, `chdir` | `funl:process`'s `env`, `run`, `exit`; `funl:fs`'s `remove`, `rename`, `chdir`; `funl:time`'s `sleep` | [modules](modules.md#the-first-batch) |
+| `&clock`, `&date`, `&dateline` as data | `funl:time`'s `now`, `format`, `fields`, and the keywords | |
+| keywords | `&name`, one token (I18) | [keywords](../reference/keywords.md) |
+| `&error`, `runerr` | `catch`, `throw` (I19) | [above](#every-expression-succeeds-or-fails) |
+| `$define`, `$ifdef`, `$include` and the rest | Icon's whole preprocessor (I20) | [source files](../reference/source-files.md#the-preprocessor) |
+| `loadfunc`, `callout` | native modules | [modules](modules.md#built-in-modules-funlname) |
+| the graphics facilities | `funl:graphics` (I21) | [graphics](graphics.md) |
+| a call with too few arguments gets `&null`, extra ones are dropped | not adopted: a call is resolved by its count, decided; two arities or a variadic `def` say it | [above](#one-name-several-arities) |
+| `&fail`, `&null` as values | `fail`, `undefined` | |
+
+> **Decided (user, 2026-10-15) — `fail` is an expression, not a leaving statement.** A bare `fail`
+> does not leave the function as Icon's does: it is Icon's `&fail`, an expression that fails, so the
+> statement fails and control moves to the next. `return fail` is Icon's procedure `fail`.
+
+> **Decided (user, 2026-10-15) — assignment stays the lowest rung of the binding-power ladder.**
+> `x = e & f` is `x = (e & f)`. Icon's `(x := e) & f` is written `(x = e) & f` in FunL
+> ([assignment](../reference/assignment.md#-assigns)).
+
+> **Decided (user, 2026-10-15) — I2, a `case` expression: postfix `e match`** over a block of
+> clauses: the subject made once and bounded, committed choice, an unbounded body, no clause taking
+> the value failing the `match`, and `(e)` in a clause's pattern comparing with `e`'s first value.
+
+> **Decided (user, 2026-10-15) — I3, limitation: the infix word `e limit n`**; `\` stays integer
+> division. Icon's semantics: `n` first, a generating `n` re-limits `e`, 0 fails without evaluating
+> `e`; a non-integer limit is a type error, a negative one a domain error. The machine has
+> `LimitSet`/`LimitCount` and two hidden slots, the count and the place of `e`'s mark (`limit.sysl`),
+> whose place is recorded because `|x` and a suspended generator leave marks of their own open above
+> it. `limit` binds between a cons and a comparison (FunL's `|` is looser than `&` and comparison, so
+> it cannot sit above `|` as Icon's does), and is a word only in an operator's place.
+
+> **Decided (user, 2026-10-15) — I4, whose is a static: each closure value's.** A nested `def` or a
+> lambda made twice counts twice; a named function is one value per frame it is defined in, so its
+> calls and its uses as a value share the statics.
+
+> **Decided (user, 2026-10-15) — I7: Icon's spelling**, `create e`, `@c`, `v @ c`, `^c`, `*c`,
+> `!c`; **I8: `create` copies the innermost frame and shares the frames outside it.** A co-expression
+> is a `Machine` set aside in a `CoExprObj` (`coexpr.sysl`) -- its chunk ending in `CoYield`, two
+> copies of the creating frame, its activator, its count -- switched by `Activate` and `CoYield` with
+> buffer handles, never a stack copy; a fault nothing inside catches ends it and is raised again at
+> the `@`; `&features` generates `"co-expressions"`. Further:
+>
+> - `1..` is a range value in FunL, not a generator, so Icon's `create seq()` is `create !(1..)`.
+> - Prefix `*x` is the length of anything that is not a co-expression. `(*c)` and `(^c)` stay
+>   operator sections; `@^c` needs none.
+> - `create` reads its operand as loosely as `not` does, so `create !xs | !ys` is one co-expression.
+> - `x <- c`, as a binding, generates by activation as `!c` does.
+> - Activating the running co-expression produces the transmitted value at once.
+> - A result or a failure goes to the activator, or -- that one having ended, or being suspended at
+>   a result of its own, which symmetric activation can bring about -- to `&main`, which is always
+>   waiting at an `@` while anything else runs.
+> - `return`, `yield`, and `break` or `continue` leaving `create` are refused when compiled.
+>   `await` inside `create` is allowed where the enclosing function or top level may await.
+> - At the top level the innermost frame is the top level's, so a co-expression made there copies
+>   the top-level names; a top-level function it calls still reads the originals.
+
+> **Decided (user, 2026-10-15) — I9: a co-expression binds any logic variable its task may, on its
+> own trail.** `await` inside `create` parks the task inside the co-expression; activating another
+> task's co-expression is `permission_error(activate, coexpression, C)`; a variable records the
+> machine that made it, and a binding by any other machine is always trailed, since each machine's
+> stamps are its own clock; an abandoned co-expression is collected.
+
+> **Decided (user, 2026-10-15) — I13, Icon's string comparison operators: none.** FunL's `<`, `==`
+> and the rest compare strings lexically and numbers numerically, converting nothing; Icon's two
+> families exist only because it converts, so without conversion `<<` would compare exactly what `<`
+> does. **I14, implicit conversion: none**; a fault refuses an operand of the wrong kind, and each
+> conversion is a function (`integer`, `real`, `numeric`, `str`, `cset`). A string where a cset is
+> wanted is accepted, the one conversion Icon programs lean on everywhere.
+
+> **Decided (user, 2026-10-15) — I16, radix literals.** `NrDDD` is a literal, `N` from 2 to 36 and
+> the digits in either case, any size, `_` between digits; it takes `N r name` away from
+> juxtaposition. `integer("16rFF")` reads the same form, by the same reader. A base outside 2 to 36
+> is refused as a radix.
+
+> **Decided (user, 2026-10-15) — I18: `&name` as Icon has it**, one token when `&` touches a letter;
+> `a &b` is refused with a note naming `a & b`. A keyword is fixed when parsed (`&null`, `&fail`,
+> `&file`, `&line`), a builtin constant folded when compiled, or a call of a builtin registered under
+> the keyword's own spelling (`&pos`), which no FunL name can reach; a store is a builtin `&name=` or
+> `&name<-` that checks the value's kind (`keywords.sysl`). **The trace line is Icon's, the call
+> site's**: a line table per chunk (run-length, one mark where the line changes, kept beside the
+> chunks and read only by a trace line or a fault) places a call at the call, a return or suspension
+> at what returned, a failure at what failed; and an uncaught fault names its file and line. A tail
+> call still takes its caller's place, so the caller's return is not shown — a deliberate difference.
+> `&storage` and `&regions` are one number each over the one region FunL allocates in, where Icon's
+> generate one per region. `&error`, `&errornumber`, `&errortext` and `&errorvalue` are not adopted
+> (I19); the graphics keywords are [Graphics](graphics.md#events)'s.
+
+> **Decided (user, 2026-10-15) — I19: nothing more.** `catch` covers `&error` (`e catch _ -> fail`
+> is Icon's `&error` for one expression), `throw` covers `runerr`, and the error keywords are not
+> adopted: a global switch that turns faults into failures anywhere — in a library, in Prolog — would
+> break every guarantee the decided design makes about faults.
+
+> **Decided (user, 2026-10-15) — I20: Icon's whole preprocessor**: `$define`, `$undef`, `$ifdef`,
+> `$ifndef`, `$else`, `$endif`, `$include` (positions carried through, include cycles refused),
+> `$line` and `$error`, with the platform and feature names predefined, over FunL's token stream and
+> in a literate file's tangled program (`preproc.sysl`).
+
+> **Decided (user, 2026-10-15) — I21, the graphics facilities: in scope**, as the native module
+> `funl:graphics`, with a design of its own: [Graphics](graphics.md), built as milestone 12.
 
 ## Rough edges, and what FunL does about each
 

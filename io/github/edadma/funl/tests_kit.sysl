@@ -5,6 +5,19 @@ import sh.sysl.parsing.{full_report, source_of}
 import sysl.buf.{Buf, buf}
 import sysl.fs.{make_temp_dir, remove_dir_all, write_text}
 import sysl.text.{Search, chars_of, split, str_builder}
+#if feature_graphics
+import sh.sysl.sdl3.{HINT_VIDEO_DRIVER, set_hint}
+#endif
+
+// **Every window a test opens is made by SDL's dummy video driver**, which keeps it in memory: nothing
+// in the suite opens a window on screen, which from a shell no one is at the console of would never
+// return. Every run starts here.
+#if feature_graphics
+headless_video() = set_hint(HINT_VIDEO_DRIVER, "dummy")
+#endif
+#if !feature_graphics
+headless_video() = ()
+#endif
 
 // The harness: assemble a program into a fresh VM, run it, and answer what it said.
 //
@@ -132,6 +145,8 @@ typed_key(k: &Keys) -> Result[Option[string], Fault]
 // Run what `build` compiles on a VM with this heap and schedule, keeping the warnings it rendered.
 // `keys` are the keys typed at it, which `funl:term` reads.
 run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled, keys: string = "") -> Said
+    headless_video()
+
     var v = new_vm(heap, floor, growth)
     val was = enter(&v)
     var out = str_builder()
@@ -188,26 +203,32 @@ ran(build: () -> Result[usize, string]) -> string
     assert_eq(tight.text, calm.text, "the program said something different on a heap collected at every step")
     calm.text
 
-// Transcript `said` with its fault's instruction index taken out: `fault: f@19: m` reads `fault: f:
-// m`, so a test pinning a fault's text does not move whenever the code before the fault does.
+// Transcript `said` with its fault's place taken out: `fault: f at test.funl:4: m` and `fault: f@19:
+// m` both read `fault: f: m`, for a test about the fault's text rather than where it was raised.
 unplaced(said: string) -> string
     val f = said.index_of("fault: ") match
         Some(i) -> i
         None -> return said
 
-    val tail = said.slice(f, said.bytes.len)
+    // The place is in the fault's head: from just past `fault: ` to the first `: ` after it, which a
+    // file and line, `test.funl:4`, does not contain.
+    val start = f + 7
+    val tail = said.slice(start, said.bytes.len)
 
-    val at = tail.index_of("@") match
+    val colon = tail.index_of(": ") match
         Some(i) -> i
         None -> return said
 
-    val after = tail.slice(at, tail.bytes.len)
+    val head = tail.slice(0, colon)
 
-    val colon = after.index_of(":") match
+    val cut = head.index_of("@") match
         Some(i) -> i
-        None -> return said
+        None ->
+            head.index_of(" at ") match
+                Some(i) -> i
+                None -> return said
 
-    said.slice(0, f + at) + after.slice(colon, after.bytes.len)
+    said.slice(0, start + cut) + tail.slice(colon, tail.bytes.len)
 
 // -- FunL source -------------------------------------------------------------------------------
 
@@ -215,10 +236,11 @@ unplaced(said: string) -> string
 compiled_text(text: string) -> Result[usize, string]
     val src = source_of("test.funl", text)
     var r = full_report()
+    var places = no_map()
 
-    compile_program(src, &r) match
+    compile_program_placed(src, &r, &places) match
         Some(chunk) -> Ok(chunk)
-        None -> Err(r.render(src))
+        None -> Err(render_report(r, src, src, places))
 
 // The transcript of FunL program `text`, run on both heaps; a refused program answers
 // `assembly: ` and its diagnostics.
@@ -264,10 +286,11 @@ rendered(text: string) -> string
     val was = enter(&v)
     val src = source_of("test.funl", text)
     var r = full_report()
+    var places = no_map()
 
-    compile_program(src, &r)
+    compile_program_placed(src, &r, &places)
 
-    val out = r.render(src)
+    val out = render_report(r, src, src, places)
 
     dispose_vm(&v)
     leave(was)

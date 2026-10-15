@@ -42,8 +42,9 @@ compile_text(file: string, text: string) -> Compiled
         Err(d) -> return Refused(d.render(doc))
 
     var report = full_report()
-    val chunk = if file.ends_with(".pl") then prolog_program(src, &report) else compile_program(src, &report)
-    val said = if report.is_empty() then "" else render_report(report, doc, src)
+    var places = no_map()
+    val chunk = if file.ends_with(".pl") then prolog_program(src, &report) else compile_program_placed(src, &report, &places)
+    val said = if report.is_empty() then "" else render_report(report, doc, src, places)
 
     chunk match
         Some(at) -> Ready(at, said)
@@ -79,6 +80,7 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
     v.input = line
     v.put = say
     v.eput = complain
+    v.program_name = file
 
     for a in args
         v.program_args.push(a)
@@ -98,7 +100,11 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
                     complain(s"funl: $m\n")
                     status = 1
                 Halted(n) -> status = n
-                _ -> if file.ends_with(".pl") && !v.has_initialization then status = answer_queries(&v, line)
+                _ ->
+                    // A program that ended with a window on screen keeps it until it is closed.
+                    wait_for_screens()
+
+                    if file.ends_with(".pl") && !v.has_initialization then status = answer_queries(&v, line)
 
     dispose_vm(&v)
     leave(was)

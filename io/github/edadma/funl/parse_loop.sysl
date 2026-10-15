@@ -18,6 +18,7 @@ labelled(p: *Parser, at: Span, label: Option[string]) -> &Expr
     word.value match
         Every -> closing(p, every_expr(p, at, label), ClosesWord("every"))
         While -> closing(p, while_expr(p, at, label), ClosesWord("while"))
+        Until -> closing(p, until_expr(p, at, label), ClosesWord("until"))
         Repeat -> closing(p, repeat_expr(p, at, label), ClosesWord("repeat"))
         _ -> closing(p, for_expr(p, at, label), ClosesWord("for"))
 
@@ -28,6 +29,7 @@ loop_word(p: *Parser, k: usize) -> bool
             t.value match
                 Every -> true
                 While -> true
+                Until -> true
                 Repeat -> true
                 For -> true
                 _ -> false
@@ -61,6 +63,19 @@ while_expr(p: *Parser, at: Span, label: Option[string]) -> &Expr
     val cond = delimited(p)
 
     if !p.accept(Do) && !p.at_tok(Indent) then return expr(WhileE(id, label, cond, None), at.to(cond.span))
+
+    val body = branch(p)
+
+    expr(WhileE(id, label, cond, Some(body)), at.to(body.span))
+
+// `until c [do b]`, the `until` already read: Icon's loop, `while not c`. The body runs while `c`
+// fails, and the loop fails when it ends, as `while` does.
+until_expr(p: *Parser, at: Span, label: Option[string]) -> &Expr
+    val id = p.node_id()
+    val c = delimited(p)
+    val cond = expr(Neg(c), at.to(c.span))
+
+    if !p.accept(Do) && !p.at_tok(Indent) then return expr(WhileE(id, label, cond, None), at.to(c.span))
 
     val body = branch(p)
 

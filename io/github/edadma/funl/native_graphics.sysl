@@ -1,0 +1,447 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sh.sysl.plutovg as pv
+import sysl.text.chars_of
+
+// `funl:graphics`: Icon's windows, over the `sysl-lang/plutovg` package (`docs/library/graphics.md`).
+//
+// **A window is a handle of kind `window`, and it is two things, as Icon's is: a canvas and a
+// context.** The canvas is the drawing surface -- a plutovg surface of premultiplied ARGB32 and the
+// plutovg canvas that draws on it -- with its size and title. The context is how drawing is done:
+// the colours, the line and fill styles, the drawing operation, the clip rectangle and the origin.
+// `w.clone(attrs)` is a new handle on the same canvas with a copy of the context; `couple(w1, w2)` a
+// new handle on `w1`'s canvas sharing `w2`'s context, so a change through either is seen by both.
+//
+// **`close()` closes the canvas, and with it every handle on it** (Icon's `WClose`); `w.uncouple()`
+// closes this handle alone, and the canvas goes with its last handle. A handle the collector finds
+// unreachable is uncoupled, not closed, since another handle may still be drawing.
+//
+// **Canvases and contexts live in tables here, and a handle holds its places in them**: `n` is the
+// canvas's place, `vals` the canvas's generation and the context's place. A canvas's place is reused
+// once it is closed, and its generation counts the reuses, so a handle whose canvas was closed under
+// it -- a clone, after `close()` on the window -- finds a different generation there, is closed on
+// the spot, and faults as any closed handle does. A context is shared by every handle `couple` made
+// with it and goes with the last of them.
+//
+// **Nothing the collector can run is interleaved with a change to these tables**: an allocation can
+// run a finalizer, and a finalizer uncouples, so every maker allocates its handle first and then
+// reads and writes the tables with nothing allocating in between.
+//
+// **A canvas is shown in a window on screen, or kept hidden.** `canvas: #hidden` is a surface in
+// memory and nothing else, in every build, whose events come only from `enqueue`. Any other canvas
+// also has a window on screen (`native_screen.sysl`), which is behind the `graphics` feature: without
+// it, opening or showing one faults, naming the feature. **What is drawn reaches the screen when the
+// program waits** -- at `flush`, `sync`, `delay`, `event`, `pending`, `active`, a wait on the event
+// loop, and the program's end -- so a hundred drawing calls between waits cost one copy. On a
+// high-density display the surface has `density` device pixels to the point in each direction, and
+// drawing is scaled by it.
+//
+// **Events wait on their canvas's queue**, filled by `enqueue` and by the window's own events, and
+// `event()` takes the oldest, answering its code and setting the running machine's event keywords
+// (`EventKeys`). `&window` is the VM's: `open` sets it, a program may assign it, and the collector
+// marks it.
+
+// What `funl:graphics` exports, each name the short form of a native `install_graphics` registered
+// as `graphics.name`.
+private val GraphicsNames: [8]string = ["open", "couple", "color_value", "active", "palette_chars", "palette_color", "palette_key",
+    "palette_grays"]
+
+const WindowKind: string = "window"
+const PixelsKind: string = "window pixels"
+
+// The largest side a canvas may have, as an X server refuses a window wider than 32767 pixels.
+const MaxSide: long = 32767
+
+// What a window on screen answers in a build that has none.
+const NoScreen: string = "a window on screen is not in this build -- it is behind the `graphics` feature"
+
+// A canvas: its pixels and the plutovg canvas drawing on them, how many handles are open on it, and
+// its attributes; its event queue, oldest first; the handles open on it, oldest first, which the
+// collector does not see -- a handle leaves the list when it is uncoupled or forgotten, so every one
+// there is live -- and the VM they belong to.
+struct WinCanvas
+    surface: &pv.Surface
+    drawn: &pv.Canvas
+    handles: usize
+    label: string
+    image: string
+    width: long
+    height: long
+    resize: bool
+
+    // On screen (`graphics_screen.sysl`): `state` is the `canvas` attribute, `"hidden"` or `"normal"`;
+    // `screen` the place of its window on screen, or -1 while it has none; `density` device pixels per
+    // point; `pos` where the window is, `None` until set or shown; `pointer` where the pointer was last
+    // seen over it, `None` until it has been; `fill` the colour a resize paints the new area with.
+    state: string
+    screen: long
+    density: long
+    pos: Option[(long, long)]
+    pointer: Option[(long, long)]
+    fill: Rgb
+
+    // The text cursor, on the canvas as Icon keeps it: `x` the left of the next character, `y` its
+    // baseline, both before the origin is taken away (`graphics_text.sysl`).
+    x: long
+    y: long
+    cursor: bool
+    echo: bool
+    inputmask: string
+    queue: Buf[WinEvent]
+    wins: Buf[*HandleObj]
+    owner: *Vm
+
+// An event waiting on a canvas's queue: its code -- `key`, a one-character string, when `is_key`, the
+// symbol `sym` otherwise -- where it happened, in the canvas's own coordinates (no origin taken off),
+// the modifiers held and whether a key was let go (`Mod...` bits), and the milliseconds since the
+// event before it.
+struct WinEvent
+    is_key: bool
+    key: string
+    sym: u32
+    x: long
+    y: long
+    mods: u8
+    interval: long
+
+const ModControl: u8 = 1
+const ModMeta: u8 = 2
+const ModShift: u8 = 4
+const ModReleased: u8 = 8
+
+// The event keywords as `event()` leaves them: `&x`, `&y`, `&row`, `&col`, `&interval`, and the
+// `Mod...` bits `&control`, `&meta`, `&shift` and `&released` succeed on. **They are the running
+// machine's** -- `Vm.keys`, parked and unparked with the rest of it -- so one task's `event()` never
+// changes what another reads.
+struct EventKeys
+    x: long
+    y: long
+    row: long
+    col: long
+    interval: long
+    mods: u8
+
+// The event keywords before any event: everything 0, and no modifier held.
+no_event_keys() -> EventKeys = EventKeys(0, 0, 0, 0, 0, 0)
+
+// The mouse's event codes, each also a keyword answering it, `&lpress` -- and `#resize`, `&resize`.
+private val MouseCodes: [10]string = ["lpress", "ldrag", "lrelease", "mpress", "mdrag", "mrelease", "rpress", "rdrag",
+    "rrelease", "resize"]
+
+// What `event()` and `active()` answer when nothing can come: in this build a canvas is filled only by
+// `enqueue`, which a program waiting on it cannot call.
+private[funl] const NothingComes: string = "no event is queued, and none can come while the program waits: a hidden canvas takes events only from `enqueue`"
+
+// A context: how many handles share it, and its attributes. A colour is kept as the specification
+// it was given, which `get` answers, and as the components it names; `fg_alpha` is the coverage the
+// foreground paints at, a half for Icon's `"transparent"` modifier. `clipw` is negative when there
+// is no clip rectangle, as Icon keeps it. The font is kept as its specification and as its place in
+// the table of faces (`graphics_text.sysl`), with the line spacing the text cursor moves by.
+struct WinContext
+    refs: usize
+    fg: string
+    fg_rgb: Rgb
+    fg_alpha: f32
+    bg: string
+    bg_rgb: Rgb
+    reverse: bool
+    linewidth: long
+    linestyle: u32
+    fillstyle: u32
+    pattern: string
+    drawop: u32
+    clipx: long
+    clipy: long
+    clipw: long
+    cliph: long
+    dx: long
+    dy: long
+    font: string
+    face: usize
+    leading: long
+
+// An open window handle and its places.
+struct Win
+    h: *HandleObj
+    at: usize
+    ctx: usize
+
+// process-wide: every open canvas by place, `None` once closed. A handle is collected storage, which
+// cannot hold the counted references a surface and a plutovg canvas are, so they wait here; places are
+// never shared, so every VM in the process can keep its canvases in the one table.
+var canvases: Buf[Option[WinCanvas]] = buf()
+
+// process-wide: the generation of each place in `canvases`, for the reason that table is.
+var generations: Buf[long] = buf()
+
+// process-wide: every context in use, by place, beside the canvases.
+var contexts: Buf[Option[WinContext]] = buf()
+
+// Every attribute, in the order `attributes()` gives them.
+val Attributes: [44]string = ["size", "width", "height", "label", "image", "canvas", "resize", "pos", "posx", "posy",
+    "pointer", "pointerx", "pointery", "cursor", "echo", "inputmask", "fg", "bg", "reverse",
+    "linewidth", "linestyle", "fillstyle", "pattern", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density",
+    "displaywidth", "displayheight", "font", "leading", "ascent", "descent", "fheight", "fwidth", "x", "y", "row", "col"]
+
+install_graphics(v: *Vm)
+    val w = register_handle_kind_forgetting(v, WindowKind, close_canvas, detach_window)
+
+    install_text(v, w)
+
+    register_handle_kind(v, PixelsKind, (h) -> ())
+    optional_past(v, register_generator(v, "graphics.open", 2, do_open), 1)
+    register(v, "graphics.couple", 2, do_couple)
+    register_generator(v, "graphics.color_value", 1, do_color_value)
+    register_method(v, w, "set", 1, do_set)
+    register_method(v, w, "get", 1, do_get)
+    register_method(v, w, "attributes", 0, do_attributes)
+    register_method(v, w, "clone", Variadic, do_clone)
+    register_method(v, w, "uncouple", 0, do_uncouple)
+    register_method(v, w, "flush", 0, do_flush)
+    register_method(v, w, "sync", 0, do_sync)
+    register_method(v, w, "delay", 1, do_delay)
+    register_method(v, w, "raise", 0, do_raise)
+    register_method(v, w, "lower", 0, do_lower)
+    register_stepping_method(v, w, "pixel", Variadic, start_pixel, step_pixel)
+    install_drawing(v, w)
+    install_images(v, w)
+    register_method(v, w, "enqueue", Variadic, do_enqueue)
+    register_method(v, w, "event", 0, do_event)
+    register_method(v, w, "pending", 0, do_pending)
+    register_generator(v, "graphics.active", 0, do_active)
+    register_generator(v, "&window", 0, (b, n, c) -> window_now())
+    register(v, "&window=", 1, (b, n) -> store_window(b))
+    register(v, "&x", 0, (b, n) -> Ok(Int(current().keys.x)))
+    register(v, "&y", 0, (b, n) -> Ok(Int(current().keys.y)))
+    register(v, "&row", 0, (b, n) -> Ok(Int(current().keys.row)))
+    register(v, "&col", 0, (b, n) -> Ok(Int(current().keys.col)))
+    register(v, "&interval", 0, (b, n) -> Ok(Int(current().keys.interval)))
+    register_generator(v, "&control", 0, (b, n, c) -> held(ModControl))
+    register_generator(v, "&meta", 0, (b, n, c) -> held(ModMeta))
+    register_generator(v, "&shift", 0, (b, n, c) -> held(ModShift))
+    register_generator(v, "&released", 0, (b, n, c) -> held(ModReleased))
+
+    for code in MouseCodes
+        register_constant(v, s"&$code", (b, n) -> Ok(atom(code)))
+
+// The exports of `funl:graphics`.
+graphics_exports() -> Buf[ModExport] = native_exports("graphics", GraphicsNames)
+
+// The id of handle kind `name` on the running VM.
+kind_named(name: string) -> u32
+    val kinds = current().handle_kinds
+
+    for i in 0..<kinds.len()
+        if kinds.at(i).name == name then return u32(i)
+
+    panic("funl:graphics is not installed on this VM")
+
+// -- the tables --------------------------------------------------------------------------------------
+
+keep_canvas(c: WinCanvas) -> usize
+    for i in 0..<canvases.len()
+        if canvases.at(i).is_none()
+            canvases.set(i, Some(c))
+            return i
+
+    canvases.push(Some(c))
+    generations.push(0)
+    canvases.len() - 1
+
+keep_context(c: WinContext) -> usize
+    for i in 0..<contexts.len()
+        if contexts.at(i).is_none()
+            contexts.set(i, Some(c))
+            return i
+
+    contexts.push(Some(c))
+    contexts.len() - 1
+
+small(x: Value) -> long = x match
+    Int(n) -> n
+    _ -> -1
+
+// Whether the canvas handle `h` was made on is still open.
+canvas_live(h: *HandleObj) -> bool
+    if h.vals.len() < 2 then return false
+
+    val at = usize(h.n)
+
+    at < canvases.len() && canvases.at(at).is_some() && generations.at(at) == small(h.vals.at(0))
+
+canvas_at(at: usize) -> WinCanvas = canvases.at(at).unwrap()
+
+context_at(at: usize) -> WinContext = contexts.at(at).unwrap()
+
+// The canvas closed: its place freed and its generation moved on, so every other handle on it finds
+// it gone.
+free_canvas(at: usize)
+    var c = canvas_at(at)
+    val screen = c.screen
+
+    c.queue.release()
+    c.wins.release()
+    canvases.set(at, None)
+
+    if screen >= 0 then screen_close(usize(screen))
+
+    generations.set(at, generations.at(at) + 1)
+
+// One handle's share of its context given back.
+private drop_context(h: *HandleObj)
+    if h.vals.len() < 2 then return
+
+    val k = usize(small(h.vals.at(1)))
+
+    if k >= contexts.len() then return
+
+    contexts.at(k) match
+        Some(c) ->
+            if c.refs <= 1
+                contexts.set(k, None)
+            else
+                var d = c
+                d.refs -= 1
+                contexts.set(k, Some(d))
+        None -> ()
+
+// `close()`: the canvas, and so every handle on it, then this handle's context.
+private close_canvas(h: *HandleObj)
+    if canvas_live(h) then free_canvas(usize(h.n))
+
+    drop_context(h)
+
+// `uncouple()`, a forgotten handle, and a handle found on a closed canvas: this handle's share of the
+// canvas and of its context, the canvas closing with its last handle.
+detach_window(h: *HandleObj)
+    if canvas_live(h)
+        val at = usize(h.n)
+        var c = canvas_at(at)
+
+        if c.handles <= 1
+            free_canvas(at)
+        else
+            c.handles -= 1
+
+            for i in 0..<c.wins.len()
+                if c.wins.at(i) == h
+                    c.wins.remove(i)
+                    break
+
+            canvases.set(at, Some(c))
+
+    drop_context(h)
+
+// -- arguments -------------------------------------------------------------------------------------
+
+// Argument `i`, an open window whose canvas is open. A handle whose canvas was closed through another
+// handle is closed now, and faults as a closed handle does.
+window_arg(base: usize, i: usize, name: string) -> Result[Win, Fault]
+    val h = open_handle(base, i, kind_named(WindowKind), s"'$name'")?
+
+    if !canvas_live(h)
+        retire_handle(h, detach_window)
+        return Err(existence_error("handle", Handle(h), s"'$name' was called on ${described(Handle(h))}"))
+
+    Ok(Win(h, usize(h.n), usize(small(h.vals.at(1)))))
+
+// Argument `i`, a map of attributes.
+map_arg(base: usize, i: usize, name: string) -> Result[*MapObj, Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Map(p) -> Ok(p)
+        MutMap(p) -> Ok(p)
+        _ -> Err(kind_error(x, "map", s"'$name' wants a map of attributes and was given ${described(x)}"))
+
+// The name an attribute key spells: a string, or a symbol.
+key_text(x: Value) -> Option[string] = deref(x) match
+    Str(p) -> Some(p.s)
+    Atom(id) -> Some(atom_name(id))
+    _ -> None
+
+is_attribute(k: string) -> bool
+    for a in Attributes
+        if a == k then return true
+
+    false
+
+is_read_only(k: string) -> bool =
+    k == "depth" || k == "density" || k == "displaywidth" || k == "displayheight" || is_metric(k)
+
+// -- surfaces --------------------------------------------------------------------------------------
+
+// A colour component, 0 to 65535, as plutovg takes it.
+channel(c: long) -> f32 = f32(c) / 65535.0
+
+// A surface `w` by `h` points at `d` device pixels to the point, filled with `bg`, and the plutovg
+// canvas that draws on it, scaled so that drawing is in points; `None` for a size no canvas may have,
+// or pixels that could not be had.
+blank(w: long, h: long, d: long, bg: Rgb) -> Option[(&pv.Surface, &pv.Canvas)]
+    if w < 1 || h < 1 || w > MaxSide || h > MaxSide then return None
+
+    val s = pv.surface(int(w * d), int(h * d)) match
+        Some(s) -> s
+        None -> return None
+
+    val drawn = pv.canvas(s) match
+        Some(made) -> made
+        None -> return None
+
+    if d != 1 then drawn.scale(f32(d), f32(d))
+
+    s.clear(channel(bg.r), channel(bg.g), channel(bg.b))
+    Some((s, drawn))
+
+// `c` made `w` by `h` points at `d` to the point, keeping the picture the two sizes share -- each old
+// device pixel spread over the new ones it covers -- and filling the rest with `bg`, as a window
+// resized keeps its picture.
+resized_at(c: WinCanvas, w: long, h: long, d: long, bg: Rgb) -> Option[WinCanvas]
+    val (s, drawn) = blank(w, h, d, bg)?
+    val from = c.surface.data()
+    val to = s.data()
+    val from_stride = usize(c.surface.stride())
+    val to_stride = usize(s.stride())
+    val rows = (if h < c.height then h else c.height) * d
+    val cols = (if w < c.width then w else c.width) * d
+
+    for y in 0..<usize(rows)
+        val fy = y * usize(c.density) / usize(d)
+
+        for x in 0..<usize(cols)
+            val fx = x * usize(c.density) / usize(d)
+
+            for b in 0..<4usize
+                to[y * to_stride + 4 * x + b] = from[fy * from_stride + 4 * fx + b]
+
+    var out = c
+
+    out.surface = s
+    out.drawn = drawn
+    out.width = w
+    out.height = h
+    out.density = d
+    Some(out)
+
+// `c` made `w` by `h` at its own density.
+resized(c: WinCanvas, w: long, h: long, bg: Rgb) -> Option[WinCanvas] = resized_at(c, w, h, c.density, bg)
+
+// -- colours ---------------------------------------------------------------------------------------
+
+// A component as the surface stores it, eight bits, rounded as plutovg rounds.
+device(c: long) -> long = long(channel(c) * 255.0 + 0.5)
+
+// `color_value(s)`: colour specification `s` in the normal form `"r,g,b"`; fails when `s` is no
+// colour.
+private do_color_value(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+
+    val spec = x match
+        Str(p) -> p.s
+        _ -> return Err(kind_error(x, "string", s"'color_value' wants a colour, a string, and was given ${described(x)}"))
+
+    parse_color(spec) match
+        Some(c) -> Ok(Gives(new_str(color_text(c))?))
+        None -> Ok(Refuses)
+

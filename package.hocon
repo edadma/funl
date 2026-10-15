@@ -16,7 +16,7 @@
 
 package {
   name    = "funl-vm"
-  version = "0.0.6"
+  version = "0.0.7"
 
   // alpha.4 is the first compiler where a container field in zeroed `gc` storage reads as empty
   // and `release()` on it is a no-op, which the collector's finalizers rely on; the heap objects'
@@ -60,6 +60,10 @@ dependencies {
   // package elsewhere, so every `funl` carries it.
   sqlite3 { git = "github.com/sysl-lang/sqlite3", version = "0.7.0" }
 
+  // `funl:graphics`. Not a feature: plutovg's C is carried in the package and links nothing, so a
+  // hidden canvas -- drawing into memory, read back with `pixel` -- is in every build, tests included.
+  plutovg { git = "github.com/sysl-lang/plutovg", version = "0.2.4" }
+
   // `async`'s loop. Its timers and its host driver need no library, so kairos itself is not behind a
   // feature; its libuv driver is, through `async` below.
   kairos { git = "github.com/sysl-lang/kairos", version = "0.1.1" }
@@ -70,6 +74,11 @@ dependencies {
   // `fetch` waits for libcurl on libuv's thread pool -- so libuv is named here as well as under
   // kairos, behind the same feature.
   libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.9", optional = true }
+
+  // `funl:graphics`'s windows on screen, behind the `graphics` feature: SDL is a library the machine
+  // has to have installed, where a hidden canvas needs nothing, so a build without the feature keeps
+  // every hidden canvas and links no SDL.
+  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.8", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`
@@ -80,12 +89,18 @@ dependencies {
 //
 // **`async` turns on kairos's own `uv` feature**, which is what brings kairos's libuv driver -- its
 // loop, files and sockets -- and libuv with it.
+//
+// **`graphics` is the window on screen**, over SDL. `funl:graphics` itself is in every build, since
+// its hidden canvas is plutovg's and links nothing; without the feature, opening or showing a window
+// faults and names it.
 features {
-  default = [http, async]
+  default = [http, async, graphics]
 
   http = [curl]
 
   async = ["kairos/uv", libuv]
+
+  graphics = [sdl3]
 
   // **`profile` counts the instructions a run executes** (`profile.sysl`), and it is not in
   // `default`: the count is a branch in the instruction loop, and a build without the feature has

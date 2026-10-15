@@ -1,0 +1,152 @@
+module io.github.edadma.funl
+@tests
+
+// `funl:graphics` (`docs/library/graphics.md`): the window handle on a hidden canvas, its attributes
+// as a map, Icon's colour specifications, `pixel` reading the canvas back, and the handles `clone` and
+// `couple` make, closed by `close()` all at once and by `uncouple()` one at a time.
+
+// FunL program `body` run with the module's exports imported and `w` a hidden 4 by 3 canvas.
+private on_canvas(body: string) -> string =
+    ran_funl("import { open, couple, color_value } from funl:graphics\n" +
+        "w = open( \"test\", {canvas: #hidden, size: (4, 3)} )\n" +
+        body)
+
+@test
+OPEN_WITH_A_HIDDEN_CANVAS_ANSWERS_A_WINDOW_HANDLE()
+    assert_eq(on_canvas("write( w )\nif w is handle then write( #handle )\nwrite( w.get(\"label\"), w.get(\"canvas\"), w.get(\"size\") )\nw.close()\nwrite( w )\nw.close()\n"),
+        "<window handle>\nhandle\ntest, hidden, (4, 3)\n<closed window handle>\nsucceeded")
+
+@test
+EVERY_ATTRIBUTE_HAS_ICONS_DEFAULT()
+    assert_eq(on_canvas("write( w.attributes() )\n"),
+        "{\"size\": (4, 3), \"width\": 4, \"height\": 3, \"label\": \"test\", \"image\": undefined, \"canvas\": hidden, \"resize\": false, " +
+        "\"pos\": undefined, \"posx\": undefined, \"posy\": undefined, \"pointer\": undefined, \"pointerx\": undefined, \"pointery\": undefined, " +
+        "\"cursor\": false, \"echo\": true, \"inputmask\": \"\", \"fg\": \"black\", \"bg\": \"white\", \"reverse\": false, \"linewidth\": 1, \"linestyle\": solid, \"fillstyle\": solid, " +
+        "\"pattern\": \"black\", \"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
+        "\"depth\": 24, \"density\": 1, \"displaywidth\": undefined, \"displayheight\": undefined, \"font\": \"fixed\", \"leading\": 13, \"ascent\": 10, \"descent\": 3, \"fheight\": 13, \"fwidth\": 6, " +
+        "\"x\": 0, \"y\": 10, \"row\": 1, \"col\": 1}\nsucceeded")
+
+@test
+A_CANVAS_OPENED_WITH_NO_SIZE_IS_EIGHTY_COLUMNS_BY_TWELVE_LINES()
+    assert_eq(ran_funl("import { open } from funl:graphics\nwrite( open(\"t\", {canvas: #hidden}).get(\"size\") )\n"), "(480, 156)\nsucceeded")
+
+@test
+SET_APPLIES_EVERY_ENTRY_IN_ORDER_AND_ANSWERS_THE_WINDOW()
+    assert_eq(on_canvas("write( w.set({fg: \"red\", linewidth: 3, linestyle: #dashed, fillstyle: #masked, drawop: #reverse, dx: 2, dy: -1, label: \"two\", resize: true}) )\n" +
+            "write( w.get(\"fg\"), w.get(\"linewidth\"), w.get(\"linestyle\"), w.get(\"fillstyle\"), w.get(\"drawop\"), w.get(\"dx\"), w.get(\"dy\"), w.get(#label), w.get(\"resize\") )\n" +
+            "w.set({fg: \"blue\", fg: \"green\"})\nwrite( w.get(\"fg\") )\n"),
+        "<window handle>\nred, 3, dashed, masked, reverse, 2, -1, two, true\ngreen\nsucceeded")
+
+@test
+SET_FAILS_ON_A_VALUE_ICON_REFUSES_AND_APPLIES_NOTHING()
+    assert_eq(on_canvas("for v <- [{fg: \"no such colour\"}, {linewidth: -1}, {linewidth: \"3\"}, {linestyle: #wavy}, {linestyle: \"dashed\"}, {size: (0, 3)}, {size: (4, 3, 2)}, {width: 40000}, {resize: 1}, {canvas: #open}, {dx: 1.5}] do write( w.set(v) | #failed )\n" +
+            "write( w.set({fg: \"red\", linewidth: 5, bg: \"bogus\"}) | #failed )\nwrite( w.get(\"fg\"), w.get(\"linewidth\") )\n"),
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nblack, 1\nsucceeded")
+
+@test
+SET_FAULTS_ON_A_KEY_THAT_IS_NO_ATTRIBUTE_OR_IS_READ_ONLY()
+    assert_eq(on_canvas("write( w.set({colour: \"red\"}) catch e -> e )\nwrite( w.set({density: 2}) catch e -> e )\nwrite( w.set({1: 2}) catch e -> e )\n" +
+            "write( w.set({fg: \"bogus\", depth: 8}) catch e -> e )\nwrite( w.set(42) catch e -> e )\nwrite( w.get(\"colour\") catch e -> e )\nwrite( w.get(7) catch e -> e )\n"),
+        "error(domain_error(window_attribute, colour), context(_G2, \"'set': `colour` is no window attribute\"))\n" +
+        "error(permission_error(modify, window_attribute, density), context(_G5, \"'set': `density` is read-only\"))\n" +
+        "error(domain_error(window_attribute, 1), context(_G8, \"'set': the integer 1 is no window attribute\"))\n" +
+        "error(permission_error(modify, window_attribute, depth), context(_G11, \"'set': `depth` is read-only\"))\n" +
+        "error(type_error(map, 42), context(_G14, \"'set' wants a map of attributes and was given the integer 42\"))\n" +
+        "error(domain_error(window_attribute, colour), context(_G17, \"'get': `colour` is no window attribute\"))\n" +
+        "error(type_error(string, 7), context(_G20, \"'get' wants an attribute's name, a string, and was given the integer 7\"))\nsucceeded")
+
+// Without the `graphics` feature; `tests_screen.sysl` has the window on screen in a build with it.
+#if !feature_graphics
+@test
+A_VISIBLE_WINDOW_FAULTS_NAMING_THE_FEATURE()
+    assert_eq(on_canvas("write( open(\"x\") catch e -> e )\nwrite( open(\"x\", {size: (9, 9)}) catch e -> e )\nwrite( open(\"x\", {canvas: #normal}) catch e -> e )\nwrite( w.set({canvas: #iconic}) catch e -> e )\n" +
+            "write( w.set({canvas: #hidden}).get(\"canvas\") )\nwrite( open(\"x\", {canvas: #elsewhere}) | #failed )\nwrite( open(42) catch e -> e )\n"),
+        "error(system_error, context(_G2, \"'open': a window on screen is not in this build -- it is behind the `graphics` feature\"))\n" +
+        "error(system_error, context(_G5, \"'open': a window on screen is not in this build -- it is behind the `graphics` feature\"))\n" +
+        "error(system_error, context(_G8, \"'open': a window on screen is not in this build -- it is behind the `graphics` feature\"))\n" +
+        "error(system_error, context(_G11, \"'set': a window on screen is not in this build -- it is behind the `graphics` feature\"))\n" +
+        "hidden\nfailed\n" +
+        "error(type_error(string, 42), context(_G14, \"'open' wants a title, a string, and was given the integer 42\"))\nsucceeded")
+#endif
+
+@test
+OPEN_FAILS_ON_AN_ATTRIBUTE_ICON_REFUSES()
+    assert_eq(ran_funl("import { open } from funl:graphics\nwrite( open(\"x\", {canvas: #hidden, size: (0, 1)}) | #failed )\nwrite( open(\"x\", {canvas: #hidden, fg: \"plaid\"}) | #failed )\nwrite( open(\"x\", {canvas: #hidden, hue: 1}) catch e -> e )\n"),
+        "failed\nfailed\nerror(domain_error(window_attribute, hue), context(_G2, \"'open': `hue` is no window attribute\"))\nsucceeded")
+
+@test
+COLOR_VALUE_READS_EACH_FORM_OF_ICONS_SPECIFICATION()
+    assert_eq(on_canvas("every write( color_value(\"red\" | \"Dark Blue\" | \"very dark greenish gray\" | \"pale reddish orange\" | \"light weak yellow\" | \"deep-purple\" | \"red orange\" | \"  black\" | \"white  \") )\n" +
+            "every write( color_value(\"#f00\" | \"#00ff80\" | \"#fff000fff\" | \"#123456789abc\" | \"1,2,3\" | \" 65535, 0,1.9\") )\n"),
+        "65535,0,0\n0,0,43690\n8191,13653,8191\n65534,47785,43690\n49151,49151,38228\n10922,0,21845\n65535,8191,0\n0,0,0\n65535,65535,65535\n" +
+        "65535,0,0\n0,65535,32896\n65520,0,65520\n4660,22136,39612\n1,2,3\n65535,0,1\nsucceeded")
+
+@test
+COLOR_VALUE_FAILS_ON_WHAT_IS_NO_COLOUR()
+    assert_eq(on_canvas("for s <- [\"\", \"plaid\", \"very red\", \"dark\", \"very\", \"red  orange\", \"reddish\", \"bluish greenish red\", \"#ff\", \"#ggg\", \"#fff \", \"1,2\", \"1,2,3,4\", \"1,2,65536\", \"-1,0,0\", \"1 ,2,3\", \"1,2,3 \"] do write( color_value(s) | #none )\n" +
+            "write( color_value(7) catch e -> e )\n"),
+        "none\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\nnone\n" +
+        "error(type_error(string, 7), context(_G2, \"'color_value' wants a colour, a string, and was given the integer 7\"))\nsucceeded")
+
+@test
+PIXEL_GENERATES_THE_RECTANGLE_ROW_BY_ROW()
+    assert_eq(on_canvas("u = open( \"u\", {canvas: #hidden, size: (2, 2), bg: \"dark blue\"} )\nwrite( [p | p <- u.pixel()] )\nwrite( u.pixel(1, 1) )\nwrite( [p | p <- u.pixel(1, 0, -2, 1)] )\n" +
+            "write( [p | p <- w.pixel(3, 2, 2, 1)] )\nwrite( [p | p <- w.pixel(0, 0, 0, 3)] )\nw.set({dx: 3, dy: 2})\nwrite( [p | p <- w.pixel(0, 0)] )\nwrite( [p | p <- w.pixel()].length )\n"),
+        "[\"0,0,43690\", \"0,0,43690\", \"0,0,43690\", \"0,0,43690\"]\n0,0,43690\n[\"0,0,43690\", \"0,0,43690\"]\n" +
+        "[\"65535,65535,65535\", \"65535,65535,65535\"]\n[]\n[\"65535,65535,65535\"]\n12\nsucceeded")
+
+@test
+PIXEL_OFF_THE_CANVAS_IS_THE_BACKGROUND_AND_ITS_ARGUMENTS_ARE_INTEGERS()
+    assert_eq(on_canvas("w.set({bg: \"red\"})\nwrite( [p | p <- w.pixel(-1, 0, 2, 1)] )\nwrite( w.pixel(\"a\") catch e -> e )\nwrite( w.pixel(0, 0, 1, 1, 1) catch e -> e )\n"),
+        "[\"65535,0,0\", \"65535,65535,65535\"]\n" +
+        "error(type_error(integer, \"a\"), context(_G2, \"'pixel' wants an integer and was given the string 'a'\"))\n" +
+        "error(existence_error(procedure, /(pixel, 5)), context(_G5, \"'pixel' takes at most 4 arguments and was given 5\"))\nsucceeded")
+
+@test
+RESIZING_KEEPS_THE_PICTURE_AND_FILLS_THE_NEW_PART_WITH_THE_BACKGROUND()
+    assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"t\", {canvas: #hidden, size: (2, 1), bg: \"red\"} )\nw.set({bg: \"blue\", size: (3, 2)})\nwrite( [p | p <- w.pixel()] )\nw.set({width: 1})\nwrite( [p | p <- w.pixel()] )\n"),
+        "[\"65535,0,0\", \"65535,0,0\", \"0,0,65535\", \"0,0,65535\", \"0,0,65535\", \"0,0,65535\"]\n[\"65535,0,0\", \"0,0,65535\"]\nsucceeded")
+
+@test
+REVERSE_SWAPS_THE_COLOURS_ONCE_PER_CHANGE()
+    assert_eq(on_canvas("w.set({reverse: true})\nwrite( w.get(\"fg\"), w.get(\"bg\"), w.get(\"reverse\") )\nw.set({reverse: true})\nwrite( w.get(\"fg\") )\nw.set({reverse: false, fg: \"red\"})\nwrite( w.get(\"fg\"), w.get(\"bg\") )\nwrite( w.set({reverse: #on}) | #failed )\n"),
+        "white, black, true\nwhite\nred, white\nfailed\nsucceeded")
+
+@test
+THE_CLIP_ATTRIBUTES_START_FROM_THE_WHOLE_CANVAS_AND_UNDEFINED_REMOVES_THEM()
+    assert_eq(on_canvas("w.set({clipx: 1})\nwrite( w.get(\"clipx\"), w.get(\"clipy\"), w.get(\"clipw\"), w.get(\"cliph\") )\nw.set({clipw: 2, cliph: -1})\nwrite( w.get(\"clipw\"), w.get(\"cliph\") )\nw.set({cliph: undefined})\nwrite( w.get(\"clipx\"), w.get(\"clipw\") )\nwrite( w.set({clipx: \"1\"}) | #failed )\n"),
+        "1, 0, 4, 3\n2, -1\nundefined, undefined\nfailed\nsucceeded")
+
+@test
+A_CLONE_SHARES_THE_CANVAS_AND_COPIES_THE_CONTEXT()
+    assert_eq(on_canvas("c = w.clone({fg: \"green\", size: (5, 3)})\nwrite( c.get(\"fg\"), w.get(\"fg\"), w.get(\"size\") )\nc.set({linewidth: 2})\nwrite( w.get(\"linewidth\") )\nw.set({bg: \"red\"})\nwrite( c.get(\"bg\") )\n" +
+            "d = w.clone()\nwrite( d.get(\"bg\") )\nwrite( w.clone({fg: \"plaid\"}) | #failed )\nwrite( w.clone({fg: \"red\"}, 2) catch e -> e )\nwrite( w.clone({tint: 1}) catch e -> e )\n"),
+        "green, black, (5, 3)\n1\nwhite\nred\nfailed\n" +
+        "error(existence_error(procedure, /(clone, 2)), context(_G2, \"'clone' takes a map of attributes, or nothing, and was given 2 arguments\"))\n" +
+        "error(domain_error(window_attribute, tint), context(_G5, \"'clone': `tint` is no window attribute\"))\nsucceeded")
+
+@test
+A_COUPLE_SHARES_ONE_CANVAS_AND_ANOTHER_CONTEXT()
+    assert_eq(on_canvas("v = open( \"v\", {canvas: #hidden, size: (2, 2), fg: \"blue\"} )\nc = couple(w, v)\nwrite( c.get(\"size\"), c.get(\"fg\") )\nc.set({fg: \"red\", size: (6, 1)})\nwrite( v.get(\"fg\"), w.get(\"fg\"), w.get(\"size\"), v.get(\"size\") )\n" +
+            "write( couple(w, 3) catch e -> e )\n"),
+        "(4, 3), blue\nred, black, (6, 1), (2, 2)\n" +
+        "error(type_error(handle, 3), context(_G2, \"'couple' wants a handle and was given the integer 3\"))\nsucceeded")
+
+@test
+CLOSE_CLOSES_EVERY_HANDLE_ON_THE_CANVAS()
+    assert_eq(on_canvas("c = w.clone()\nv = open( \"v\", {canvas: #hidden} )\nd = couple(v, c)\nw.close()\nwrite( c.get(\"fg\") catch e -> e )\nwrite( c )\nwrite( d.get(\"fg\") )\n" +
+            "write( [p | p <- c.pixel()] catch e -> e )\nc.close()\nu = w.clone() catch e -> e\nwrite( u )\nwrite( couple(v, w) catch e -> #closed )\n"),
+        "error(existence_error(handle, <closed window handle>), context(_G2, \"'get' was called on the handle <closed window handle>\"))\n" +
+        "<closed window handle>\nblack\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G5, \"'pixel' was called on the handle <closed window handle>\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G8, \"'clone' was called on the handle <closed window handle>\"))\nclosed\nsucceeded")
+
+@test
+UNCOUPLE_CLOSES_ONE_HANDLE_AND_THE_CANVAS_WITH_ITS_LAST()
+    assert_eq(on_canvas("c = w.clone({fg: \"red\"})\nwrite( w.uncouple() )\nwrite( w, c )\nwrite( c.get(\"fg\"), c.get(\"size\") )\nwrite( w.get(\"fg\") catch e -> #closed )\nc.uncouple()\nwrite( c )\nc.close()\nwrite( c.uncouple() catch e -> #closed )\n"),
+        "()\n<closed window handle>, <window handle>\nred, (4, 3)\nclosed\n<closed window handle>\nclosed\nsucceeded")
+
+@test
+A_FORGOTTEN_WINDOW_LEAVES_ITS_CANVAS_TO_THE_HANDLES_STILL_ON_IT()
+    assert_eq(ran_funl("import { open } from funl:graphics\nc = open( \"t\", {canvas: #hidden, size: (1, 1), bg: \"green\"} ).clone()\ncollect()\nwrite( c.get(\"size\"), c.pixel() )\nc.close()\n"),
+        "(1, 1), 0,65535,0\nsucceeded")

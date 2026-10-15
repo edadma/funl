@@ -1,0 +1,116 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Limitation, `e limit n`, compiled from source and run on both heaps: at most `n` of `e`'s values,
+// `n` evaluated first and backtracked into like any generator, and what a limit that is not a count
+// faults with.
+
+// What a program said, which must have faulted with a message containing `want`.
+private limit_fault(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+A_LIMITATION_PRODUCES_AT_MOST_N_VALUES()
+    val text = "val words = [#a, #b, #c, #d]\nevery write( !words limit 3 )\nevery write( (1 | 2 | 3) limit 2 )\n"
+
+    assert_eq(ran_funl(text), "a\nb\nc\n1\n2\nsucceeded")
+
+@test
+A_LIMIT_PAST_THE_VALUES_THERE_ARE_PRODUCES_THEM_ALL()
+    assert_eq(ran_funl("every write( (1 to 3) limit 10 )\nwrite( #after )\n"), "1\n2\n3\nafter\nsucceeded")
+
+@test
+A_LIMIT_OF_ZERO_FAILS_WITHOUT_EVALUATING_THE_SUBJECT()
+    val text = "def noisy() =\n  write( #evaluated )\n  1\nwrite( noisy() limit 0 )\nwrite( #after )\n"
+
+    assert_eq(ran_funl(text), "after\nsucceeded")
+
+// `n` is evaluated first, and backtracking past the subject resumes it: each new limit starts the
+// subject afresh.
+@test
+A_GENERATING_LIMIT_RELIMITS_THE_SUBJECT_FOR_EACH_OF_ITS_VALUES()
+    assert_eq(ran_funl("every write( (1 to 3) limit (1 | 2) )\n"), "1\n1\n2\nsucceeded")
+    assert_eq(ran_funl("every write( (1 to 9) limit 1 to 3 )\n"), "1\n1\n2\n1\n2\n3\nsucceeded")
+
+@test
+THE_LIMIT_IS_EVALUATED_BEFORE_THE_SUBJECT()
+    val text = "def say(x) =\n  write( x )\n  x\nevery write( say(#subject) limit say(1) )\n"
+
+    assert_eq(ran_funl(text), "1\nsubject\nsubject\nsucceeded")
+
+// Each time the limitation is evaluated afresh -- a loop's next turn -- its count starts again.
+@test
+EACH_FRESH_EVALUATION_COUNTS_AGAIN()
+    val text = "every i <- 1 to 3 do every write( (10 to 99) limit i )\n"
+
+    assert_eq(ran_funl(text), "10\n10\n11\n10\n11\n12\nsucceeded")
+
+// Backtracking into the subject restores its operand cells; the count, in a slot, is not put back.
+@test
+EACH_VALUE_COUNTS_ONCE_HOWEVER_THE_SUBJECT_IS_RESUMED()
+    assert_eq(ran_funl("every write( ((1 to 3) + (10 | 20)) limit 3 )\n"), "11\n21\n12\nsucceeded")
+
+// The mark around the subject is not the innermost when `|e` or a suspended generator function has
+// a mark of its own open; ending the limitation ends them all.
+@test
+A_SUBJECT_WITH_ITS_OWN_MARKS_OPEN_IS_ENDED_WHOLE()
+    assert_eq(ran_funl("every write( (|#x) limit 3 )\nwrite( #after )\n"), "x\nx\nx\nafter\nsucceeded")
+
+    val text = "def squares() =\n  every i <- 1 to 10 do yield i * i\nevery write( squares() limit 3 )\n"
+
+    assert_eq(ran_funl(text), "1\n4\n9\nsucceeded")
+
+@test
+LIMITATIONS_NEST_AND_RECURSE()
+    assert_eq(ran_funl("every write( ((1 to 10) limit 5) limit 2 )\n"), "1\n2\nsucceeded")
+
+    val text = "def firsts(n) = if n == 0 then fail else (n | firsts(n - 1)) limit 2\nevery write( firsts(5) )\n"
+
+    assert_eq(ran_funl(text), "5\n4\nsucceeded")
+
+@test
+A_LIMITATION_FEEDS_A_COMPREHENSION_AND_A_COMPARISON()
+    assert_eq(ran_funl("write( [x | x <- (1 to 100) limit 5] )\n"), "[1, 2, 3, 4, 5]\nsucceeded")
+
+    // `limit` binds tighter than a comparison: each of the first two words is compared.
+    assert_eq(ran_funl("val ws = [#a, #b, #c]\nwrite( !ws limit 2 == #b )\nwrite( !ws limit 1 == #b )\nwrite( #after )\n"),
+        "b\nafter\nsucceeded")
+
+// `limit` is a word only where an infix operator stands; anywhere else it is an ordinary name.
+@test
+LIMIT_IS_STILL_A_NAME_OUTSIDE_THE_OPERATOR()
+    val text = "val limit = 2\nevery write( (1 to 9) limit limit )\ndef cap(limit) = limit + 1\nwrite( cap(4) )\n"
+
+    assert_eq(ran_funl(text), "1\n2\n5\nsucceeded")
+
+@test
+A_LIMIT_OF_ANY_SIZE_IS_TAKEN()
+    assert_eq(ran_funl("every write( (1 to 3) limit 100000000000000000000000 )\n"), "1\n2\n3\nsucceeded")
+
+@test
+A_NEGATIVE_LIMIT_IS_A_DOMAIN_ERROR()
+    limit_fault("every write( (1 to 3) limit -1 )\n", "'limit' wants a count of zero or more, and was given -1")
+    limit_fault("every write( (1 to 3) limit -100000000000000000000000 )\n", "'limit' wants a count of zero or more")
+
+    val caught = "write( ((1 to 3) limit -2) catch e -> e )\n"
+
+    assert(ran_funl(caught).contains("error(domain_error(not_less_than_zero, -2), context("))
+
+@test
+A_LIMIT_THAT_IS_NOT_AN_INTEGER_IS_A_TYPE_ERROR()
+    limit_fault("every write( (1 to 3) limit \"two\" )\n", "'limit' wants a count of values as an integer, and was given the string 'two'")
+    limit_fault("every write( (1 to 3) limit 1.5 )\n", "was given the real 1.5")
+    assert(ran_funl("write( ((1 to 3) limit #a) catch e -> e )\n").contains("error(type_error(integer, a), "))
+
+@test
+AN_UNBOUND_LIMIT_IS_AN_INSTANTIATION_ERROR()
+    assert(ran_funl("write( ((1 to 3) limit _) catch e -> e )\n").contains("error(instantiation_error, "))
+
+@test
+A_LIMITATION_WITHOUT_ITS_COUNT_IS_REFUSED()
+    assert(complaints("val c = (1 to 3) limit\n").contains("expected an expression"))

@@ -7,6 +7,7 @@ import sysl.buf.Buf
 //     {k: v, ...}            k; v; ...; MakeMap(n)
 //     {a, b, ...}            a; b; ...; MakeSet(n)
 //     c(k) = e               c; k; e; StoreElem              -- `<-` trails the old element
+//     s(i..j) = e            s; i..j; e; StoreSection; store into s
 //     c(k) op= e             c; k; e; UpdateElem(op)
 //     "a $x b"               "a "; x; " b"; Concat(3)
 //     swap(a(i), b(j))       a; i; b; j; SwapElems
@@ -43,10 +44,41 @@ compile_interp(e: *Emit, c: Ctx, parts: Buf[&Expr]) -> Result[unit, string]
 
 // An element written: the collection, the key, the value, and the store.
 compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, x: &Expr, back: bool) -> Result[unit, string]
+    if is_section_key(key)
+        coll.kind match
+            Ref(n) ->
+                if stores_section(c.meaning(n, coll.span.start))
+                    return compile_section_store(e, c, n, coll, key, x, back)
+            _ -> ()
+
     compile_value(e, c, coll)?
     compile_key(e, c, key)?
     compile_value(e, c, x)?
     e.op(StoreElem(back))
+    Ok(())
+
+// Whether `key` is written as a range of positions, `i..j`, `i..<j`, `i..`, or `i..+n`.
+is_section_key(key: &Expr) -> bool = key.kind match
+    RangeValE(_, _, _, _) -> true
+    RangeCountE(_, _, _) -> true
+    _ -> false
+
+// Whether a range-keyed store through a name meaning `m` may store a new string in it: a `var`. A
+// `val` keeps its value, so a store through it is an element store as ever (a mutable map may be keyed by
+// a range).
+stores_section(m: Meaning) -> bool = m match
+    Local(_, _, fixed) -> !fixed
+    _ -> false
+
+// `s(i..j) = t` for a variable `s`: the store makes a new string where `s` holds one, so the result goes
+// back into the variable; where `s` holds any other collection the store is `StoreElem`'s and the
+// variable is given its own value again.
+private compile_section_store(e: *Emit, c: Ctx, n: string, coll: &Expr, key: &Expr, x: &Expr, back: bool) -> Result[unit, string]
+    compile_value(e, c, coll)?
+    compile_value(e, c, key)?
+    compile_value(e, c, x)?
+    e.op(StoreSection(back))
+    store_variable(e, c, n, coll.span.start, back)?
     Ok(())
 
 // An element updated through an operator: the collection, the key, the operand, and the update.

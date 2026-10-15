@@ -361,6 +361,25 @@ write( repeat break )
 ()
 ```
 
+`until c do b` is Icon's loop, `while not c do b`: it runs `b` while `c` fails, ends when `c`
+succeeds, and fails when it ends, as `while` does. `break`, `continue`, labels and `end until`
+work as they do for `while`. The word is the loop at the start of an expression and the exclusive
+range after an operand, so `1 until 3` still counts 1, 2.
+
+```funl
+i = 0
+until i >= 3 do i = i + 1
+write( i )
+write( until true )
+every write( 1 until 3 )
+```
+
+```output
+3
+1
+2
+```
+
 A `break` belongs to a loop, and one written anywhere else is refused before the program runs:
 
 ```funl

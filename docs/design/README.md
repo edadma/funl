@@ -38,7 +38,7 @@ Read them in order; each leans on the one before it.
 | [The sysl implementation](implementation.md) | the repository and module layout, the parser, the collector and its roots, what is reused and what is written fresh, and how it is tested |
 | [Modules and native modules](modules.md) | modules and `import` as slate has them, `funl:` modules over sysl packages, features, values that cross, the first batch, and `async`/`await` |
 | [Packages](packages.md) | the manifest, specifiers and what they resolve to, exact versions and `funl.sum`, the cache and `vendor/`, offline use, `funl add`, and what a package can and cannot bring |
-| [Icon parity](icon.md) | everything Icon 9.5 has that FunL lacks — `until`, `case`, limitation, `static`, variadic calls, co-expressions, scanning keywords, the string, cset, structure, number and I/O functions, keywords, the preprocessor — what is covered already, and how each new piece runs on the machine |
+| [Graphics](graphics.md) | Icon's graphics facilities as `funl:graphics`: the window handle, canvas and context, attributes as a map, drawing, colours, fonts, images, events and the loop, hidden canvases for testing, and the sysl packages under it |
 | [Milestones](milestones.md) | the order the work is done in, and what proves each step |
 
 ## Conventions on these pages
@@ -135,8 +135,39 @@ Each is argued where it arises; this is the list.
 | M5 Does `~` unify two immutable maps by content? | yes, same keys then values unified; an unbound key fails, never raises; a mutable map stays opaque (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
-| Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [icon](icon.md) |
-| I17 Writing to a file | a handle's method, `f.write(x)`, as every handle in FunL is used; `write` stays "print these" (user, 2026-10-15) | [fs](../library/fs.md#open-files) |
+| Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [language](language.md#icon-parity) |
+| I1 The loop `until` beside the range `until` | both, by position: `until` at the start of an expression is Icon's loop (`while not c`, failing when it ends, with `break`, `continue`, labels and `end until`); after an operand it stays the exclusive range `1 until 3` (user, 2026-10-15) | [success-and-failure](../reference/success-and-failure.md#a-loop-fails-when-it-runs-out) |
+| I10 Icon's positions in indexing | one way, 0-based; a section of a string variable is assignable, `s(i..j) = t`, and `<-` makes it reversible (user, 2026-10-15) | [strings](../reference/strings.md#assigning-to-a-section) |
+| I11 `map(s1, s2, s3)` | `translate(s, from, to)`, Icon's mapping; `map/3` stays an existence error (user, 2026-10-15) | [strings](../reference/strings.md#translate) |
+| I12 `reverse` of a string | `reverse(s)` reverses it; the other list functions still refuse a string (user, 2026-10-15) | [strings](../reference/strings.md#reverse-of-a-string) |
+| I15 Mutable records | records stay immutable; `with(r, {f: x})` copies one with fields replaced (user, 2026-10-15) | [data](../reference/data.md#records) |
+| I4 Whose is a `static`: the definition's or each closure's? | each closure value's: a nested `def` or a lambda made twice counts twice (user, 2026-10-15) | [functions](../reference/functions.md#static-and-initial) |
+| I20 A preprocessor | Icon's whole preprocessor, over the token stream: `$define`, `$undef`, `$ifdef`, `$ifndef`, `$else`, `$endif`, `$include` (positions carried through, cycles refused), `$line`, `$error`, and predefined platform and feature names (user, 2026-10-15) | [source files](../reference/source-files.md#the-preprocessor) |
+| I2 A `case` expression | postfix `e match` over a clause block, the subject bounded, committed choice; no match fails; `(e)` in a clause's pattern compares with `e`'s first value (user, 2026-10-15) | [functions](../reference/functions.md#match) |
+| I6 Reflection by name | `proc(name)` and `proc(name, n)` over top-level names and builtins (the prelude too), and over every value-producing operator by its source spelling (the count defaults to 1, as Icon's); fails for an unknown name or a control structure; no `variable`/`name`, no string invocation (user, 2026-10-15) | [functions](../reference/functions.md#calling-by-name) |
+| I3 Limitation, `\` being integer division | the infix word `e limit n`, Icon's semantics (a generating `n` re-limits); `\` stays division (user, 2026-10-15) | [generators](../reference/generators.md#limit-takes-the-first-few-values) |
+| I21 Are Icon's graphics facilities in scope? | yes, as the native module `funl:graphics`, designed in its own chapter; its questions are G1–G12 (user, 2026-10-15) | [graphics](graphics.md) |
+| G1 Methods on the window, or functions taking it | methods; `&window` an assignable keyword, no implicit-window forms (user, 2026-10-15) | [graphics](../library/graphics.md) |
+| G2 What `close()` closes | the canvas, as `WClose`, and every handle on it; `uncouple()` closes one (user, 2026-10-15) | [graphics](../library/graphics.md#clones-couples-and-closing) |
+| G3 How attributes are read and set | a map with natural values: `set(m)`, `get(name)`, `attributes()` (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |
+| G4 The default font | `"fixed"`, a monospaced face carried in the binary: JetBrains Mono Regular (OFL 1.1) at 10 points (user, 2026-10-15) | [graphics](../library/graphics.md#text-and-fonts) |
+| G5 Anti-aliasing | plutovg's; integer coordinates stroked through pixel centres and filled on the grid, so points, axis-aligned lines and rectangles are pixel-exact (user, 2026-10-15) | [graphics](../library/graphics.md#coordinates) |
+| G6 Coordinates on a high-density screen | points, the surface at `density`; a hidden canvas density 1 (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |
+| G7 `drawop: #reverse` | a coverage mask exclusive-ored into the pixels, not anti-aliased; every drawing method and `draw_string` obey it, erasing, copying and terminal text are copies, as Icon's (user, 2026-10-15) | [graphics](../library/graphics.md#drawing-in-reverse) |
+| G8 Image formats | read what stb_image reads; write PNG only, a name with another image format's extension faulting (user, 2026-10-15) | [graphics](../library/graphics.md#images) |
+| G9 Key releases | under `inputmask` `"k"`, the same code with `&released` succeeding (user, 2026-10-15) | [graphics](../library/graphics.md#events) |
+| G10 Whose are `&x`, `&y`, `&control`, … | the running machine's (each task its own), set by `event()` (user, 2026-10-15) | [graphics](../library/graphics.md#events) |
+| G12 Module and feature | `funl:graphics` in the core over vendored plutovg; on-screen windows behind a `graphics` feature over `sdl3`, on in `default` (user, 2026-10-15) | [graphics](../library/graphics.md#hidden-canvases), [on screen](../library/graphics-screen.md) |
+| I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [keywords](../reference/keywords.md) |
+| I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md) |
+| I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md#the-creators-locals) |
+| I9 Logic variables inside a co-expression | it binds any its task may, on its own trail: its own backtracking undoes the binding, its activator's does not (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md#logic-variables) |
+| I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family; no relation is variadic, and a variadic function has no Prolog key; `f(..xs)` is resolved when it runs (user, 2026-10-15) | [language](language.md#one-name-several-arities) |
+| I13 Icon's string comparison operators | none; polymorphic comparison covers them (user, 2026-10-15) | [language](language.md#icon-parity) |
+| I14 Icon's implicit conversion | none; a function per conversion (user, 2026-10-15) | [language](language.md#icon-parity) |
+| I16 Radix literals `16rFF` | the `NrDDD` literal, bases 2-36, letters either case, any size, `_` separators; `0x`/`0o`/`0b` stay; a base outside 2-36 is refused as a radix (user, 2026-10-15) | [numbers](../reference/numbers.md) |
+| I17 Writing to a file | handle methods, `f.write(x)`; `write` stays "print these" (user, 2026-10-15) | [fs](../library/fs.md#open-files) |
+| I19 `&error` and `runerr` | nothing more; `catch` and `throw` cover them (user, 2026-10-15) | [language](language.md#icon-parity) |
 
 ## Open questions
 
@@ -144,23 +175,4 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| I1 The loop `until` beside the range `until` | both, by position: prefix is the loop, infix the range | [icon](icon.md#until) |
-| I2 A `case` expression | postfix `e match` over a clause block; no match fails; `(e)` in a pattern compares with `e`'s value | [icon](icon.md#case) |
-| I3 Limitation, `\` being integer division (decided) | the infix word `e limit n`; `\` stays division | [icon](icon.md#limitation) |
-| I4 Whose is a `static`: the definition's or each closure's? | each closure value's | [icon](icon.md#static-and-initial) |
-| I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family | [icon](icon.md#variadic-procedures-and-list-invocation) |
-| I6 Reflection by name | `proc(name)` over top-level names and builtins; no `variable`/`name`, no string invocation | [icon](icon.md#calling-by-name) |
-| I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` | [icon](icon.md#co-expressions) |
-| I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it | [icon](icon.md#co-expressions) |
-| I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
-| I10 Icon's positions in indexing (decided: one way, 0-based) | keep the decision; add assignment to a section of a string variable | [icon](icon.md#sections-and-indexing) |
-| I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#map-and-reverse) |
-| I12 `reverse` of a string (P3.5) | `reverse(s)` reverses it; P3.5 stands for the rest | [icon](icon.md#map-and-reverse) |
-| I13 Icon's string comparison operators | none; polymorphic comparison covers them | [icon](icon.md#string-comparison) |
-| I14 Icon's implicit conversion | none; a function per conversion | [icon](icon.md#string-comparison) |
-| I15 Mutable records (decided: a record is a term) | keep immutable; add `with(r, {f: x})` | [icon](icon.md#records) |
-| I16 Radix literals `16rFF` (decided: juxtaposition) | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` | [icon](icon.md#bits-radix-and-conversion) |
-| I18 How keywords are spelled | `&name`, one token when `&` touches a letter | [icon](icon.md#keywords) |
-| I19 `&error` and `runerr` (decided: `catch`) | nothing more; `catch` and `throw` cover them | [icon](icon.md#errors) |
-| I20 A preprocessor | conditional compilation on platform and features only | [icon](icon.md#the-preprocessor) |
-| I21 Icon's graphics facilities | out of parity's scope; a later native module | [icon](icon.md#graphics) |
+| G11 The promise form of `Event()` | `w.next_event()`, a promise of an event map; no keywords set | [graphics](graphics.md#events-and-the-loop) |

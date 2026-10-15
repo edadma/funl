@@ -10,12 +10,12 @@ import sysl.math.bigint as big
 //
 // **A string is read as a literal is**: `"42"`, `"1_000"`, `"2.5e3"`, `"0xFF"` and a big `"0b1..."`
 // are read by the lexer's own number reader (`read_number_literal`), so a string converts exactly
-// when the same characters written in a program would be a number. Three things a literal does not
+// when the same characters written in a program would be a number. Two things a literal does not
 // have are taken as well, because a string being converted is data rather than source: a sign before
-// it, spaces around it, and Icon's radix form `NrDDD` -- `16rFF`, `36rZZ` -- for any base from 2 to 36,
-// which in a program would be `16 * rFF`.
+// it and spaces around it. Icon's radix form `NrDDD` -- `16rFF`, `36rZZ`, any base from 2 to 36 -- is
+// a literal too, so the same reader takes it.
 //
-// **Converting is the only thing that converts.** FunL's arithmetic refuses a string (`icon.md`, I14),
+// **Converting is the only thing that converts.** FunL's arithmetic refuses a string (`language.md` § "Icon parity", I14),
 // so these are where `"3"` becomes `3`. A value that is neither a number nor a string is a fault, as
 // it is for every other numeric builtin: failure answers "this string is not a number", not "this is
 // the wrong kind of value".
@@ -25,8 +25,8 @@ install_conversions(v: *Vm)
     register_generator(v, "real", 1, (b, n, c) -> converted(b, "real"))
     register_generator(v, "numeric", 1, (b, n, c) -> converted(b, "numeric"))
 
-// `name(x)`: `x` read as a number when it is a string, then made an integer (rounded, as `round`
-// does), a real, or left the number it is.
+// `name(x)`: `x` read as a number when it is a string, then made an integer (truncated toward zero, as Icon's
+// `integer` does; `round` rounds), a real, or left the number it is.
 private converted(base: usize, name: string) -> Result[Answer, Fault]
     val x = deref(arg(base, 0))
 
@@ -39,7 +39,7 @@ private converted(base: usize, name: string) -> Result[Answer, Fault]
 
             x
 
-    if name == "integer" then return Ok(Gives(math_unary("integer", n)?))
+    if name == "integer" then return Ok(Gives(math_unary("truncate", n)?))
     if name == "real" then return Ok(Gives(real_of(dal.to_real(num_of(n).unwrap()), name, n)?))
 
     Ok(Gives(n))
@@ -59,35 +59,19 @@ private spelled_number(text: string, culprit: Value) -> Result[Option[Value], Fa
 
     if at >= hi || !is_digit(b[at]) then return Ok(None)
 
-    val r = radix_form(b[at..<hi])
     var s = scanner(b[0..<hi])
 
-    s.at = if r > 0 then at + (if r < 10 then 2 else 3) else at
+    s.at = at
 
-    val spelled =
-        if r > 0
-            if r < 2 || r > 36 then return Ok(None)
+    val lit = read_number_literal(&s) match
+        Ok(t) -> t
+        Err(_) -> return Ok(None)
 
-            read_digits(&s, r) match
-                Ok(_) -> ()
-                Err(Overflow(_)) -> ()
-                Err(_) -> return Ok(None)
+    if s.at != hi then return Ok(None)
 
-            if s.at != hi then return Ok(None)
-
-            big.parse_radix(sign + plain_digits(s.src[at + (if r < 10 then 2 else 3)..<hi]), r) match
-                Some(v) -> dal.funl().of_big(v)
-                None -> return Ok(None)
-        else
-            val lit = read_number_literal(&s) match
-                Ok(t) -> t
-                Err(_) -> return Ok(None)
-
-            if s.at != hi then return Ok(None)
-
-            lit match
-                Small(k) -> Ok(Number.Int(if sign == "-" then -k else k))
-                Text(t) -> literal_number(sign + t)
+    val spelled = lit match
+        Small(k) -> Ok(Number.Int(if sign == "-" then -k else k))
+        Text(t) -> literal_number(sign + t)
 
     spelled match
         Ok(n) -> num_value(n) match
@@ -96,22 +80,6 @@ private spelled_number(text: string, culprit: Value) -> Result[Option[Value], Fa
         Err(NumberError.Syntax) -> Ok(None)
         Err(e) -> Err(num_fault(e, s"'$text'", culprit))
 end spelled_number
-
-// The base of Icon's `NrDDD`, where `bs` begins with one or two decimal digits and an `r` or `R`; 0
-// where it does not. A base outside 2 to 36 is answered as written, for the caller to refuse.
-private radix_form(bs: []const u8) -> int
-    var k: usize = 0
-
-    while k < bs.len && k < 3 && is_digit(bs[k]) do k += 1
-
-    if k == 0 || k > 2 || k >= bs.len || (bs[k] != u8('r') && bs[k] != u8('R')) then return 0
-
-    var n = 0
-
-    for i in 0..<k
-        n = n * 10 + int(bs[i] - u8('0'))
-
-    n
 
 // A space, a tab or a line break, which a string being converted may carry around its number.
 private is_blank(c: u8) -> bool = c == u8(' ') || c == u8('\t') || c == u8('\n') || c == u8('\r')

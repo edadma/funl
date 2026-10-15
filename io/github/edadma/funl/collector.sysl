@@ -33,6 +33,7 @@ mark_value(h: *gc.Heap, v: Value)
         Bytes(p) -> gc.mark(h, ptr_cast(p))
         Handle(p) -> gc.mark(h, ptr_cast(p))
         Promise(p) -> gc.mark(h, ptr_cast(p))
+        CoExpr(p) -> gc.mark(h, ptr_cast(p))
         _ -> ()
 
 private mark_values(h: *gc.Heap, vs: Buf[Value])
@@ -78,11 +79,11 @@ trace_handle(p: *u8, h: *gc.Heap)
     mark_values(h, o.vals)
 
 // The backstop for a handle the program never closed: its kind's release hook gives the resource
-// back, exactly as `close()` would have.
+// back, exactly as `close()` would have, unless the kind says a forgotten handle gives back less.
 finalize_handle(p: *u8)
     val o: *HandleObj = ptr_cast(p)
 
-    close_handle(o)
+    forget_handle(o)
 
 // A promise keeps alive what it was kept with, or the ball its fault threw. The machines waiting
 // for it are parked, and `roots` walks those.
@@ -96,6 +97,23 @@ finalize_promise(p: *u8)
 
     o.message = ""
     o.waiters.release()
+
+// A co-expression keeps alive its machine, walked as the running one is, both copies of its
+// creator's frame, and the co-expression that activated it.
+trace_coexpr(p: *u8, h: *gc.Heap)
+    val o: *CoExprObj = ptr_cast(p)
+    val m = o.machine
+
+    mark_machine(h, m.stack, m.saved, m.control, m.subject, m.scans, m.trail, m.frame, m.promise, m.co, m.co_main)
+
+    if o.frame != null then gc.mark(h, ptr_cast(o.frame))
+    if o.pristine != null then gc.mark(h, ptr_cast(o.pristine))
+    if o.activator != null then gc.mark(h, ptr_cast(o.activator))
+
+finalize_coexpr(p: *u8)
+    val o: *CoExprObj = ptr_cast(p)
+
+    release_machine(o.machine)
 
 trace_tuple(p: *u8, h: *gc.Heap)
     val o: *TupleObj = ptr_cast(p)
@@ -207,6 +225,9 @@ var handle_kind: gc.Kind = gc.Kind(&trace_handle, &finalize_handle, null, null)
 var promise_kind: gc.Kind = gc.Kind(&trace_promise, &finalize_promise, null, null)
 
 // process-wide: a table of hook addresses, as above.
+var coexpr_kind: gc.Kind = gc.Kind(&trace_coexpr, &finalize_coexpr, null, null)
+
+// process-wide: a table of hook addresses, as above.
 var compound_kind:gc.Kind = gc.Kind(&trace_compound, &finalize_compound, null, null)
 
 // process-wide: a table of hook addresses, as above.
@@ -246,13 +267,18 @@ roots(h: *gc.Heap)
     val v = current()
 
     // The machine running now.
-    mark_machine(h, v.stack, v.saved, v.control, v.subject, v.scans, v.trail, v.frame, v.promise)
+    // Through `v.co` and `v.co_main`, the running co-expression and the chain of those parked waiting
+    // for it, each holding its own machine.
+    mark_machine(h, v.stack, v.saved, v.control, v.subject, v.scans, v.trail, v.frame, v.promise, v.co, v.co_main)
+
+    // `&window`.
+    mark_value(h, v.window)
 
     // **Every machine set aside, each walked exactly as the running one is**: a task parked at an
     // `await` -- the promise it waits for standing on its stack -- and one waiting for a task it
     // started to give way.
     for m in v.parked.view()
-        if m.live then mark_machine(h, m.stack, m.saved, m.control, m.subject, m.scans, m.trail, m.frame, m.promise)
+        if m.live then mark_machine(h, m.stack, m.saved, m.control, m.subject, m.scans, m.trail, m.frame, m.promise, m.co, m.co_main)
 
     // Promises whose fault nothing has awaited yet, reported when the program ends.
     mark_values(h, v.rejected)
@@ -285,9 +311,9 @@ roots(h: *gc.Heap)
 end roots
 
 // What one machine can still reach: its operands, its control stack and the cells it saved, its scan
-// state, its trail, its frame, and the promise it will settle.
+// state, its trail, its frame, the promise it will settle, and its running co-expression and `&main`.
 private mark_machine(h: *gc.Heap, stack: Buf[Value], saved: Buf[Value], control: Buf[Entry], subject: Value, scans: Buf[ScanSaved],
-                     trail: Buf[Undo], frame: *FrameObj, promise: *PromiseObj)
+                     trail: Buf[Undo], frame: *FrameObj, promise: *PromiseObj, co: *CoExprObj, co_main: *CoExprObj)
     // The expression being evaluated.
     mark_values(h, stack)
 
@@ -328,6 +354,8 @@ private mark_machine(h: *gc.Heap, stack: Buf[Value], saved: Buf[Value], control:
     if frame != null then gc.mark(h, ptr_cast(frame))
 
     if promise != null then gc.mark(h, ptr_cast(promise))
+    if co != null then gc.mark(h, ptr_cast(co))
+    if co_main != null then gc.mark(h, ptr_cast(co_main))
 end mark_machine
 
 // Collect if enough has been allocated since the last collection.
@@ -344,6 +372,7 @@ maybe_collect(v: *Vm)
 collect_now(v: *Vm)
     gc.collect(&v.heap, &roots)
     v.collections += 1
+    v.allocated_earlier += v.allocated
     v.allocated = 0
 
     val grown = gc.live_size(&v.heap) * v.growth

@@ -1,0 +1,194 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `static` and `initial` (`functions.md` § "`static` and `initial`"), compiled from source and run on both
+// heaps: a static belongs to the function value, keeps its value from call to call, and is undone by
+// backtracking only when assigned with `<-`; `initial` and the static initializers run once per
+// function value, before the first call's body -- and what is refused.
+
+@test
+A_STATIC_KEEPS_ITS_VALUE_FROM_ONE_CALL_TO_THE_NEXT()
+    val text = "def next_id()\n  static count = 0\n  count += 1\n  count\n" +
+        "write( next_id(), next_id(), next_id() )\n"
+
+    assert_eq(ran_funl(text), "1, 2, 3\nsucceeded")
+
+@test
+A_STATIC_WITH_NO_INITIALIZER_STARTS_UNDEFINED_AND_INITIAL_GIVES_IT_A_VALUE()
+    val text = "def bare()\n  static s\n  s\n" +
+        "def lookup( k )\n  static cache\n  initial cache = map()\n  cache(k) = k * k\n  cache.length\n" +
+        "write( bare() )\nwrite( lookup(2), lookup(3), lookup(2) )\n"
+
+    assert_eq(ran_funl(text), "undefined\n1, 2, 2\nsucceeded")
+
+// The initializers and the `initial` statements run in the order written, all before the body's
+// first statement, and only on the first call.
+@test
+INITIALIZERS_RUN_ONCE_IN_THE_ORDER_WRITTEN_BEFORE_THE_FIRST_CALLS_BODY()
+    val text = "def f()\n  write( 'body' )\n  static a = (write( 'a' ); 1)\n  initial write( 'initial' )\n" +
+        "  static b = (write( 'b' ); a + 1)\n  b\n" +
+        "write( f() )\nwrite( f() )\n"
+
+    assert_eq(ran_funl(text), "a\ninitial\nb\nbody\n2\nbody\n2\nsucceeded")
+
+@test
+AN_INITIAL_BLOCK_RUNS_EVERY_STATEMENT_ONCE()
+    val text = "def f()\n  static log\n  initial\n    log = []\n    write( 'set up' )\n  log = 1 : log\n  log\n" +
+        "write( f() )\nwrite( f() )\n"
+
+    assert_eq(ran_funl(text), "set up\n[1]\n[1, 1]\nsucceeded")
+
+// The flag is set before the initializers run, so a recursive call from inside one does not run them
+// again; recursion shares the statics, as every call of the one function value does.
+@test
+A_RECURSIVE_CALL_SHARES_THE_STATICS_AND_DOES_NOT_RUN_THE_INITIALIZERS_AGAIN()
+    val text = "def rec( n )\n  static depth = 0\n  initial write( 'init', rec(-1) )\n  depth += 1\n" +
+        "  if n > 0 then rec( n - 1 ) else depth\n" +
+        "write( rec(3) )\nwrite( rec(0) )\n"
+
+    assert_eq(ran_funl(text), "init, 1\n5\n6\nsucceeded")
+
+@test
+AN_INITIALIZER_THAT_FAILS_OR_FAULTS_IS_NOT_RETRIED()
+    val text = "def once()\n  static x = fail\n  initial write( 'first' )\n  x\n" +
+        "def boom()\n  initial\n    write( 'boom' )\n    throw( 'bad' )\n  'ok'\n" +
+        "write( once(), once() )\nwrite( boom() catch e -> e )\nwrite( boom() )\n"
+
+    assert_eq(ran_funl(text), "first\nundefined, undefined\nboom\nbad\nok\nsucceeded")
+
+// -- whose static it is: each function value's (I4) --------------------------------------------------
+
+// A named function is one value per frame it is defined in: its direct calls and its uses as a value
+// share the statics.
+@test
+A_NAMED_FUNCTION_AND_ITS_VALUE_SHARE_ONE_SET_OF_STATICS()
+    val text = "def tick()\n  static n = 0\n  n += 1\n" +
+        "f = tick\ng = tick\nwrite( tick(), f(), g(), tick() )\nwrite( f == g )\n"
+
+    assert_eq(ran_funl(text), "1, 2, 3, 4\n<function tick>\nsucceeded")
+
+// A nested `def` is made afresh each time the body around it runs, so each value counts on its own.
+@test
+A_NESTED_FUNCTION_MADE_TWICE_HAS_TWO_SETS_OF_STATICS()
+    val text = "def counter()\n  def tick()\n    static n = 0\n    n += 1\n  tick\n" +
+        "a = counter()\nb = counter()\nwrite( a(), a(), a(), b(), a() )\n"
+
+    assert_eq(ran_funl(text), "1, 2, 3, 1, 4\nsucceeded")
+
+@test
+EACH_EVALUATION_OF_A_LAMBDA_IS_A_VALUE_WITH_STATICS_OF_ITS_OWN()
+    val text = "mk = () -> (x) ->\n  static total = 0\n  total += x\n" +
+        "g = mk()\nh = mk()\nwrite( g(1), g(2), h(10), g(3), h(1) )\n"
+
+    assert_eq(ran_funl(text), "1, 3, 10, 6, 11\nsucceeded")
+
+@test
+A_WHERE_FUNCTION_IS_MADE_AGAIN_ON_EVERY_CALL_OF_ITS_CLAUSE()
+    val text = "def wh( x ) = helper( x )\n  where\n    helper( y ) =\n      static calls = 0\n      calls += 1\n      y + calls\n" +
+        "write( wh(10), wh(10) )\n"
+
+    assert_eq(ran_funl(text), "11, 11\nsucceeded")
+
+// A function nested in the body reaches the enclosing function's statics, which every value of the
+// nested function made from it shares.
+@test
+A_LAMBDA_IN_THE_BODY_READS_AND_WRITES_THE_FUNCTIONS_STATICS()
+    val text = "def adder()\n  static sum = 0\n  (x) -> (sum += x)\n" +
+        "a = adder()\nb = adder()\nwrite( a(1), a(2), b(5), a(0) )\n"
+
+    assert_eq(ran_funl(text), "1, 3, 8, 8\nsucceeded")
+
+// -- backtracking ------------------------------------------------------------------------------------
+
+@test
+A_STATIC_ASSIGNED_WITH_EQUALS_IS_NOT_UNDONE_BY_BACKTRACKING()
+    val text = "def plain()\n  static v = 0\n  (v = 5) > 10\n  v\n" +
+        "def visits()\n  static seen = []\n  every (seen = ![1, 2, 3] : seen) & fail\n  seen\n" +
+        "write( plain() )\nwrite( visits() )\n"
+
+    assert_eq(ran_funl(text), "5\n[3, 2, 1]\nsucceeded")
+
+@test
+A_STATIC_ASSIGNED_WITH_LEFT_ARROW_IS_UNDONE_BY_BACKTRACKING()
+    val text = "def trial()\n  static v = 0\n  (v <- 5) > 10\n  v\n" +
+        "def kept()\n  static w = 0\n  (w <- ![4, 7, 9]) > 8\n  w\n" +
+        "write( trial(), trial() )\nwrite( kept() )\n"
+
+    assert_eq(ran_funl(text), "0, 0\n9\nsucceeded")
+
+// -- clauses, guards and generators ------------------------------------------------------------------
+
+@test
+EACH_CLAUSE_AND_EACH_GUARDED_BODY_HAS_ITS_OWN_STATICS()
+    val text = "def sign( 0 ) = 'zero'\ndef sign( n )\n  static seen = 0\n  seen += 1\n  \"call $seen\"\n" +
+        "def classify( x )\n  | x > 0 =\n      static pos = 0\n      pos += 1\n  | otherwise =\n      static neg = 0\n      neg -= 1\n" +
+        "write( sign(0), sign(5), sign(6), sign(0), sign(7) )\n" +
+        "write( classify(1), classify(2), classify(-1), classify(-1) )\n"
+
+    assert_eq(ran_funl(text), "zero, call 1, call 2, zero, call 3\n1, 2, -1, -2\nsucceeded")
+
+@test
+A_GENERATOR_KEEPS_ITS_STATICS_BETWEEN_RUNS()
+    val text = "def gen()\n  static k = 0\n  k += 1\n  yield k\n  yield k * 10\n" +
+        "write( [x | x <- gen()] )\nwrite( [x | x <- gen()] )\n"
+
+    assert_eq(ran_funl(text), "[1, 10]\n[2, 20]\nsucceeded")
+
+// The statics frame is reached only through the function value, and holds what it is given across
+// collections: a long run of garbage between calls leaves the memo intact.
+@test
+A_STATIC_SURVIVES_COLLECTIONS_BETWEEN_CALLS()
+    val text = "def memo( k )\n  static seen\n  initial seen = map()\n  seen(k) = [k, k + 1, k + 2]\n  seen.length\n" +
+        "for i <- 1..300 do (memo( i % 7 ); junk = [j * i | j <- 1..20])\n" +
+        "write( memo(100), memo(3) )\n"
+
+    assert_eq(ran_funl(text), "8, 8\nsucceeded")
+
+@test
+AN_EXPORTED_FUNCTIONS_STATICS_ARE_SHARED_BY_ITS_CALLS_AND_ITS_VALUE()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "ids.funl", "export def fresh()\n  static n = 0\n  n += 1\n")
+    val text = s"import { fresh } from \"$m\"\nimport * as ids from \"$m\"\n" +
+        "f = ids.fresh\nwrite( fresh(), f(), fresh(), ids.fresh() )\n"
+
+    assert_eq(ran_funl(text), "1, 2, 3, 4\nsucceeded")
+
+// -- refusals ----------------------------------------------------------------------------------------
+
+@test
+A_STATIC_OUTSIDE_A_FUNCTION_IS_REFUSED()
+    assert_eq(complaints("static x = 1\n"),
+        "error 1:8 `static` is written only among the statements of a function's body, not in a block inside it, and not outside a function\n")
+    assert_eq(complaints("initial write( 1 )\n"),
+        "error 1:9 `initial` is written only among the statements of a function's body, not in a block inside it, and not outside a function\n")
+
+@test
+A_STATIC_IN_A_BLOCK_INSIDE_THE_BODY_IS_REFUSED()
+    assert_eq(complaints("def f( n )\n  if n > 0\n    static k = 0\n  n\n"),
+        "error 3:12 `static` is written only among the statements of a function's body, not in a block inside it, and not outside a function\n")
+    assert_eq(complaints("def f()\n  initial\n    static k = 0\n  1\n"),
+        "error 3:12 `static` is written only among the statements of a function's body, not in a block inside it, and not outside a function\n")
+
+@test
+A_STATIC_NAMED_AS_A_PARAMETER_IS_REFUSED()
+    assert_eq(complaints("def f( n )\n  static n = 0\n  n\n"),
+        "error 2:10 `n` is already a variable of this clause, and cannot also be a static\n")
+
+@test
+A_STATIC_IS_NOT_SEEN_BEFORE_ITS_DECLARATION()
+    assert_eq(complaints("def f()\n  write( k )\n  static k = 0\n  k\n"), "error 2:10 `k` is not defined\n")
+
+@test
+INITIAL_TAKES_AN_EXPRESSION_AN_ASSIGNMENT_OR_A_BLOCK_NOT_A_DECLARATION()
+    assert_eq(complaints("def f()\n  initial val q = 1\n  1\n"),
+        "error 2:11 expected an expression, an assignment or an indented block after `initial`\n")
+
+@test
+STATIC_AND_INITIAL_ARE_WORDS_OF_THE_LANGUAGE()
+    val said = complaints("static = 3\n")
+
+    assert(said.starts_with("error 1:"), said)

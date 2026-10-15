@@ -61,3 +61,34 @@ A_MALFORMED_REVERSIBLE_ASSIGNMENT_IS_REFUSED()
     assert_eq(complaints("var a = 1\nvar b = 2\n(a, b) <- (1, 2, 3)\n"), "error 3:1 this assigns 2 variables and gives 3 values\n")
     assert_eq(complaints("var a = 1\nvar b = 2\ndef f() = (1, 2)\n(a, b) <- f()\n"),
         "error 4:11 a tuple of names is assigned with `<-` from a tuple of as many values\n")
+
+@test
+A_SECTION_OF_A_STRING_VARIABLE_IS_REPLACED_BY_ANY_LENGTH_OF_TEXT()
+    val text = "var s = 'hello world'\ns(0..4) = 'HOWDY'\nwrite( s )\ns(6..) = 'there!'\nwrite( s )\ns(5..<5) = ','\nwrite( s )\n" +
+        "s(0..+1) = ''\nwrite( s )\ns(2..<2) = '|'\nwrite( s + '|' )\nvar t = 'né'\nt(1..1) = 'e!'\nwrite( t )\n"
+    assert_eq(ran_funl(text), "HOWDY world\nHOWDY there!\nHOWDY, there!\nOWDY, there!\nOW|DY, there!|\nne!\nsucceeded")
+
+@test
+A_SECTION_ASSIGNMENT_WORKS_ON_A_LOCAL_AND_A_CAPTURED_VARIABLE()
+    val text = "def f()\n  var s = 'abcd'\n  s(1..2) = 'XY'\n  g = () -> (s(0..0) = 'Z')\n  g()\n  s\n\nwrite( f() )\n"
+    assert_eq(ran_funl(text), "ZXYd\nsucceeded")
+
+@test
+A_REVERSIBLE_SECTION_ASSIGNMENT_IS_UNDONE_ON_BACKTRACKING()
+    val text = "var s = 'abcd'\nwrite( ((s(0..1) <- 'XX') & 1 > 2) | s )\nwrite( s )\n" +
+        "every s(0..0) <- !['1', '2'] do write( s )\nwrite( s )\n"
+    assert_eq(ran_funl(text), "abcd\nabcd\n1bcd\n2bcd\nabcd\nsucceeded")
+
+@test
+A_SECTION_ASSIGNMENT_REFUSES_WHAT_IT_CANNOT_STORE()
+    assert_eq(ran_funl("var s = 'abc'\ns(1..5) = 'x'\n").contains("the section is outside the string 'abc'"), true)
+    assert_eq(ran_funl("var s = 'abc'\ns(2..0 by -1) = 'x'\n").contains("must run forwards one character at a time"), true)
+    assert_eq(ran_funl("var s = 'abc'\ns(0..1 by 2) = 'x'\n").contains("must run forwards one character at a time"), true)
+    assert_eq(ran_funl("var s = 'abc'\ns(0..1) = 5\n").contains("a section of a string is replaced by a string, and was given the integer 5"), true)
+    assert_eq(ran_funl("val s = 'abc'\ns(0..1) = 'x'\n").contains("cannot be changed"), true)
+
+@test
+A_RANGE_KEY_STILL_REFUSES_A_STORE_INTO_AN_ARRAY()
+    val said = ran_funl("var a = array(3)\na(0..1) = 5\n")
+    assert_eq(said.contains("fault: "), true)
+    assert_eq(ran_funl("var a = array(3)\na(1) = 7\nwrite( a )\n"), "Array(undefined, 7, undefined)\nsucceeded")

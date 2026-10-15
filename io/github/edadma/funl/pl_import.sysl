@@ -47,7 +47,7 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
 
     if spec == "funl:prelude" then return prolog_prelude(named.span, report, goals, why)
 
-    if spec.starts_with("funl:") then return prolog_builtin_module(spec.slice(5, spec.len), named.span, report, why)
+    if spec.starts_with("funl:") then return prolog_builtin_module(spec.slice(5, spec.len), named.span, report, goals, why)
 
     funl_import(module_path(src.name, spec), named, report, goals, why)
 end import_directive
