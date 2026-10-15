@@ -678,6 +678,19 @@ sides(circle, 0).
 Prolog and FunL share one predicate for each name and arity
 ```
 
+**A builtin's key is never redefined, so an export on one is refused.** A FunL function `atom_length` of
+one parameter would be `atom_length/2`, which is a builtin; importing the file is a
+`permission_error(modify, static_procedure, atom_length/2)` when it is consulted, as it is for a
+Prolog file that defines a builtin, and `catch/3` catches it:
+
+```prolog
+:- import("prolog/builtin_clash.funl").
+```
+
+```error
+`atom_length/2` is a builtin predicate
+```
+
 The same refusal holds the other way round, for a FunL definition after an import of a Prolog file:
 
 ```funl

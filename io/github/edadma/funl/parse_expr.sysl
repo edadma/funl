@@ -68,6 +68,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         StrLit(s) -> expr(StrE(s), t.span)
         RegexLit(r) -> regex_literal(p, r, t.span)
         InterpLit -> interpolated(p, t)
+        AmpName(n) -> keyword_expr(p, n, t.span)
         UndefinedW -> expr(UndefE, t.span)
         TrueW -> expr(BoolE(true), t.span)
         FalseW -> expr(BoolE(false), t.span)
@@ -91,6 +92,11 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
                 NumE(text) -> expr(NumE(s"-$text"), t.span.to(e.span))
                 _ -> expr(MinusE(e), t.span.to(e.span))
         LParen -> paren(p, t.span)
+        DotDot ->
+            // The operand is everything binding tighter than a comparison: `..1..3`, `..xs + ys`.
+            val e = parse_expr(p, 40)
+
+            expr(SpreadE(e), t.span.to(e.span))
         Not ->
             val e = parse_expr(p, NotPower)
 
@@ -160,6 +166,23 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             expr(AwaitE(e), t.span.to(e.span))
         AsyncW -> async_lambda(p, t.span)
+        CreateW ->
+            // As loose as `not`, so `create !xs | !ys` makes one co-expression of the alternation.
+            val e = parse_expr(p, NotPower)
+
+            expr(CreateE(e), t.span.to(e.span))
+        At ->
+            val e = parse_expr(p, BangPower)
+
+            expr(ActivateE(expr(UndefE, t.span), e), t.span.to(e.span))
+        Caret ->
+            val e = parse_expr(p, BangPower)
+
+            expr(RefreshE(e), t.span.to(e.span))
+        Star ->
+            val e = parse_expr(p, BangPower)
+
+            expr(SizeE(e), t.span.to(e.span))
         LBracket -> list(p, t.span)
         LBrace -> braces(p, t.span)
         Backslash ->
@@ -712,6 +735,12 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
 
             return expr(ScanE(left, body), left.span.to(body.span))
         CatchW -> return catching(p, left)
+        Name(_) ->
+            // Only `limit` has an infix power among names (`power`).
+            val id = p.node_id()
+            val n = parse_expr(p, LimitPower)
+
+            return expr(LimitE(id, left, n), left.span.to(n.span))
         _ -> ()
 
     // `(e op)`: the operator's right operand is the `)`, which makes this half of a section.
@@ -735,6 +764,7 @@ private infix(op: Tok, a: &Expr, b: &Expr) -> ExprKind
         Colon -> ConsE(a, b)
         In -> InE(a, b, false)
         NotIn -> InE(a, b, true)
+        At -> ActivateE(a, b)
         _ ->
             binop_of(op) match
                 Some(o) -> BinE(o, a, b)

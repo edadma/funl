@@ -1,0 +1,1 @@
+export def atom_length(a) = 7
