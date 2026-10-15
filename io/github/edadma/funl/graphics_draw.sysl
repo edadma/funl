@@ -71,7 +71,7 @@ private number(base: usize, i: usize, name: string) -> Result[real, Fault]
         _ -> Err(kind_error(x, "number", s"'$name' wants a number and was given ${described(x)}"))
 
 // Argument `i`, an integer, or `None` where it is `undefined` or not given.
-private integer_or(base: usize, argc: usize, i: usize, name: string) -> Result[Option[long], Fault]
+integer_or(base: usize, argc: usize, i: usize, name: string) -> Result[Option[long], Fault]
     if i >= argc then return Ok(None)
 
     val x = deref(arg(base, i))
@@ -82,7 +82,7 @@ private integer_or(base: usize, argc: usize, i: usize, name: string) -> Result[O
         _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
 
 // A rectangle on the canvas: its corner, after `dx` and `dy`, and its extents, never negative.
-private struct Box
+struct Box
     x: real
     y: real
     wd: real
@@ -112,7 +112,7 @@ private boxed(x: Option[real], y: Option[real], wd: Option[real], ht: Option[rea
     Box(bx, by, bw, bh)
 
 // The integer rectangle of arguments `from` to `from + 3`, as `boxed` makes it.
-private int_box(base: usize, argc: usize, from: usize, c: WinCanvas, ox: long, oy: long, name: string) -> Result[Box, Fault]
+int_box(base: usize, argc: usize, from: usize, c: WinCanvas, ox: long, oy: long, name: string) -> Result[Box, Fault]
     val x = integer_or(base, argc, from, name)?
     val y = integer_or(base, argc, from + 1, name)?
     val wd = integer_or(base, argc, from + 2, name)?
@@ -158,7 +158,7 @@ private finished(pen: Pen) -> Result[Option[Value], Fault]
     Ok(Some(Handle(pen.w.h)))
 
 // The eight-bit component of `c` at coverage `a`, premultiplied as the surface stores it.
-private premultiplied(c: long, a: f32) -> u8 = u8(long(channel(c) * 255.0 * a + 0.5))
+premultiplied(c: long, a: f32) -> u8 = u8(long(channel(c) * 255.0 * a + 0.5))
 
 // The tile of context `ctx`'s pattern: its ones in the foreground, its zeros in the background for
 // `#textured` and clear for `#masked`; `None` for `#solid`, which paints the foreground alone.

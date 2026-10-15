@@ -7,12 +7,12 @@ weight: 22
 
 `funl:graphics` gives FunL the graphics facilities of Icon 9.5. A window is a handle, and everything
 done with it is a method on that handle. The module exports `open`, which makes a window; `couple`,
-which joins two; `color_value`, which reads a colour; and `active`, which finds the windows with
-events waiting.
+which joins two; `color_value`, which reads a colour; `active`, which finds the windows with
+events waiting; and the [palette](#palettes) functions.
 
 This page covers windows on a **hidden canvas**: a picture drawn in memory and read back, with no
-window on screen, [drawing](#drawing) on it, and its events, put on its queue by the program. Images
-and text come with later parts of the module.
+window on screen, [drawing](#drawing) on it, [images](#images) read, written and drawn, and its
+events, put on its queue by the program. Text comes with a later part of the module.
 
 ## Hidden canvases
 
@@ -77,7 +77,7 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "image": undefined, "canvas": hidden, "resize": false, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1}
 ```
 
 | attribute | value | default |
@@ -85,6 +85,7 @@ red, 3, dashed
 | `size` | `(width, height)` | `(480, 156)` |
 | `width`, `height` | an integer from 1 to 32767 | |
 | `label` | the title, a string | `open`'s title |
+| `image` | an image file, read onto the canvas, which takes its size ([images](#images)) | `undefined` |
 | `canvas` | `#hidden` (`#normal`, `#maximal` and `#iconic` are on-screen states) | |
 | `resize` | whether the user may resize the window | `false` |
 | `cursor` | whether the text cursor is shown | `false` |
@@ -357,6 +358,146 @@ show( w )
 **A drawing method faults** on a count of numbers its groups cannot make (an odd count of
 coordinates, say), on an argument that is not a number -- `clip` and `copy_area` want integers -- and
 on a closed window.
+
+## Images
+
+| method | what it does |
+|---|---|
+| `w.draw_image(x, y, spec)` | draws Icon's image string `spec` with its corner at `x`, `y` |
+| `w.read_image(file, x, y)` | reads an image file onto the canvas with its corner at `x`, `y` |
+| `w.write_image(file, x, y, wd, ht)` | writes a rectangle of the canvas to `file` as a PNG |
+| `w.image_bytes(x, y, wd, ht)` | answers the PNG `write_image` would write, as a [byte string](../reference/data.md#bytes) |
+
+Each answers `w` (`image_bytes` its bytes) and fails where Icon's does. As in drawing, `x` and `y`
+default to the canvas's corner and are moved by `dx` and `dy`, and an image goes only where the clip
+rectangle lets it; `write_image` and `image_bytes` read their rectangle as [`pixel`](#reading-pixels)
+does and keep the part of it on the canvas. An image is laid on the canvas pixel for pixel, with no
+drawing operation and no anti-aliasing.
+
+**An image string is a picture written as text.** `"wd,palette,data"` gives the width in pixels, a
+[palette](#palettes), and then a character a pixel, row by row, each a key of the palette. A `~`, and
+the character of code 255, are transparent, leaving the canvas as it was, where the palette has no
+such key; a space or a comma is punctuation, read as nothing, where the palette has none. `"wd,#hex"`
+is bi-level: each row is a run of hex digits read as one number, whose bit `i` is pixel `i`, drawn in
+the foreground for a one and the background for a zero -- or left as it was, in `"wd,~hex"`.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "icon", {canvas: #hidden, size: (4, 2)} )
+w.draw_image( 0, 0, "4,c2,rgb~ kkkk" )
+write( [p | p <- w.pixel(0, 0, 4, 1)] )
+w.set( {fg: "red"} ).draw_image( 0, 1, "4,~9" )
+write( [p | p <- w.pixel(0, 1, 4, 1)] )
+write( w.draw_image(0, 0, "3,c2,rgbr") | "not a rectangle" )
+```
+
+```output
+["65535,0,0", "0,65535,0", "0,0,65535", "65535,65535,65535"]
+["65535,0,0", "0,0,0", "0,0,0", "65535,0,0"]
+not a rectangle
+```
+
+**Reading takes whatever stb_image reads**: PNG, JPEG, BMP, GIF (its first frame), TGA, PSD, HDR,
+PIC and PNM. `read_image` fails when the file is not there or is no such image, and lays a pixel
+that is partly transparent over what the canvas has. The `image` attribute reads a file onto the
+canvas and makes the canvas its size, at `open` or after it.
+
+**Writing is PNG**, whatever the file is called. A name ending in another image format's extension
+-- `.jpg`, `.gif`, `.bmp` and the rest, in any case -- faults rather than putting PNG bytes under a
+name that says otherwise. `write_image` fails when none of the rectangle is on the canvas or the file
+cannot be made.
+
+```funl
+import { open } from funl:graphics
+import { remove } from funl:fs
+
+w = open( "strip", {canvas: #hidden, size: (3, 1)} )
+w.draw_image( 0, 0, "3,c2,rgb" )
+w.write_image( "docs/library/strip.png" )
+v = open( "copy", {canvas: #hidden, image: "docs/library/strip.png"} )
+write( v.get("size"), [p | p <- v.pixel()] )
+u = open( "wider", {canvas: #hidden, size: (5, 1), bg: "black"} )
+u.read_image( "docs/library/strip.png", 2 )
+write( [p | p <- u.pixel()] )
+write( w.image_bytes()(0..<4) )
+write( u.read_image("docs/library/nothing.png") | "no image" )
+remove( "docs/library/strip.png" )
+```
+
+```output
+(3, 1), ["65535,0,0", "0,65535,0", "0,0,65535"]
+["0,0,0", "0,0,0", "65535,0,0", "0,65535,0", "0,0,65535"]
+bytes([137, 80, 78, 71])
+no image
+```
+
+```funl
+import { open } from funl:graphics
+
+w = open( "photo", {canvas: #hidden, size: (3, 1)} )
+w.write_image( "photo.jpg" )
+```
+
+```error
+'write_image' writes PNG only, and `photo.jpg` names a .jpg file
+```
+
+Icon's `ReadImage` takes a palette to reduce an image to, which exists for colour-mapped displays and
+is not adopted.
+
+## Palettes
+
+**A palette is a fixed set of colours, each named by one character, its key**, in which an image
+string is written. `"c1"` is Icon's ninety named colours; `"c2"` to `"c6"` are colour cubes, `n`
+levels of each of red, green and blue, with the greys between the cube's own added after it; `"g2"`
+to `"g256"` are that many greys from black to white.
+
+| function | answers |
+|---|---|
+| `palette_chars(p)` | the keys of palette `p`, a string, in palette order |
+| `palette_color(p, k)` | the colour of key `k`, in the `"r,g,b"` form; fails when `p` has no such key |
+| `palette_key(p, c)` | the key of the colour of `p` nearest colour `c` |
+| `palette_grays(p)` | the keys of `p`'s greys, from black to white |
+
+Each fails on a string that names no palette, and faults on a palette that is not a string or a key
+that is not one character. The keys and colours are Icon's, number for number.
+
+```funl
+import { palette_chars, palette_color, palette_key, palette_grays } from funl:graphics
+
+write( palette_chars("c2"), palette_chars("g8") )
+write( palette_color("c1", "A"), palette_color("c3", "M"), palette_color("g5", "1") )
+write( palette_key("c1", "light blue"), palette_key("c2", "orange"), palette_key("g16", "gray") )
+write( palette_grays("c1"), palette_grays("c3") )
+write( palette_chars("c7") | "no such palette", palette_color("c2", "z") | "no such key" )
+```
+
+```output
+kbgcrmywx, 01234567
+65535,0,0, 32767,32767,32767, 16383,16383,16383
+j, r, 7
+0123456, @abMcdZ
+no such palette, no such key
+```
+
+**In `c1` the comma is a key**, very light yellow, so a `c1` image string has no punctuation but the
+space. The keys of `c5`, `c6` and the greys past `g64` are the characters from code 0 up, so those
+image strings are built with `char` rather than typed.
+
+**`w.new_color(…)` fails**, as Icon's `NewColor` does on a true-colour display: there is no colour
+map to take an entry of, and every colour is already a specification.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "map", {canvas: #hidden, size: (1, 1)} )
+write( w.new_color("red") | "no colour map" )
+```
+
+```output
+no colour map
+```
 
 ## Clones, couples and closing
 

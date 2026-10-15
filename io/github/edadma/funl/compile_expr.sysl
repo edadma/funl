@@ -117,7 +117,8 @@ push_builtin(e: *Emit, id: usize, n: string) -> Result[unit, string]
 
     Ok(())
 
-// Push the map a module of FunL's own is as a value: each export that is a value under its name.
+// Push the map a module of FunL's own is as a value: each export that is a value under its name, the
+// natives and the functions its FunL source defines alike. That source exports each name at one arity.
 private push_module_map(e: *Emit, index: usize) -> Result[unit, string]
     val md = current().modules.at(index)
     var count: usize = 0
@@ -129,6 +130,14 @@ private push_module_map(e: *Emit, index: usize) -> Result[unit, string]
                     e.op(PushConst(e.constant(new_str(x.name)?)))
                     push_builtin(e, id, x.name)?
                     count += 1
+            ExFunction(chunk, _) ->
+                e.op(PushConst(e.constant(new_str(x.name)?)))
+                e.op(MakeClosure(chunk, md.up))
+                count += 1
+            ExVariadic(chunk, _) ->
+                e.op(PushConst(e.constant(new_str(x.name)?)))
+                e.op(MakeClosure(chunk, md.up))
+                count += 1
             _ -> ()
 
     e.op(MakeMap(count))

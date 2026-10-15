@@ -36,8 +36,9 @@ import sysl.text.chars_of
 // setting the running machine's event keywords (`EventKeys`). `&window` is the VM's: `open` sets it,
 // a program may assign it, and the collector marks it.
 
-// What `funl:graphics` exports, each name the short form of a native `install_graphics` registered as
-// `graphics.name`.
+// What `funl:graphics` exports natively, each name the short form of a native `install_graphics`
+// registered as `graphics.name`. The palette functions are exported beside them from the module's
+// FunL (`graphics_source.sysl`).
 private val GraphicsNames: [4]string = ["open", "couple", "color_value", "active"]
 
 private const WindowKind: string = "window"
@@ -62,6 +63,7 @@ struct WinCanvas
     drawn: &pv.Canvas
     handles: usize
     label: string
+    image: string
     width: long
     height: long
     resize: bool
@@ -160,7 +162,7 @@ private var generations: Buf[long] = buf()
 var contexts: Buf[Option[WinContext]] = buf()
 
 // Every attribute, in the order `attributes()` gives them.
-private val Attributes: [25]string = ["size", "width", "height", "label", "canvas", "resize", "cursor", "echo",
+private val Attributes: [26]string = ["size", "width", "height", "label", "image", "canvas", "resize", "cursor", "echo",
     "inputmask", "fg", "bg", "reverse",
     "linewidth", "linestyle", "fillstyle", "pattern", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density"]
 
@@ -178,6 +180,7 @@ install_graphics(v: *Vm)
     register_method(v, w, "uncouple", 0, do_uncouple)
     register_stepping_method(v, w, "pixel", Variadic, start_pixel, step_pixel)
     install_drawing(v, w)
+    install_images(v, w)
     register_method(v, w, "enqueue", Variadic, do_enqueue)
     register_method(v, w, "event", 0, do_event)
     register_method(v, w, "pending", 0, do_pending)
@@ -401,10 +404,12 @@ private do_color_value(base: usize, argc: usize, cursor: long) -> Result[Answer,
 
 // -- attributes ------------------------------------------------------------------------------------
 
-// The canvas and context an attribute map is applied to, before anything is kept.
+// The canvas and context an attribute map is applied to, before anything is kept, and the image the
+// map's `image` loaded, laid on the canvas once it has the image's size.
 private struct Pending
     cv: WinCanvas
     ctx: WinContext
+    img: Option[&pv.Surface]
 
 // Every key of `m` an attribute that may be set: a fault for the first that is not.
 private settable(m: *MapObj, name: string) -> Result[unit, Fault]
@@ -425,11 +430,12 @@ private settable(m: *MapObj, name: string) -> Result[unit, Fault]
 
 // The attributes of `m` applied, in order, to the canvas at `at` and to context `ctx`: the context
 // as it is afterwards, the canvas's changes kept, or `None` -- and nothing kept -- when a value is one
-// Icon's `WAttrib` would refuse.
-private applied(at: usize, ctx: WinContext, m: *MapObj, name: string) -> Result[Option[WinContext], Fault]
+// Icon's `WAttrib` would refuse. A `fresh` canvas, one being opened, is painted in the background
+// colour the map leaves before an `image` is laid on it.
+private applied(at: usize, ctx: WinContext, m: *MapObj, name: string, fresh: bool) -> Result[Option[WinContext], Fault]
     settable(m, name)?
 
-    var p = Pending(canvas_at(at), ctx)
+    var p = Pending(canvas_at(at), ctx, None)
 
     for i in 0..<m.keys.len()
         p = assigned(p, key_text(m.keys.at(i)).unwrap(), deref(m.vals.at(i)), name)? match
@@ -448,6 +454,12 @@ private applied(at: usize, ctx: WinContext, m: *MapObj, name: string) -> Result[
                 out.drawn = r.drawn
                 out
             None -> return Ok(None)
+
+    if fresh then kept.surface.clear(channel(p.ctx.bg_rgb.r), channel(p.ctx.bg_rgb.g), channel(p.ctx.bg_rgb.b))
+
+    p.img match
+        Some(img) -> lay_image(kept, img, 0, 0, Area(0, 0, kept.width, kept.height))
+        None -> ()
 
     canvases.set(at, Some(kept))
     Ok(Some(p.ctx))
@@ -513,6 +525,20 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
         q.cv.label = x match
             Str(s) -> s.s
             _ -> return Ok(None)
+    else if k == "image"
+        // The canvas takes the image's size, and the image is laid on it once the map is applied.
+        val file = x match
+            Str(s) -> s.s
+            _ -> return Ok(None)
+
+        val img = pv.load_image(file) match
+            Some(s) -> s
+            None -> return Ok(None)
+
+        q.cv.width = long(img.width())
+        q.cv.height = long(img.height())
+        q.cv.image = file
+        q.img = Some(img)
     else if k == "canvas"
         val mode = one_of(x, ["normal", "hidden", "maximal", "iconic"]) match
             Some(id) -> atom_name(id)
@@ -650,6 +676,7 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
         "width" -> Int(c.width)
         "height" -> Int(c.height)
         "label" -> new_str(c.label)?
+        "image" -> if c.image == "" then Undefined else new_str(c.image)?
         "canvas" -> atom("hidden")
         "resize" -> boolean(c.resize)
         "cursor" -> boolean(c.cursor)
@@ -721,7 +748,7 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     wins.push(h)
 
-    val at = keep_canvas(WinCanvas(s, drawn, 1, title, DefaultWidth, DefaultHeight, false, false, true, "", buf(), wins,
+    val at = keep_canvas(WinCanvas(s, drawn, 1, title, "", DefaultWidth, DefaultHeight, false, false, true, "", buf(), wins,
         current()))
     val k = keep_context(start)
 
@@ -729,7 +756,7 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     h.vals.push(Int(generations.at(at)))
     h.vals.push(Int(long(k)))
 
-    val ctx = applied(at, start, attrs.unwrap(), "open") match
+    val ctx = applied(at, start, attrs.unwrap(), "open", true) match
         Ok(Some(c)) -> c
         Ok(None) ->
             close_handle(h)
@@ -738,8 +765,6 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
             close_handle(h)
             return Err(f)
 
-    // A new canvas is painted in the background colour it was opened with.
-    canvas_at(at).surface.clear(channel(ctx.bg_rgb.r), channel(ctx.bg_rgb.g), channel(ctx.bg_rgb.b))
     contexts.set(k, Some(ctx))
     current().window = Handle(h)
     Ok(Gives(Handle(h)))
@@ -772,7 +797,7 @@ private do_set(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val w = window_arg(base, 0, "set")?
     val m = map_arg(base, 1, "set")?
 
-    applied(w.at, context_at(w.ctx), m, "set")? match
+    applied(w.at, context_at(w.ctx), m, "set", false)? match
         Some(c) ->
             contexts.set(w.ctx, Some(c))
             Ok(Some(Handle(w.h)))
@@ -819,7 +844,7 @@ private do_clone(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     attrs match
         Some(m) ->
-            copy = applied(w.at, copy, m, "clone")? match
+            copy = applied(w.at, copy, m, "clone", false)? match
                 Some(c) -> c
                 None ->
                     h.closed = true

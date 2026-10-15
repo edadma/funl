@@ -1,0 +1,575 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.chars_of
+import sh.sysl.plutovg as pv
+
+// `funl:graphics`'s images (`docs/library/graphics.md`): reading an image file onto a canvas, writing
+// a rectangle of one as a PNG file or as bytes, Icon's image strings, and the palettes they are
+// written in.
+//
+// **Reading takes whatever plutovg's stb_image reads**: PNG, JPEG, BMP, GIF (its first frame), TGA,
+// PSD, HDR, PIC and PNM. **Writing is PNG**, whatever the file is called, except that a name ending in
+// another image format's extension faults rather than putting PNG bytes under a name that says
+// otherwise.
+//
+// **An image goes onto the canvas pixel for pixel**, inside the canvas and the clip rectangle, with
+// no drawing operation and no anti-aliasing: an image string's colours are exact, and a read image's
+// transparent pixels are laid over what was there.
+//
+// **The palettes are here twice.** `palette_chars`, `palette_color`, `palette_key` and
+// `palette_grays` are FunL, carried as `graphics_source()`; `draw_image` decodes an image string here,
+// and needs the same table of colours in sysl. The two are computed the same way, and a test draws
+// every key of every palette and reads it back against `palette_color`.
+
+// Every image method `w` has, and the helpers the module's FunL calls.
+install_images(v: *Vm, w: u32)
+    register_method(v, w, "read_image", Variadic, do_read_image)
+    register_method(v, w, "write_image", Variadic, do_write_image)
+    register_method(v, w, "image_bytes", Variadic, do_image_bytes)
+    register_method(v, w, "draw_image", Variadic, do_draw_image)
+    register_method(v, w, "new_color", Variadic, do_new_color)
+    register_generator(v, "_palette", 2, do_palette)
+    register(v, "_palette_char", 2, do_palette_char)
+    register_generator(v, "_color_rgb", 2, do_color_rgb)
+
+// The extensions of the image formats other than PNG, which `write_image` refuses to write PNG under.
+private val OtherFormats: [17]string = ["jpg", "jpeg", "jpe", "jfif", "gif", "bmp", "tga", "psd", "hdr", "pic", "pnm", "ppm",
+    "pgm", "pbm", "tif", "tiff", "webp"]
+
+// -- where an image may go -------------------------------------------------------------------------
+
+// The pixels an image may be laid on: columns `left` to `right` and rows `top` to `bottom`, each
+// excluding its end. Empty when either end is not past its start.
+struct Area
+    left: long
+    top: long
+    right: long
+    bottom: long
+
+private is_empty(a: Area) -> bool = a.left >= a.right || a.top >= a.bottom
+
+// The part of the rectangle at `x`, `y`, `wd` by `ht`, that is on canvas `c`, and inside context
+// `ctx`'s clip rectangle when `clipped`.
+private on_canvas(c: WinCanvas, ctx: WinContext, x: long, y: long, wd: long, ht: long, clipped: bool) -> Area
+    var a = Area(x, y, x + wd, y + ht)
+
+    if a.left < 0 then a.left = 0
+    if a.top < 0 then a.top = 0
+    if a.right > c.width then a.right = c.width
+    if a.bottom > c.height then a.bottom = c.height
+
+    if clipped && ctx.clipw >= 0 && ctx.cliph >= 0
+        if a.left < ctx.clipx then a.left = ctx.clipx
+        if a.top < ctx.clipy then a.top = ctx.clipy
+        if a.right > ctx.clipx + ctx.clipw then a.right = ctx.clipx + ctx.clipw
+        if a.bottom > ctx.clipy + ctx.cliph then a.bottom = ctx.clipy + ctx.cliph
+
+    a
+
+// The pixel at offset `o` made colour `c`, opaque, as the surface stores it.
+private paint(data: []u8, o: usize, c: Rgb)
+    data[o] = premultiplied(c.b, 1.0)
+    data[o + 1] = premultiplied(c.g, 1.0)
+    data[o + 2] = premultiplied(c.r, 1.0)
+    data[o + 3] = 255
+
+// Image `img` laid on canvas `c` with its corner at `x`, `y`, touching only the pixels of `area`: an
+// opaque pixel replaces the canvas's, a transparent one leaves it, and one in between is laid over it.
+lay_image(c: WinCanvas, img: &pv.Surface, x: long, y: long, area: Area)
+    val from = img.data()
+    val from_stride = long(img.stride())
+    val to = c.surface.data()
+    val to_stride = long(c.surface.stride())
+    val wd = long(img.width())
+    val ht = long(img.height())
+
+    for iy in 0..<ht
+        val ty = y + iy
+
+        if ty < area.top || ty >= area.bottom then continue
+
+        for ix in 0..<wd
+            val tx = x + ix
+
+            if tx < area.left || tx >= area.right then continue
+
+            val s = usize(iy * from_stride + 4 * ix)
+            val d = usize(ty * to_stride + 4 * tx)
+            val alpha = long(from[s + 3])
+
+            if alpha == 255
+                for k in 0..<4
+                    to[d + usize(k)] = from[s + usize(k)]
+            else if alpha > 0
+                for k in 0..<3
+                    to[d + usize(k)] = u8(long(from[s + usize(k)]) + (long(to[d + usize(k)]) * (255 - alpha) + 127) / 255)
+
+                to[d + 3] = 255
+
+// -- reading and writing ---------------------------------------------------------------------------
+
+// `w.read_image(file, x, y)`: the image in `file` laid on the canvas with its corner at `x`, `y` (the
+// canvas's corner by default), moved by `dx` and `dy`, inside the clip rectangle. Answers `w`; fails
+// when the file is not there or is no image stb_image reads.
+private do_read_image(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc < 2 || argc > 4
+        return Err(wrong_count("read_image", argc - 1, s"'read_image' takes a file and at most two numbers, and was given ${argc - 1} arguments"))
+
+    val w = window_arg(base, 0, "read_image")?
+    val file = path_arg(base, 1, "read_image")?
+    val ctx = context_at(w.ctx)
+    val x = integer_or(base, argc, 2, "read_image")?.unwrap_or(0) + ctx.dx
+    val y = integer_or(base, argc, 3, "read_image")?.unwrap_or(0) + ctx.dy
+
+    val img = pv.load_image(file) match
+        Some(s) -> s
+        None -> return Ok(None)
+
+    val c = canvas_at(w.at)
+
+    lay_image(c, img, x, y, on_canvas(c, ctx, x, y, long(img.width()), long(img.height()), true))
+    Ok(Some(Handle(w.h)))
+
+// The rectangle of arguments `from` to `from + 3` on window `w`, as the drawing methods read one,
+// cut to the canvas, and copied into a surface of its own; `None` when none of it is on the canvas.
+private cut(base: usize, argc: usize, from: usize, w: Win, name: string) -> Result[Option[&pv.Surface], Fault]
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    val b = int_box(base, argc, from, c, ctx.dx, ctx.dy, name)?
+    val a = on_canvas(c, ctx, long(b.x), long(b.y), long(b.wd), long(b.ht), false)
+
+    if is_empty(a) then return Ok(None)
+
+    val out = pv.surface(int(a.right - a.left), int(a.bottom - a.top)) match
+        Some(s) -> s
+        None -> return Err(resource_error("memory", s"'$name' could not have the pixels of a ${a.right - a.left} by ${a.bottom - a.top} image"))
+
+    val from_data = c.surface.data()
+    val from_stride = long(c.surface.stride())
+    val to = out.data()
+    val to_stride = long(out.stride())
+
+    for y in a.top..<a.bottom
+        for b in 0..<4 * (a.right - a.left)
+            to[usize((y - a.top) * to_stride + b)] = from_data[usize(y * from_stride + 4 * a.left + b)]
+
+    Ok(Some(out))
+
+// The extension of `file`'s last name, as written, or `""` when it has none.
+private extension_of(file: string) -> string
+    var dot: Option[usize] = None
+
+    for i in 0..<file.len
+        if file.bytes[i] == u8('/') then dot = None
+
+        if file.bytes[i] == u8('.') then dot = Some(i + 1)
+
+    dot match
+        Some(i) -> file.slice(i, file.len)
+        None -> ""
+
+// Whether `a` and `b` are the same ASCII letters, whatever their case.
+private same_letters(a: string, b: string) -> bool
+    if a.len != b.len then return false
+
+    for i in 0..<a.len
+        val x = a.bytes[i]
+        val y = b.bytes[i]
+        val lx = if x >= u8('A') && x <= u8('Z') then x + 32 else x
+        val ly = if y >= u8('A') && y <= u8('Z') then y + 32 else y
+
+        if lx != ly then return false
+
+    true
+
+// `w.write_image(file, x, y, wd, ht)`: the rectangle -- the whole canvas by default, read as the
+// drawing methods read one, and cut to the canvas -- written to `file` as a PNG. Answers `w`; fails
+// when none of the rectangle is on the canvas or the file cannot be written; faults when `file` names
+// another image format.
+private do_write_image(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc < 2 || argc > 6
+        return Err(wrong_count("write_image", argc - 1, s"'write_image' takes a file and at most four numbers, and was given ${argc - 1} arguments"))
+
+    val w = window_arg(base, 0, "write_image")?
+    val file = path_arg(base, 1, "write_image")?
+    val ext = extension_of(file)
+
+    for f in OtherFormats
+        if same_letters(f, ext)
+            return Err(domain_error("image_format", new_str(ext)?, s"'write_image' writes PNG only, and `$file` names a .$ext file"))
+
+    val img = cut(base, argc, 2, w, "write_image")? match
+        Some(s) -> s
+        None -> return Ok(None)
+
+    if !img.write_png(file) then return Ok(None)
+
+    Ok(Some(Handle(w.h)))
+
+// `w.image_bytes(x, y, wd, ht)`: the PNG `write_image` would write, as a byte string. Fails when none
+// of the rectangle is on the canvas.
+private do_image_bytes(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc > 5
+        return Err(wrong_count("image_bytes", argc - 1, s"'image_bytes' takes at most four numbers, and was given ${argc - 1}"))
+
+    val w = window_arg(base, 0, "image_bytes")?
+
+    val img = cut(base, argc, 1, w, "image_bytes")? match
+        Some(s) -> s
+        None -> return Ok(None)
+
+    img.png_bytes() match
+        Some(png) -> Ok(Some(new_bytes(png)?))
+        None -> Err(system_error("'image_bytes': the PNG encoder failed"))
+
+// `w.new_color(…)`: fails, as Icon's `NewColor` does on a true-colour display -- there is no colour
+// map to take an entry of.
+private do_new_color(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    window_arg(base, 0, "new_color")?
+    Ok(None)
+
+// -- image strings ---------------------------------------------------------------------------------
+
+// The space and the comma, which an image string's data may hold anywhere, standing for nothing,
+// unless the palette has them as keys.
+private is_punctuation(c: u32) -> bool = c == u32(' ') || c == u32(',')
+
+private hex_value(c: u32) -> Option[long]
+    if c >= u32('0') && c <= u32('9') then return Some(long(c - u32('0')))
+    if c >= u32('a') && c <= u32('f') then return Some(long(c - u32('a')) + 10)
+    if c >= u32('A') && c <= u32('F') then return Some(long(c - u32('A')) + 10)
+
+    None
+
+// `w.draw_image(x, y, spec)`: Icon's image string `spec` drawn with its corner at `x`, `y`, moved by
+// `dx` and `dy`, inside the clip rectangle. `"wd,palette,data"` has a character a pixel, row by row,
+// each a key of the palette, `~` and `\377` transparent where the palette has no such key; `"wd,#hex"`
+// is bi-level, a row's hex digits read as one number whose bit `i` is pixel `i`, ones in the
+// foreground and zeros in the background, or left as they were for `"wd,~hex"`. Spaces and commas in
+// the data are punctuation. Answers `w`; fails on a string that is no image.
+private do_draw_image(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc != 4
+        return Err(wrong_count("draw_image", argc - 1, s"'draw_image' takes x, y and an image string, and was given ${argc - 1} arguments"))
+
+    val w = window_arg(base, 0, "draw_image")?
+    val ctx = context_at(w.ctx)
+    val x = integer_or(base, argc, 1, "draw_image")?.unwrap_or(0) + ctx.dx
+    val y = integer_or(base, argc, 2, "draw_image")?.unwrap_or(0) + ctx.dy
+    val s = str_arg(base, 3, "draw_image")?.s
+
+    var codes: Buf[u32] = buf()
+
+    for c in chars_of(s.bytes)
+        codes.push(u32(c))
+
+    val drawn = image_string(w, codes, x, y)
+
+    codes.release()
+    Ok(if drawn then Some(Handle(w.h)) else None)
+
+// Image string `codes` drawn on `w` at `x`, `y`; false when it is no image.
+private image_string(w: Win, codes: Buf[u32], x: long, y: long) -> bool
+    var i: usize = 0
+    val n = codes.len()
+
+    while i < n && codes.at(i) == u32(' ')
+        i += 1
+
+    var width: long = 0
+
+    while i < n && codes.at(i) >= u32('0') && codes.at(i) <= u32('9')
+        width = 10 * width + long(codes.at(i) - u32('0'))
+        i += 1
+
+        if width > 32767 then return false
+
+    while i < n && codes.at(i) == u32(' ')
+        i += 1
+
+    if width == 0 || i >= n || codes.at(i) != u32(',') then return false
+
+    i += 1
+
+    while i < n && codes.at(i) == u32(' ')
+        i += 1
+
+    if i >= n then return false
+
+    val first = codes.at(i)
+
+    if first == u32('#') || first == u32('~') then return bi_level(w, codes, i + 1, width, first == u32('~'), x, y)
+
+    i += 1
+
+    var number: long = 0
+
+    while i < n && codes.at(i) >= u32('0') && codes.at(i) <= u32('9')
+        number = 10 * number + long(codes.at(i) - u32('0'))
+        i += 1
+
+        if number > 1000 then return false
+
+    while i < n && codes.at(i) == u32(' ')
+        i += 1
+
+    if i >= n || number == 0 || codes.at(i) != u32(',') then return false
+
+    val p = if first == u32('g') && number >= 2 && number <= 256
+        -number
+    else if first == u32('c') && number <= 6
+        number
+    else
+        return false
+
+    in_palette(w, codes, i + 1, width, p, x, y)
+
+// The bi-level image of `codes` from `from`, `width` pixels a row.
+private bi_level(w: Win, codes: Buf[u32], from: usize, width: long, clear: bool, x: long, y: long) -> bool
+    var digits: Buf[long] = buf()
+
+    for i in from..<codes.len()
+        hex_value(codes.at(i)) match
+            Some(d) -> digits.push(d)
+            None ->
+                if !is_punctuation(codes.at(i))
+                    digits.release()
+                    return false
+
+    val row = (width + 3) / 4
+
+    if digits.len() == 0 || long(digits.len()) % row != 0
+        digits.release()
+        return false
+
+    val height = long(digits.len()) / row
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    val area = on_canvas(c, ctx, x, y, width, height, true)
+    val data = c.surface.data()
+    val stride = long(c.surface.stride())
+
+    for r in 0..<height
+        for px in 0..<width
+            val tx = x + px
+            val ty = y + r
+
+            if tx < area.left || tx >= area.right || ty < area.top || ty >= area.bottom then continue
+
+            // Pixel `px` is bit `px` of the row read as one number, the first digit the highest.
+            val d = digits.at(usize(r * row + row - 1 - px / 4))
+            val on = ((d >> (px % 4)) & 1) == 1
+
+            if on
+                paint(data, usize(ty * stride + 4 * tx), ctx.fg_rgb)
+            else if !clear
+                paint(data, usize(ty * stride + 4 * tx), ctx.bg_rgb)
+
+    digits.release()
+    true
+
+// The image of `codes` from `from` in palette `p`, `width` pixels a row.
+private in_palette(w: Win, codes: Buf[u32], from: usize, width: long, p: long, x: long, y: long) -> bool
+    val table = palette_table(p)
+    var count: long = 0
+
+    for i in from..<codes.len()
+        val k = codes.at(i)
+
+        if k < 256 && table.at(usize(k)).is_some()
+            count += 1
+        else if k == u32('~') || k == 255
+            count += 1
+        else if !is_punctuation(k)
+            return false
+
+    if count == 0 || count % width != 0 then return false
+
+    val height = count / width
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    val area = on_canvas(c, ctx, x, y, width, height, true)
+    val data = c.surface.data()
+    val stride = long(c.surface.stride())
+    var at: long = 0
+
+    for i in from..<codes.len()
+        val k = codes.at(i)
+
+        val colour = if k < 256 then table.at(usize(k)) else None
+
+        if colour.is_none() && k != u32('~') && k != 255 then continue
+
+        val tx = x + at % width
+        val ty = y + at / width
+
+        at += 1
+
+        if tx < area.left || tx >= area.right || ty < area.top || ty >= area.bottom then continue
+
+        colour match
+            Some(rgb) -> paint(data, usize(ty * stride + 4 * tx), rgb)
+            None -> ()
+
+    true
+
+// -- palettes --------------------------------------------------------------------------------------
+
+// The keys of the palettes that are not a run of characters from code 0, in palette order.
+private const C1Keys: string = "0123456789?!nNAa#@oOBb$%pPCc&|qQDd,.rREe;:sSFf+-tTGg*/uUHh`'vVIi<>wWJj()xXKk[]yYLl{}zZMm^="
+private const C2Keys: string = "kbgcrmywx"
+private const C3Keys: string = "@ABCDEFGHIJKLMNOPQRSTUVWXYZabcd"
+private const C4Keys: string = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz{}$%&*+-/?@"
+
+// The colours of `c1`, in key order, each component in 48ths.
+private val C1Levels: [270]long = [
+    0, 0, 0, 8, 8, 8, 16, 16, 16, 24, 24, 24, 32, 32, 32, 40, 40, 40, 48, 48, 48, 48, 24, 30, 36, 24, 48, 48, 36, 24,
+    24, 12, 0, 8, 4, 0, 16, 0, 0, 32, 0, 0, 48, 0, 0, 48, 16, 16, 48, 32, 32, 30, 18, 18, 16, 4, 0, 32, 8, 0,
+    48, 12, 0, 48, 24, 16, 48, 36, 32, 30, 21, 18, 16, 8, 0, 32, 16, 0, 48, 24, 0, 48, 32, 16, 48, 40, 32, 30, 24, 18,
+    16, 16, 0, 32, 32, 0, 48, 48, 0, 48, 48, 16, 48, 48, 32, 30, 30, 18, 8, 16, 0, 16, 32, 0, 24, 48, 0, 32, 48, 16,
+    40, 48, 32, 24, 30, 18, 0, 16, 0, 0, 32, 0, 0, 48, 0, 16, 48, 16, 32, 48, 32, 18, 30, 18, 0, 16, 8, 0, 32, 16,
+    0, 48, 24, 16, 48, 32, 32, 48, 40, 18, 30, 24, 0, 16, 16, 0, 32, 32, 0, 48, 48, 16, 48, 48, 32, 48, 48, 18, 30, 30,
+    0, 8, 16, 0, 16, 32, 0, 24, 48, 16, 32, 48, 32, 40, 48, 18, 24, 30, 0, 0, 16, 0, 0, 32, 0, 0, 48, 16, 16, 48,
+    32, 32, 48, 18, 18, 30, 8, 0, 16, 16, 0, 32, 24, 0, 48, 32, 16, 48, 40, 32, 48, 24, 18, 30, 16, 0, 16, 32, 0, 32,
+    48, 0, 48, 48, 16, 48, 48, 32, 48, 30, 18, 30, 16, 0, 8, 32, 0, 16, 48, 0, 24, 48, 16, 32, 48, 32, 40, 30, 18, 24]
+
+// The number of palette name `s`, as Icon's `palnum` reads it: 1 to 6 for `"c1"` to `"c6"`, -2 to
+// -256 for `"g2"` to `"g256"`, and `None` for any other string.
+palette_number(s: string) -> Option[long]
+    if s.len < 2 then return None
+
+    var n: long = 0
+
+    for i in 1..<s.len
+        val b = s.bytes[i]
+
+        if b < u8('0') || b > u8('9') then return None
+
+        n = 10 * n + long(b - u8('0'))
+
+        if n > 1000 then return None
+
+    if s.bytes[0] == u8('c') && n >= 1 && n <= 6 then return Some(n)
+    if s.bytes[0] == u8('g') && n >= 2 && n <= 256 then return Some(-n)
+
+    None
+
+// The code points of palette `p`'s keys, in palette order.
+private palette_keys(p: long) -> Buf[u32]
+    var out: Buf[u32] = buf()
+
+    val from = if p == 1 then C1Keys else if p == 2 then C2Keys else if p == 3 then C3Keys else if p == 4 then C4Keys else ""
+
+    if from != ""
+        for c in chars_of(from.bytes)
+            out.push(u32(c))
+
+        return out
+
+    val n = if p == 5 then 141 else if p == 6 then 241 else -p
+
+    if p < 0 && n <= 64
+        for i in 0..<usize(n)
+            out.push(u32(C4Keys.bytes[i]))
+    else
+        for i in 0..<n
+            out.push(u32(i))
+
+    out
+
+// Component `k` of a grey or a cube's corner: `65535 * m * k`, with Icon's double precision and its
+// truncation.
+private level(m: real, k: long) -> long = long(65535.0 * m * real(k))
+
+// The colour of entry `i` of palette `p`, as Icon's `palsetup` computes it: `c1`'s from its table, a
+// grey palette's evenly spaced, and a colour cube's corner, or one of the greys beyond the cube.
+private palette_entry(p: long, i: long) -> Rgb
+    if p == 1
+        val at = usize(3 * i)
+
+        return Rgb(long(65535.0 * (real(C1Levels[at]) / 48.0)), long(65535.0 * (real(C1Levels[at + 1]) / 48.0)),
+            long(65535.0 * (real(C1Levels[at + 2]) / 48.0)))
+
+    if p < 0
+        val g = level(1.0 / real(-p - 1), i)
+
+        return Rgb(g, g, g)
+
+    if i < p * p * p
+        val m = 1.0 / real(p - 1)
+
+        return Rgb(level(m, i / (p * p)), level(m, i / p % p), level(m, i % p))
+
+    val j = i - p * p * p
+    val g = level(1.0 / real(p * (p - 1)), j / (p - 1) * p + j % (p - 1) + 1)
+
+    Rgb(g, g, g)
+
+// Palette `p` by key code: the colour of each code below 256 that is a key, `None` for the rest.
+private palette_table(p: long) -> Buf[Option[Rgb]]
+    var out: Buf[Option[Rgb]] = buf()
+
+    for _ in 0..<256
+        out.push(None)
+
+    var keys = palette_keys(p)
+
+    for i in 0..<keys.len()
+        out.set(usize(keys.at(i)), Some(palette_entry(p, long(i))))
+
+    keys.release()
+    out
+
+// -- the helpers the module's FunL calls ---------------------------------------------------------------
+
+// The function of `funl:graphics` a helper is working for, named in what it reports.
+private helped(base: usize) -> string = deref(arg(base, 0)) match
+    Str(p) -> p.s
+    _ -> "funl:graphics"
+
+// `_palette(name, p)`: the number of palette `p` (`palette_number`); fails for a string that names no
+// palette.
+private do_palette(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = helped(base)
+    val x = deref(arg(base, 1))
+
+    val s = x match
+        Str(p) -> p.s
+        _ -> return Err(kind_error(x, "string", s"'$who' wants a palette, a string, and was given ${described(x)}"))
+
+    Ok(palette_number(s) match
+        Some(n) -> Gives(Int(n))
+        None -> Refuses)
+
+// `_palette_char(name, k)`: the code point of key `k`, a string of one character.
+private do_palette_char(base: usize, argc: usize) -> Result[Value, Fault]
+    val who = helped(base)
+    val k = str_arg(base, 1, who)?
+
+    if k.chars != 1
+        return Err(domain_error("one_character_string", arg(base, 1), s"'$who' wants a key of one character, and was given one of ${k.chars}"))
+
+    Ok(Int(long(u32(char_at(k, 0)))))
+
+// `_color_rgb(name, c)`: colour specification `c` as a tuple `(r, g, b)`, each 0 to 65535. Fails for a
+// string that names no colour, and for an integer, which would name a colour-map entry `new_color` made,
+// and there are none.
+private do_color_rgb(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val who = helped(base)
+    val x = deref(arg(base, 1))
+
+    val spec = x match
+        Str(p) -> p.s
+        Int(_) -> return Ok(Refuses)
+        _ -> return Err(kind_error(x, "string", s"'$who' wants a colour, a string, and was given ${described(x)}"))
+
+    val c = parse_color(spec) match
+        Some(c) -> c
+        None -> return Ok(Refuses)
+
+    val t = new_tuple(3)?
+
+    t.items.set(0, Int(c.r))
+    t.items.set(1, Int(c.g))
+    t.items.set(2, Int(c.b))
+    Ok(Gives(Tuple(t)))
