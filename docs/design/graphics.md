@@ -77,10 +77,6 @@ a resize keeping the picture, several windows, and the wait at the program's end
 [Windows on screen](../library/graphics-screen.md). What remains of this section is for the later
 items.
 
-**`&window` is kept** (keywords are [I18](language.md#icon-parity)'s `&name`): assignable, set by
-`open` to the window it makes, failing when no window is open, so a helper procedure can draw on "the
-current window" as Icon's do — `&window.draw_line(…)`.
-
 ### The attributes still to come
 
 The map, its failures and its faults are built, with the attributes whose meaning needs nothing from
@@ -93,9 +89,8 @@ enumerations symbols, the rest strings):
 | `pattern` (Icon's pattern specifications, and its failure) | 2, drawing |
 | `image` (a file loaded at open, the canvas sized to it) | 4, images |
 | `font`, `leading`, `x`, `y`, `row`, `col`; read-only `ascent`, `descent`, `fheight`, `fwidth` | 5, fonts and text |
-| `cursor`, `echo`, `inputmask` | 6, events |
 
-`pointer` is read as the table pairs it with `pointerx` and `pointery`: where the pointer is, as
+`pointer` is read as item 7 built it, paired with `pointerx` and `pointery`: where the pointer is, as
 `pos` is where the window is. Icon's `pointer` -- the pointer's *shape* -- has no attribute here yet:
 which shape names FunL takes is open, and SDL's dummy driver cannot make a system cursor to test one.
 
@@ -223,45 +218,10 @@ value without a file — a FunL addition, small, and what a test or a program se
 
 ## Events
 
-### What an event is
-
-**`w.event()` answers the next event's code, as Icon's `Event()` does, and sets the event
-keywords.** It blocks while the queue is empty, showing the canvas first (it [flushes](../library/graphics-screen.md#opening-and-showing)).
-
-- **A key** with a character is a one-character string — `"a"`, `"A"`, `"\r"`, `"\e"`, `"\x03"` for
-  control-C — as Icon's. With `inputmask` holding `"k"`, a key's release is reported too, as the
-  same code with the keyword `&released` succeeding, so a release is told from a press without a
-  second set of codes ([G9](#the-questions-collected)).
-- **A key with no character** is a symbol named for Icon's `keysyms.icn` constants, lower-cased with
-  the `Key_` dropped: `#home`, `#end`, `#pgup`, `#pgdn`, `#left`, `#right`, `#up`, `#down`,
-  `#insert`, `#f1` … `#f12`, and the rest.
-- **A mouse event** is a symbol, and Icon's keywords name the same values: `&lpress`, `&ldrag`,
-  `&lrelease`, `&mpress`, `&mdrag`, `&mrelease`, `&rpress`, `&rdrag`, `&rrelease` are `#lpress` …
-  `#rrelease`; `&resize` is `#resize`. Motion with no button held is `#move`, reported only while
-  `inputmask` holds `"m"`, as Icon's. The wheel is `#wheelup`, `#wheeldown`, `#wheelleft`,
-  `#wheelright`, which Icon 9.5 lacks and every mouse now has.
-- **Closing the window** from its title bar is `#close` (FunL's; Icon's book leaves it to the window
-  manager). A program that never reads it keeps its window until it closes it.
-
-**The event keywords** are set by `event()`, Icon's set: `&x`, `&y` (the pointer, in the window's
-coordinates, `dx`/`dy` taken off), `&row`, `&col` (the text cell under it), `&interval` (milliseconds
-since the previous event), and `&control`, `&shift`, `&meta`, which **succeed when the modifier was
-held and fail when not**, as Icon's do, so `if &shift then …` reads as Icon's. They belong to the
-running machine, not the window: each task of [`async`](modules.md#async-and-await) has its own, so
-one task's `event()` never changes what another reads ([G10](#the-questions-collected)).
-
-### The queue
-
-| Icon | FunL |
-|---|---|
-| `Pending(w)` (a list; `*Pending()` its size) | `w.pending()` — the number of events queued; **fails when there are none**, so `if w.pending() then` reads as Icon's `*Pending() > 0` |
-| `Enqueue(w, a, x, y, s, i)` | `w.enqueue(code, x, y, mods, interval)` — `mods` a string of `"c"`, `"m"`, `"s"`, as Icon's |
-| `Active()` | `active()` — a generator of the open windows that have events, blocking until one does |
-| `WFlush(w)`, `WSync(w)` | `w.flush()`, `w.sync()` |
-| `WDelay(w, i)` | `w.delay(ms)` — flushes, then waits |
-
-**`enqueue` is the same queue the screen fills.** An event put there is read by `event()` exactly as
-a click is, which is how a hidden canvas takes events in a test.
+**The queue, `enqueue`, `event()`, `pending()`, `active()`, the event codes and keywords, `&window`
+and `inputmask` are built on hidden canvases** — see the library page's
+[events](../library/graphics.md#events) — and so are a window on screen's own events, which reach the
+same queue ([Windows on screen](../library/graphics-screen.md#events-from-the-screen)).
 
 ### Events and the loop
 
@@ -283,16 +243,6 @@ driver that waits on two sources is F2.
 
 **SDL's video calls are made on the process's main thread**, which is the thread FunL's instruction
 loop and kairos run on; macOS refuses them from any other. FunL starts no thread for graphics.
-
-### The screen's events reach the queue
-
-The window on screen is built ([Windows on screen](../library/graphics-screen.md)), and what it does
-with SDL's events is the part the queue waits on. `show_screens()` (`native_graphics.sysl`) is the
-wait point every waiting call goes through — `event()`, `pending()`, `active()` and `read()` call
-it before they block, as `flush`, `delay` and the loop already do. A user's resize already resizes the
-canvas, keeping the picture and filling the new area with `bg`; it also **queues `#resize`**, a close
-from the title bar **queues `#close`**, and SDL's keys, buttons, motion and wheel become Icon's codes
-on the canvas's queue, routed by window id (`take_news`).
 
 ## Closed by design
 
@@ -331,8 +281,8 @@ on the canvas's queue, routed by window id (`take_news`).
 | G6 | coordinates on a high-density screen | **Decided (user, 2026-10-15)**: points, with the surface at `density` times the pixels; a hidden canvas always density 1 |
 | G7 | `drawop: #reverse` | built, as a coverage mask exclusive-ored into the pixels, not anti-aliased |
 | G8 | image formats | read what stb_image reads; write PNG only, refusing another extension |
-| G9 | key releases | reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
-| G10 | whose are `&x`, `&y`, `&control`, … | the running machine's (each task its own), set by `event()` |
+| G9 | key releases | **Decided (user, 2026-10-15)**: reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
+| G10 | whose are `&x`, `&y`, `&control`, … | **Decided (user, 2026-10-15)**: the running machine's (each task its own), set by `event()` |
 | G11 | the promise form of `Event()` | a method, `w.next_event()`, answering a promise of an event map; it sets no keywords |
 | G12 | module and feature | **Decided (user, 2026-10-15)**: one module, `funl:graphics`, in the core over vendored plutovg (hidden canvases work in every build); on-screen windows behind a `graphics` feature over `sdl3`, on in `default`; without it, opening a visible window faults naming the feature |
 

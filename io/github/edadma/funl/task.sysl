@@ -61,11 +61,12 @@ struct Machine
     task_fn: usize
     co: *CoExprObj
     co_main: *CoExprObj
+    keys: EventKeys
 
 // An empty slot of `Vm.parked`, and the machine a co-expression starts on (`coexpr.sysl`).
 empty_machine() -> Machine =
     Machine(false, 0, 0, buf(), null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), null, NoMachine, 0, NoMachine,
-            null, null)
+            null, null, no_event_keys())
 
 // Empty the VM's machine: what `park` leaves, and what a finished task becomes.
 private clear_machine(v: *Vm)
@@ -88,11 +89,12 @@ private clear_machine(v: *Vm)
     v.task_fn = NoMachine
     v.co = null
     v.co_main = null
+    v.keys = no_event_keys()
 
 // The running machine, taken out of the VM, which is left empty.
 take_machine(v: *Vm) -> Machine
     val m = Machine(true, v.code, v.ip, v.stack, v.frame, v.control, v.saved, v.trail, v.mark, v.stamp, v.subject, v.pos,
-                    v.scans, v.captures, v.promise, v.back_to, v.task, v.task_fn, v.co, v.co_main)
+                    v.scans, v.captures, v.promise, v.back_to, v.task, v.task_fn, v.co, v.co_main, v.keys)
 
     clear_machine(v)
     m
@@ -118,6 +120,7 @@ put_machine(v: *Vm, m: Machine)
     v.task_fn = m.task_fn
     v.co = m.co
     v.co_main = m.co_main
+    v.keys = m.keys
 
 // Set the running machine aside, and answer where it went.
 park(v: *Vm) -> usize

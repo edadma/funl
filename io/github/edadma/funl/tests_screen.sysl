@@ -181,6 +181,101 @@ A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
     leave(was)
 end A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT
 
+// A key going down (`down`) or up, scancode `code` with modifiers `mods`, at `ts` nanoseconds.
+private key_event(id: u32, code: i32, mods: u16, down: bool, ts: u64) -> sdl.Event
+    var e = sc.KeyboardEvent(if down then sdl.EVENT_KEY_DOWN else sdl.EVENT_KEY_UP, 0, ts, id, 0, code, 0, mods, 0, down, false, [0; 90])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// A button going down or up at `x`, `y`.
+private button_event(id: u32, button: u8, down: bool, x: f32, y: f32, ts: u64) -> sdl.Event
+    var e = sc.MouseButtonEvent(if down then sdl.EVENT_MOUSE_BUTTON_DOWN else sdl.EVENT_MOUSE_BUTTON_UP, 0, ts, id, 0, button, down, 1, 0, x, y, [0; 88])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The wheel turned by `dx`, `dy`.
+private wheel_event(id: u32, dx: f32, dy: f32, ts: u64) -> sdl.Event
+    var e = sc.MouseWheelEvent(sdl.EVENT_MOUSE_WHEEL, 0, ts, id, 0, dx, dy, 0, 0.0, 0.0, [0; 84])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The pointer moving with buttons `held` down.
+private drag_event(id: u32, held: u32, x: f32, y: f32, ts: u64) -> sdl.Event
+    var e = sc.MouseMotionEvent(sdl.EVENT_MOUSE_MOTION, 0, ts, id, 0, held, x, y, 0.0, 0.0, [0; 84])
+    val p: *sc.Event = ptr_cast(&e)
+
+    sdl.Event(p[0])
+
+// The events on the queue of the canvas at `at`, one a line: code, where, modifier bits, interval.
+private queue_text(at: usize) -> string
+    val q = canvases.at(at).unwrap().queue
+    var b = str_builder()
+
+    for i in 0..<q.len()
+        val ev = q.at(i)
+
+        // A key is written as its character's code, since several are control characters.
+        b.push(if ev.is_key then s"key ${ev.key.bytes[0]}" else atom_name(ev.sym))
+        b.push(s" ${ev.x},${ev.y} ${ev.mods} ${ev.interval}\n")
+
+    b.finish()
+
+@test
+THE_WINDOWS_KEYS_BUTTONS_WHEEL_RESIZE_AND_CLOSE_ARE_QUEUED_AS_ICONS_EVENTS()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val chunk = compiled_text("import { open } from funl:graphics\nw = open( \"typed\", {size: (40, 30), inputmask: \"k\", resize: true} )\nw.flush()\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, chunk)), "succeeded", transcript(streams))
+
+    val at = shown_canvas("typed").expect("the program's window is still open")
+    val id = screen_id(usize(canvases.at(at).unwrap().screen))
+    val second: u64 = 1000000000
+
+    // `a`, shifted; control with `c`; F1; a release; Return.
+    assert(sdl.push_event(key_event(id, 4, sdl.KMOD_LSHIFT, true, second)), "shift-a")
+    assert(sdl.push_event(key_event(id, 5, sdl.KMOD_CAPS, true, second)), "b under caps lock")
+    assert(sdl.push_event(key_event(id, 5, sdl.KMOD_CAPS | sdl.KMOD_LSHIFT, true, second)), "and shifted under it")
+    assert(sdl.push_event(key_event(id, 6, sdl.KMOD_LCTRL, true, second + 250000000)), "control-c")
+    assert(sdl.push_event(key_event(id, 58, 0, true, 2 * second)), "F1")
+    assert(sdl.push_event(key_event(id, 58, 0, false, 2 * second)), "F1 let go")
+    assert(sdl.push_event(key_event(id, 40, 0, true, 2 * second)), "Return")
+
+    // A click and a drag, the wheel, motion with no button held (which the mask leaves out), a
+    // resize, and a close.
+    assert(sdl.push_event(button_event(id, 1, true, 5.0, 6.0, 3 * second)), "left press")
+    assert(sdl.push_event(drag_event(id, sdl.BUTTON_LMASK, 7.0, 8.0, 3 * second)), "left drag")
+    assert(sdl.push_event(button_event(id, 1, false, 7.0, 8.0, 3 * second)), "left release")
+    assert(sdl.push_event(button_event(id, 3, true, 1.0, 2.0, 3 * second)), "right press")
+    assert(sdl.push_event(wheel_event(id, 0.0, -1.0, 3 * second)), "wheel down")
+    assert(sdl.push_event(drag_event(id, 0, 9.0, 9.0, 3 * second)), "a move, not asked for")
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_RESIZED, id, 50, 35)), "resized")
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, id, 0, 0)), "closed")
+    show_screens()
+
+    assert_eq(queue_text(at),
+        "key 65 0,0 4 0\nkey 66 0,0 0 0\nkey 98 0,0 4 0\nkey 3 0,0 1 250\nf1 0,0 0 750\nf1 0,0 8 0\nkey 13 0,0 0 0\n" +
+        "lpress 5,6 0 1000\nldrag 7,8 0 0\nlrelease 7,8 0 0\nrpress 1,2 0 0\nwheeldown 1,2 0 0\n" +
+        "resize 9,9 0 0\nclose 9,9 0 0\n")
+
+    free_canvas(at)
+    dispose_vm(&v)
+    leave(was)
+end THE_WINDOWS_KEYS_BUTTONS_WHEEL_RESIZE_AND_CLOSE_ARE_QUEUED_AS_ICONS_EVENTS
+
+@test
+EVENT_READS_WHAT_THE_SCREEN_QUEUED_AND_MOTION_IS_QUEUED_ONLY_UNDER_INPUTMASK_M()
+    // Moving the pointer with `pointer` makes SDL report the motion, as a user's would be.
+    assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"moved\", {size: (40, 30)} )\nw.set( {pointer: (3, 2)} )\nwrite( w.pending() | \"none\" )\n" +
+            "w.set( {inputmask: \"m\", pointer: (5, 4)} )\nwrite( w.event(), &x, &y, w.get(\"pointer\") )\nw.close()\n"),
+        "none\nmove, 5, 4, (5, 4)\nsucceeded")
+
 // What program `text` printed when run as `funl` runs it, and its status.
 private ran_as(text: string) -> string
     headless_video()

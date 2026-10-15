@@ -7,12 +7,14 @@ weight: 22
 
 `funl:graphics` gives FunL the graphics facilities of Icon 9.5. A window is a handle, and everything
 done with it is a method on that handle. The module exports `open`, which makes a window; `couple`,
-which joins two; and `color_value`, which reads a colour.
+which joins two; `color_value`, which reads a colour; and `active`, which finds the windows with
+events waiting.
 
 This page covers windows on a **hidden canvas**: a picture drawn in memory and read back, with no
-window on screen. [Windows on screen](graphics-screen.md) has the rest of a window's life: shown,
-moved, resized and closed by its user. Drawing, images, text and events come with later parts of the
-module.
+window on screen, and its events, put on its queue by the program. [Windows on
+screen](graphics-screen.md) has the rest of a window's life: shown, moved, resized and closed by its
+user, whose keys and clicks reach the same queue. Drawing, images and text come with later parts of
+the module.
 
 ## Hidden canvases
 
@@ -70,7 +72,7 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "pos": undefined, "posx": undefined, "posy": undefined, "pointer": undefined, "pointerx": undefined, "pointery": undefined, "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "displaywidth": undefined, "displayheight": undefined}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "pos": undefined, "posx": undefined, "posy": undefined, "pointer": undefined, "pointerx": undefined, "pointery": undefined, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "displaywidth": undefined, "displayheight": undefined}
 ```
 
 | attribute | value | default |
@@ -82,6 +84,9 @@ red, 3, dashed
 | `resize` | whether the user may resize the window | `false` |
 | `pos`, `posx`, `posy` | where the window is on its display, `(x, y)`; a hidden canvas keeps it for when it is shown | `undefined` until set or shown |
 | `pointer`, `pointerx`, `pointery` | where the pointer is over the window, `(x, y)`; setting it moves the pointer; a hidden canvas has none, and setting it fails | `undefined` until known |
+| `cursor` | whether the text cursor is shown | `false` |
+| `echo` | whether keys read as text are drawn as they are typed | `true` |
+| `inputmask` | the events reported beyond the usual: `"m"` motion with no button held, `"k"` a key's release ([events](#events)) | `""` |
 | `fg`, `bg` | a colour | `"black"`, `"white"` |
 | `reverse` | `true` swaps `fg` and `bg`, `false` swaps them back | `false` |
 | `linewidth` | an integer, 0 or more | `1` |
@@ -237,4 +242,126 @@ write( b.get("size") catch e -> e )
 ```output
 <closed window handle>, (40, 30)
 error(existence_error(handle, <closed window handle>), context(_G2, "'get' was called on the handle <closed window handle>"))
+```
+
+## The current window
+
+**`&window` is the window `open` made last**, so a procedure can draw on "the current window"
+without being handed one, as Icon's do. A program may assign it a window, or `undefined` for none, and
+it fails when there is none or the one it holds is closed:
+
+```funl
+import { open } from funl:graphics
+
+def title() = &window.get( "label" )
+
+a = open( "first", {canvas: #hidden} )
+b = open( "second", {canvas: #hidden} )
+write( title() )
+&window = a
+write( title() )
+a.close()
+write( &window | "no window" )
+```
+
+```output
+second
+first
+no window
+```
+
+## Events
+
+**A window's events wait on its queue, and `w.event()` takes the oldest**, answering its code:
+
+- **a key with a character** is a one-character string: `"a"`, `"A"`, `"\r"`, `"\e"`, `"\x03"` for
+  control-C;
+- **a key with no character** is a symbol named for Icon's key constants, lower-cased: `#home`, `#end`,
+  `#pgup`, `#pgdn`, `#left`, `#right`, `#up`, `#down`, `#insert`, `#f1` … `#f12`;
+- **a mouse event** is a symbol, and the keywords `&lpress`, `&ldrag`, `&lrelease`, `&mpress`,
+  `&mdrag`, `&mrelease`, `&rpress`, `&rdrag` and `&rrelease` answer the same symbols, `#lpress` …
+  `#rrelease`; `&resize` is `#resize`. The wheel is `#wheelup`, `#wheeldown`, `#wheelleft` and
+  `#wheelright`, and motion with no button held is `#move`;
+- **closing the window** from its title bar is `#close`.
+
+**`event()` also sets the event keywords**, Icon's set: `&x` and `&y`, where the pointer was, in the
+window's coordinates (`dx` and `dy` taken off); `&row` and `&col`, the text cell under it, counted from
+1; `&interval`, the milliseconds since the event before; and `&control`, `&meta` and `&shift`, which
+succeed when the modifier was held and fail when it was not, so `if &shift then …` reads as Icon's.
+
+**`w.enqueue(code, x, y, mods, interval)` puts an event on the queue**, which `event()` then reads
+exactly as it reads one the screen put there. `x`, `y` and `interval` default to 0, and `mods` is a
+string of `"c"`, `"m"` and `"s"` for the modifiers held, and `"r"` for a key let go. A hidden canvas
+takes its events only from `enqueue`, which is how a program with no screen — a test — clicks and
+types:
+
+```funl
+import { open } from funl:graphics
+
+w = open( "events", {canvas: #hidden, size: (100, 60)} )
+w.enqueue( #lpress, 10, 20 )
+w.enqueue( "a", 15, 20, "s", 120 )
+write( w.pending() )
+
+while w.pending() do
+  e = w.event()
+  write( e, &x, &y, &interval, if &shift then "shift" else "-", if e == &lpress then "a click" else "a key" )
+```
+
+```output
+2
+lpress, 10, 20, 0, -, a click
+a, 15, 20, 120, shift, a key
+```
+
+| method or function | what it does |
+|---|---|
+| `w.event()` | takes the oldest event, answers its code and sets the event keywords |
+| `w.pending()` | answers how many events are queued; **fails when there are none**, so `if w.pending() then` asks whether any are |
+| `w.enqueue(code, x, y, mods, interval)` | puts an event on the queue |
+| `active()` | generates each window that has an event waiting, one for each canvas |
+
+**`inputmask` asks for the events not reported by default**: with `"m"` in it, motion with no button
+held is reported as `#move`; with `"k"`, a key's release is reported too, as the same code with
+`&released` succeeding, so a release is told from a press without a second set of codes. An event the
+mask leaves out is not queued, as the screen would not queue it:
+
+```funl
+import { open } from funl:graphics
+
+w = open( "keys", {canvas: #hidden} )
+w.enqueue( "q", 0, 0, "r" )
+write( w.pending() | "nothing queued" )
+w.set( {inputmask: "k"} )
+w.enqueue( "q" )
+w.enqueue( "q", 0, 0, "r" )
+
+while w.pending() do
+  write( w.event(), if &released then "up" else "down" )
+```
+
+```output
+nothing queued
+q, down
+q, up
+```
+
+**The event keywords belong to the machine that called `event()`**: each `async` task has its own,
+so one task's events never change what another reads, and a task starts with `&x` and `&y` at 0 and
+no modifier held.
+
+**A window on screen is waited on**: `event()` on its empty queue, and `active()` when no window has
+an event, wait for its user to press a key or click ([Windows on screen](graphics-screen.md#events-from-the-screen)).
+**Nothing can queue an event on a hidden canvas while the program waits for one**, so there they
+fault rather than wait for ever:
+
+```funl
+import { open } from funl:graphics
+
+w = open( "quiet", {canvas: #hidden} )
+w.event()
+```
+
+```error
+'event': no event is queued, and none can come while the program waits: a hidden canvas takes events only from `enqueue`
 ```

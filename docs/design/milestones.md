@@ -267,12 +267,15 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
 6. **Events on a hidden canvas**: the queue, `enqueue`, `event()`, `pending`, `active`, every event
    code, the keywords `&x`, `&y`, `&row`, `&col`, `&interval`, `&control`, `&shift`, `&meta`,
    `&released`, `&window` and the event-code keywords, per machine; `read`/`reads` with `echo`.
-   Waits on item 5, milestone 11 item 10, G9 and G10.
+   Waits on item 5, milestone 11 item 10, G9 and G10. Done, except `read`/`reads` with `echo`, which
+   draw the echoed text and so wait on item 5's `writes`.
 7. **Windows on screen**: the `graphics` feature over `sdl3` (`--no-default-features` refusing a
    visible canvas), the texture and showing on wait, `flush`, `sync`, `delay`, SDL events routed by
    window id, `#close`, resize keeping pixels, several windows, the canvas attributes (`label`,
    `pos`, `size`, `pointer`, `resize`, `canvas`), `raise`/`lower`, waiting at program end. First
    proves the dummy video driver opens from a `Background` shell; tested only on it. Waits on item 6.
+   Done, except `lower` (F6: SDL has no call for it) and `canvas: #maximal`/`#iconic` (F5: the
+   `sdl3` package does not bind maximize and minimize), which fault naming what they need.
 8. **Events and the loop**: `next_event()` and its event map, the driver over SDL and libuv, `delay`
    as a timer inside a task, the one queue shared by both forms. Waits on item 7, G11 and F2.
 

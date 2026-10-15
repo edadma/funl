@@ -324,6 +324,15 @@ struct Vm
 
     // How many co-expressions the run has made: what the next one is numbered.
     coexprs_made: u64
+
+    // -- graphics (`native_graphics.sysl`) ------------------------------------------------------------
+
+    // `&window`: the window `open` made last or the program assigned, `Undefined` for none. A root.
+    window: Value
+
+    // The event keywords the running machine's last `event()` set. Parked and unparked with the rest
+    // of a machine, so each task has its own.
+    keys: EventKeys
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -355,7 +364,8 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", 0, 0, 0, heap_bytes, buf(), buf(), null, null, 0)
+        buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", 0, 0, 0, heap_bytes, buf(), buf(), null, null, 0, Undefined,
+        no_event_keys())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

@@ -149,6 +149,31 @@ w.close()
 0,0,65535, 65535,0,0
 ```
 
+## Events from the screen
+
+**A window's user fills the same queue `enqueue` does** ([events](graphics.md#events)), under the
+same `inputmask`, and `event()` reads both alike:
+
+- **A key** with a character is that character as a one-character string, shifted as the keyboard
+  shifts it -- `"a"`, `"A"`, `"\r"`, `"\e"` -- and with control held a letter is its control
+  character, `"\x03"` for control-C. **A key with no character** is a symbol named for Icon's
+  `keysyms.icn`: `#home`, `#end`, `#pgup`, `#pgdn`, `#left`, `#right`, `#up`, `#down`, `#insert`,
+  `#print`, `#scrolllock`, `#pause`, `#f1` to `#f12`. A key let go is the same code with `&released`
+  succeeding, queued only while `inputmask` holds `"k"`.
+- **The buttons** are `#lpress`, `#mpress`, `#rpress` and their `release`s; moving with one held is
+  `#ldrag`, `#mdrag` or `#rdrag`, and moving with none held is `#move`, queued only while `inputmask`
+  holds `"m"`. **The wheel** is `#wheelup`, `#wheeldown`, `#wheelleft` and `#wheelright`.
+- **A resize by the window's user** is `#resize`, once the canvas has been resized.
+- **Closing the window** from its title bar is `#close` -- FunL's; Icon's book leaves it to the
+  window manager. A program that never reads it keeps its window until it closes it.
+
+`&x` and `&y` are where the pointer was, `&control`, `&shift` and `&meta` (Alt, or the Command key)
+what was held, and `&interval` the milliseconds since the window's event before.
+
+**`event()` on an empty queue waits for one** while its window is on screen, showing the canvases
+first, and so does `active()` when no window has an event; `pending()` shows them and takes in what
+has come before it counts.
+
 ## Density
 
 **A window is measured in points.** On a high-density display -- a retina screen -- its canvas has

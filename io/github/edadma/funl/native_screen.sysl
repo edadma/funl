@@ -4,7 +4,9 @@ import sysl.buf.{Buf, buf}
 import sh.sysl.plutovg as pv
 #if feature_graphics
 import sh.sysl.sdl3 as sdl
+import sh.sysl.sdl3.c as sc
 import sysl.slices.as_ptr
+import sysl.text.from_utf8_unchecked
 #endif
 
 // The window on screen under `funl:graphics`, over the `sysl-lang/sdl3` package (`graphics.md` in the
@@ -35,6 +37,21 @@ enum ScreenNews
     // The pointer moved over the window, to `x`, `y` in its points.
     Pointed(id: u32, x: long, y: long)
 
+    // The window's user asked for it to close, from its title bar.
+    Closing(id: u32)
+
+    // A key, a button or the wheel, as Icon's event: `key`, a one-character string, for a key with a
+    // character, or else the symbol `sym` names -- `lpress`, `home`, `wheelup`, `move` -- where the
+    // pointer was, in the window's points, the modifiers held and whether a key was let go (the
+    // `Screen...` bits), and the milliseconds since the window's event before it.
+    Input(id: u32, key: string, sym: string, x: long, y: long, mods: u8, interval: long)
+
+// The modifier bits of an `Input`.
+const ScreenControl: u8 = 1
+const ScreenMeta: u8 = 2
+const ScreenShift: u8 = 4
+const ScreenReleased: u8 = 8
+
 #if feature_graphics
 // A window on screen. The renderer and the texture are `Option`s so that closing can let them go
 // before the window, which is the order SDL needs: destroying a window destroys its renderer with it.
@@ -47,6 +64,12 @@ private[funl] struct Screen
     th: long
     id: u32
     close_asked: bool
+
+    // Where the pointer was last seen over the window, and when the window's last event came, in
+    // SDL's nanoseconds, 0 before the first.
+    px: long
+    py: long
+    last: u64
 
 // process-wide: every window on screen by place, `None` once closed; a canvas holds its place.
 private[funl] var screens: Buf[Option[Screen]] = buf()
@@ -89,7 +112,7 @@ screen_open(title: string, w: long, h: long, resizable: bool, shown: bool) -> Re
         Some(made) -> made
         None -> return Err(s"the window could not be drawn in: ${sdl.error()}")
 
-    val s = Screen(win, Some(r), None, 0, 0, win.id(), false)
+    val s = Screen(win, Some(r), None, 0, 0, win.id(), false, 0, 0, 0)
 
     for i in 0..<screens.len()
         if screens.at(i).is_none()
@@ -193,7 +216,7 @@ private place_of(id: u32) -> Option[usize]
     None
 
 // What has happened to the windows on screen, waiting up to `ms` milliseconds for the first thing
-// when nothing has. A close asked for and a quit are kept here; the rest is answered.
+// when nothing has. A quit is kept here, and a close asked for is kept as well as answered.
 screen_news(ms: long) -> Buf[ScreenNews]
     var out: Buf[ScreenNews] = buf()
 
@@ -205,27 +228,145 @@ screen_news(ms: long) -> Buf[ScreenNews]
         val e = next.unwrap()
         val kind = e.kind()
 
+        // A quit is every window asked to close at once.
         if kind == sdl.EventKind.Quit
             quit_asked = true
-        elif kind == sdl.EventKind.WindowCloseRequested
-            place_of(e.window_id()) match
-                Some(at) ->
-                    var s = screen_at(at)
 
-                    s.close_asked = true
-                    screens.set(at, Some(s))
+            for i in 0..<screens.len()
+                screens.at(i) match
+                    Some(s) -> out.push(Closing(s.id))
+                    None -> ()
+        else
+            place_of(e.window_id()) match
+                Some(at) -> news_of(at, e, &out)
                 None -> ()
-        elif kind == sdl.EventKind.WindowResized
-            out.push(Resized(e.window_id(), long(e.window_data1()), long(e.window_data2())))
-        elif kind == sdl.EventKind.WindowExposed
-            out.push(Exposed(e.window_id()))
-        elif kind == sdl.EventKind.MouseMotion
-            out.push(Pointed(e.window_id(), long(e.mouse_x()), long(e.mouse_y())))
 
         next = sdl.poll_event()
 
     out
 end screen_news
+
+// What SDL event `e`, for the window at `at`, is news of, pushed onto `out`.
+private news_of(at: usize, e: sdl.Event, out: *Buf[ScreenNews])
+    var s = screen_at(at)
+    val kind = e.kind()
+    val id = s.id
+
+    if kind == sdl.EventKind.WindowCloseRequested
+        s.close_asked = true
+        screens.set(at, Some(s))
+        out.push(Closing(id))
+        return
+
+    if kind == sdl.EventKind.WindowResized
+        out.push(Resized(id, long(e.window_data1()), long(e.window_data2())))
+        return
+
+    if kind == sdl.EventKind.WindowExposed
+        out.push(Exposed(id))
+        return
+
+    var key = ""
+    var sym = ""
+    var mods = modifiers(sdl.mod_state())
+
+    if kind == sdl.EventKind.MouseMotion
+        s.px = long(e.mouse_x())
+        s.py = long(e.mouse_y())
+        out.push(Pointed(id, s.px, s.py))
+
+        var rec = e.rec
+        val m: *sc.MouseMotionEvent = ptr_cast(&rec)
+
+        sym = button_word(m[0].state, "drag").unwrap_or("move")
+    elif kind == sdl.EventKind.MouseButtonDown || kind == sdl.EventKind.MouseButtonUp
+        s.px = long(e.mouse_x())
+        s.py = long(e.mouse_y())
+
+        val b = e.mouse_button()
+        val which = if b == sdl.MouseButton.Left then "l" else if b == sdl.MouseButton.Middle then "m" else if b == sdl.MouseButton.Right then "r" else ""
+
+        if which == "" then return
+
+        sym = which + (if kind == sdl.EventKind.MouseButtonDown then "press" else "release")
+    elif kind == sdl.EventKind.MouseWheel
+        sym = if e.wheel_y() > 0.0 then "wheelup" else if e.wheel_y() < 0.0 then "wheeldown" else if e.wheel_x() > 0.0 then "wheelright" else if e.wheel_x() < 0.0 then "wheelleft" else ""
+
+        if sym == "" then return
+    elif kind == sdl.EventKind.KeyDown || kind == sdl.EventKind.KeyUp
+        mods = modifiers(e.key_mod())
+
+        if kind == sdl.EventKind.KeyUp then mods = mods | ScreenReleased
+
+        val k = sc.get_key_from_scancode(e.key_scancode(), e.key_mod(), true)
+
+        if k < 128
+            var ch = k
+
+            // SDL answers a letter's key lower-case whatever is held, so shift and caps lock are
+            // applied here, as a keyboard types them.
+            val shifted = (e.key_mod() & sdl.KMOD_SHIFT) != 0
+            val caps = (e.key_mod() & sdl.KMOD_CAPS) != 0
+
+            if ch >= 97 && ch <= 122 && shifted != caps then ch = ch - 32
+
+            // Control with a letter is the control character, as a terminal sends it.
+            if (mods & ScreenControl) != 0 && ((ch >= 97 && ch <= 122) || (ch >= 64 && ch <= 95)) then ch = ch & 31
+
+            key = from_utf8_unchecked([u8(ch)])
+        else
+            sym = key_symbol(e.key_scancode())
+
+            if sym == "" then return
+    else
+        return
+
+    val interval = if s.last == 0 || e.timestamp() < s.last then 0 else long((e.timestamp() - s.last) / 1000000)
+
+    s.last = e.timestamp()
+    screens.set(at, Some(s))
+    out.push(Input(id, key, sym, s.px, s.py, mods, interval))
+end news_of
+
+// SDL's modifier state as an `Input`'s bits: Alt and the Command key are both `&meta`.
+private modifiers(m: u16) -> u8
+    var out: u8 = 0
+
+    if (m & sdl.KMOD_CTRL) != 0 then out = out | ScreenControl
+    if (m & (sdl.KMOD_ALT | sdl.KMOD_GUI)) != 0 then out = out | ScreenMeta
+    if (m & sdl.KMOD_SHIFT) != 0 then out = out | ScreenShift
+
+    out
+
+// The event a held button makes of `what` -- `ldrag` for the left button and `"drag"` -- the lowest
+// button held deciding; `None` with none held.
+private button_word(held: u32, what: string) -> Option[string]
+    if (held & sdl.BUTTON_LMASK) != 0 then return Some("l" + what)
+    if (held & sdl.BUTTON_MMASK) != 0 then return Some("m" + what)
+    if (held & sdl.BUTTON_RMASK) != 0 then return Some("r" + what)
+
+    None
+
+// Icon's name for a key with no character, from its scancode -- the USB usage number, which SDL's
+// scancodes are -- lower-cased with `Key_` dropped as `keysyms.icn` spells it; `""` for a key Icon
+// has no event for.
+private key_symbol(scancode: i32) -> string
+    if scancode >= 58 && scancode <= 69 then return s"f${scancode - 57}"
+
+    scancode match
+        70 -> "print"
+        71 -> "scrolllock"
+        72 -> "pause"
+        73 -> "insert"
+        74 -> "home"
+        75 -> "pgup"
+        77 -> "end"
+        78 -> "pgdn"
+        79 -> "right"
+        80 -> "left"
+        81 -> "down"
+        82 -> "up"
+        _ -> ""
 
 // The SDL id of the window at `at`.
 screen_id(at: usize) -> u32 = screen_at(at).id
