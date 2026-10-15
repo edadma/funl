@@ -75,6 +75,8 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
     val was = enter(&v)
     var status = 0
 
+    v.input = line
+
     for a in args
         v.program_args.push(a)
 
@@ -94,6 +96,11 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
                 say(l)
 
             v.output.truncate(0)
+
+            for l in v.errput.view()
+                complain(l + "\n")
+
+            v.errput.truncate(0)
 
             outcome match
                 Faulted(m) ->

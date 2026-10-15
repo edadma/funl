@@ -149,13 +149,13 @@ PRELUDE_LIST_FUNCTIONS_REFUSE_A_STRING_A_TUPLE_OR_A_MAP()
 PRELUDE_LIST_FUNCTIONS_REFUSE_EVERY_NON_LIST()
     val fns = ["map(x -> x, @)", "filter(x -> true, @)", "take(2, @)", "takeWhile(x -> true, @)", "drop(1, @)", "concat(@)",
         "concatMap(x -> [x], @)", "zip(@, [1])", "zip3([1], @, [2])", "zipWith((a, b) -> a, @, [1])", "zipWith3((a, b, c) -> a, [1], [2], @)",
-        "unzip(@)", "any(x -> true, @)", "all(x -> true, @)", "lookup(1, @)", "reverse(@)", "sort(@)", "sortBy((a, b) -> a < b, @)",
+        "unzip(@)", "any(x -> true, @)", "all(x -> true, @)", "lookup(1, @)", "reverse(@)", "sort(@)", "sortBy((a, b) -> a < b, @)", "sortOn(x -> x, @)",
         "last(@)", "init(@)", "partition(odd, @)", "splitAt(1, @)", "elem(1, @)", "sum(@)", "join(@)", "join(@, \",\")",
         "head(@)", "tail(@)", "foldl((a, b) -> a, 0, @)", "foldl1((a, b) -> a, @)", "foldr((a, b) -> a, 0, @)", "foldr1((a, b) -> a, @)",
         "product(@)", "maximum(@)", "minimum(@)", "maxBy(x -> x, @)", "minBy(x -> x, @)", "dropWhile(x -> true, @)", "span(x -> true, @)",
         "spanNot(x -> true, @)", "nub(@)", "group(@)"]
     val names = ["map", "filter", "take", "takeWhile", "drop", "concat", "concatMap", "zip", "zip3", "zipWith", "zipWith3",
-        "unzip", "any", "all", "lookup", "reverse", "sort", "sortBy", "last", "init", "partition", "splitAt", "elem", "sum", "join", "join",
+        "unzip", "any", "all", "lookup", "reverse", "sort", "sortBy", "sortOn", "last", "init", "partition", "splitAt", "elem", "sum", "join", "join",
         "head", "tail", "foldl", "foldl1", "foldr", "foldr1", "product", "maximum", "minimum", "maxBy", "minBy", "dropWhile", "span",
         "spanNot", "nub", "group"]
 
@@ -164,6 +164,9 @@ PRELUDE_LIST_FUNCTIONS_REFUSE_EVERY_NON_LIST()
 
     for i in 0..<fns.len
         for j in 0..<args.len
+            // `sort` of a map is the list of its entries by key, and not a refusal.
+            if names[i] == "sort" && j == 5 then continue
+
             prelude_fault("write( " + replace_all(fns[i], "@", args[j]) + " )\n", "'" + names[i] + "' wants a list and reached " + shown[j])
 
     // A list, a range, a set, an array and a buffer are still accepted where the function takes them.

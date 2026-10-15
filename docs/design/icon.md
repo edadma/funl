@@ -505,21 +505,8 @@ The cset algebra is built (`+`, `-`, `**`, `complement`, `ascii`, `cset_all`; se
 
 | Icon | FunL | |
 |---|---|---|
-| `push(L, x…)`, `pop(L)`, `get(L)`, `pull(L)`, `put(L, x…)` | the same names over a buffer; `pop`, `get` and `pull` fail on an empty one | new; `put` is `b += x` |
-| `delete(S, x)`, `delete(T, k)` | `delete(c, k)` on a mutable set or map, and `m -= k`, `s -= x` | new; `m -= k` faults today |
-| `list(n, x)` | `array(n, x)` | new arity |
-| `sort(T, i)` | `sort(m)` is the list of `(k, v)` sorted by key; by value with `sortOn` | new |
-| `sortf(L, i)` | `sortOn(f, xs)`: sorted by the key `f` gives, stable — the prelude's Haskell spelling | new |
-| `copy(x)` | `copy(x)`: a one-level copy of a mutable collection; any other value itself | new |
-| `x === y`, `x ~=== y` | `same(x, y)`: `y` when they are one object (one value, for numbers, strings, atoms); fails otherwise | new |
+| `S1 ** S2` | `**` | new |
 | `serial(x)` | not adopted: `image` does not print serial numbers | |
-
-`push` puts each argument on the front in turn, so the last is first, and answers the buffer, as
-Icon's does; `pop` and `get` take from the front, `pull` from the back. A buffer is a deque already:
-taking from the front is constant time on its ring.
-
-`same` is a function, not `===`: in JavaScript, whose spelling FunL follows elsewhere, `===` means
-something else (equality without conversion), and FunL's `==` already converts nothing.
 
 ### Records
 
@@ -585,10 +572,6 @@ with a newline; no standard input, no standard error, no open file.
   run over `funl:process`. A file is a `Handle` with the methods `f.read()`, `f.reads(n)`,
   `f.write(x…)`, `f.writes(x…)`, `f.seek(i)`, `f.where()`, `f.flush()`, `f.close()`, and `!f`
   generates its lines. Positions in `seek` and `where` are Icon's, 1 before the first byte.
-- **Core builtins** beside `write`: `read()` and `reads(n)` from standard input, `writes(x…)`
-  (no newline), `ewrite(x…)` and `ewrites(x…)` to standard error, and `stop(x…)`, which writes to
-  standard error and ends with status 1.
-- `chdir(path)` in `funl:fs`, beside `cwd()`.
 - `getch()`, `getche()` and `kbhit()` in a new `funl:term`, which puts the terminal in raw mode
   around each call.
 - `&input`, `&output` and `&errout` are the three standard streams as handles.

@@ -6,16 +6,30 @@ import sysl.buf.{Buf, buf}
 // `set` and `seq`.
 
 install_data(v: *Vm)
-    register(v, "array", 1, do_array)
+    register_between(v, "array", 1, 2, do_array)
     register(v, "buffer", Variadic, do_buffer)
     register_forwarding(v, "map", Variadic, map_or_mapping)
     register(v, "set", Variadic, do_set)
     register(v, "seq", Variadic, do_seq)
 
 // `array(n)`: an array of `n` elements, each `undefined` until something is stored. `array(c)`: an
-// array of the elements of `c`.
+// array of the elements of `c`. `array(n, x)`: an array of `n` elements, each `x` itself -- one value
+// shared, never a copy.
 private do_array(base: usize, argc: usize) -> Result[Value, Fault]
     val x = deref(arg(base, 0))
+
+    if argc == 2
+        x match
+            Int(n) ->
+                if n < 0 then return Err(domain_error("not_less_than_zero", x, s"an array cannot have $n elements"))
+
+                val a = new_array(usize(n))?
+
+                for i in 0..<usize(n)
+                    a.items.set(i, arg(base, 1))
+
+                return Ok(Array(a))
+            _ -> return Err(kind_error(x, "integer", s"'array' with a value to fill it with wants the number of elements as an integer, and was given ${described(x)}"))
 
     x match
         Int(n) ->
@@ -100,7 +114,7 @@ private do_set(base: usize, argc: usize) -> Result[Value, Fault]
 
     Ok(MutSet(s))
 
-private copy_entries(m: *MapObj, p: *MapObj) -> Result[unit, Fault]
+copy_entries(m: *MapObj, p: *MapObj) -> Result[unit, Fault]
     for i in 0..<p.keys.len()
         map_put(m, p.keys.at(i), p.vals.at(i))?
 

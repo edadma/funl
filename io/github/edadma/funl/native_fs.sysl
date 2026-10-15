@@ -3,7 +3,7 @@ module io.github.edadma.funl
 import sysl.buf.{Buf, buf}
 import sysl.fs.{IoError, NotFound, NotPermitted, PermissionDenied, Regular, Directory, Symlink, append_bytes, append_text,
     current_dir, entries, exists, is_dir, is_file, make_dir_all, metadata, read_bytes, remove_dir,
-    remove_file, rename, write_bytes, write_text}
+    remove_file, rename, set_current_dir, write_bytes, write_text}
 import sysl.path.{extension, file_name, join, parent}
 import sysl.slices.sort
 import sysl.text.from_utf8
@@ -26,9 +26,9 @@ import sysl.text.from_utf8
 // backtracking takes the next line or name, the names in sorted order.
 
 // What `funl:fs` exports, each name the short form of a native `install_fs` registered as `fs.name`.
-private val FsNames: [20]string = ["read_file", "read_bytes", "write_file", "write_bytes", "append_file",
+private val FsNames: [21]string = ["read_file", "read_bytes", "write_file", "write_bytes", "append_file",
     "append_bytes", "lines", "read_dir", "exists", "is_file", "is_dir", "stat", "remove", "mkdir", "rename",
-    "cwd", "join", "basename", "dirname", "extension"]
+    "cwd", "chdir", "join", "basename", "dirname", "extension"]
 
 // The handle kind holding a generator's place in a file's text or a directory's names.
 private const ListingKind: string = "fs listing"
@@ -51,6 +51,7 @@ install_fs(v: *Vm)
     register(v, "fs.mkdir", 1, do_mkdir)
     register_generator(v, "fs.rename", 2, do_rename)
     register(v, "fs.cwd", 0, do_cwd)
+    register_generator(v, "fs.chdir", 1, do_chdir)
     register(v, "fs.join", 2, do_join)
     register_generator(v, "fs.basename", 1, (b, n, c) -> part(b, "basename", file_name(path_text(b, "basename")?)))
     register_generator(v, "fs.dirname", 1, (b, n, c) -> part(b, "dirname", parent(path_text(b, "dirname")?)))
@@ -325,6 +326,13 @@ private do_rename(base: usize, argc: usize, cursor: long) -> Result[Answer, Faul
 private do_cwd(base: usize, argc: usize) -> Result[Value, Fault] = current_dir() match
     Ok(d) -> Ok(new_str(d)?)
     Err(e) -> Err(system_error(s"'cwd' cannot read the working directory: ${e.message()}"))
+
+// `chdir(path)`: the program's working directory made `path`, which later relative paths are read from.
+// Fails when there is no such directory.
+private do_chdir(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val path = path_text(base, "chdir")?
+
+    done_or(set_current_dir(path), "chdir", "open", path)
 
 // -- paths ---------------------------------------------------------------------------------------
 
