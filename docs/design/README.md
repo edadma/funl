@@ -136,6 +136,7 @@ Each is argued where it arises; this is the list.
 | M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
 | Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [icon](icon.md) |
+| I1 The loop `until` beside the range `until` | both, by position: `until` at the start of an expression is Icon's loop (`while not c`, failing when it ends, with `break`, `continue`, labels and `end until`); after an operand it stays the exclusive range `1 until 3` (user, 2026-10-15) | [success-and-failure](../reference/success-and-failure.md#a-loop-fails-when-it-runs-out) |
 
 ## Open questions
 
@@ -143,7 +144,6 @@ Each has a recommendation in its chapter; the user decides them before the miles
 
 | question | recommendation | where |
 |---|---|---|
-| I1 The loop `until` beside the range `until` | both, by position: prefix is the loop, infix the range | [icon](icon.md#until) |
 | I2 A `case` expression | postfix `e match` over a clause block; no match fails; `(e)` in a pattern compares with `e`'s value | [icon](icon.md#case) |
 | I3 Limitation, `\` being integer division (decided) | the infix word `e limit n`; `\` stays division | [icon](icon.md#limitation) |
 | I4 Whose is a `static`: the definition's or each closure's? | each closure value's | [icon](icon.md#static-and-initial) |

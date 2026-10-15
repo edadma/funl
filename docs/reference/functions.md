@@ -680,7 +680,7 @@ A marker stands on a line of its own, at the column of the line that opened the 
 | a bare `def` and its block of clauses | `end def` |
 | `val x =` or `var x =` with an indented value | `end x`; `end val` too after a `val`, and only `end val` after a pattern |
 | an `if` with its `elif`s and `else` | one `end if`, after the whole chain |
-| a loop, labelled or not | `end while`, `end for`, `end repeat`, `end every` |
+| a loop, labelled or not | `end while`, `end until`, `end for`, `end repeat`, `end every` |
 
 A lambda, a partial function, a `?` scan, a `catch` arm, a `( ; )` sequence and `data` take no marker.
 A marker is optional, and is written only on a block of seven lines or more, counting from the line

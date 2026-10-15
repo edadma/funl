@@ -460,6 +460,7 @@ starts_expr(t: Tok) -> bool
         Backslash -> true
         Slash -> true
         While -> true
+        Until -> true
         Repeat -> true
         For -> true
         Break -> true

@@ -169,7 +169,38 @@ private leaves_line_open(out: *Tokens[Tok]) -> Option[Spanned[Tok]]
 
     val last = out.items.at(out.len() - 1)
 
-    if continues_line(last.value) then Some(last) else None
+    if !continues_line(last.value) then return None
+
+    // `end until` closing an `until` loop is a marker line, not a range awaiting its end.
+    if is_end_until(out) then return None
+
+    Some(last)
+
+// Whether the line ends in the marker `end until`: `until` after a line-initial `end`.
+private is_end_until(out: *Tokens[Tok]) -> bool
+    val n = out.len()
+
+    if n < 2 then return false
+
+    val is_until = out.items.at(n - 1).value match
+        Until -> true
+        _ -> false
+
+    if !is_until then return false
+
+    val is_end = out.items.at(n - 2).value match
+        Name(w) -> w == "end"
+        _ -> false
+
+    if !is_end then return false
+
+    if n == 2 then return true
+
+    out.items.at(n - 3).value match
+        Newline -> true
+        Indent -> true
+        Dedent -> true
+        _ -> false
 
 // `n` blocks closed by the line starting at `here`, then the end of the statement before it.
 private close(out: *Tokens[Tok], n: usize, here: Span, last_end: usize)

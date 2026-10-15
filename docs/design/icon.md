@@ -58,34 +58,6 @@ These Icon constructs have a FunL spelling now, and this chapter asks nothing ab
 
 ## Control
 
-### `until`
-
-**Icon:** `until e1 do e2` evaluates `e1`, bounded; if it fails, evaluates `e2`, bounded, and goes
-round again; when `e1` succeeds the loop ends and, as every Icon loop that runs out does, fails.
-`until e1` with no `do` is legal and spins on `e1` alone. `break` leaves it with a value.
-
-**FunL today:** `until` is the infix word of the exclusive generator, `1 until 3`, the generator
-twin of `..<`. It is not a Decided block, but it is the word.
-
-**Proposed:** take both, by position. **`until` at the start of an expression is the loop; `until`
-after an operand is the range**, as `-` is negation before an operand and subtraction after one.
-The parser already tells a prefix use of a token from an infix one, so nothing is ambiguous:
-
-```
-until done(state) do state = step(state)
-every write(1 until 4)
-```
-
-The loop is `while not e1 do e2` compiled directly: the condition's mark jumps into the body, its
-success leaves the loop. It takes a label, `end until`, and `break (v)` as `while` does, and
-fails when it runs out.
-
-> **Open question I1 — the loop `until` beside the range `until`.** (a) both, by position;
-> (b) the loop takes the word and the range is spelled `..<` or `to j - 1` only; (c) no `until`
-> loop, `while not` covers it. **Recommendation: (a).** It costs nothing in the grammar and breaks
-> no program; `while not` is the covered fallback but reads worse for the common "until converged"
-> loop.
-
 ### `case`
 
 **Icon:** `case e of { e1 : r1; e2 : r2; default : rd }` evaluates `e` once, bounded. The
@@ -667,7 +639,6 @@ own book, rather than part of the language.
 
 | | question | recommendation |
 |---|---|---|
-| I1 | the loop `until` beside the range `until` | both, by position |
 | I2 | a `case` expression | postfix `e match` with a clause block; no match fails; `(e)` pattern compares |
 | I3 | limitation, `\` being integer division | the infix word `e limit n` |
 | I4 | whose is a static | each closure value's |
