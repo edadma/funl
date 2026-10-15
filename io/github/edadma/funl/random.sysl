@@ -60,7 +60,7 @@ private seed_of(base: usize, argc: usize) -> Result[Value, Fault]
         _ -> Err(type_error("integer", x, s"'random_seed' wants a 64-bit integer and was given ${described(x)}"))
 
 // `?x`, the random thing in `x`: an integer from 1 to `x` for a positive integer, a real in [0, 1) for
-// 0, a character of a string, a member of a list, range, tuple, set, array or buffer, a value of a map.
+// 0, a character of a string or cset, a member of a list, range, tuple, set, array or buffer, a value of a map.
 // An empty collection or string has none, which is failure.
 private pick(base: usize) -> Result[Answer, Fault]
     val x = deref(arg(base, 0))
@@ -80,6 +80,12 @@ private pick(base: usize) -> Result[Answer, Fault]
         Tuple(t) -> return pick_from(t.items)
         Set(s) -> return pick_from(s.items)
         MutSet(s) -> return pick_from(s.items)
+        CSet(p) ->
+            val k = cset_count(x, p.set, "cannot be listed")?
+
+            if k == 0 then return Ok(Refuses)
+
+            return Ok(Gives(cset_nth(x, p.set, usize(draw_below(u64(k))))?))
         _ -> ()
 
     val n = size_of(x)?
@@ -101,6 +107,12 @@ private pick_key(base: usize) -> Result[Answer, Fault]
         Map(m) -> return pick_from(m.keys)
         MutMap(m) -> return pick_from(m.keys)
         Var(_) -> return Err(instantiation_error("instantiation error: '?' was given an unbound variable"))
+        CSet(p) ->
+            val k = cset_count(x, p.set, "cannot be listed")?
+
+            if k == 0 then return Ok(Refuses)
+
+            return Ok(Gives(Int(long(draw_below(u64(k))))))
         _ -> ()
 
     val n = size_of(x)?

@@ -57,6 +57,18 @@ A_DRAW_AS_A_TARGET_FAILS_ON_AN_EMPTY_COLLECTION_AND_FAULTS_ON_AN_IMMUTABLE_ONE()
     faults_with("l = [1, 2]\n?l = 3\n", "the list [1, 2] cannot be changed")
 
 @test
+A_CSET_DRAWS_ONE_OF_ITS_CHARACTERS_AND_AN_EMPTY_ONE_FAILS()
+    assert_eq(ran_funl("write(?cset('a'))\n"), "a\nsucceeded")
+    assert_eq(ran_funl("s = set()\nevery 1 to 300 do s += ?cset('cab')\nwrite(s.length, 'a' in s, 'b' in s, 'c' in s)\n"), "3, a, b, c\nsucceeded")
+    assert_eq(ran_funl("write( if ?cset('') then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("write( if ?(cset('ab') - 'ab') then 'got' else 'none' )\n"), "none\nsucceeded")
+
+@test
+A_CSET_DRAW_FAULTS_ON_A_COMPLEMENT_AND_REFUSES_ASSIGNMENT()
+    faults_with("write(?complement('ab'))\n", "cannot be listed")
+    faults_with("c = cset('ab')\n?c = 'x'\n", "cannot be changed")
+
+@test
 PREFIX_QUESTION_MARK_LEAVES_SCANNING_ALONE()
     assert_eq(ran_funl("write( \"abc\" ? tab(2) )\n"), "a\nsucceeded")
     assert_eq(ran_funl("write( \"abc\" ? ?\"a\" )\n"), "a\nsucceeded")

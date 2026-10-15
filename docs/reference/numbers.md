@@ -649,6 +649,7 @@ The prefix `?` draws at random, and what it draws depends on what follows.
 | `?n`, `n` a positive integer | an integer from 1 to `n`, a die roll: `n` is a count, not an index |
 | `?0` | a real from 0 up to, but not including, 1 |
 | `?s`, `s` a string | one character of it |
+| `?c`, `c` a cset | one character of it, as a one-character string, from the same characters `!c` lists; a complement faults as `!c` does, and a cset cannot be assigned through `?` |
 | `?c`, `c` a list, range, tuple, set, array or buffer | one element of it |
 | `?m`, `m` a map | one value of it |
 
