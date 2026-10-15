@@ -129,12 +129,6 @@ typed_key(k: &Keys) -> Result[Option[string], Fault]
     k.at = end
     Ok(Some(c))
 
-// Give machine `v` the keys `keys` to read, and no others.
-give_keys(v: *Vm, keys: string)
-    val k: &Keys = Keys(keys, 0)
-
-    v.key = (wait) -> typed_key(k)
-
 // Run what `build` compiles on a VM with this heap and schedule, keeping the warnings it rendered.
 // `keys` are the keys typed at it, which `funl:term` reads.
 run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled, keys: string = "") -> Said
@@ -147,7 +141,9 @@ run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled, ke
     // only the keys it is given.
     v.input = (prompt) -> None
 
-    give_keys(&v, keys)
+    val k: &Keys = Keys(keys, 0)
+
+    v.key = (wait) -> typed_key(k)
 
     val c = capture_streams(&v)
 
