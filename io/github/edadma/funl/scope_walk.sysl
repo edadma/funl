@@ -108,6 +108,12 @@ walk_stmt(w: *Walk, s: Stmt)
 
             if !fixed && writes_element(pat, w.meaning(call_name(pat), pat.span.start))
                 walk(w, pat)
+
+                // `s(i..j) = t` as a statement stores a new string in the variable `s`.
+                pat.kind match
+                    CallE(n, at, args) -> if is_section_key(args.at(0)) then updated(w, n, pat.span.to(e.span))
+                    _ -> ()
+
                 return
 
             declare_pattern(w, pat, e.span.end, fixed)

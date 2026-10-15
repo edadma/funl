@@ -166,6 +166,9 @@ PRELUDE_LIST_FUNCTIONS_REFUSE_EVERY_NON_LIST()
             // `sort` of a map is the list of its entries by key, and not a refusal.
             if names[i] == "sort" && j == 5 then continue
 
+            // `reverse` of a string is the string backwards.
+            if names[i] == "reverse" && j == 6 then continue
+
             prelude_fault("write( " + replace_all(fns[i], "@", args[j]) + " )\n", "'" + names[i] + "' wants a list and reached " + shown[j])
 
     // A list, a range, a set, an array and a buffer are still accepted where the function takes them.
