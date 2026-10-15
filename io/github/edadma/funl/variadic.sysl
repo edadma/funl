@@ -1,0 +1,302 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+
+// Variadic functions, spread calls and `arity` (`docs/reference/functions.md` § "Variadic functions").
+//
+// **A variadic function is an ordinary function whose last parameter holds a list.** `def f(a, ..rest)`
+// is resolved and compiled as `f(a, rest)`: its clauses, patterns, index and settled analysis are those
+// of a function of two parameters. What makes it variadic is its chunk, which takes any count and
+// begins with `PackRest(1)`: the arguments after the first become one list, so every clause sees
+// exactly two. A call is then an ordinary `CallFn` with however many arguments it was written with,
+// and the function's value is an ordinary closure.
+//
+// **A variadic is the member of its name's family for every count no fixed arity of the name takes.**
+// A call of `f` with two arguments reaches `f/2` when the file defines one, and the variadic
+// otherwise; a name has one variadic definition. A relation is never variadic, and a variadic function
+// is no Prolog predicate: Prolog's key is a name and one arity, so a variadic function is reached from
+// FunL only, while the fixed arities beside it keep their keys `f/(n+1)`.
+//
+// **A spread call is resolved when it runs**: `f(a, ..xs)` builds the list of its arguments --
+// `ArgsAdd` for written ones, `ArgsSpread` for a spread one -- over the callee's value, and
+// `CallSpread` calls the value with that many, as a call through a family value picks its member.
+
+// Whether clause `c` was written variadic: its last parameter is `..rest`.
+is_variadic_clause(c: Clause) -> bool
+    if c.params.len() == 0 then return false
+
+    c.params.at(c.params.len() - 1).kind match
+        SpreadE(_) -> true
+        _ -> false
+
+// Whether clause `c`, as written, is a clause of definition `r`: the same count of parameters, and
+// both variadic or neither.
+joins(r: Rel, c: Clause) -> bool = r.arity == c.params.len() && r.variadic == is_variadic_clause(c)
+
+// Whether definition `r` takes a call of `argc` arguments: exactly its arity, or -- variadic -- any
+// count from its fixed parameters up.
+rel_takes(r: Rel, argc: usize) -> bool = if r.variadic then argc + 1 >= r.arity else r.arity == argc
+
+// Clause `c` with its `..rest` parameter read as the parameter `rest`, or `None` when a `..` is where
+// none may be -- in a relation, before the last parameter, or before anything but a name -- which is
+// reported.
+gathered(c: Clause, report: *Report) -> Option[Clause]
+    var params: Buf[&Expr] = buf()
+    var ok = true
+
+    for i in 0..<c.params.len()
+        val p = c.params.at(i)
+
+        p.kind match
+            SpreadE(x) ->
+                if !is_function(c.kind)
+                    report.add(error(p.span, s"`${c.name}` is a relation, and a relation cannot be variadic")
+                        .with_note("`..rest` gathers the last arguments of a function, `def f(a, ..rest) = ...`; a relation takes a list argument instead"))
+                    ok = false
+                elif i + 1 != c.params.len()
+                    report.add(error(p.span, "`..rest` is a function's last parameter")
+                        .with_note("it gathers every argument after the others into a list, so nothing can follow it"))
+                    ok = false
+                else
+                    x.kind match
+                        Ref(_) -> params.push(x)
+                        Anon -> params.push(x)
+                        _ ->
+                            report.add(error(p.span, "`..` gathers the last arguments into a name, `..rest`, and this is not a name")
+                                .with_note("the list it binds can be taken apart in the body: `val [x, y] = rest`"))
+                            ok = false
+            _ -> params.push(p)
+
+    if !ok then return None
+
+    Some(Clause(c.name, c.head, params, c.kind, c.is_async))
+
+// Whether a variadic definition among `rs` already holds the name, which clause `c` -- variadic of
+// a different count -- may not join; the refusal is reported. A name has one variadic definition.
+second_variadic(res: *Resolved, rs: Buf[usize], c: Clause, report: *Report) -> bool
+    for i in rs.view()
+        val r = res.rels.at(i)
+
+        if !r.variadic then continue
+
+        val first = r.clauses.at(0)
+
+        report.add(error(c.head, s"`${c.name}` is variadic here from ${counted(c.params.len() - 1, "argument")} and already from ${counted(r.arity - 1, "argument")}")
+            .with_note("a name has one variadic definition, which takes every count its fixed arities leave; define the counts between them as fixed arities"))
+        report.add(Diagnostic(Note, first.head, s"`${c.name}` is first variadic here", "", ""))
+        return true
+
+    false
+
+// Whether any of `args` is spread, `..e`.
+has_spread(args: Buf[&Expr]) -> bool
+    for a in args.view()
+        a.kind match
+            SpreadE(_) -> return true
+            _ -> ()
+
+    false
+
+// The arguments of a spread call, the callee's value already pushed: the list of them, built from
+// the empty list run by run, each run of written arguments added by one `ArgsAdd` and each spread
+// one by `ArgsSpread`. `CallSpread` follows.
+spread_args(e: *Emit, c: Ctx, args: Buf[&Expr]) -> Result[unit, string]
+    e.op(PushNil)
+
+    var run: usize = 0
+
+    for a in args.view()
+        a.kind match
+            SpreadE(x) ->
+                if run > 0 then e.op(ArgsAdd(run))
+
+                run = 0
+                compile_value(e, c, x)?
+                e.op(ArgsSpread)
+            _ ->
+                compile_value(e, c, a)?
+                run += 1
+
+    if run > 0 then e.op(ArgsAdd(run))
+
+    Ok(())
+
+// -- the machine ----------------------------------------------------------------------------------
+
+// `PackRest(fixed)`: the running frame's arguments after the first `fixed` become one list, its last.
+// Too few is the fault a call of a function with too few arguments is.
+pack_rest(v: *Vm, fixed: usize) -> Result[unit, Fault]
+    val args = v.frame.args
+    val n = args.len()
+
+    if n < fixed
+        val name = v.chunks.at(v.code).name
+
+        return Err(wrong_count(name, n, s"'$name' takes ${counts_phrase(buf(), fixed)} and was given $n"))
+
+    var rest: Buf[Value] = buf()
+
+    for i in fixed..<n
+        rest.push(args.at(i))
+
+    val list = list_of(&rest, Nil)?
+
+    args.truncate(fixed)
+    args.push(list)
+    Ok(())
+
+// `ArgsAdd(n)`: the top `n` values added to the end of the argument list beneath them.
+args_add(v: *Vm, n: usize) -> Result[unit, Fault]
+    val top = v.stack.len()
+
+    if n + 1 > top then return Err(Broken(s"wants ${n + 1} operands and the stack holds $top"))
+
+    var items: Buf[Value] = buf()
+
+    elements(v.stack.at(top - n - 1), "a spread call", &items)?
+
+    for i in top - n..<top
+        items.push(v.stack.at(i))
+
+    val list = list_of(&items, Nil)?
+
+    v.stack.truncate(top - n - 1)
+    v.stack.push(list)
+    Ok(())
+
+// `ArgsSpread`: the elements of the value on top -- a list, a range with an end, a tuple, an array or
+// a buffer -- added to the end of the argument list beneath it.
+args_spread(v: *Vm) -> Result[unit, Fault]
+    val top = v.stack.len()
+
+    if top < 2 then return Err(Broken(s"wants 2 operands and the stack holds $top"))
+
+    val x = deref(v.stack.at(top - 1))
+
+    x match
+        Nil -> ()
+        Cons(_) -> ()
+        Range(_) -> ()
+        Tuple(_) -> ()
+        Unit -> ()
+        Array(_) -> ()
+        Buffer(_) -> ()
+        Var(_) -> return Err(instantiation_error("instantiation error: an unbound variable was spread into a call's arguments"))
+        _ -> return Err(type_error("list", x, s"`..` spreads a list, a tuple, an array, a buffer or a range into a call's arguments, and was given ${described(x)}"))
+
+    var items: Buf[Value] = buf()
+
+    elements(v.stack.at(top - 2), "a spread call", &items)?
+    elements(x, "a spread argument", &items)?
+
+    val list = list_of(&items, Nil)?
+
+    v.stack.truncate(top - 2)
+    v.stack.push(list)
+    Ok(())
+
+// `CallSpread(tail)`: the argument list on top made the arguments, and the value beneath it called
+// with that many, as `CallValue` calls it.
+call_spread(v: *Vm, tail: bool) -> Result[bool, Fault]
+    val list = v.stack.pop() match
+        Some(x) -> x
+        None -> return Err(Broken("the operand stack is empty"))
+
+    var items: Buf[Value] = buf()
+
+    elements(list, "a spread call", &items)?
+
+    for x in items.view()
+        v.stack.push(x)
+
+    call_value(v, items.len(), tail)
+
+// -- `arity` --------------------------------------------------------------------------------------
+
+install_variadic(v: *Vm)
+    register_generator(v, "arity", 1, do_arity)
+
+// `arity(f)`: each count of arguments the function value `f` takes, in increasing order; a variadic
+// member's is its count of parameters negated, its `..rest` counted, as Icon's `args` has it --
+// `arity(write)` is `-1`, and `def log(level, ..parts)` is `-2`.
+private do_arity(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val counts = arities(arg(base, 0))?
+    val i = usize(cursor)
+
+    if i >= counts.len() then return Ok(Refuses)
+
+    val x = Int(counts.at(i))
+
+    Ok(if i + 1 == counts.len() then Gives(x) else GivesMore(x, cursor + 1))
+
+// The counts function value `f` takes, sorted, each once.
+private arities(f: Value) -> Result[Buf[long], Fault]
+    var out: Buf[long] = buf()
+    val x = deref(f)
+
+    x match
+        Func(p) -> chunk_arities(p.chunk, &out)
+        Ctor(id) -> out.push(long(current().ctors.at(usize(id)).fields.len()))
+        Var(_) -> return Err(instantiation_error("instantiation error: 'arity' was given an unbound variable"))
+        _ -> return Err(type_error("callable", x, s"'arity' wants a function and was given ${described(x)}"))
+
+    // Smallest first, each once.
+    var sorted: Buf[long] = buf()
+    var last: long = 0
+
+    while true
+        var found = false
+        var next: long = 0
+
+        for k in out.view()
+            if (sorted.len() == 0 || k > last) && (!found || k < next)
+                next = k
+                found = true
+
+        if !found then break
+
+        sorted.push(next)
+        last = next
+
+    Ok(sorted)
+
+// The counts a call of chunk `target` takes: its arity; or, for a chunk that takes any count, each
+// member's of a family (`ArgsIn`), a variadic function's (`PackRest`), or a variadic builtin's.
+private chunk_arities(target: usize, out: *Buf[long])
+    val c = current().chunks.at(target)
+
+    if c.arity != AnyArity
+        out.push(long(c.arity))
+        return
+
+    var family = false
+
+    for o in c.code.view()
+        o match
+            ArgsIn(least, most, _) ->
+                family = true
+
+                if most == AnyArity
+                    out.push(-long(least) - 1)
+                else
+                    for k in least..most
+                        out.push(long(k))
+            _ -> ()
+
+    if family then return
+
+    for o in c.code.view()
+        o match
+            PackRest(fixed) ->
+                out.push(-long(fixed) - 1)
+                return
+            Native(id, n) ->
+                if n == Variadic then out.push(-long(fewest(current().natives.at(id))) - 1)
+
+                return
+            NativeGen(id, n) ->
+                if n == Variadic then out.push(-long(fewest(current().natives.at(id))) - 1)
+
+                return
+            _ -> ()

@@ -1,0 +1,424 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.{make_dir, read_text}
+import sysl.text.{Search, str_builder}
+
+// The preprocessor (`preproc.sysl`, `docs/reference/source-files.md` § "The preprocessor"): Icon's
+// directives, over FunL's tokens, with every diagnostic naming the file, line and column its text
+// came from -- through `$include`, through a definition's expansion, and as `$line` renumbers it.
+
+// What the `funl` driver makes of `text` as the contents of `file`: what it printed and how it ended,
+// or `assembly: ` and the diagnostics, rendered.
+private ran_file(file: string, text: string) -> string = roomy_compiled(() -> compile_text(file, text)).text
+
+// -- $define and $undef ---------------------------------------------------------------------------
+
+@test
+A_DEFINED_NAME_IS_REPLACED_BY_ITS_TOKENS_AND_NOTHING_ELSE_IS()
+    val text = "$define LIMIT 2 + 3\n" +
+        "$define GREETING \"hello\"\n" +
+        "val LIMITS = 10\n" +
+        "write( LIMIT * 2 )\n" +
+        "write( GREETING, \"GREETING\", LIMITS )\n" +
+        ";; LIMIT in a comment is a comment\n" +
+        "write( \"LIMIT\" )\n"
+
+    // Token for token: `LIMIT * 2` is `2 + 3 * 2`. A string, a comment and a longer name are left alone.
+    assert_eq(ran_funl(text), "8\nhello, GREETING, 10\nLIMIT\nsucceeded")
+
+@test
+A_DEFINITION_IS_IN_FORCE_FROM_ITS_LINE_UNTIL_UNDEF()
+    val text = "val N = 1\n" +
+        "write( N )\n" +
+        "$define N 2\n" +
+        "write( N )\n" +
+        "$undef N\n" +
+        "write( N )\n" +
+        "$undef N\n" +
+        "$define N 3\n" +
+        "write( N )\n"
+
+    // `$undef` of a name not defined is no error, as in Icon.
+    assert_eq(ran_funl(text), "1\n2\n1\n3\nsucceeded")
+
+@test
+A_DEFINITION_USES_OTHER_DEFINITIONS_BUT_NEVER_ITSELF()
+    val text = "$define TWO ONE + ONE\n" +
+        "$define ONE 1\n" +
+        "write( TWO )\n" +
+        "val x = 4\n" +
+        "$define x x * 10\n" +
+        "write( x )\n" +
+        "$define A B + 1\n" +
+        "$define B A\n" +
+        "val A = 7\n"
+
+    // `TWO` is read where it is used, when `ONE` is defined. `x` inside `x`'s text is the `val`. `A`
+    // stands for `B + 1`, and the `A` that `B` brings back is left as it is: `val A + 1 = 7` is no
+    // pattern, which shows it was expanded exactly once.
+    val said = rendered(text)
+
+    assert(said.starts_with("error: this cannot be matched against anything\n"), said)
+
+    assert_eq(ran_funl("$define TWO ONE + ONE\n$define ONE 1\nwrite( TWO )\nval x = 4\n$define x x * 10\nwrite( x )\n"),
+        "2\n40\nsucceeded")
+
+@test
+AN_EMPTY_DEFINITION_DEFINES_A_NAME_AS_NOTHING()
+    assert_eq(ran_funl("$define NOTHING\nwrite( 1 NOTHING )\n$ifdef NOTHING\nwrite( 2 )\n$endif\n"), "1\n2\nsucceeded")
+
+@test
+EVERY_EXPANSION_IS_A_COPY_OF_ITS_OWN()
+    // Each use of `F` calls `f` at a place of its own, and the interpolated string in `SHOW` is read
+    // again from its copy, the `$x` in it being the `val` in scope -- a string is never substituted.
+    val text = "$define F f(1)\n" +
+        "def f( x ) = x * 10\n" +
+        "write( F + F, F )\n" +
+        "val x = 3\n" +
+        "$define x 99\n" +
+        "$define SHOW write( \"x is $x\", x )\n" +
+        "SHOW\n" +
+        "SHOW\n"
+
+    assert_eq(ran_funl(text), "20, 10\nx is 3, 99\nx is 3, 99\nsucceeded")
+
+@test
+DEFINING_A_NAME_AGAIN_AS_THE_SAME_TEXT_IS_ALLOWED_AND_AS_OTHER_TEXT_REFUSED()
+    assert_eq(ran_funl("$define N 1 +  2\n$define N 1 + /* same */ 2\nwrite( N )\n"), "3\nsucceeded")
+    assert_eq(complaints("$define N 1\n$define N 2\n"), "error 2:9 `N` is defined already, as different text\n")
+    assert(rendered("$define N 1\n$define N 2\n").contains("`$undef N` ends the definition in force, and a `$define` after it gives a new one"))
+
+    // A predefined name is defined as `1`, as any other is.
+    assert_eq(complaints("$define _FUNL 2\n"), "error 1:9 `_FUNL` is defined already, as different text\n")
+    assert_eq(ran_funl("$undef _FUNL\n$define _FUNL 2\nwrite( _FUNL )\n"), "2\nsucceeded")
+
+@test
+A_DEFINITION_TAKES_A_NAME_AND_NO_PARAMETERS()
+    assert_eq(complaints("$define f(x) x\n"), "error 1:9 `f` is followed by `(`, and a definition takes no parameters\n")
+    assert_eq(ran_funl("$define P (1 + 2)\nwrite( P * 2 )\n"), "6\nsucceeded")
+    assert_eq(complaints("$define\n"), "error 1:1 `$define` takes the name it defines\n")
+    assert_eq(complaints("$define 3 4\n"), "error 1:1 `$define` takes the name it defines\n")
+    assert_eq(complaints("$define then 1\n"), "error 1:9 `then` is a reserved word, and cannot be defined\n")
+    assert_eq(complaints("$undef\n"), "error 1:1 `$undef` takes the name whose definition it ends\n")
+    assert_eq(complaints("$undef N junk\n"), "error 1:10 nothing more is written on a `$undef` line\n")
+
+@test
+A_MISTAKE_IN_A_DEFINITION_IS_REPORTED_IN_ITS_TEXT()
+    val text = "$define BAD missing + 1\n" +
+        "write( BAD )\n"
+
+    // Each use is its own copy of the text, so each is reported; both point into the definition.
+    assert(rendered(text).contains(" --> test.funl:1:13\n  |\n1 | $define BAD missing + 1\n  |             ^^^^^^^"))
+
+@test
+A_MALFORMED_TOKEN_IN_A_DEFINITION_IS_REPORTED()
+    assert_eq(complaints("$define Q 1 `abc\n"), "error 1:13 this regex is not closed before the end of the line\n")
+
+// -- conditionals -----------------------------------------------------------------------------------
+
+@test
+IFDEF_AND_IFNDEF_CHOOSE_LINES_AND_NEST()
+    val text = "write( 1 )\n" +
+        "$ifdef UNDEFINED\n" +
+        "    this is not ( FunL at all\n" +
+        "  and is never read\n" +
+        "$endif\n" +
+        "$define YES\n" +
+        "$ifdef YES\n" +
+        "$ifndef YES\n" +
+        "write( 2 )\n" +
+        "$define NEVER 1\n" +
+        "$else\n" +
+        "write( 3 )\n" +
+        "$endif\n" +
+        "$else\n" +
+        "write( 4 )\n" +
+        "$endif\n" +
+        "$ifdef NEVER\n" +
+        "write( 5 )\n" +
+        "$endif\n" +
+        "$ifndef NEVER\n" +
+        "write( 6 )\n" +
+        "$endif\n"
+
+    // A `$define` in a branch not taken defines nothing.
+    assert_eq(ran_funl(text), "1\n3\n6\nsucceeded")
+
+@test
+A_CONDITIONAL_INSIDE_A_BLOCK_OPENS_AND_CLOSES_NOTHING()
+    val text = "def f( n ) =\n" +
+        "$ifdef _FUNL\n" +
+        "    n + 1\n" +
+        "$else\n" +
+        "  n -\n" +
+        "$endif\n" +
+        "write( f(1) )\n" +
+        "if f(1) == 2\n" +
+        "  $ifdef _FUNL\n" +
+        "  write( #yes )\n" +
+        "  $endif\n" +
+        "  write( #after )\n"
+
+    assert_eq(ran_funl(text), "2\nyes\nafter\nsucceeded")
+
+@test
+A_DIRECTIVE_IN_A_BRANCH_NOT_TAKEN_IS_NOT_READ()
+    // Only the conditionals are followed there, to find the branch's end.
+    assert_eq(ran_funl("$ifdef NO\n$frob\n$error never\n$include \"nowhere.funl\"\n$define\n$endif\nwrite( 1 )\n"), "1\nsucceeded")
+
+@test
+CONDITIONALS_THAT_DO_NOT_PAIR_ARE_REFUSED()
+    assert_eq(complaints("$else\n"), "error 1:1 this `$else` has no `$ifdef` or `$ifndef` to belong to\n")
+    assert_eq(complaints("$endif\n"), "error 1:1 this `$endif` has no `$ifdef` or `$ifndef` to close\n")
+    assert_eq(complaints("$ifdef A\n$else\n$else\n$endif\n"), "error 3:1 this `$ifdef` has an `$else` already\n")
+    assert_eq(complaints("write( 1 )\n$ifndef A\nwrite( 2 )\n"), "error 2:1 this `$ifndef` has no `$endif`\n")
+    assert_eq(complaints("$ifdef\n$endif\n"), "error 1:1 `$ifdef` takes the name it asks about\n")
+    assert_eq(complaints("$ifdef A B\n$endif x\n"), "error 1:10 nothing more is written on a `$ifdef` line\n" +
+        "error 2:8 nothing more is written on a `$endif` line\n")
+    assert_eq(ran_funl("$ifdef _FUNL ;; a comment\nwrite( 1 )\n$endif /* and another */\n"), "1\nsucceeded")
+
+// -- predefined names --------------------------------------------------------------------------------
+
+// What the predefined-names program below prints on this platform and this build.
+private predefined_expected() -> string
+    var b = str_builder()
+
+#if macos
+    b.push("macos\n")
+#endif
+#if linux
+    b.push("linux\n")
+#endif
+#if posix
+    b.push("unix\n")
+#endif
+#if feature_http
+    b.push("http\n")
+#endif
+#if feature_async
+    b.push("async\n")
+#endif
+#if feature_profile
+    b.push("profile\n")
+#endif
+
+    b.push("1, 1, 1\nsucceeded")
+    b.finish()
+
+@test
+THE_PLATFORM_AND_THE_FEATURES_BUILT_IN_ARE_PREDEFINED()
+    val text = "$ifdef _MACOS\nwrite( #macos )\n$endif\n" +
+        "$ifdef _LINUX\nwrite( #linux )\n$endif\n" +
+        "$ifdef _UNIX\nwrite( #unix )\n$endif\n" +
+        "$ifdef _HTTP\nwrite( #http )\n$endif\n" +
+        "$ifdef _ASYNC\nwrite( #async )\n$endif\n" +
+        "$ifdef _PROFILE\nwrite( #profile )\n$endif\n" +
+        "write( _FUNL, _CO_EXPRESSIONS, _LARGE_INTEGERS )\n"
+
+    assert_eq(ran_funl(text), predefined_expected())
+
+// -- $error, $line, and what is not a directive -------------------------------------------------------
+
+@test
+ERROR_REFUSES_THE_PROGRAM_WITH_ITS_TEXT()
+    assert_eq(complaints("write( 1 )\n$error   this build is not supported  \n"), "error 2:1 this build is not supported\n")
+    assert_eq(complaints("$error\n"), "error 1:1 `$error` refuses the program here\n")
+    assert(rendered("$error stop\n").contains("1 | $error stop\n  | ^^^^^^^^^^^ an `$error` directive"))
+
+@test
+LINE_RENUMBERS_THE_LINES_AFTER_IT_IN_DIAGNOSTICS()
+    val text = "write( 1 )\n" +
+        "$line 40 \"spec.funl\"\n" +
+        "write( unknown )\n" +
+        "\n" +
+        "write( other )\n" +
+        "$line 7\n" +
+        "write( third )\n"
+
+    val said = rendered(text)
+
+    assert(said.contains("error: `unknown` is not defined\n  --> spec.funl:40:8\n   |\n40 | write( unknown )\n   |        ^^^^^^^"), said)
+    assert(said.contains("error: `other` is not defined\n  --> spec.funl:42:8\n   |\n42 | write( other )\n"), said)
+
+    // A `$line` naming no file keeps the name in force.
+    assert(said.contains("error: `third` is not defined\n --> spec.funl:7:8\n  |\n7 | write( third )\n"), said)
+
+@test
+A_LINE_DIRECTIVE_TAKES_A_NUMBER_AND_PERHAPS_A_NAME()
+    val refused = "`$line` takes the next line's number, and the file's name in quotes if it names one\n"
+
+    assert_eq(complaints("$line\n"), s"error 1:1 $refused")
+    assert_eq(complaints("$line 0\n"), s"error 1:1 $refused")
+    assert_eq(complaints("$line \"a.funl\"\n"), s"error 1:1 $refused")
+    assert_eq(complaints("$line 3 \"a.funl\" 4\n"), s"error 1:1 $refused")
+
+@test
+WHAT_IS_NOT_A_DIRECTIVE_IS_REFUSED()
+    assert_eq(complaints("$frob x\n"), "error 1:1 `$frob` is not a directive\n")
+    assert(rendered("$frob x\n").contains("the directives are `$define`, `$undef`, `$ifdef`, `$ifndef`, `$else`, `$endif`, `$include`, `$line` and `$error`"))
+    assert_eq(complaints("$ 1\n"), "error 1:1 a directive's name follows the `$` that begins its line\n")
+
+    // A `$` that does not begin its line begins nothing, as before; in a string it interpolates.
+    assert_eq(complaints("write( 1 ) $define\n"), "error 1:12 `$` cannot begin anything here\nerror 1:13 expected the end of the line\n")
+    assert_eq(ran_funl("val n = 2\nwrite( \"n is $n\" )\n"), "n is 2\nsucceeded")
+
+// -- $include ----------------------------------------------------------------------------------------
+
+@test
+AN_INCLUDED_FILES_TOKENS_STAND_WHERE_THE_LINE_IS()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "defs.funl", "val z = 2\ndef sq( x ) = x * x\n$define TEN 10\n")
+
+    val text = "write( 1 )\n" +
+        "$include \"defs.funl\"\n" +
+        "write( sq(z) + TEN )\n"
+
+    // A `val` in the included file is in scope after the line, as one written there would be, and so
+    // is a definition.
+    assert_eq(ran_file(s"$d/main.funl", text), "1\n14\nsucceeded")
+
+@test
+AN_INCLUDE_IS_READ_RELATIVE_TO_THE_FILE_IT_IS_IN_AND_NESTS()
+    val d = scratch()
+    defer scrap(d)
+
+    make_dir(s"$d/lib").unwrap()
+    put(d, "lib/outer.funl", "write( #outer )\n$include \"inner.funl\"\nwrite( #back )\n")
+    put(d, "lib/inner.funl", "write( #inner )\n")
+
+    assert_eq(ran_file(s"$d/main.funl", "$include \"lib/outer.funl\"\nwrite( #main )\n"), "outer\ninner\nback\nmain\nsucceeded")
+
+@test
+AN_INCLUDE_LINE_IS_A_LINE_OF_THE_PROGRAM_FOR_INDENTATION()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "body.funl", "val b = a + 1\nb * 10\n")
+    put(d, "more.funl", "def g( x ) = x - 1\n")
+
+    // Indented, the included lines are the body's; at the margin, the line closes the body.
+    val text = "def f( a ) =\n" +
+        "  $include \"body.funl\"\n" +
+        "$include \"more.funl\"\n" +
+        "write( f(1), g(5) )\n"
+
+    assert_eq(ran_file(s"$d/main.funl", text), "20, 4\nsucceeded")
+
+@test
+A_LITERATE_FILE_IS_INCLUDED_TANGLED()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "part.lfunl", "# Part\n\nProse.\n\n    val z = 2\n")
+
+    val text = "# Main\n\nIt includes a part.\n\n    $include \"part.lfunl\"\n    write( z )\n"
+
+    assert_eq(ran_file(s"$d/main.lfunl", text), "2\nsucceeded")
+
+@test
+A_DIAGNOSTIC_IN_AN_INCLUDED_FILE_NAMES_THAT_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "shapes.funl", "def area( r ) = 3 * r * r\n\ndef girth( r ) = 6 * r * radius\n")
+
+    val text = "$include \"shapes.funl\"\nwrite( area(2), size )\n"
+    val said = ran_file(s"$d/main.funl", text)
+
+    assert(said.contains(s"error: `radius` is not defined\n --> $d/shapes.funl:3:26\n  |\n3 | def girth( r ) = 6 * r * radius\n  |                          ^^^^^^"), said)
+    assert(said.contains(s"error: `size` is not defined\n --> $d/main.funl:2:17\n  |\n2 | write( area(2), size )\n  |                 ^^^^"), said)
+
+@test
+A_DIAGNOSTIC_IN_AN_INCLUDED_LITERATE_FILE_NAMES_ITS_LINE_AND_COLUMN()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "part.lfunl", "# Part\n\nProse.\n\n    write( nowhere )\n")
+
+    val said = ran_file(s"$d/main.funl", "$include \"part.lfunl\"\n")
+
+    assert(said.contains(s"error: `nowhere` is not defined\n --> $d/part.lfunl:5:12\n  |\n5 |     write( nowhere )\n  |            ^^^^^^^"), said)
+
+@test
+A_DIAGNOSTIC_FROM_A_DEFINITION_IN_AN_INCLUDED_FILE_NAMES_THAT_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "defs.funl", ";; definitions\n$define SHOUT write( volume )\n")
+
+    val said = ran_file(s"$d/main.funl", "$include \"defs.funl\"\nSHOUT\n")
+
+    assert(said.contains(s" --> $d/defs.funl:2:22\n  |\n2 | $$define SHOUT write( volume )\n  |                      ^^^^^^"), said)
+
+@test
+A_MISTAKE_IN_AN_INCLUDED_FILES_DIRECTIVES_AND_SPELLING_NAMES_THAT_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "bad.funl", "write( 1 )\n$bogus\nwrite( #1 )\n$ifdef A\n")
+
+    val said = ran_file(s"$d/main.funl", "write( 0 )\n$include \"bad.funl\"\n")
+
+    assert(said.contains(s"error: `$$bogus` is not a directive\n --> $d/bad.funl:2:1"), said)
+    assert(said.contains(s" --> $d/bad.funl:3:9"), said)
+    assert(said.contains(s"error: this `$$ifdef` has no `$$endif`\n --> $d/bad.funl:4:1"), said)
+
+@test
+AN_INCLUDE_THAT_REACHES_ITSELF_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "a.funl", "val a = 1\n$include \"b.funl\"\n")
+    put(d, "b.funl", "val b = 2\n$include \"a.funl\"\n")
+
+    val said = ran_file(s"$d/a.funl", read_back(s"$d/a.funl"))
+
+    assert(said.contains(s"error: `$d/a.funl` is being included already, so including it here would never end\n --> $d/b.funl:2:1"), said)
+    assert(said.contains(s"= note: `$d/a.funl` includes `$d/b.funl` includes `$d/a.funl`"), said)
+
+    // A file including itself directly is the shortest such chain.
+    put(d, "self.funl", "$include \"self.funl\"\n")
+
+    val again = ran_file(s"$d/self.funl", "$include \"self.funl\"\n")
+
+    assert(again.contains(s"error: `$d/self.funl` is being included already, so including it here would never end\n --> $d/self.funl:1:1"), again)
+
+// The text of `file`, which a test wrote.
+private read_back(file: string) -> string = read_text(file).unwrap()
+
+@test
+AN_INCLUDE_OF_NOTHING_READABLE_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val said = ran_file(s"$d/main.funl", "write( 1 )\n$include \"missing.funl\"\n")
+
+    assert(said.contains(s"error: `$d/missing.funl` cannot be read: "), said)
+    assert(said.contains(s" --> $d/main.funl:2:1"), said)
+
+    assert_eq(complaints("$include missing\n"), "error 1:1 `$include` takes the name of the file it includes, in quotes\n")
+    assert_eq(complaints("$include\n"), "error 1:1 `$include` takes the name of the file it includes, in quotes\n")
+
+@test
+AN_INCLUDED_DOCUMENT_THE_TANGLE_REFUSES_IS_REFUSED_AT_THE_LINE()
+    val d = scratch()
+    defer scrap(d)
+
+    put(d, "open.lfunl", "# Open\n\n```\nwrite( 1 )\n")
+
+    val said = ran_file(s"$d/main.funl", "$include \"open.lfunl\"\n")
+
+    assert(said.contains(s"error: `$d/open.lfunl` cannot be included\n --> $d/main.funl:1:1"), said)
+    assert(said.contains("this fence is never closed"), said)
+
+@test
+DIRECTIVES_IN_A_LITERATE_PROGRAM_ARE_INDENTED_LINES()
+    val text = "# Doc\n\nProse with $define in it is prose.\n\n    $define K 41\n    write( K + 1, unknown )\n"
+
+    val said = ran_file("doc.lfunl", text)
+
+    assert(said.contains("error: `unknown` is not defined\n --> doc.lfunl:6:19\n  |\n6 |     write( K + 1, unknown )\n  |                   ^^^^^^^"), said)
+    assert_eq(ran_file("doc.lfunl", "# Doc\n\n    $define K 41\n    write( K + 1 )\n"), "42\nsucceeded")

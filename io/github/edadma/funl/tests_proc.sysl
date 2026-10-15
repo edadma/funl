@@ -63,3 +63,99 @@ BUILTINS_GENERATES_THE_NAMES_OF_THE_BUILTINS()
     assert_eq(ran_funl("seen = set()\nevery seen += builtins()\nwrite( ('abs' in seen) | 'no', ('write' in seen) | 'no', ('is/2' in seen) | 'no', ('_list' in seen) | 'no' )\n"), "abs, write, no, no\nsucceeded")
     assert_eq(ran_funl("n = 0\nevery builtins() do n += 1\nwrite( if n > 50 then 'many' else 'few' )\n"), "many\nsucceeded")
     assert_eq(ran_funl("write(type(proc(\"abs\")))\n"), "function\nsucceeded")
+
+// -- operators by their spelling -------------------------------------------------------------------
+
+@test
+PROC_GIVES_THE_ARITHMETIC_OPERATORS_BY_SPELLING()
+    assert_eq(ran_funl("write(proc(\"+\", 2)(3, 4), proc(\"-\", 2)(3, 4), proc(\"*\", 2)(3, 4), proc(\"/\", 2)(6, 4))\n"), "7, -1, 12, 3/2\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"\\\\\", 2)(-7, 2), proc(\"//\", 2)(-7, 2), proc(\"%\", 2)(-7, 2), proc(\"mod\", 2)(-7, 2))\n"), "-4, -4, -1, 1\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"^\", 2)(2, 10), proc(\"+\", 2)([1], [2]), proc(\"+\", 2)(\"ab\", \"cd\"))\n"), "1024, [1, 2], abcd\nsucceeded")
+
+@test
+PROC_GIVES_THE_SET_OPERATORS_BY_SPELLING()
+    assert_eq(ran_funl("write(proc(\"+\", 2)({1, 2}, {2, 3}), proc(\"-\", 2)({1, 2}, {2, 3}), proc(\"**\", 2)({1, 2}, {2, 3}))\n"), "{1, 2, 3}, {1}, {2}\nsucceeded")
+
+@test
+PROC_GIVES_A_COMPARISON_THAT_PRODUCES_ITS_RIGHT_OPERAND_OR_FAILS()
+    assert_eq(ran_funl("write(proc(\"<\", 2)(3, 5), proc(\"<=\", 2)(5, 5), proc(\">\", 2)(7, 5), proc(\">=\", 2)(5, 5))\n"), "5, 5, 5, 5\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"<\", 2)(5, 3) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\">\", 2)(3, 5) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"==\", 2)(2, 2), proc(\"div\", 2)(3, 12))\n"), "2, 12\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"!=\", 2)(2, 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"div\", 2)(5, 12) then 'yes' else 'no' )\n"), "no\nsucceeded")
+
+@test
+PROC_GIVES_MEMBERSHIP_CONS_INDEX_AND_RANGE_OPERATORS()
+    assert_eq(ran_funl("write(proc(\"in\", 2)(2, [1, 2]), proc(\":\", 2)(0, [1]), proc(\"[]\", 2)([5, 6, 7], 1))\n"), "2, [0, 1], 6\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"in\", 2)(9, [1, 2]) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"not in\", 2)(9, [1, 2]))\n"), "9\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"..\", 2)(1, 3), proc(\"..<\", 2)(1, 3), proc(\"..+\", 2)(1, 3))\n"), "1..3, 1..<3, 1..<4\nsucceeded")
+
+@test
+PROC_GIVES_AN_OPERATOR_THAT_GENERATES_AS_THE_OPERATOR_DOES()
+    assert_eq(ran_funl("every write(proc(\"to\", 2)(1, 3))\n"), "1\n2\n3\nsucceeded")
+    assert_eq(ran_funl("every write(proc(\"until\", 2)(1, 3))\n"), "1\n2\nsucceeded")
+    assert_eq(ran_funl("every write(proc(\"!\", 1)([4, 5]))\n"), "4\n5\nsucceeded")
+    assert_eq(ran_funl("every write(proc(\"!\", 1)(\"ab\"))\n"), "a\nb\nsucceeded")
+
+@test
+PROC_GIVES_THE_UNARY_OPERATORS()
+    assert_eq(ran_funl("write(proc(\"-\", 1)(5), proc(\"-\", 1)(-2))\n"), "-5, 2\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"?\", 1)(1))\n"), "1\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"\\\\\", 1)(3), proc(\"/\", 1)(undefined))\n"), "3, undefined\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"\\\\\", 1)(undefined) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"*\", 1)(\"abcd\"), proc(\"*\", 1)([1, 2]))\n"), "4, 2\nsucceeded")
+
+@test
+PROC_STAR_IS_THE_PREFIX_STAR_COUNT_OF_A_CO_EXPRESSION()
+    assert_eq(ran_funl("c = create (1 to 5)\n@c\n@c\nwrite(proc(\"*\", 1)(c), *c)\n"), "2, 2\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"*\", 1)([1, 2, 3]), proc(\"*\", 1)(\"abc\"))\n"), "3, 3\nsucceeded")
+
+@test
+PROC_GIVES_THE_SLICE_AS_FUNLS_OWN_RANGE_SLICE()
+    assert_eq(ran_funl("write(proc(\"[:]\", 3)([10, 20, 30, 40], 1, 2))\n"), "[20, 30]\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"[:]\", 3)(\"hello\", 1, 3))\n"), "ell\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"[:]\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"[:]\", 3)([1, 2], 0, 5) then 'yes' else 'no' )\n"), "no\nsucceeded")
+
+@test
+PROC_GIVES_THE_SCAN_MATCH_OPERATOR()
+    assert_eq(ran_funl("\"hello\" ? (write(proc(\"=\", 1)(\"he\")), write(&pos))\n"), "he\n3\nsucceeded")
+    assert_eq(ran_funl("\"hello\" ? write( if proc(\"=\", 1)(\"xy\") then 'yes' else 'no' )\n"), "no\nsucceeded")
+
+@test
+PROC_OF_AN_OPERATOR_DEFAULTS_ITS_COUNT_TO_ONE_AS_ICON_DOES()
+    assert_eq(ran_funl("write(proc(\"-\")(5))\n"), "-5\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"+\") then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"-\", 2)(5, 3))\n"), "2\nsucceeded")
+
+@test
+PROC_FAILS_FOR_AN_OPERATOR_OF_A_COUNT_IT_HAS_NO_FORM_FOR()
+    assert_eq(ran_funl("write( if proc(\"+\", 1) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"!\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"-\", 3) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"-\", -1) then 'yes' else 'no' )\n"), "no\nsucceeded")
+
+@test
+PROC_FAILS_FOR_A_CONTROL_STRUCTURE_AND_FOR_A_SPELLING_THAT_IS_NO_OPERATOR()
+    assert_eq(ran_funl("write( if proc(\"&\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"|\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"and\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"<-\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"+=\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"not\", 1) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"+++\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+
+@test
+PROC_OPERATOR_VALUES_ARE_FUNCTIONS_THAT_CAN_BE_PASSED_AND_KEPT()
+    assert_eq(ran_funl("write(type(proc(\"+\", 2)))\n"), "function\nsucceeded")
+    assert_eq(ran_funl("write(foldl(proc(\"*\", 2), 1, [1, 2, 3, 4]))\n"), "24\nsucceeded")
+    assert_eq(ran_funl("add = proc(\"+\", 2)\nwrite(add(1, 2), add(10, 20))\n"), "3, 30\nsucceeded")
+
+@test
+PROC_OPERATOR_FUNCTIONS_KEEP_THE_OPERATORS_FAULTS()
+    faults_with("proc(\"-\", 2)(1, \"x\")\n", "'-'")
+    faults_with("proc(\"/\", 2)(1, 0)\n", "divides by zero")
+    faults_with("proc(\"-\", 1)(\"x\")\n", "x")
+    faults_with("proc(\"+\", \"x\")\n", "'proc' wants the number of arguments as an integer and was given")

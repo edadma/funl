@@ -90,6 +90,22 @@ walk_catch(w: *Walk, id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr]
     walk(w, recovery)
     w.blk = outer
 
+// `e match` and its clauses: `e` is read where the `match` is; each clause's pattern declares its
+// names in a block of its own, which its guard and body are read inside. A `(v)` in a pattern is
+// read where it is, outside the clause's names.
+walk_match(w: *Walk, subject: &Expr, clauses: Buf[MatchClause])
+    walk(w, subject)
+
+    val outer = w.blk
+
+    for cl in clauses.view()
+        w.blk = w.sc.open(outer)
+        w.res.blocks.put(cl.id, w.blk)
+        declare_pattern(w, cl.pat, cl.pat.span.end, false)
+        walk_maybe(w, cl.guard)
+        walk(w, cl.body)
+        w.blk = outer
+
 // `e limit n`: both read where the limitation is, `n` first as it runs first. Block `id`, which
 // nothing else is read in, holds the two hidden slots the limitation keeps its count and its mark in.
 walk_limit(w: *Walk, id: usize, subject: &Expr, n: &Expr)
@@ -232,7 +248,7 @@ written_in_block(w: *Walk, clauses: Buf[Clause])
                 for i in rs.view()
                     var r = w.res.rels.at(i)
 
-                    if r.arity == c.params.len()
+                    if joins(r, c)
                         r.outer_block = w.blk
                         w.res.rels.set(i, r)
             None -> ()

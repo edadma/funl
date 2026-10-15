@@ -53,80 +53,18 @@ These Icon constructs have a FunL spelling now, and this chapter asks nothing ab
 | `getenv`, `system`, `exit`, `remove`, `rename`, `delay` | `funl:process`'s `env`, `run`, `exit`; `funl:fs`'s `remove`, `rename`; `funl:time`'s `sleep` | [modules](modules.md#the-first-batch) |
 | `&clock`, `&date`, `&dateline` as data | `funl:time`'s `now`, `format`, `fields` | |
 | `loadfunc`, `callout` | native modules | [modules](modules.md#built-in-modules-funlname) |
-| a call with too few arguments gets `&null`, extra ones are dropped | not adopted: a call is resolved by its count, decided; two arities or a variadic `def` (below) say it | [language](language.md#one-name-several-arities) |
+| a call with too few arguments gets `&null`, extra ones are dropped | not adopted: a call is resolved by its count, decided; two arities or a variadic `def` say it | [language](language.md#one-name-several-arities) |
+| `procedure p(a, b[])`, `p ! L`, `args(p)` | `def p(a, ..b)`, `p(..L)` anywhere among the arguments, `arity(p)` generating each count (I5, decided) | [functions](../reference/functions.md#variadic-functions) |
 | `&fail`, `&null` as values | `fail`, `undefined` | |
 
 ## Control
 
-### `until`
-
-**Icon:** `until e1 do e2` evaluates `e1`, bounded; if it fails, evaluates `e2`, bounded, and goes
-round again; when `e1` succeeds the loop ends and, as every Icon loop that runs out does, fails.
-`until e1` with no `do` is legal and spins on `e1` alone. `break` leaves it with a value.
-
-**FunL today:** `until` is the infix word of the exclusive generator, `1 until 3`, the generator
-twin of `..<`. It is not a Decided block, but it is the word.
-
-**Proposed:** take both, by position. **`until` at the start of an expression is the loop; `until`
-after an operand is the range**, as `-` is negation before an operand and subtraction after one.
-The parser already tells a prefix use of a token from an infix one, so nothing is ambiguous:
-
-```
-until done(state) do state = step(state)
-every write(1 until 4)
-```
-
-The loop is `while not e1 do e2` compiled directly: the condition's mark jumps into the body, its
-success leaves the loop. It takes a label, `end until`, and `break (v)` as `while` does, and
-fails when it runs out.
-
-> **Open question I1 — the loop `until` beside the range `until`.** (a) both, by position;
-> (b) the loop takes the word and the range is spelled `..<` or `to j - 1` only; (c) no `until`
-> loop, `while not` covers it. **Recommendation: (a).** It costs nothing in the grammar and breaks
-> no program; `while not` is the covered fallback but reads worse for the common "until converged"
-> loop.
-
 ### `case`
 
-**Icon:** `case e of { e1 : r1; e2 : r2; default : rd }` evaluates `e` once, bounded. The
-selectors are tried in order; each is evaluated and **may generate**, and each of its values is
-compared with `e`'s by `===`. The first that matches chooses its result expression, whose values
-are the `case`'s — unbounded, so a `case` may generate. With no match the `default` runs, and with
-no `default` the `case` fails.
-
-**FunL today:** clause dispatch and the partial function literal cover selection by pattern: a
-value is classified by applying an indented block of lambdas to it. There is no expression form
-that takes a subject first, and a partial function given a value no clause matches **faults**
-(`argument match not found`), where Icon's `case` fails.
-
-**Proposed:** a postfix `match`, as sysl and Scala write it, whose block is exactly a partial
-function literal:
-
-```
-kind = n match
-  0 -> 'zero'
-  m | m < 0 -> 'negative'
-  _ -> 'positive'
-```
-
-- The subject is evaluated once, bounded; clauses are tried in order with committed choice, as a
-  partial function's are; the chosen clause's body is unbounded, so a `match` may generate.
-- **No clause matching fails**, Icon's rule and goal-directed evaluation's, unlike a partial
-  function, whose callers are functions and for whom a missing case is a programming error.
-- **A parenthesized expression in a pattern compares against its value**, `(limit) -> …`, as a
-  map pattern's `(e)` key is already the value of `e` ([M2](language.md#map-patterns)). This is
-  how an Icon `case` on a variable's value is written. An alternation of such patterns, `(a) | (b)`,
-  is Icon's generating selector.
-
-It compiles as the partial function does, inline: a `Mark` per clause, the subject in a slot, and
-`Fail` where the partial function has `NoMatch`.
-
-> **Open question I2 — a `case` expression.** (a) postfix `e match` with a block of clauses, no
-> match failing, `(e)` in a pattern meaning "equal to `e`'s value"; (b) Icon's `case e of` with the
-> same block; (c) nothing new, the partial function applied, `(… block …)(e)`, faulting on no
-> match. **Recommendation: (a).** It is the partial function FunL already has, put after its
-> subject, and the spelling of sysl, which FunL is written in. (b) adds two words for the same
-> thing. (c) is what FunL says now and reads backwards.
+> **Decided (user, 2026-10-15) — I2, a `case` expression: postfix `e match`** over a block of
+> clauses, built: the subject made once and bounded, committed choice, an unbounded body, no clause
+> taking the value failing the `match`, and `(e)` in a clause's pattern comparing with `e`'s first
+> value. Described in [Functions § `match`](../reference/functions.md#match).
 
 ### Limitation
 
@@ -144,88 +82,9 @@ It compiles as the partial function does, inline: a `Mark` per clause, the subje
 
 ### `static` and `initial`
 
-**Icon:** `static x` declares a variable that belongs to the procedure rather than to a call: it
-starts `&null` when the program starts and keeps its value from one call to the next, recursion
-included. `initial e` is a statement at the head of the body that is evaluated on the first call
-only, before the rest of the body; it is how a static gets its first value. Neither is undone by
-backtracking.
-
-**Proposed:**
-
-```
-def next_id()
-  static count = 0
-  count += 1
-  count
-
-def lookup(k)
-  static cache
-  initial cache = map()
-  cache(k) = cache(k) | compute(k)
-```
-
-- **`static x = e`** declares `x` and evaluates `e` once, on the first call, before the statement
-  runs — Icon's `static x` and `initial x := e` in one line. `static x` alone starts `undefined`.
-- **`initial` followed by an expression or an indented block** runs it on the first call only.
-  `initial` blocks and `static` initializers run in the order they are written. The flag that says
-  "done" is set *before* they run, so a recursive call from inside one does not run it again (and a
-  failing or faulting initializer is not retried, as Icon's is not).
-- A static is visible in the clause that declares it, from its declaration to the end of the body,
-  like any block-scoped name, and is assigned with `=`, never undone by backtracking.
-
-**Machine:** a closure whose chunk declares statics gets a statics object when it is made, holding
-one cell per static and the "initialized" flag. `LoadStatic(i)` and `StoreStatic(i)` reach it
-through the frame (the frame gains a pointer to its closure), and `Initial(skip)` tests and sets the
-flag. The statics object is reached from the closure, so the collector sees it through its closure
-like any captured frame.
-
-> **Open question I4 — whose is a static: the definition's, or each closure's?** Icon has no
-> nested procedures, so it never had to say. A nested `def` or a lambda is made afresh each time its
-> enclosing body runs. (a) **each closure value has its own statics**, so a nested `def` made twice
-> counts twice; (b) **one set of statics per definition in the source**, shared by every closure
-> made from it, as C's are. For a top-level `def` the two agree. **Recommendation: (a).** A function
-> value is a closure, and its static is part of that value, so the memo table a nested helper keeps
-> is that helper's; (b) would make two closures that capture different frames share mutable state,
-> which nothing else in FunL does.
-
-### Variadic procedures and list invocation
-
-**Icon:** `procedure p(a, b[])` collects the arguments after `a` into a list `b`, empty when there
-are none. `p ! L` calls `p` with the elements of `L` as its arguments. `args(p)` is the number of
-parameters, negative for a variadic procedure.
-
-**FunL today:** a call is resolved by its count, and a builtin named as a value passes on however
-many arguments it is given — but a program can neither declare a variadic function nor call one
-with a list of arguments.
-
-**Proposed: `..rest`, the spelling FunL already has for the rest of a map pattern** (JavaScript's
-`...rest` without the third dot):
-
-```
-def log(level, ..parts) = write(level + ': ' + join(parts, ' '))
-
-log('info', 'started', 'ok')
-args = ['warn', 'disk', 'low']
-log(..args)
-```
-
-- **`..rest` as a function's last parameter** binds an immutable list of the remaining
-  arguments, as `..rest` in a map pattern binds an immutable map. It is a parameter, not a pattern
-  inside a list, so it appears only last and only once.
-- **`..e` as a call argument** spreads a list, tuple, array, buffer or range into the arguments,
-  anywhere in the argument list and any number of times. The call's count is then known only when it
-  runs, so it is resolved at run time through the family value, as a bare multi-arity name's call
-  is ([one name, several arities](language.md#one-name-several-arities)).
-- **`arity(f)`** generates the arities a function value takes, in increasing order; a variadic one's
-  is its fixed count negated, as Icon's `args` reports it (`arity(log)` is `-1`).
-
-> **Open question I5 — a variadic `def` beside name/arity.** Option C made `f/1` and `f/2` two
-> functions. (a) **`def f(a, ..rest)` is the member of `f`'s family for every count of one or more
-> that no fixed arity of `f` takes**: a call of two arguments goes to `f/2` if there is one, else to
-> the variadic; two variadic clauses with different fixed counts in one family are refused; a
-> relation cannot be variadic. (b) a variadic function is alone: no other arity of its name may be
-> defined. **Recommendation: (a).** It keeps "the nearer, more specific definition wins", which
-> Option C already uses, and lets a fixed arity be the fast case of a variadic one.
+> **Decided (user, 2026-10-15) — I4, whose is a static: each closure value's.** A nested `def` or a
+> lambda made twice counts twice; a named function is one value per frame it is defined in, so its
+> calls and its uses as a value share the statics. Built: [Functions](../reference/functions.md#static-and-initial).
 
 ## Co-expressions
 
@@ -262,42 +121,8 @@ log(..args)
 
 ## Scanning
 
-### Sections and indexing
-
-**Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the
-first, 0 the end, negative counting back, and every one of them is assignable on a string variable.
-
-**FunL:** an element is `c(i)` counting from 0 and a slice is `c(r)` for a range — decided, one way
-to index. Every section is **covered** by a range: `s[i+:n]` is `s(i ..+ n)`, `s[i-:n]` is
-`s(i - n ..+ n)`, a tail is `s(i..)`. Position arithmetic belongs to scanning, where positions stay
-Icon's. What is not covered is **assigning to a section of a string variable**, `s[2:4] := "xy"`,
-which builds a new string and stores it.
-
-> **Open question I10 — Icon's positions in indexing.** (a) keep the decision: 0-based `c(i)`,
-> ranges for sections, no negative indexes, and add `s(r) = t` on a string variable as "store a new
-> string with that section replaced"; (b) reopen it for Icon's positions. **Recommendation: (a).**
-> Every section has a range spelling, and the 0-based rule is shared with lists, arrays, tuples and
-> Prolog's view of them. The assignable section is the one capability missing, and it fits the
-> existing `c(i) = e` on a mutable collection.
 
 ## Strings and csets
-
-### `map` and `reverse`
-
-> **Open question I11 — `map(s1, s2, s3)`.** Icon's character mapping replaces each character of
-> `s1` that occurs in `s2` with the one at the same place in `s3`, the last occurrence in `s2`
-> winning; `s2` and `s3` must be the same length. FunL's `map` already has three meanings (the
-> prelude's `map(f, xs)`, `map(c)`, `map(c, default)`), and `map` with three arguments is decided to
-> be an `existence_error`. (a) a new name, **`translate(s, from, to)`**; (b) `map/3` over strings,
-> reopening the decision. **Recommendation: (a).** A fourth meaning for `map` is one too many, and
-> `translate` is what the operation is called elsewhere.
-
-> **Open question I12 — `reverse` of a string.** P3.5 decided that the prelude's list functions
-> refuse a string "as `reverse` refuses it". (a) **`reverse(s)` is the string reversed**, by
-> characters, and P3.5's refusal stays for every other list function; (b) a separate
-> `reverse_string`. **Recommendation: (a).** P3.5 refused answering a string *as one element*;
-> a reversed string is a different, well-defined answer of the same kind, and `reverse` is the
-> name anyone reaches for.
 
 ### String comparison
 
@@ -327,19 +152,6 @@ converted. Icon's two families exist only because of the conversion, so FunL's o
 |---|---|---|
 | `S1 ** S2` | `**` | new |
 | `serial(x)` | not adopted: `image` does not print serial numbers | |
-
-### Records
-
-**Icon:** `r.f := x` changes a record in place.
-
-**FunL:** a record is a compound term — the value Prolog sees and unifies — and immutable. A field
-cannot be assigned.
-
-> **Open question I15 — mutable records.** (a) keep records immutable, and add **`with(r, {f: x})`**,
-> a copy of `r` with the named fields replaced; a record whose fields change in place is a mutable
-> map, or a record holding an array; (b) mutable records, breaking the identity of a record with a
-> Prolog term. **Recommendation: (a).** A term that changes under a unification that has already
-> succeeded is the failure the logic chapter's design exists to rule out.
 
 ## Numbers
 
@@ -393,11 +205,17 @@ with a newline; no standard input, no standard error, no open file.
 > `&pos` (`&pos <- i` reversible), the csets, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the
 > clocks, `&version`, `&host`, `&progname`, `&features` (`"co-expressions"` among
 > them), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). Built since:
-> `&trace` (calls, returns, suspensions, resumptions and failures, counted down per line; the line
-> is Icon's, with the function's first clause standing for the place), `&dump`, `display()`,
-> `collect()`, `&collections` and `&allocated` (one number each: sysl's heap has no regions, so
-> `&storage` and `&regions` are not adopted), over a name table the compiler keeps per chunk
-> (`trace.sysl`). What remains:
+> `&trace` (calls, returns, suspensions, resumptions and failures, counted down per line), `&dump`,
+> `display()`, `collect()`, `&collections` and `&allocated`, over a name table the compiler keeps per
+> chunk (`trace.sysl`). **Decided (user, 2026-10-15): the line is Icon's, the call site's** — a
+> line table per chunk (run-length, one mark where the line changes, kept beside the chunks and read
+> only by a trace line or a fault) places a call at the call, a return or suspension at what
+> returned, a failure at what failed; and an uncaught fault names its file and line
+> (`f at prog.funl:3: …`, where it named an instruction index). A tail call still takes its caller's
+> place, so the caller's return is not shown — a deliberate difference. `&line` stays fixed when
+> parsed. **`&storage` and `&regions` are adopted** over the one region FunL allocates in, the
+> collected heap: one number each, the bytes in use and the heap's size, where Icon's generate one
+> per region. What remains:
 
 | keyword | FunL |
 |---|---|
@@ -428,29 +246,12 @@ design that scopes the conversion to an expression instead of a global counter.
 
 ## The preprocessor
 
-**Icon:** before compiling, lines beginning with `$` are directives: `$define name text`,
-`$undef`, `$ifdef`, `$ifndef`, `$else`, `$endif`, `$include "file"`, `$line n "file"`, `$error
-text`. Predefined names describe the platform and the features built in (`_UNIX`,
-`_CO_EXPRESSIONS`, `_LARGE_INTEGERS`, …). Substitution is by token, not inside strings.
-
-**FunL today:** `val` names a constant, `import` brings another file's names, and nothing selects
-code by platform or feature when compiling. A line beginning with `$` is free (`$name`
-interpolates only inside a string).
-
-**Proposed:** Icon's directives, run over the token stream after the lexer and before the parser,
-so substitution is by token and never reaches into a string or a comment: `$define` (a sequence of
-tokens), `$undef`, `$ifdef`/`$ifndef`/`$else`/`$endif`, `$include` (textual, unlike `import`),
-`$line` and `$error`. Predefined: `_FUNL`, `_MACOS`, `_LINUX`, `_UNIX`, `_CO_EXPRESSIONS`,
-`_LARGE_INTEGERS`, and `_HTTP`, `_ASYNC`, `_PROFILE` for the features built in. Diagnostics name the
-file and line a token came from, through `$include` and `$line`. In a literate file the directives
-are in the tangled program, as everything else is.
-
-> **Open question I20 — a preprocessor.** (a) Icon's directives, token-level, as above; (b) only
-> conditional compilation on platform and features, `$ifdef` and its partners, with `val` and
-> `import` covering `$define` and `$include`; (c) none. **Recommendation: (b).** `val` and
-> `import` are better than `$define` and `$include` in every way but token pasting, and a textual
-> include is the thing modules replaced. Selecting code by platform or feature is the one capability
-> nothing covers. If parity is meant to the letter, (a) costs little more on top of (b).
+> **Decided (user, 2026-10-15) — I20: Icon's whole preprocessor**, not only conditional
+> compilation (the narrower recommendation was declined): `$define`, `$undef`, `$ifdef`, `$ifndef`,
+> `$else`, `$endif`, `$include` (positions carried through, include cycles refused), `$line` and
+> `$error`, with the platform and feature names predefined, over FunL's token stream and in a
+> literate file's tangled program. Built: `preproc.sysl`; specified in
+> [Source files](../reference/source-files.md#the-preprocessor).
 
 ## Graphics
 
@@ -467,11 +268,10 @@ own book, rather than part of the language.
 
 | | question | recommendation |
 |---|---|---|
-| I1 | the loop `until` beside the range `until` | both, by position |
-| I2 | a `case` expression | postfix `e match` with a clause block; no match fails; `(e)` pattern compares |
+| I2 | a `case` expression | decided: postfix `e match`, [Functions](../reference/functions.md#match) |
 | I3 | limitation, `\` being integer division | the infix word `e limit n` |
 | I4 | whose is a static | each closure value's |
-| I5 | a variadic `def` beside name/arity | the family member for every count no fixed arity takes |
+| I5 | a variadic `def` beside name/arity | **decided** (user, 2026-10-15): the family member for every count no fixed arity takes; built |
 | I6 | reflection by name | `proc` over top-level names and builtins; no `variable`, no string invocation |
 | I7 | co-expression spelling | Icon's `create`, `@`, `^`, `*`, `!` |
 | I8 | does `create` copy the locals | copy the innermost frame, share the rest |
@@ -486,5 +286,5 @@ own book, rather than part of the language.
 | I17 | writing to a file | handle methods, `f.write(x)` |
 | I18 | how keywords are spelled | `&name`, one token |
 | I19 | `&error` and `runerr` | nothing more; `catch` and `throw` cover them |
-| I20 | a preprocessor | conditional compilation only |
+| I20 | a preprocessor | decided: Icon's whole preprocessor |
 | I21 | the graphics facilities | decided: in scope, [Graphics](graphics.md) |

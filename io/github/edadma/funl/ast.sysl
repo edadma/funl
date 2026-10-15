@@ -237,9 +237,21 @@ enum ExprKind
     // also holds the slot the control-stack height is kept in (`catch.sysl`).
     CatchE(id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr], recovery: &Expr)
 
+    // `e match` over a block of clauses: `e`'s first value, matched against each clause's pattern
+    // and guard in turn; the first clause that takes it gives the `match` its body's values, and a
+    // value no clause takes fails the `match`.
+    MatchE(subject: &Expr, clauses: Buf[MatchClause])
+
+    // `(e)` in a `match` clause's pattern: the value there must equal `e`'s first value.
+    ValueP(e: &Expr)
+
     // `` `a(b|c)*` ``: a regex, read into its pattern tree, which numbers `groups` capture groups. It
     // matches at the scan position, and its value is the text it matched.
     RegexE(pat: &Pat, groups: usize)
+
+    // `..e`: as a call's argument, the elements of `e` spread into the arguments; as a function's last
+    // parameter, `..rest`, the list of every argument after the others. Nowhere else.
+    SpreadE(e: &Expr)
 
     // `&name`, a keyword the machine answers when it is evaluated (`keywords.sysl`): `&pos`, `&clock`.
     // The keywords fixed when parsed -- `&null`, `&fail`, `&file`, `&line` -- never become one.
@@ -258,6 +270,14 @@ struct Expr
     span: Span
 
 expr(kind: ExprKind, span: Span) -> &Expr = Expr(kind, span)
+
+// One clause of a `match`: `pat -> body` or `pat | guard -> body`. Its names are in block `id`, which
+// the guard and the body are read inside.
+struct MatchClause
+    id: usize
+    pat: &Expr
+    guard: Option[&Expr]
+    body: &Expr
 
 // One binding of a `for` head: `pat <- iter if filter`.
 struct ForGen
@@ -287,6 +307,14 @@ enum Stmt
     // declared in the block like a `val`. `typ` is the data type's name, `shape`, or "" for a
     // declaration of one constructor, which is its own type.
     DataS(ctors: Buf[CtorDecl], typ: string)
+
+    // `static name` or `static name = e` at the head of a function's body: a variable of the function
+    // value rather than of a call, `e` stored into it once, before the first call's body runs.
+    StaticS(name: string, at: Span, e: Option[&Expr])
+
+    // `initial e`, or `initial` over an indented block, at the head of a function's body: run once,
+    // before the first call's body runs.
+    InitialS(e: &Expr)
 end Stmt
 
 // One constructor of a `data` declaration: its name and its fields' names. One written with no
@@ -344,6 +372,11 @@ struct Program
 
     // Every name an `export` line declares, with where it is written, in order.
     exports: Buf[Spanned[string]]
+
+    // The text every span is an offset into -- the file itself, or with what the preprocessor
+    // included and expanded put after it -- and where each part of it came from.
+    source: Source
+    places: SourceMap
 
 // Where an `import` line takes its module from.
 enum Specifier

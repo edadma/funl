@@ -2,26 +2,33 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 import sysl.text.{Search, StrBuilder, str_builder}
+import sh.sysl.gc
 
-// Tracing and introspection: `&trace`, `display()`, `&dump`, `collect()`, `&collections` and
-// `&allocated`.
+// Tracing and introspection: `&trace`, `display()`, `&dump`, `collect()`, `&collections`,
+// `&allocated`, `&storage` and `&regions`.
 //
 // **A FunL chunk carries a name table** (`Chunk.file`, `line`, `clauses`): where the function was
 // written, and each clause's slot names with the instruction the clause begins at, so the slot names
 // of a running frame are those of the clause its instruction lies in. The compiler fills it for every
-// function, lambda and top level (`name_function`, `name_top_level`); no other chunk has one.
+// function, lambda and top level (`name_function`, `name_top_level`); a relation has the file and line
+// only (`name_relation`), and no other chunk has one.
+//
+// **A FunL chunk has a line table too** (`Vm.chunk_lines`, beside the chunks so the instruction loop's
+// read of its chunk does not grow): the source line of each instruction, a mark only where the line
+// changes, which `Emit.at_line` writes as each expression is compiled. It is read only when a trace
+// line or an uncaught fault is written (`line_at`), never as code runs.
 //
 // **`&trace` costs a test of one field where it is off**, on a call, a return and a failure. While it
 // is not zero, each event of a traced chunk -- a FunL function's or lambda's -- writes one line to
 // standard error through the machine's `eput`, and a positive count falls by one a line; a negative
-// one traces for ever. A line is the file and line the function was written at, a `| ` for each call
-// the event is inside, and the event:
+// one traces for ever. A line is the file and line of the code the event happened at, a `| ` for each
+// call the event is inside, and the event:
 //
-//     test.funl:1 | f(1, "a")          a call, with each argument's image
-//     test.funl:1 | f returned 2       a return that leaves nothing to resume
-//     test.funl:1 | f suspended 2      a return that leaves the function resumable
-//     test.funl:1 | f resumed          failure going back into a suspended function
-//     test.funl:1 | f failed           failure leaving a function for good
+//     test.funl:5 | f(1, "a")          a call, placed at the call
+//     test.funl:2 | f returned 2       a return, placed at what returned
+//     test.funl:2 | f suspended 2      a return that leaves the function resumable
+//     test.funl:5 | f resumed          failure going back into a suspended function, at what failed
+//     test.funl:2 | f failed           failure leaving a function for good, at what failed in it
 //
 // Suspension and resumption are what `ret` and `fail` already do: a return that leaves entries above
 // the frame's own pushes a `Restore`, and failure meeting it re-enters the frame. Failure that pops
@@ -35,6 +42,12 @@ install_tracing(v: *Vm)
     register(v, "&dump=", 1, (b, n) -> store_dump(b))
     register(v, "&collections", 0, (b, n) -> Ok(Int(long(current().collections))))
     register(v, "&allocated", 0, (b, n) -> allocated_now())
+
+    // Icon's regions are its string and block regions; FunL allocates in one, the collected heap, so
+    // `&storage` is the bytes its objects hold now -- those live at the last collection and all made
+    // since -- and `&regions` the bytes the heap was made with, which it never grows past.
+    register(v, "&storage", 0, (b, n) -> Ok(Int(long(gc.live_size(&current().heap)))))
+    register(v, "&regions", 0, (b, n) -> Ok(Int(long(current().heap_bytes))))
     register(v, "display", 0, (b, n) -> display_now())
     register(v, "collect", 0, (b, n) -> collect_asked())
 
@@ -50,11 +63,60 @@ name_function(e: *Emit, res: *Resolved, r: Rel, starts: Buf[usize])
     for i in 0..<r.clauses.len()
         e.clauses.push(ClauseNames(e.labels.at(starts.at(i)), slot_names(res.scopes.at(r.scopes.at(i)))))
 
+// Name the file and line relation `r` was written at, so its line table can be read as places: a
+// relation keeps no slot names and is not traced.
+name_relation(e: *Emit, res: *Resolved, r: Rel)
+    e.file = res.src.name
+    e.line = if r.clauses.len() > 0 then long(res.src.locate(r.clauses.at(0).head.start).line) else 0
+
 // Fill a top level's name table: one clause, from the first instruction.
 name_top_level(e: *Emit, res: *Resolved)
     e.file = res.src.name
     e.line = 1
     e.clauses.push(ClauseNames(0, slot_names(res.scopes.at(res.top))))
+
+// -- the line table ----------------------------------------------------------------------------------
+
+// The source line instruction `ip` of chunk `code` was compiled from: the last mark at or before it,
+// by binary search; the line the chunk was written at where no mark reaches it, as for the dispatch
+// on a function's clauses ahead of the first. 0 for a chunk with no source.
+line_at(v: *Vm, code: usize, ip: usize) -> long
+    val c = v.chunks.at(code)
+
+    if code >= v.chunk_lines.len() then return c.line
+
+    val marks = v.chunk_lines.at(code)
+    var lo: usize = 0
+    var hi = marks.len()
+
+    // The first mark past `ip`; the one before it covers `ip`.
+    while lo < hi
+        val mid = lo + (hi - lo) / 2
+
+        if usize(marks.at(mid).start) <= ip then lo = mid + 1 else hi = mid
+
+    if lo == 0 then c.line else long(marks.at(lo - 1).line)
+
+// `file:line` of instruction `ip` of chunk `code`, or None for a chunk with no source file -- a
+// Prolog clause's, a builtin's.
+place_of(v: *Vm, code: usize, ip: usize) -> Option[string]
+    if code >= v.chunks.len() then return None
+
+    val c = v.chunks.at(code)
+
+    if c.file == "" then return None
+
+    Some(s"${c.file}:${line_at(v, code, ip)}")
+
+// Where a fault nothing caught was raised, as its message begins: the function and the file and line
+// of instruction `at` of chunk `code`, `f at test.funl:4`; the function and the instruction's index,
+// `f@12`, for a chunk with no source.
+fault_place(v: *Vm, code: usize, at: usize) -> string
+    val name = if code < v.chunks.len() then v.chunks.at(code).name else "?"
+
+    place_of(v, code, at) match
+        Some(p) -> s"$name at $p"
+        None -> s"$name@$at"
 
 private slot_names(sc: Scope) -> Buf[string]
     var out: Buf[string] = buf()
@@ -177,15 +239,21 @@ frame_level(f: *FrameObj) -> long
 
 private traced(v: *Vm, f: *FrameObj) -> bool = f != null && v.chunks.at(f.chunk).traced
 
-// One trace line about frame `f`, counted down, while `&trace` is not zero.
-private trace_line(v: *Vm, f: *FrameObj, event: string)
+// One trace line about frame `f`, counted down, while `&trace` is not zero, placed at instruction
+// `ip` of chunk `code`. Where that chunk has no source -- a Prolog clause called the function -- the
+// line is placed where `f`'s function was written.
+private trace_line(v: *Vm, f: *FrameObj, code: usize, ip: usize, event: string)
     if v.trace == 0 then return
 
-    val c = v.chunks.at(f.chunk)
     var b = str_builder()
     var depth = frame_level(f)
 
-    b.push(s"${c.file}:${c.line} ")
+    place_of(v, code, ip) match
+        Some(p) -> b.push(s"$p ")
+        None ->
+            val c = v.chunks.at(f.chunk)
+
+            b.push(s"${c.file}:${c.line} ")
 
     while depth > 1
         b.push("| ")
@@ -198,8 +266,9 @@ private trace_line(v: *Vm, f: *FrameObj, event: string)
 
     v.eput(b.finish())
 
-// Frame `f` has just been entered with its arguments.
-trace_call(v: *Vm, f: *FrameObj)
+// Frame `f` has just been entered with its arguments, by the call at instruction `ip` of chunk `code`:
+// the call site, which the line names, as Icon's does.
+trace_call(v: *Vm, f: *FrameObj, code: usize, ip: usize)
     if !traced(v, f) then return
 
     var b = str_builder()
@@ -209,25 +278,40 @@ trace_call(v: *Vm, f: *FrameObj)
 
         b.push(image_of(f.args.at(i)))
 
-    trace_line(v, f, s"${v.chunks.at(f.chunk).name}(${b.finish()})")
+    trace_line(v, f, code, ip, s"${v.chunks.at(f.chunk).name}(${b.finish()})")
 
-// Frame `f` is returning `value`, resumable afterwards when `suspends`.
+// Frame `f` is returning `value`, resumable afterwards when `suspends`, from the instruction just run:
+// the line names the `return` or `yield`, or the expression whose value is returned.
 trace_return(v: *Vm, f: *FrameObj, value: Value, suspends: bool)
     if !traced(v, f) then return
 
-    trace_line(v, f, s"${v.chunks.at(f.chunk).name} ${if suspends then "suspended" else "returned"} ${image_of(value)}")
+    trace_line(v, f, v.code, before_ip(v.ip), s"${v.chunks.at(f.chunk).name} ${if suspends then "suspended" else "returned"} ${image_of(value)}")
 
-// Failure has moved the running frame from `before` to `after` (`null` when it ran out of entries
-// altogether): the frames left behind on the way up have failed, innermost first, and the frames
-// re-entered on the way down are resumed, outermost first.
-trace_moved(v: *Vm, before: *FrameObj, after: *FrameObj)
+// The instruction before `ip`: the one just run, when `ip` is where the machine goes next.
+before_ip(ip: usize) -> usize = if ip > 0 then ip - 1 else 0
+
+// Failure, arising at instruction `ip` of chunk `code`, has moved the running frame from `before` to
+// `after` (`null` when it ran out of entries altogether): the frames left behind on the way up have
+// failed, innermost first, and the frames re-entered on the way down are resumed, outermost first.
+//
+// **Each line is placed where the failure passed through that frame**: the frame failure arose in at
+// `ip`, each frame above it at its call of the one below; a resumed frame at the place that resumed
+// it -- the outermost at `ip`, the failure that backtracked into it, as Icon's are -- and each inside
+// it at the call that made it.
+trace_moved(v: *Vm, before: *FrameObj, code: usize, ip: usize, after: *FrameObj)
     if before == after || before == null then return
 
     if on_chain(after, before)
         var f = before
+        var at_code = code
+        var at_ip = ip
 
         while f != null && f != after
-            if traced(v, f) then trace_line(v, f, s"${v.chunks.at(f.chunk).name} failed")
+            if traced(v, f) then trace_line(v, f, at_code, at_ip, s"${v.chunks.at(f.chunk).name} failed")
+
+            if f.caller != null
+                at_code = f.caller.chunk
+                at_ip = before_ip(f.return_ip)
 
             f = f.caller
 
@@ -249,7 +333,12 @@ trace_moved(v: *Vm, before: *FrameObj, after: *FrameObj)
 
         val r = resumed.at(i)
 
-        if traced(v, r) then trace_line(v, r, s"${v.chunks.at(r.chunk).name} resumed")
+        if !traced(v, r) then continue
+
+        if r.caller == before || r.caller == null
+            trace_line(v, r, code, ip, s"${v.chunks.at(r.chunk).name} resumed")
+        else
+            trace_line(v, r, r.caller.chunk, before_ip(r.return_ip), s"${v.chunks.at(r.chunk).name} resumed")
 
 // Whether `target` is `from` or a frame `from` will return to; `null` is beneath every frame.
 private on_chain(target: *FrameObj, from: *FrameObj) -> bool

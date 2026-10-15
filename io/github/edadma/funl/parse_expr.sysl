@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.text.from_utf8_unchecked
 
 // Expressions: the `pratt` callbacks, and the prefix forms -- `if`, `every`, `not`, `return`,
 // prefix `-` -- that read as far right as they can.
@@ -91,6 +92,11 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
                 NumE(text) -> expr(NumE(s"-$text"), t.span.to(e.span))
                 _ -> expr(MinusE(e), t.span.to(e.span))
         LParen -> paren(p, t.span)
+        DotDot ->
+            // The operand is everything binding tighter than a comparison: `..1..3`, `..xs + ys`.
+            val e = parse_expr(p, 40)
+
+            expr(SpreadE(e), t.span.to(e.span))
         Not ->
             val e = parse_expr(p, NotPower)
 
@@ -98,6 +104,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
         If -> closing(p, if_expr(p, t.span), ClosesWord("if"))
         Every -> closing(p, every_expr(p, t.span, None), ClosesWord("every"))
         While -> closing(p, while_expr(p, t.span, None), ClosesWord("while"))
+        Until -> closing(p, until_expr(p, t.span, None), ClosesWord("until"))
         Repeat -> closing(p, repeat_expr(p, t.span, None), ClosesWord("repeat"))
         For -> closing(p, for_expr(p, t.span, None), ClosesWord("for"))
         Break ->
@@ -138,7 +145,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             var outer: Buf[&Expr] = buf()
 
             inner.push(e)
-            outer.push(expr(CallE("match", e.span, inner), at))
+            outer.push(expr(CallE("match", t.span, inner), at))
 
             expr(CallE("tab", t.span, outer), at)
         Bar ->
@@ -672,7 +679,31 @@ private number(p: *Parser, kind: ExprKind, at: Span) -> &Expr
 
     expr(BinE(Mul, lit, operand), at.to(operand.span))
 
+// Whether a binary operator written as a word.
+private word_operator(t: Tok) -> bool
+    t match
+        Mod | Div | And | Or | In | NotIn | Is | To | Until -> true
+        _ -> false
+
+// A word operator with the `=` touching it, as in `x mod= 3`, is an assignment form that does not
+// exist. The gap between the two tokens is what tells it from `x mod =s`, a scan of `s`, where a
+// space separates them.
+private refuse_word_assign(t: Spanned[Tok], p: *Parser)
+    if !word_operator(t.value) then return
+
+    p.look() match
+        Some(n) ->
+            if tag(n.value) == tag(Equals) && n.span.start == t.span.end
+                val word = from_utf8_unchecked(p.src.text(t.span))
+                val at = Span(t.span.start, n.span.end)
+
+                p.report.add(error(at, s"`$word` has no assigning form")
+                    .with_note(s"write `x = x $word y`; with a space before `=`, `x $word =s` scans for `s`"))
+        None -> ()
+
 private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
+    refuse_word_assign(t, p)
+
     t.value match
         Arrow -> return lambda(p, left)
         LParen ->
@@ -705,8 +736,10 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
 
             return expr(ScanE(left, body), left.span.to(body.span))
         CatchW -> return catching(p, left)
-        Name(_) ->
-            // Only `limit` has an infix power among names (`power`).
+        Name(s) ->
+            // Only `match` and `limit` have an infix power among names (`power`).
+            if s == "match" then return closing(p, match_expr(p, left, t.span), ClosesWord("match"))
+
             val id = p.node_id()
             val n = parse_expr(p, LimitPower)
 
@@ -801,7 +834,11 @@ private paren(p: *Parser, open: Span) -> &Expr
         return expr(TupleE(items), open.to(p.toks.previous()))
 
     p.expect(RParen, "`)`")
-    expr(first.kind, open.to(p.toks.previous()))
+
+    val at = open.to(p.toks.previous())
+
+    p.parens.put(at.start, at.end)
+    expr(first.kind, at)
 end paren
 
 // `(s; s; e)`, its first statement read: a block of its own, whose value is its last statement's.
@@ -890,6 +927,117 @@ private catching(p: *Parser, left: &Expr) -> &Expr
         _ -> ()
 
     expr(CatchE(id, left, pat, guard, body), left.span.to(body.span))
+
+// `e match` and the block of clauses under it, the `match` already read at `at` and `left` the
+// subject. The block is read as a partial function literal is, one lambda a line; each lambda's
+// parameters are the clause's pattern -- several make a tuple pattern, `(a, b) -> ...` -- and its
+// guard and body the clause's.
+private match_expr(p: *Parser, left: &Expr, at: Span) -> &Expr
+    if !p.at_tok(Indent)
+        p.report.add(error(at, "`match` is followed by an indented block of clauses")
+            .with_note("a clause is a pattern, an optional `| guard`, `->` and its result, one a line: `0 -> 'zero'`"))
+        return expr(BadE, left.span.to(at))
+
+    val block = branch(p)
+    var clauses: Buf[MatchClause] = buf()
+
+    block.kind match
+        LambdaE(_, cs) ->
+            for c in cs.view()
+                if c.is_async
+                    p.report.add(error(c.head, "a `match` clause is not `async`")
+                        .with_note("`async` makes a function; a clause's result is the `match`'s own value"))
+
+                val pat = clause_pattern(p, c)
+
+                c.kind match
+                    FunctionC(b) ->
+                        for g in b.guards.view()
+                            clauses.push(MatchClause(p.node_id(), pat, g.cond, g.body))
+                    _ -> ()
+        BlockE(_, stmts) ->
+            for s in stmts.view()
+                if !is_clause(s)
+                    p.report.add(error(stmt_span(s, block.span), "every line of a `match` block is a clause, `pattern -> result`")
+                        .with_note("a clause with more to do than one expression takes an indented block after its `->`"))
+                    break
+
+            return expr(BadE, left.span.to(block.span))
+        _ -> return expr(BadE, left.span.to(block.span))
+
+    expr(MatchE(left, clauses), left.span.to(block.span))
+end match_expr
+
+// Whether a line of a `match` block is a clause.
+private is_clause(s: Stmt) -> bool = s match
+    ExprS(e) -> e.kind match
+        LambdaE(_, _) -> true
+        BadE -> true
+        _ -> false
+    _ -> false
+
+// Where a statement is, or `whole` for one that does not say.
+private stmt_span(s: Stmt, whole: Span) -> Span = s match
+    ExprS(e) -> e.span
+    ValS(pat, x, _) -> pat.span.to(x.span)
+    _ -> whole
+
+// A `match` clause's pattern: its lambda's one parameter, the unit value for none, a tuple for
+// several -- with each `(e)` in it the value it compares with.
+private clause_pattern(p: *Parser, c: Clause) -> &Expr
+    val n = c.params.len()
+
+    if n == 1 then return value_patterns(p, c.params.at(0))
+
+    if n == 0 then return expr(TupleE(buf()), c.head)
+
+    var items: Buf[&Expr] = buf()
+
+    for x in c.params.view()
+        items.push(value_patterns(p, x))
+
+    expr(TupleE(items), c.params.at(0).span.to(c.params.at(n - 1).span))
+
+// `x`, a pattern, with each parenthesized expression in it made the value it compares with: `(limit)`,
+// `(f(y))`, `(n + 1)`. Parentheses that only group a pattern -- around `h:t`, `p | q` or `n@p` -- keep
+// it a pattern, as does a tuple's own.
+private value_patterns(p: *Parser, x: &Expr) -> &Expr
+    if parenthesized(p, x) && !grouped(x) then return expr(ValueP(x), x.span)
+
+    x.kind match
+        TupleE(items) -> expr(TupleE(each_value_pattern(p, items)), x.span)
+        CallE(n, at, args) -> expr(CallE(n, at, each_value_pattern(p, args)), x.span)
+        ApplyE(f, args) -> expr(ApplyE(f, each_value_pattern(p, args)), x.span)
+        ListE(items) -> expr(ListE(each_value_pattern(p, items)), x.span)
+        ConsE(h, t) -> expr(ConsE(value_patterns(p, h), value_patterns(p, t)), x.span)
+        Disj(a, b) -> expr(Disj(value_patterns(p, a), value_patterns(p, b)), x.span)
+        AsE(n, pat) -> expr(AsE(n, value_patterns(p, pat)), x.span)
+        MapE(keys, vals) -> expr(MapE(keys, each_value_pattern(p, vals)), x.span)
+        MapRestE(keys, vals, rest) -> expr(MapRestE(keys, each_value_pattern(p, vals), rest), x.span)
+        _ -> x
+
+// Whether `x` was written in parentheses of its own.
+private parenthesized(p: *Parser, x: &Expr) -> bool = p.parens.get(x.span.start) match
+    Some(end) -> end == x.span.end
+    None -> false
+
+// Whether `x` is a pattern form that parentheses group rather than turn into a value.
+private grouped(x: &Expr) -> bool = x.kind match
+    ConsE(_, _) -> true
+    Disj(_, _) -> true
+    AsE(_, _) -> true
+    TupleE(_) -> true
+    Anon -> true
+    BadE -> true
+    _ -> false
+
+private each_value_pattern(p: *Parser, xs: Buf[&Expr]) -> Buf[&Expr]
+    var out: Buf[&Expr] = buf()
+
+    for x in xs.view()
+        out.push(value_patterns(p, x))
+
+    out
 
 // `async params -> body`, the `async` already read at `at`: the lambda, its clauses `async`.
 private async_lambda(p: *Parser, at: Span) -> &Expr

@@ -71,6 +71,10 @@ enum Tok
     AsyncW
     AwaitW
 
+    // `static x [= e]` and `initial e` at the head of a function's body.
+    StaticW
+    InitialW
+
     // `create e`, a co-expression.
     CreateW
 
@@ -203,6 +207,8 @@ private spelling(t: Tok) -> string
         CatchW -> "catch"
         AsyncW -> "async"
         AwaitW -> "await"
+        StaticW -> "static"
+        InitialW -> "initial"
         CreateW -> "create"
         Semi -> ";"
         Colon -> ":"
@@ -295,6 +301,8 @@ keyword(s: string) -> Option[Tok]
     if s == "catch" then return Some(CatchW)
     if s == "async" then return Some(AsyncW)
     if s == "await" then return Some(AwaitW)
+    if s == "static" then return Some(StaticW)
+    if s == "initial" then return Some(InitialW)
     if s == "create" then return Some(CreateW)
 
     None
@@ -306,6 +314,10 @@ power(t: Tok) -> Power
     t match
         Arrow -> right_assoc(ArrowPower)
         CatchW -> left_assoc(CatchPower)
+        Name(s) ->
+            if s == "match" then left_assoc(MatchPower)
+            elif s == LimitWord then left_assoc(LimitPower)
+            else left_assoc(0)
         Question -> left_assoc(ScanPower)
         Or -> left_assoc(10)
         And -> left_assoc(12)
@@ -322,7 +334,6 @@ power(t: Tok) -> Power
         NotIn -> left_assoc(40)
         Is -> left_assoc(40)
         At -> left_assoc(TransmitPower)
-        Name(s) -> left_assoc(if s == LimitWord then LimitPower else 0)
         Colon -> right_assoc(ConsPower)
         To -> left_assoc(RangePower)
         Until -> left_assoc(RangePower)
@@ -376,6 +387,11 @@ const ArrowPower: u16 = 5
 // `e catch p -> r`: looser than every operator but the lambda arrow, so `a + b catch ...` guards the
 // sum and `x -> risky() catch ...` gives the lambda a body that guards.
 const CatchPower: u16 = 6
+
+// `e match` and its block of clauses: `match` is a name everywhere but after an expression, where it
+// takes everything before it but a `catch` and a lambda's arrow -- `a + b match` matches the sum, and a
+// lambda's body can be a `match`.
+const MatchPower: u16 = 7
 
 // String scanning `s ? e`: looser than `or`, so the whole of `s ? a | b` is scanned, and tighter than
 // the lambda arrow, so a lambda's body can be a scan.
@@ -474,6 +490,7 @@ starts_expr(t: Tok) -> bool
         If -> true
         Not -> true
         LParen -> true
+        DotDot -> true
         ReturnW -> true
         FailW -> true
         TrueW -> true
@@ -496,6 +513,7 @@ starts_expr(t: Tok) -> bool
         Backslash -> true
         Slash -> true
         While -> true
+        Until -> true
         Repeat -> true
         For -> true
         Break -> true

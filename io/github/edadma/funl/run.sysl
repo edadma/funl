@@ -90,7 +90,9 @@ private drive(v: *Vm) -> Outcome
             None ->
                 maybe_collect(v)
 
-                val code = v.chunks.at(v.code).code
+                // Through the view, which reads the one field where the chunk lies: `at` would copy
+                // the whole chunk, every field it has, on every instruction.
+                val code = v.chunks.view()[v.code].code
 
                 if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
 
@@ -134,7 +136,7 @@ private drive(v: *Vm) -> Outcome
                     Raises(f) -> injected = Some(Err(f))
                     Ends(o) -> return o
             Err(Broken(e)) ->
-                val said = s"${v.chunks.at(v.code).name}@$at: $e"
+                val said = s"${fault_place(v, v.code, at)}: $e"
 
                 // A fault inside a co-expression ends it and is raised again at the `@` that
                 // activated it.
@@ -148,7 +150,7 @@ private drive(v: *Vm) -> Outcome
             Err(Exits(n)) -> return Halted(n)
             Err(Thrown(ball)) ->
                 // Read before unwinding, which undoes the bindings the ball was made with.
-                val said = s"${v.chunks.at(v.code).name}@$at: ${uncaught_text(ball)}"
+                val said = s"${fault_place(v, v.code, at)}: ${uncaught_text(ball)}"
 
                 // What a task's promise is faulted with, or the `@` that activated a co-expression
                 // raises, should nothing catch the ball.
@@ -375,7 +377,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             call_fn(v, target, argc, up)?
             Ok(Next)
         TailCallFn(target, argc, up) ->
-            tail_call_fn(v, target, argc, up)?
+            tail_call_fn(v, target, passed(v, argc), up)?
             Ok(Next)
         CallValue(argc) ->
             Ok(fails_if(call_value(v, argc, false)?))
@@ -417,6 +419,14 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             val x = pop(v)?
 
             set_slot(frame_up(v, depth)?, slot, x)?
+            Ok(Next)
+        Initial(slot, skip) ->
+            val st = frame_up(v, 1)?
+
+            slot_of(st, slot)? match
+                Undefined -> set_slot(st, slot, Unit)?
+                _ -> v.ip = skip
+
             Ok(Next)
         Update(depth, slot, o) ->
             val b = pop(v)?
@@ -524,6 +534,20 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             element_set(c, key, x, back)?
             v.stack.push(x)
+            Ok(Next)
+        StoreSection(back) ->
+            val x = pop(v)?
+            val key = pop(v)?
+            val c = pop(v)?
+
+            v.stack.push(x)
+
+            section_set(c, key, x)? match
+                Some(s) -> v.stack.push(s)
+                None ->
+                    element_set(c, key, x, back)?
+                    v.stack.push(c)
+
             Ok(Next)
         UpdateElem(o) ->
             val x = pop(v)?
@@ -680,6 +704,16 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             Ok(Next)
         NoArity -> Err(no_arity(v))
+        PackRest(fixed) ->
+            pack_rest(v, fixed)?
+            Ok(Next)
+        ArgsAdd(n) ->
+            args_add(v, n)?
+            Ok(Next)
+        ArgsSpread ->
+            args_spread(v)?
+            Ok(Next)
+        CallSpread(tail) -> Ok(fails_if(call_spread(v, tail)?))
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it

@@ -108,6 +108,7 @@ private marker_at(p: *Parser, k: usize) -> Option[Spanned[string]]
         Name(w) -> w
         If -> "if"
         While -> "while"
+        Until -> "until"
         For -> "for"
         Repeat -> "repeat"
         Every -> "every"

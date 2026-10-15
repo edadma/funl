@@ -48,7 +48,8 @@ this assigns 2 variables and gives 1 value
 
 `x op= e` is `x = x op e`, and produces the new value. **Every symbolic arithmetic or set operator
 has the form**: `+=`, `-=`, `*=`, `/=`, `//=`, `\=`, `%=`, `^=` and `**=`. A word operator has none
-(there is no `mod=`). `x++` and `x--` produce the old value and then change it; `++x` and `--x`
+(there is no `mod=`, and `x mod= 3` is refused at compile time rather than read as `x mod (=3)`; with a
+space, `x mod =s` is the scan `=s`). `x++` and `x--` produce the old value and then change it; `++x` and `--x`
 change it and produce the new one.
 
 ```funl

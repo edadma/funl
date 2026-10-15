@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
 
 // The parser: the token cursor, the report, and the forms that are not expressions -- statements,
 // `free`, and definitions with their clauses.
@@ -26,6 +27,10 @@ struct Parser
     // The constructs that ended at the cursor, for an `end` marker to be checked against
     // (`parse_end.sysl`).
     closers: Buf[Closer]
+
+    // Where each parenthesized expression read so far ends, by where it begins, so a `match` clause
+    // can tell `(limit)`, a value it compares with, from `limit`, a name it binds.
+    parens: Map[usize, usize]
 
     // A fresh lambda id.
     lambda_id(*self) -> usize
@@ -233,11 +238,16 @@ tag(t: Tok) -> u8
         StarStar -> 89
         AmpName(_) -> 90
         CreateW -> 91
+        StaticW -> 92
+        InitialW -> 93
 end tag
 
-// The program in `src`, with every complaint about its syntax added to `report`.
+// The program in `src`, preprocessed (`preproc.sysl`), with every complaint about its syntax added to
+// `report`. Its spans are offsets into the program it carries, which is `src` unless something was
+// included or expanded.
 parse(src: Source, report: *Report) -> Program
-    var p = Parser(lex(src, report), report, src, 0, 0, 0, buf())
+    val pp = preprocess(src, report)
+    var p = Parser(pp.toks, report, pp.src, 0, 0, 0, buf(), map())
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
     var imports: Buf[ImportDecl] = buf()
@@ -282,7 +292,7 @@ parse(src: Source, report: *Report) -> Program
         p.skip_line()
     end loop
 
-    Program(clauses, stmts, imports, exports)
+    Program(clauses, stmts, imports, exports, pp.src, pp.map)
 end parse
 
 // Whether the token `k` places past the cursor is the name `word`.
@@ -556,7 +566,8 @@ private import_spec(p: *Parser, form: ImportForm, imports: *Buf[ImportDecl])
         _ -> p.fail_here("the module to import from: a quoted path, a package name, or `funl:name`")
 end import_spec
 
-// One statement: `free names`, `def`, `val pattern = e`, `var name [= e]`, an assignment --
+// One statement: `free names`, `def`, `val pattern = e`, `var name [= e]`, `static name [= e]`,
+// `initial e`, an assignment --
 // `name = e`, `name op= e`, `name <- e`, `\name = e`, `/name = e`, `a, b = e1, e2` -- `pattern = e`,
 // or an expression.
 statement(p: *Parser) -> Stmt
@@ -590,6 +601,13 @@ statement(p: *Parser) -> Stmt
         return ValS(pat, value, true)
 
     if p.accept(VarW) then return var_statement(p)
+
+    if p.accept(StaticW)
+        return var_statement(p) match
+            VarS(n, at, e) -> StaticS(n, at, e)
+            other -> other
+
+    if p.accept(InitialW) then return initial_statement(p)
 
     if p.accept(DataW) then return data_declaration(p)
 
@@ -641,6 +659,28 @@ statement(p: *Parser) -> Stmt
 end statement
 
 // `var name [= e]`, the `var` already read.
+// What `initial` runs: an indented block, or one statement that is an expression or an assignment
+// -- `initial cache = map()` -- never a declaration, whose names nothing after it could see.
+private initial_statement(p: *Parser) -> Stmt
+    if p.at_tok(Indent) then return InitialS(body_expr(p))
+
+    val declares = p.at_tok(Val) || p.at_tok(VarW) || p.at_tok(Def) || p.at_tok(Free) || p.at_tok(DataW) ||
+        p.at_tok(StaticW) || p.at_tok(InitialW) || p.at_tok(AsyncW)
+
+    if declares
+        p.fail_here("an expression, an assignment or an indented block after `initial`")
+        p.skip_line()
+        return ExprS(expr(BadE, p.toks.previous()))
+
+    statement(p) match
+        ExprS(x) -> InitialS(x)
+        ValS(pat, x, fixed) ->
+            var stmts: Buf[Stmt] = buf()
+
+            stmts.push(ValS(pat, x, fixed))
+            InitialS(expr(BlockE(p.node_id(), stmts), pat.span.to(x.span)))
+        other -> other
+
 private var_statement(p: *Parser) -> Stmt
     val t = p.toks.peek() match
         Some(t) -> t
