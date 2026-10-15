@@ -122,22 +122,37 @@ private int_box(base: usize, argc: usize, from: usize, c: WinCanvas, ox: long, o
 
 // -- painting --------------------------------------------------------------------------------------
 
-// A drawing under way on window `w`: its canvas and context, and the tile a textured or masked fill
-// style paints with, kept alive while the canvas draws with it.
+// A drawing under way on window `w`: its canvas and context, the tile a textured or masked fill
+// style paints with, kept alive while the canvas draws with it, and the plutovg canvas the shape is
+// drawn on. That is the window's own, or, under `drawop: #reverse`, one over `mask`, a clear scratch
+// surface the size of the window's, whose covered pixels `finished` then exclusive-ors into the
+// window's.
 private struct Pen
     w: Win
     c: WinCanvas
     ctx: WinContext
     tile: Option[&pv.Surface]
+    d: &pv.Canvas
+    mask: Option[&pv.Surface]
 
 private is_named(id: u32, name: string) -> bool = atom_name(id) == name
 
-// A drawing begun on `w`: the canvas's state saved, the context's clip rectangle applied, and the
-// path empty.
-private began(w: Win) -> Pen
+// A drawing begun on `w`, under the context's drawing operation.
+private began(w: Win) -> Result[Pen, Fault] = pen_on(w, is_reversing(context_at(w.ctx)))
+
+// A drawing begun on `w`, onto a scratch coverage mask when `reversed` and onto the canvas otherwise:
+// the state saved, the context's clip rectangle applied, and the path empty.
+private pen_on(w: Win, reversed: bool) -> Result[Pen, Fault]
     val c = canvas_at(w.at)
     val ctx = context_at(w.ctx)
-    val d = c.drawn
+    var mask: Option[&pv.Surface] = None
+    var d = c.drawn
+
+    if reversed
+        val (s, m) = reverse_mask(c)?
+
+        d = m
+        mask = Some(s)
 
     d.save()
     d.reset_transform()
@@ -150,29 +165,82 @@ private began(w: Win) -> Pen
         d.clip()
 
     d.begin()
-    Pen(w, c, ctx, tile_of(ctx))
+    Ok(Pen(w, c, ctx, tile_of(ctx, reversed), d, mask))
 
-// The drawing finished: the canvas's state as it was before.
+// The drawing finished: the canvas's state as it was before, and under `#reverse` the mask's covered
+// pixels exclusive-ored into the canvas's.
 private finished(pen: Pen) -> Result[Option[Value], Fault]
-    pen.c.drawn.restore()
+    pen.d.restore()
+
+    pen.mask match
+        Some(m) -> exclusive_ored(pen.c, pen.ctx, m)
+        None -> ()
+
     Ok(Some(Handle(pen.w.h)))
+
+// Whether context `ctx` draws in reverse.
+is_reversing(ctx: WinContext) -> bool = is_named(ctx.drawop, "reverse")
+
+// A coverage mask for drawing in reverse on canvas `c`: a clear surface the size of the canvas's, and
+// a plutovg canvas drawing on it. What is drawn there, opaque, `exclusive_ored` then applies.
+reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
+    // In device pixels, as the canvas's surface is: `density` of them to the point.
+    val s = pv.surface(int(c.width * c.density), int(c.height * c.density)) match
+        Some(s) -> s
+        None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+
+    s.clear(0.0, 0.0, 0.0, 0.0)
+
+    val d = pv.canvas(s) match
+        Some(d) -> d
+        None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+
+    if c.density != 1 then d.scale(f32(c.density), f32(c.density))
+
+    Ok((s, d))
+
+// `drawop: #reverse`'s exclusive-or: every pixel of canvas `c` that mask `m` covers at least half of
+// has context `ctx`'s `fg ^ bg` exclusive-ored into it, so drawing the same shape again restores it. A
+// partly covered pixel is either in or out -- an anti-aliased edge could not be undone by a second
+// exclusive-or.
+exclusive_ored(c: WinCanvas, ctx: WinContext, m: &pv.Surface)
+    val from = m.data()
+    val from_stride = long(m.stride())
+    val to = c.surface.data()
+    val to_stride = long(c.surface.stride())
+    val fg = ctx.fg_rgb
+    val bg = ctx.bg_rgb
+    val xb = premultiplied(fg.b, 1.0) ^ premultiplied(bg.b, 1.0)
+    val xg = premultiplied(fg.g, 1.0) ^ premultiplied(bg.g, 1.0)
+    val xr = premultiplied(fg.r, 1.0) ^ premultiplied(bg.r, 1.0)
+
+    for y in 0..<c.height * c.density
+        for x in 0..<c.width * c.density
+            if from[usize(y * from_stride + 4 * x + 3)] >= 128
+                val o = usize(y * to_stride + 4 * x)
+
+                to[o] = to[o] ^ xb
+                to[o + 1] = to[o + 1] ^ xg
+                to[o + 2] = to[o + 2] ^ xr
 
 // The eight-bit component of `c` at coverage `a`, premultiplied as the surface stores it.
 private premultiplied(c: long, a: f32) -> u8 = u8(long(channel(c) * 255.0 * a + 0.5))
 
 // The tile of context `ctx`'s pattern: its ones in the foreground, its zeros in the background for
-// `#textured` and clear for `#masked`; `None` for `#solid`, which paints the foreground alone.
-private tile_of(ctx: WinContext) -> Option[&pv.Surface]
+// `#textured` and clear for `#masked`; `None` for `#solid`, which paints the foreground alone. On a
+// `reversed` drawing's mask the ones are opaque and the zeros clear, under either style, so only the
+// ones are exclusive-ored.
+private tile_of(ctx: WinContext, reversed: bool) -> Option[&pv.Surface]
     if is_named(ctx.fillstyle, "solid") then return None
 
     val p = parse_pattern(ctx.pattern)?
     val tile = pv.surface(int(p.width), int(p.rows.len()))?
     val data = tile.data()
     val stride = long(tile.stride())
-    val masked = is_named(ctx.fillstyle, "masked")
+    val masked = reversed || is_named(ctx.fillstyle, "masked")
     val fg = ctx.fg_rgb
     val bg = ctx.bg_rgb
-    val a = ctx.fg_alpha
+    val a = if reversed then 1.0 else ctx.fg_alpha
 
     for y in 0..<long(p.rows.len())
         for x in 0..<p.width
@@ -197,9 +265,13 @@ private tile_of(ctx: WinContext) -> Option[&pv.Surface]
     Some(tile)
 
 // The pen's paint made current: the foreground at its coverage, or the pattern's tile repeated from
-// the canvas's corner.
+// the canvas's corner; on a mask, opaque wherever the shape is to be exclusive-ored.
 private painted(pen: Pen)
-    val d = pen.c.drawn
+    val d = pen.d
+
+    if pen.mask.is_some() && pen.tile.is_none()
+        d.rgb(1.0, 1.0, 1.0)
+        return
 
     pen.tile match
         Some(t) -> d.texture(t, pv.TextureType.Tiled, 1.0)
@@ -215,13 +287,13 @@ private nudge(ctx: WinContext) -> real = if stroke_width(ctx) % 2 == 1 then 0.5 
 // The path filled in the pen's paint.
 private filled(pen: Pen)
     painted(pen)
-    pen.c.drawn.fill()
+    pen.d.fill()
 
 // The path stroked in the pen's paint, with square caps, so a line covers its end points, and mitred
 // joins. `#dashed` draws dashes and gaps each four line widths long; `#striped` draws the same dashes
 // over a line of the background colour.
 private stroked(pen: Pen)
-    val d = pen.c.drawn
+    val d = pen.d
     val wd = real(stroke_width(pen.ctx))
     var none: [1]f32
     var dashes: [2]f32
@@ -236,7 +308,9 @@ private stroked(pen: Pen)
         d.stroke()
         return
 
-    if is_named(pen.ctx.linestyle, "striped")
+    // Under `#reverse` a striped line's gaps are left alone, as a dashed line's are: only the dashes
+    // are exclusive-ored.
+    if is_named(pen.ctx.linestyle, "striped") && pen.mask.is_none()
         d.rgb(channel(pen.ctx.bg_rgb.r), channel(pen.ctx.bg_rgb.g), channel(pen.ctx.bg_rgb.b))
         d.stroke_preserve()
 
@@ -272,10 +346,10 @@ private draw_points(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     val w = window_arg(base, 0, "draw_point")?
     val (xs, ys) = points(base, argc, context_at(w.ctx), 0.0, "draw_point")?
-    val pen = began(w)
+    val pen = began(w)?
 
     for i in 0..<xs.len()
-        pen.c.drawn.rect(f32(xs.at(i)), f32(ys.at(i)), 1.0, 1.0)
+        pen.d.rect(f32(xs.at(i)), f32(ys.at(i)), 1.0, 1.0)
 
     filled(pen)
     finished(pen)
@@ -293,8 +367,8 @@ private draw_path(base: usize, argc: usize, name: string) -> Result[Option[Value
     val ctx = context_at(w.ctx)
     val fill = name == "fill_polygon"
     val (xs, ys) = points(base, argc, ctx, if fill then 0.0 else nudge(ctx), name)?
-    val pen = began(w)
-    val d = pen.c.drawn
+    val pen = began(w)?
+    val d = pen.d
 
     if name == "draw_curve"
         curve(d, xs, ys)
@@ -355,8 +429,8 @@ private draw_segments(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val w = window_arg(base, 0, "draw_segment")?
     val ctx = context_at(w.ctx)
     val (xs, ys) = points(base, argc, ctx, nudge(ctx), "draw_segment")?
-    val pen = began(w)
-    val d = pen.c.drawn
+    val pen = began(w)?
+    val d = pen.d
     var i: usize = 0
 
     while i + 1 < xs.len()
@@ -397,8 +471,9 @@ private draw_boxes(base: usize, argc: usize, name: string) -> Result[Option[Valu
 
         i += group
 
-    val pen = began(w)
-    val d = pen.c.drawn
+    // Erasing is a copy of the background under either drawing operation, as Icon's `EraseArea` is.
+    val pen = (if name == "erase_area" then pen_on(w, false) else began(w))?
+    val d = pen.d
     val shift = if name == "draw_rectangle" || name == "draw_arc" then nudge(ctx) else 0.0
 
     for j in 0..<boxes.len()
@@ -443,13 +518,13 @@ private draw_circles(base: usize, argc: usize, name: string) -> Result[Option[Va
         circles.push(number_or(base, argc, i + 4, name)?.unwrap_or(2.0 * Pi))
         i += 5
 
-    val pen = began(w)
+    val pen = began(w)?
     var j: usize = 0
 
     while j < circles.len()
         val r = circles.at(j + 2)
 
-        ellipse(pen.c.drawn, circles.at(j), circles.at(j + 1), r, r, circles.at(j + 3), circles.at(j + 4), fill)
+        ellipse(pen.d, circles.at(j), circles.at(j + 1), r, r, circles.at(j + 3), circles.at(j + 4), fill)
         j += 5
 
     if fill then filled(pen) else stroked(pen)

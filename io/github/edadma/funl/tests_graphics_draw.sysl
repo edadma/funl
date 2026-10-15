@@ -26,6 +26,24 @@ POINTS_LINES_AND_RECTANGLES_COVER_THE_PIXELS_ICONS_WOULD()
         "..........\n" +
         ".........#\nsucceeded")
 
+// A computed list of points spread into a drawing method, and into `pixel`, which generates: each
+// resumption keeps the count it was called with, nested or under alternation.
+@test
+A_SPREAD_PASSES_COMPUTED_POINTS_TO_A_WINDOWS_METHODS()
+    assert_eq(drawn(6, 4, "pts = [(1, 1), (5, 1), (5, 3)]\nwrite( w.draw_line(..[c | (x, y) <- pts, c <- [x, y]]) )\n" +
+            "w.draw_point( ..[], 0, ..[3] )\nshow( w )\n" +
+            "write( [dot(p) | p <- w.pixel(..[0, 1, 3, 1])] )\nwrite( [dot(a) + dot(b) | a <- w.pixel(..[0, 1], 2, 1), b <- w.pixel(..[4, 1, 2, 1])] )\n" +
+            "every write( dot(w.pixel(..[0, 3, 2, 1])) | 'end' )\nwrite( w.draw_line(..[1, 2, 3]) catch error(e, _) -> e )\nwrite( w.draw_line(..7) catch error(e, _) -> e )\n"),
+        "<window handle>\n" +
+        "......\n" +
+        ".#####\n" +
+        ".....#\n" +
+        "#....#\n" +
+        "[\".\", \"#\", \"#\"]\n" +
+        "[\".#\", \".#\", \"##\", \"##\"]\n" +
+        "#\n.\nend\n" +
+        "existence_error(procedure, /(draw_line, 3))\ntype_error(list, 7)\nsucceeded")
+
 @test
 A_FILL_COVERS_ITS_EXTENTS_AND_A_NEGATIVE_EXTENT_REACHES_BACK()
     assert_eq(drawn(10, 6, "w.fill_rectangle()\nw.set( {fg: \"red\"} ).fill_rectangle( 1, 1, 3, 2 )\nw.set( {fg: \"white\"} ).fill_rectangle( 8, 5, -2, -3 )\n" +
@@ -240,3 +258,128 @@ A_DRAWING_METHOD_FAULTS_ON_A_WRONG_COUNT_A_WRONG_KIND_OR_A_CLOSED_WINDOW()
         "error(existence_error(procedure, /(copy_area, 0)), context(_G32, \"'copy_area' takes a window and at most six numbers, and was given 0 arguments\"))\n" +
         "error(existence_error(procedure, /(clip, 5)), context(_G35, \"'clip' takes at most 4 arguments and was given 5\"))\n" +
         "error(existence_error(handle, <closed window handle>), context(_G38, \"'draw_line' was called on the handle <closed window handle>\"))\nsucceeded")
+
+// -- drawop: #reverse -------------------------------------------------------------------------------
+
+// `band(w)` draws one of every kind of shape, and `bands(w)` prints the canvas as `show` does, with
+// `c` the cyan that red becomes and `?` any other colour, which an anti-aliased edge would be.
+private const Rubber: string =
+    "def cdot( p ) = if p == \"0,65535,65535\" then \"c\" else if p == \"0,0,0\" or p == \"65535,65535,65535\" or p == \"65535,0,0\" then dot( p ) else \"?\"\n" +
+    "def bands( w ) = for y <- 0 to w.get(\"height\") - 1 do write( join([cdot(p) | p <- w.pixel(0, y, w.get(\"width\"), 1)]) )\n" +
+    "def band( w ) = w.draw_rectangle( 1, 1, 6, 3 ).draw_line( 0, 5, 9, 0 ).fill_circle( 7, 4, 1.5 ).draw_point( 9, 5 ).draw_segment( 0, 0, 3, 0 )\n"
+
+@test
+REVERSE_EXCLUSIVE_ORS_EVERY_SHAPE_AND_DRAWING_IT_AGAIN_RESTORES_THE_PIXELS()
+    assert_eq(drawn(10, 6, Rubber + "w.set( {fg: \"red\"} ).fill_rectangle( 0, 0, 4, 6 )\nw.set( {fg: \"black\", drawop: #reverse} )\nband( w )\nbands( w )\n" +
+            "write( w.pixel(0, 0), w.pixel(5, 1) )\nband( w )\nbands( w )\n"),
+        "cccc....##\n" +
+        "rccc###.#.\n" +
+        "rcrr.###..\n" +
+        "rcrc#.#...\n" +
+        "rrrc##....\n" +
+        "ccrr.....#\n" +
+        "0,65535,65535, 0,0,0\n" +
+        "rrrr......\n" +
+        "rrrr......\n" +
+        "rrrr......\n" +
+        "rrrr......\n" +
+        "rrrr......\n" +
+        "rrrr......\n" +
+        "succeeded")
+
+@test
+REVERSE_EXCLUSIVE_ORS_FG_XOR_BG_SO_A_COLOUR_BECOMES_ANOTHER()
+    assert_eq(drawn(3, 1, "w.set( {bg: \"blue\", fg: \"white\"} ).erase_area().fill_rectangle( 2, 0, 1, 1 )\nw.set( {fg: \"red\", drawop: #reverse} ).fill_rectangle()\n" +
+            "write( w.pixel(0, 0), w.pixel(2, 0) )\nw.fill_rectangle( 0, 0, 1, 1 )\nwrite( w.pixel(0, 0), w.pixel(1, 0) )\n"),
+        "65535,0,0, 0,65535,0\n" +
+        "0,0,65535, 65535,0,0\n" +
+        "succeeded")
+
+@test
+REVERSE_EXCLUSIVE_ORS_ONLY_A_PATTERNS_ONES_UNDER_EITHER_FILL_STYLE()
+    assert_eq(drawn(8, 4, "w.set( {fillstyle: #textured, pattern: \"4,#9696\", drawop: #reverse} ).fill_rectangle( 0, 0, 8, 2 )\n" +
+            "w.set( {fillstyle: #masked} ).fill_rectangle( 0, 2, 8, 2 )\nshow( w )\nw.fill_rectangle()\nshow( w )\n" +
+            "w.set( {fillstyle: #solid, linestyle: #striped, linewidth: 1} ).draw_line( 0, 0, 7, 0 )\nshow( w )\n"),
+        "#..##..#\n" +
+        ".##..##.\n" +
+        "#..##..#\n" +
+        ".##..##.\n" +
+        "........\n" +
+        "........\n" +
+        "........\n" +
+        "........\n" +
+        "####....\n" +
+        "........\n" +
+        "........\n" +
+        "........\n" +
+        "succeeded")
+
+@test
+REVERSE_LEAVES_ERASING_AND_COPYING_AS_COPIES()
+    assert_eq(drawn(6, 2, "w.fill_rectangle( 0, 0, 3, 2 )\nw.set( {drawop: #reverse} ).erase_area( 2, 0, 2, 1 )\nw.copy_area( w, 0, 1, 2, 1, 4, 1 )\nshow( w )\n" +
+            "write( w.set({drawop: #xor}) | #refused, w.set({drawop: \"copy\"}) | #refused, w.get(\"drawop\"), w.set({drawop: #copy}).get(\"drawop\") )\n"),
+        "##....\n" +
+        "###.##\n" +
+        "refused, refused, reverse, copy\n" +
+        "succeeded")
+
+@test
+REVERSE_DRAWS_UNDER_THE_CLIP_AND_THE_ORIGIN()
+    assert_eq(drawn(6, 3, "w.set( {drawop: #reverse, dx: 1, dy: 1} ).clip( 0, 0, 3, 1 ).fill_rectangle( -1, -1, 6, 3 )\nshow( w )\n"),
+        "......\n" +
+        ".###..\n" +
+        "......\n" +
+        "succeeded")
+
+@test
+THE_NAMED_PATTERNS_ARE_ICONS_BIT_FOR_BIT()
+    assert_eq(drawn(8, 8, "for p <- [\"verydark\", \"lightgray\", \"diagonal\", \"trellis\", \"grains\", \"waves\"] do\n  w.set( {fillstyle: #textured, pattern: p} ).fill_rectangle()\n  show( w )\n"),
+        ".#######\n" +
+        "########\n" +
+        "####.###\n" +
+        "########\n" +
+        ".#######\n" +
+        "########\n" +
+        "####.###\n" +
+        "########\n" +
+        "#...#...\n" +
+        "..#...#.\n" +
+        "#...#...\n" +
+        "..#...#.\n" +
+        "#...#...\n" +
+        "..#...#.\n" +
+        "#...#...\n" +
+        "..#...#.\n" +
+        ".......#\n" +
+        "......#.\n" +
+        ".....#..\n" +
+        "....#...\n" +
+        "...#....\n" +
+        "..#.....\n" +
+        ".#......\n" +
+        "#.......\n" +
+        ".#.....#\n" +
+        "..#...#.\n" +
+        "...#.#..\n" +
+        "....#...\n" +
+        "...#.#..\n" +
+        "..#...#.\n" +
+        ".#.....#\n" +
+        "#.......\n" +
+        "##.##...\n" +
+        "...##...\n" +
+        "#......#\n" +
+        "#...##.#\n" +
+        ".##.##..\n" +
+        ".##.....\n" +
+        ".....##.\n" +
+        "##...##.\n" +
+        "##......\n" +
+        "..#....#\n" +
+        "...#..#.\n" +
+        "....##..\n" +
+        "##......\n" +
+        "..#....#\n" +
+        "...#..#.\n" +
+        "....##..\n" +
+        "succeeded")

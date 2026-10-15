@@ -171,3 +171,49 @@ THE_GENERIC_FAMILIES_ARE_THE_SYSTEMS_FONTS()
 #else
     skip("the generic families are looked for among macOS's fonts here, and this is not macOS")
 #endif
+
+@test
+DRAW_STRING_IN_REVERSE_EXCLUSIVE_ORS_THE_GLYPHS_AND_WRITING_STAYS_A_COPY()
+    // Black above row 6, white below: the glyph's ink turns each to the other, and drawing it again
+    // puts both back. `writes` paints its cell and glyph as a copy, as Icon's terminal text does.
+    assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (9, 12)} )\nw.fill_rectangle( 0, 0, 9, 6 ).set( {drawop: #reverse} )\n" +
+            "write( w.draw_string(0, 10, \"H\") )\nart( w )\nw.draw_string(0, 10, \"H\")\nart( w )\n" +
+            "w.writes( \"H\" )\nart( w )\n"),
+        "<window handle>\n" +
+        "#########\n" +
+        "#########\n" +
+        "#########\n" +
+        "#.##.####\n" +
+        "#.##.####\n" +
+        "#.##.####\n" +
+        ".####....\n" +
+        ".#..#....\n" +
+        ".#..#....\n" +
+        ".#..#....\n" +
+        ".........\n" +
+        ".........\n" +
+        "#########\n" +
+        "#########\n" +
+        "#########\n" +
+        "#########\n" +
+        "#########\n" +
+        "#########\n" +
+        ".........\n" +
+        ".........\n" +
+        ".........\n" +
+        ".........\n" +
+        ".........\n" +
+        ".........\n" +
+        "......###\n" +
+        "......###\n" +
+        "##..#####\n" +
+        "##..#####\n" +
+        "##..#####\n" +
+        "#########\n" +
+        "######...\n" +
+        "##..##...\n" +
+        "##..##...\n" +
+        "##..##...\n" +
+        ".........\n" +
+        ".........\n" +
+        "succeeded")

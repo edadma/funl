@@ -582,6 +582,19 @@ two, one, rest [1, 2, 3]
 9, 8
 ```
 
+A method call spreads the same way: `x.name(..xs)` calls the method `name` of a handle, or the
+function in `x`'s field `name`, with the elements as its arguments.
+
+```funl
+m = {add: (a, b) -> a + b}
+
+write( m.add(..[1, 2]), m.add(10, ..[5]) )
+```
+
+```output
+3, 15
+```
+
 A count no arity takes is a fault when the call is made, and so is spreading anything that is not a
 sequence:
 

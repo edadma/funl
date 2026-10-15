@@ -146,7 +146,12 @@ private closed_handle(x: Value, what: string) -> Fault = existence_error("handle
 // handle in the cursor cell. A run that finds a handle above a handle is such a resumption, since
 // `MethodOf` always leaves `()` above a handle. A handle closed while its method was generating has
 // nothing more to give: the state is closed and the call fails.
-call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
+//
+// **A spread call's count is kept above the arguments** (`spread`): `CallMethodSpread` knows its count
+// only from the list it unpacked, which a resumption no longer has, so a generating method called that
+// way stands `Int(argc)` on top of its arguments, where the choice point saves it with them and the
+// re-run finds it.
+call_method(v: *Vm, name: u32, argc: usize, tail: bool, spread: bool) -> Result[bool, Fault]
     val n = v.stack.len()
 
     if argc + 2 > n then return Err(Broken(s"a method call wants two cells and $argc arguments and the operand stack holds $n"))
@@ -176,7 +181,10 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
             val m = method_named(owner, name, deref(v.stack.at(first + 1)))?
 
             return m.how match
-                Steps(start, step) -> call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
+                Steps(start, step) ->
+                    if spread then v.stack.push(Int(long(argc)))
+
+                    call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
                 Answers(_) -> Err(Broken(s"'$text' was resumed, and does not generate"))
         _ -> ()
 
@@ -202,6 +210,9 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool) -> Result[bool, Fault]
         Steps(start, step) ->
             v.stack.set(first + 1, v.stack.at(first))
             v.stack.set(first, Int(0))
+
+            if spread then v.stack.push(Int(long(argc)))
+
             return call_stepping(v, s"'$text'", start, step, first + 1, argc + 1, first)
 
     // The `()` goes; the handle becomes argument 0.

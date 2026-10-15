@@ -220,6 +220,16 @@ A_METHOD_MAY_GENERATE()
     assert_eq(counted("val c = counter(5)\nwrite( [x * 10 | x <- c.upto(4)] )\nwrite( 2 < c.upto(9) )\n"),
         "[0, 10, 20, 30]\n3\nsucceeded")
 
+// Spread into a generating method: each resumption re-runs the call with the count it was first
+// made with, nested generations each keeping their own.
+@test
+A_GENERATING_METHOD_TAKES_SPREAD_ARGUMENTS_AND_RESUMES_WITH_THEIR_COUNT()
+    assert_eq(counted("val c = counter(5)\nevery write( c.upto(..[2]) )\nwrite( [(x, y) | x <- c.upto(..[2]), y <- c.upto(..[3])] )\n" +
+            "write( c.upto(..[]) catch error(e, _) -> e )\nwrite( c.upto(..[1, 2]) catch error(e, _) -> e )\n" +
+            "write( c.upto(..'a') catch error(e, _) -> e )\n"),
+        "0\n1\n[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]\nexistence_error(procedure, /(upto, 0))\nexistence_error(procedure, /(upto, 2))\n" +
+            "type_error(list, \"a\")\nsucceeded")
+
 @test
 A_GENERATING_METHOD_RUNNING_OUT_FAILS_AND_RELEASES_AT_ONCE()
     assert_eq(counted("val c = counter(5)\nevery write( c.upto(2) )\nwrite( released() )\nwrite( c.upto(0) | \"empty\" )\nwrite( 9 < c.upto(3) | \"none\", released() )\n"),

@@ -257,7 +257,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
    `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1. Done.
 3. **`drawop: #reverse`**: the coverage mask and the exclusive-or; drawing twice restores. Waits on
-   item 2 and G7.
+   item 2 and G7. Done.
 4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`
    attribute, `draw_image` with Icon's image strings, the palette functions in FunL source,
    `new_color` failing. Waits on item 1 and G8.
