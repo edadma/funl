@@ -383,6 +383,14 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             set_slot(frame_up(v, depth)?, slot, x)?
             Ok(Next)
+        Initial(slot, skip) ->
+            val st = frame_up(v, 1)?
+
+            slot_of(st, slot)? match
+                Undefined -> set_slot(st, slot, Unit)?
+                _ -> v.ip = skip
+
+            Ok(Next)
         Update(depth, slot, o) ->
             val b = pop(v)?
             val f = frame_up(v, depth)?

@@ -712,6 +712,10 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
         // A constructor's name is resolved to the constructor wherever it is read; nothing is stored.
         DataS(_, _) -> ()
 
+        // Run at the head of the body, once per function value (`body_head` in `compile_fn.sysl`).
+        StaticS(_, _, _) -> ()
+        InitialS(_) -> ()
+
     Ok(())
 
 // A statement that settles, with no mark: it leaves the operand stack as it found it, an

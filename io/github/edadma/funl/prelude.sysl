@@ -111,7 +111,7 @@ prelude_function(name: string) -> Result[Value, Fault]
     for x in md.exports.view()
         if x.name == name
             x.kind match
-                ExFunction(chunk, _) -> return Ok(new_closure(chunk, link(v, md.up)?)?)
+                ExFunction(chunk, _) -> return Ok(function_value(v, chunk, link(v, md.up)?)?)
                 _ -> ()
 
     Err(Broken(s"the prelude has no function `$name`"))

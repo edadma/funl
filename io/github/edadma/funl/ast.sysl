@@ -261,6 +261,14 @@ enum Stmt
     // declared in the block like a `val`. `typ` is the data type's name, `shape`, or "" for a
     // declaration of one constructor, which is its own type.
     DataS(ctors: Buf[CtorDecl], typ: string)
+
+    // `static name` or `static name = e` at the head of a function's body: a variable of the function
+    // value rather than of a call, `e` stored into it once, before the first call's body runs.
+    StaticS(name: string, at: Span, e: Option[&Expr])
+
+    // `initial e`, or `initial` over an indented block, at the head of a function's body: run once,
+    // before the first call's body runs.
+    InitialS(e: &Expr)
 end Stmt
 
 // One constructor of a `data` declaration: its name and its fields' names. One written with no

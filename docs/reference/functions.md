@@ -625,6 +625,121 @@ write( sumsq(3, 4) )
 25
 ```
 
+## `static` and `initial`
+
+`static name = e` among the statements of a function's body declares a variable that belongs to the
+function rather than to a call: it keeps its value from one call to the next, recursive calls
+included. `e` is evaluated once, on the first call, before the body runs. `static name` alone starts
+`undefined`. `initial` followed by an expression, an assignment or an indented block runs it once,
+on the first call, before the body; it is how a static with no initializer gets its first value.
+
+```funl
+def next_id()
+  static count = 0
+  count += 1
+  count
+
+def squares( k )
+  static cache
+  initial
+    cache = map()
+    write( 'made the cache' )
+  cache(k) = k * k
+  cache.length
+
+write( next_id(), next_id(), next_id() )
+write( squares(2), squares(3), squares(2) )
+```
+
+```output
+1, 2, 3
+made the cache
+1, 2, 2
+```
+
+The initializers and the `initial` statements of a body run in the order they are written, all of
+them before the body's first statement. The flag that says they have run is set before they start,
+so a recursive call made from inside one does not run them again, and one that fails or faults is
+not tried again on the next call.
+
+A static is in scope from its declaration to the end of the body, and only in the clause, or the
+guarded body, that declares it. It is written at the head of the body, not in a block inside it, and
+it cannot take the name of one of the clause's parameters:
+
+```funl
+def f( n )
+  if n > 0
+    static k = 0
+  n
+```
+
+```error
+`static` is written only among the statements of a function's body, not in a block inside it, and not outside a function
+```
+
+### Each function value has its own
+
+A static is part of the function value. A named function is one value wherever it is called or
+named, so its direct calls and its uses as a value share the statics. A function defined inside
+another body, or a lambda, is made afresh each time that body runs, and each value it makes counts
+on its own:
+
+```funl
+def tick()
+  static n = 0
+  n += 1
+
+f = tick
+write( tick(), f(), tick() )
+
+def counter()
+  def step()
+    static n = 0
+    n += 1
+  step
+
+a = counter()
+b = counter()
+write( a(), a(), b(), a() )
+
+make = () -> (x) ->
+  static total = 0
+  total += x
+
+g = make()
+h = make()
+write( g(1), g(2), h(10), g(3) )
+```
+
+```output
+1, 2, 3
+1, 2, 1, 3
+1, 3, 10, 6
+```
+
+### Backtracking
+
+A static assigned with `=` keeps its value when the expression it is part of fails back past the
+assignment; one assigned with `<-` gets its previous value back, as any variable does:
+
+```funl
+def plain()
+  static v = 0
+  (v = 5) > 10
+  v
+
+def trial()
+  static v = 0
+  (v <- 5) > 10
+  v
+
+write( plain(), trial() )
+```
+
+```output
+5, 0
+```
+
 ## A block of definitions
 
 `def` on a line of its own opens a block of clauses for several functions. The functions in one

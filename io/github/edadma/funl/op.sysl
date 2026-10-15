@@ -230,6 +230,13 @@ enum Op
     // hold. The value is read after `b` is made, so a generator in `b` updates the slot each time.
     Update(depth: usize, slot: usize, o: BinOp)
 
+    // The head of a function body with `static` initializers or `initial` statements: jump to `skip`
+    // when slot `slot` of the statics frame -- the running frame's static link -- says they have run,
+    // and otherwise set it and go on into them. The flag is set before they run, so a recursive call
+    // from inside one does not run them again, and one that fails or faults is not retried. A static
+    // itself is a slot of that frame, read by `LoadSlot(1, i)` and stored by `StoreUp(1, i)`.
+    Initial(slot: usize, skip: usize)
+
     // -- generators (`gen.sysl`) --------------------------------------------------------------------
 
     // Replace the collection on top with its first cursor, two cells: what is left of it and a
@@ -562,6 +569,9 @@ file_up(m: usize) -> usize = TopUp - 1 - m
 // whose calls the resolver has already counted.
 const AnyArity: usize = 4294967295
 
+// A chunk's `home` when it has none: a lambda's, or a function's with no statics.
+const NoHome: usize = 4294967295
+
 // A unit of compiled code: its instructions and the constants they push.
 //
 // **Ordinary reference-counted sysl data, never collected**: a frame names its chunk by index. The
@@ -576,3 +586,13 @@ struct Chunk
 
     // An `async` function's: a call of it starts a task and answers its promise (`task.sysl`).
     is_async: bool
+
+    // A function with `static`s: how many slots its statics frame has, every clause's statics and
+    // "done" flags together, or 0. Every call's frame has the statics frame of the function value as
+    // its static link, and that frame's own link is the frame the value was made in.
+    statics: usize
+
+    // Where a named function's value is kept, made the first time it is called or named: a slot of
+    // the frame it is defined in -- or `NoHome` for a lambda, whose every evaluation is a new value
+    // with statics of its own (`function_value` in `frame.sysl`).
+    home: usize

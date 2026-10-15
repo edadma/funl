@@ -202,6 +202,7 @@ op_label(op: Op) -> string = op match
     Op.NoMatch -> "NoMatch"
     Op.StoreUp(_, _) -> "StoreUp"
     Op.Update(_, _, _) -> "Update"
+    Op.Initial(_, _) -> "Initial"
     Op.GenStart(_) -> "GenStart"
     Op.GenNext -> "GenNext"
     Op.GenRange(_) -> "GenRange"

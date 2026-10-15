@@ -68,6 +68,10 @@ enum Tok
     AsyncW
     AwaitW
 
+    // `static x [= e]` and `initial e` at the head of a function's body.
+    StaticW
+    InitialW
+
     LParen
     RParen
     LBracket
@@ -196,6 +200,8 @@ private spelling(t: Tok) -> string
         CatchW -> "catch"
         AsyncW -> "async"
         AwaitW -> "await"
+        StaticW -> "static"
+        InitialW -> "initial"
         Semi -> ";"
         Colon -> ":"
         LeftArrow -> "<-"
@@ -287,6 +293,8 @@ keyword(s: string) -> Option[Tok]
     if s == "catch" then return Some(CatchW)
     if s == "async" then return Some(AsyncW)
     if s == "await" then return Some(AwaitW)
+    if s == "static" then return Some(StaticW)
+    if s == "initial" then return Some(InitialW)
 
     None
 end keyword

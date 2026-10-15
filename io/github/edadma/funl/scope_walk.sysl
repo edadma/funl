@@ -43,6 +43,10 @@ struct Walk
     // head may.
     ball: bool
 
+    // The node id of the function body being read when it is a block, or `NoScope`: the block whose
+    // own statements may be `static` and `initial`.
+    body: usize
+
     // What `name` means written at offset `pos`: the blocks being read first, then the complete
     // scopes above.
     meaning(self, name: string, pos: usize) -> Meaning
@@ -54,7 +58,9 @@ struct Walk
             Some(rs) -> return fns_meaning(name, rs, if self.sid == self.res.top then self.res.top_up else 0)
             None -> ()
 
-        val m = self.res.meaning_above(self.sc.parent, self.sc.parent_block, Anywhere, 1, name)
+        val up = self.sc.parent
+        val from = if up != NoScope && self.res.scopes.at(up).statics then pos else Anywhere
+        val m = self.res.meaning_above(up, self.sc.parent_block, from, 1, name)
 
         m match
             Unknown -> if self.sc.ended(name, pos) then Gone else Unknown
@@ -69,7 +75,7 @@ struct LoopSeen
 // A walk over scope `sid`, from its root block, inside no loop.
 walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool,
        waits: bool) -> Walk =
-    Walk(res, report, pending, sc, sid, relation, function, waits, 0, buf(), relation, false)
+    Walk(res, report, pending, sc, sid, relation, function, waits, 0, buf(), relation, false, NoScope)
 
 // Whether a call of `n`, which means `m`, is one of the all-solutions forms: the name, where nothing
 // the program declares takes it.
@@ -159,6 +165,63 @@ walk_stmt(w: *Walk, s: Stmt)
                         .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
                 else
                     w.res.own_types.put(typ, declare_data_type(ids))
+
+        // A static is a name of the clause's block of its function's statics scope, in scope from the
+        // end of its declaration; it and every `initial` share the body's one "done" flag there.
+        StaticS(n, at, e) ->
+            var from = at.end
+
+            e match
+                Some(x) ->
+                    walk(w, x)
+                    from = x.span.end
+                None -> ()
+
+            if !at_body_head(w, at, "static") then return
+
+            w.sc.find(w.blk, n, at.start) match
+                Some(_) ->
+                    w.report.add(error(at, s"`$n` is already a variable of this clause, and cannot also be a static")
+                        .with_note("a static is declared before the names of the body, which would hide it"))
+                    return
+                None -> ()
+
+            var st = w.res.scopes.at(w.sc.parent)
+
+            st.declare(w.sc.parent_block, n, at, from, false)
+
+            if e.is_some() then st.declare(w.sc.parent_block, initial_flag(w.body), at, Anywhere, false)
+
+            w.res.scopes.set(w.sc.parent, st)
+        InitialS(x) ->
+            walk(w, x)
+
+            if !at_body_head(w, x.span, "initial") then return
+
+            var st = w.res.scopes.at(w.sc.parent)
+
+            st.declare(w.sc.parent_block, initial_flag(w.body), x.span, Anywhere, false)
+            w.res.scopes.set(w.sc.parent, st)
+
+// The hidden name of the "done" flag of the `static` initializers and `initial` statements of the
+// function body whose block is node `body`.
+initial_flag(body: usize) -> string = s"initial #$body"
+
+// Whether a `static` or an `initial` written at `at` is at the head of a function's body: one of the
+// statements of the block that is the body, whose function has a statics scope. Refused otherwise.
+private at_body_head(w: *Walk, at: Span, word: string) -> bool
+    var head = w.body != NoScope && w.sc.parent != NoScope && w.res.scopes.at(w.sc.parent).statics
+
+    if head
+        head = w.res.blocks.get(w.body) match
+            Some(b) -> b == w.blk
+            None -> false
+
+    if !head
+        w.report.add(error(at, s"`$word` is written only among the statements of a function's body, not in a block inside it, and not outside a function")
+            .with_note("a static belongs to the function value: `def next()` over an indented `static n = 0`, `n += 1`, `n`"))
+
+    head
 
 // The refusal of constructor `name` of `fields` fields at `at`, written at `here`, when one is already
 // declared at `there`. **Constructors are unique across the whole program, packages included**, so a
@@ -816,6 +879,11 @@ hoist_stmts(w: *Walk, stmts: Buf[Stmt])
                 e match
                     Some(x) -> hoist_expr(w, x)
                     None -> ()
+            StaticS(_, _, e) ->
+                e match
+                    Some(x) -> hoist_expr(w, x)
+                    None -> ()
+            InitialS(x) -> hoist_expr(w, x)
             FreeS(_) -> ()
             DataS(_, _) -> ()
 

@@ -177,49 +177,9 @@ LimitCount(t)       t -= 1; if t == 0, cut control back to the region's mark, dr
 
 ### `static` and `initial`
 
-**Icon:** `static x` declares a variable that belongs to the procedure rather than to a call: it
-starts `&null` when the program starts and keeps its value from one call to the next, recursion
-included. `initial e` is a statement at the head of the body that is evaluated on the first call
-only, before the rest of the body; it is how a static gets its first value. Neither is undone by
-backtracking.
-
-**Proposed:**
-
-```
-def next_id()
-  static count = 0
-  count += 1
-  count
-
-def lookup(k)
-  static cache
-  initial cache = map()
-  cache(k) = cache(k) | compute(k)
-```
-
-- **`static x = e`** declares `x` and evaluates `e` once, on the first call, before the statement
-  runs — Icon's `static x` and `initial x := e` in one line. `static x` alone starts `undefined`.
-- **`initial` followed by an expression or an indented block** runs it on the first call only.
-  `initial` blocks and `static` initializers run in the order they are written. The flag that says
-  "done" is set *before* they run, so a recursive call from inside one does not run it again (and a
-  failing or faulting initializer is not retried, as Icon's is not).
-- A static is visible in the clause that declares it, from its declaration to the end of the body,
-  like any block-scoped name, and is assigned with `=`, never undone by backtracking.
-
-**Machine:** a closure whose chunk declares statics gets a statics object when it is made, holding
-one cell per static and the "initialized" flag. `LoadStatic(i)` and `StoreStatic(i)` reach it
-through the frame (the frame gains a pointer to its closure), and `Initial(skip)` tests and sets the
-flag. The statics object is reached from the closure, so the collector sees it through its closure
-like any captured frame.
-
-> **Open question I4 — whose is a static: the definition's, or each closure's?** Icon has no
-> nested procedures, so it never had to say. A nested `def` or a lambda is made afresh each time its
-> enclosing body runs. (a) **each closure value has its own statics**, so a nested `def` made twice
-> counts twice; (b) **one set of statics per definition in the source**, shared by every closure
-> made from it, as C's are. For a top-level `def` the two agree. **Recommendation: (a).** A function
-> value is a closure, and its static is part of that value, so the memo table a nested helper keeps
-> is that helper's; (b) would make two closures that capture different frames share mutable state,
-> which nothing else in FunL does.
+> **Decided (user, 2026-10-15) — I4, whose is a static: each closure value's.** A nested `def` or a
+> lambda made twice counts twice; a named function is one value per frame it is defined in, so its
+> calls and its uses as a value share the statics. Built: [Functions](../reference/functions.md#static-and-initial).
 
 ### Variadic procedures and list invocation
 

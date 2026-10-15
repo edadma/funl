@@ -45,6 +45,16 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
 
     e.is_async = is_async_rel(r)
 
+    val st = statics_of(res, r)
+
+    if st != NoScope
+        e.statics = res.scopes.at(st).count()
+
+        if r.outer != NoScope
+            e.home = res.scopes.at(r.outer).declared(0, statics_home(r.chunk)) match
+                Some(s) -> s
+                None -> NoHome
+
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
         val sid = r.scopes.at(i)
@@ -147,6 +157,7 @@ private clause_body(e: *Emit, c: Ctx, b: FnBody, clean: bool, next: usize, body:
         else
             e.op(Unmark)
 
+        body_head(e, c, g.body)?
         body_tail(e, c, g.body)?
         e.place(other)
 
@@ -154,6 +165,62 @@ private clause_body(e: *Emit, c: Ctx, b: FnBody, clean: bool, next: usize, body:
 
     Ok(())
 end clause_body
+
+// The statics scope of function `r`'s clauses, or `NoScope` when it has no `static` or `initial`.
+private statics_of(res: *Resolved, r: Rel) -> usize
+    if r.scopes.len() == 0 then return NoScope
+
+    val p = res.scopes.at(r.scopes.at(0)).parent
+
+    if p != NoScope && res.scopes.at(p).statics then p else NoScope
+
+// The head of a body that is a block with `static` initializers or `initial` statements among its
+// statements: `Initial` over them all, in the order written, each run bounded as a statement is and
+// a static's value stored into its slot of the statics frame, one static link up.
+//
+//     Initial(done, skip); Mark(n1); e1; StoreUp(1, x1); Unmark; n1: ...; skip: <body>
+private body_head(e: *Emit, c: Ctx, body: &Expr) -> Result[unit, string]
+    val (id, stmts) = body.kind match
+        BlockE(id, stmts) -> (id, stmts)
+        _ -> return Ok(())
+
+    val sc = c.res.scopes.at(c.sc)
+
+    if sc.parent == NoScope then return Ok(())
+
+    val st = c.res.scopes.at(sc.parent)
+
+    if !st.statics then return Ok(())
+
+    val done = st.declared(sc.parent_block, initial_flag(id)) match
+        Some(s) -> s
+        None -> return Ok(())
+
+    val inner = c.in_block(id)?
+    val skip = e.label()
+
+    e.op(Initial(done, skip))
+
+    for s in stmts.view()
+        s match
+            StaticS(n, _, Some(x)) ->
+                val slot = st.declared(sc.parent_block, n) match
+                    Some(k) -> k
+                    None -> return Err(s"the static '$n' was resolved and has no slot")
+
+                val next = e.label()
+
+                e.op(Mark(next))
+                compile_value(e, inner, x)?
+                e.op(StoreUp(1, slot))
+                e.op(Unmark)
+                e.place(next)
+            InitialS(x) -> compile_stmt(e, inner, ExprS(x))?
+            _ -> ()
+
+    e.place(skip)
+    Ok(())
+end body_head
 
 // Whether a function clause's head may run without a mark: every failure in it is a test that
 // binds nothing, trails nothing and leaves no entry, so the frame's failure target can stand in for
