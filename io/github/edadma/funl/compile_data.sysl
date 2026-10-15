@@ -46,7 +46,9 @@ compile_interp(e: *Emit, c: Ctx, parts: Buf[&Expr]) -> Result[unit, string]
 compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, x: &Expr, back: bool) -> Result[unit, string]
     if is_section_key(key)
         coll.kind match
-            Ref(n) -> return compile_section_store(e, c, n, coll, key, x, back)
+            Ref(n) ->
+                if stores_section(c.meaning(n, coll.span.start))
+                    return compile_section_store(e, c, n, coll, key, x, back)
             _ -> ()
 
     compile_value(e, c, coll)?
@@ -59,6 +61,13 @@ compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, x: &Expr, back: bool) -
 is_section_key(key: &Expr) -> bool = key.kind match
     RangeValE(_, _, _, _) -> true
     RangeCountE(_, _, _) -> true
+    _ -> false
+
+// Whether a range-keyed store through a name meaning `m` may store a new string in it: a `var`. A
+// `val` keeps its value, so a store through it is an element store as ever (a mutable map may be keyed by
+// a range).
+stores_section(m: Meaning) -> bool = m match
+    Local(_, _, fixed) -> !fixed
     _ -> false
 
 // `s(i..j) = t` for a variable `s`: the store makes a new string where `s` holds one, so the result goes

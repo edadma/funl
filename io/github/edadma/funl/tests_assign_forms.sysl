@@ -85,8 +85,7 @@ A_SECTION_ASSIGNMENT_REFUSES_WHAT_IT_CANNOT_STORE()
     assert_eq(ran_funl("var s = 'abc'\ns(2..0 by -1) = 'x'\n").contains("must run forwards one character at a time"), true)
     assert_eq(ran_funl("var s = 'abc'\ns(0..1 by 2) = 'x'\n").contains("must run forwards one character at a time"), true)
     assert_eq(ran_funl("var s = 'abc'\ns(0..1) = 5\n").contains("a section of a string is replaced by a string, and was given the integer 5"), true)
-    assert_eq(complaints("val s = 'abc'\ns(0..1) = 'x'\n"), "error 2:1 `s` is a `val`, and cannot be assigned\n" +
-        "note: a name declared by `val` or bound by `where` keeps its value; a variable is declared with `var`\n")
+    assert_eq(ran_funl("val s = 'abc'\ns(0..1) = 'x'\n").contains("cannot be changed"), true)
 
 @test
 A_RANGE_KEY_STILL_REFUSES_A_STORE_INTO_AN_ARRAY()
