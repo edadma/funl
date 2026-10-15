@@ -599,3 +599,18 @@ struct Chunk
 
     // An `async` function's: a call of it starts a task and answers its promise (`task.sysl`).
     is_async: bool
+
+    // The name table `display()` and `&trace` read (`trace.sysl`): the file and line a FunL function
+    // or top level was written at, and each of its clauses' slot names. Empty for every other chunk.
+    file: string
+    line: long
+    clauses: Buf[ClauseNames]
+
+    // Whether `&trace` reports the calls of this chunk: a FunL function's or lambda's.
+    traced: bool
+
+// One clause's slot names: the instruction its code begins at, and the name of each slot it numbers,
+// in slot order -- a hidden slot's name begins with `$`.
+struct ClauseNames
+    start: usize
+    names: Buf[string]

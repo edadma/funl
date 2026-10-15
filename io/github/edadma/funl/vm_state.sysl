@@ -289,6 +289,19 @@ struct Vm
     // a program compiled from text that names no file.
     program_name: string
 
+    // -- tracing and introspection (`trace.sysl`) ----------------------------------------------------
+
+    // `&trace`: while not zero, calls, returns, suspensions, resumptions and failures of FunL
+    // functions are written to standard error, one line each, a positive count falling by one a line.
+    trace: long
+
+    // `&dump`: not zero, the program's end writes `display()`'s report to standard error.
+    dump: long
+
+    // The bytes allocated before the last collection, summed over every collection: with `allocated`,
+    // what `&allocated` answers.
+    allocated_earlier: usize
+
     // -- co-expressions (`coexpr.sysl`) ---------------------------------------------------------------
 
     // The running co-expression, `&current`, and the running task's `&main`: both null until the task
@@ -329,7 +342,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", null, null, 0)
+        buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", 0, 0, 0, null, null, 0)
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

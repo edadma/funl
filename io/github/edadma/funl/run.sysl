@@ -37,7 +37,8 @@ private enum Flow
     Quits
 
 // Run chunk `chunk` as the top level, from its first instruction. What the run writes has already
-// gone out when it ends, and a line it left unfinished stays so: no newline is added for it.
+// gone out when it ends, and a line it left unfinished stays so: no newline is added for it. With
+// `&dump` not zero, `display()`'s report follows, on standard error.
 run(v: *Vm, chunk: usize) -> Outcome
     forget_events(v)
     v.quit = None
@@ -45,7 +46,10 @@ run(v: *Vm, chunk: usize) -> Outcome
     v.co = null
     v.co_main = null
 
-    run_loop(v, chunk)
+    val o = run_loop(v, chunk)
+
+    dump_at_end(v)
+    o
 
 private run_loop(v: *Vm, chunk: usize) -> Outcome
     if chunk >= v.chunks.len() then return Faulted(s"there is no chunk $chunk to run")
@@ -150,6 +154,10 @@ private drive(v: *Vm) -> Outcome
                 // raises, should nothing catch the ball.
                 val kept = if in_task(v) || in_co(v) then copy_term(ball) else Ok(Undefined)
 
+                // Where the ball was thrown: what `&dump` reports, should nothing catch it.
+                val thrower = v.frame
+                val thrower_code = v.code
+
                 throw_ball(v, ball) match
                     Ok(true) -> ()
                     Ok(false) ->
@@ -161,7 +169,11 @@ private drive(v: *Vm) -> Outcome
                             injected = Some(Err(Thrown(x)))
                             continue
 
-                        if !in_task(v) then return Faulted(said)
+                        if !in_task(v)
+                            v.frame = thrower
+                            v.code = thrower_code
+                            v.ip = at + 1
+                            return Faulted(said)
 
                         if !task_ends(v, PromiseFaulted, x, said) then injected = Some(Ok(Idle))
                     Err(e) -> return Faulted(e)

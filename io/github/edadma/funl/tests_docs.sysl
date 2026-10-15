@@ -501,11 +501,11 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/data.md 40 22 0 0\n" +
     "docs/reference/functions.md 34 22 0 0\n" +
     "docs/reference/generators.md 26 7 0 0\n" +
-    "docs/reference/keywords.md 6 3 0 0\n" +
+    "docs/reference/keywords.md 10 3 0 0\n" +
     "docs/reference/modules.md 18 21 0 0\n" +
     "docs/reference/numbers.md 28 24 0 0\n" +
     "docs/reference/packages.md 4 10 0 1\n" +
-    "docs/reference/prolog.md 42 6 0 0\n" +
+    "docs/reference/prolog.md 42 7 0 0\n" +
     "docs/reference/regex.md 21 8 0 0\n" +
     "docs/reference/relations.md 24 7 0 1\n" +
     "docs/reference/scanning.md 23 5 0 0\n" +
