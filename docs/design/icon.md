@@ -652,10 +652,6 @@ with a newline; no standard input, no standard error, no open file.
   run over `funl:process`. A file is a `Handle` with the methods `f.read()`, `f.reads(n)`,
   `f.write(x…)`, `f.writes(x…)`, `f.seek(i)`, `f.where()`, `f.flush()`, `f.close()`, and `!f`
   generates its lines. Positions in `seek` and `where` are Icon's, 1 before the first byte.
-- **Core builtins** beside `write`: `read()` and `reads(n)` from standard input, `writes(x…)`
-  (no newline), `ewrite(x…)` and `ewrites(x…)` to standard error, and `stop(x…)`, which writes to
-  standard error and ends with status 1.
-- `chdir(path)` in `funl:fs`, beside `cwd()`.
 - `getch()`, `getche()` and `kbhit()` in a new `funl:term`, which puts the terminal in raw mode
   around each call.
 - `&input`, `&output` and `&errout` are the three standard streams as handles.

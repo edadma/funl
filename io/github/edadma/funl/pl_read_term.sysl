@@ -278,6 +278,78 @@ stdin_line() -> Option[string]
 
     Some(decoded_line(bytes.view()))
 
+// The next line of the program's input for `read()`, without its newline, or `None` at the end. What
+// an earlier `reads(n)` took from a line and left (`pending`) is read first, so the two share one
+// stream.
+input_line(who: string) -> Result[Option[string], Fault]
+    val v = current()
+    val held = v.pending
+
+    if held.bytes.len > 0
+        held.index_of("\n") match
+            Some(i) ->
+                v.pending = copied(held.bytes[i + 1..<held.bytes.len])
+                return Ok(Some(copied(held.bytes[0..<i])))
+            None ->
+                v.pending = ""
+                return Ok(Some(held))
+
+    v.input("") match
+        Some(l) ->
+            if take_malformed_input() then return Err(malformed_input_error(who))
+
+            Ok(Some(l))
+        None -> Ok(None)
+
+// The next `n` characters of the program's input for `reads(n)`, fewer when the input ends first, and
+// `None` when nothing is left. A line the input hands back is read as if it ended in a newline, so
+// the characters of a final line with none are followed by one.
+input_chars(n: usize, who: string) -> Result[Option[string], Fault]
+    val v = current()
+    var text = v.pending
+    var count = char_count(text)
+
+    while count < n
+        v.input("") match
+            Some(l) ->
+                if take_malformed_input()
+                    v.pending = ""
+                    return Err(malformed_input_error(who))
+
+                text = text + l + "\n"
+                count += char_count(l) + 1
+            None -> break
+
+    if text.bytes.len == 0
+        v.pending = ""
+        return Ok(None)
+
+    var at: usize = 0
+    var seen: usize = 0
+
+    while at < text.bytes.len && seen < n
+        at += char_width(text.bytes[at])
+        seen += 1
+
+    v.pending = copied(text.bytes[at..<text.bytes.len])
+    Ok(Some(copied(text.bytes[0..<at])))
+
+// How many characters `s` holds: its bytes that do not continue another.
+private char_count(s: string) -> usize
+    var n: usize = 0
+
+    for b in s.bytes
+        if (b & 192) != 128 then n += 1
+
+    n
+
+// How many bytes the UTF-8 character that begins with `lead` takes.
+private char_width(lead: u8) -> usize =
+    if lead >= 240 then 4
+    else if lead >= 224 then 3
+    else if lead >= 192 then 2
+    else 1
+
 // The text of a line's bytes. Bytes that are not UTF-8 cannot become a string, so the line stands in
 // as empty and the fact travels beside it: the reader that asked for the line takes it with
 // `take_malformed_input` and refuses the read.
