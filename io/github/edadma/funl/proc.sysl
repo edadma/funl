@@ -202,7 +202,7 @@ struct OpForm
 // expression over its operands, so it generates, fails and faults exactly as the operator does. What is not
 // here is control, not an operator in Icon's sense: `&`, `|`, `and`, `or`, `not`, `~`, `<-`, assignment and
 // its operator forms, `?` scanning (its right side is not a value) and `limit`.
-private val OpForms: [34]OpForm = [
+private val OpForms: [35]OpForm = [
     OpForm("+", 2, "a + b"),
     OpForm("-", 2, "a - b"),
     OpForm("*", 2, "a * b"),
@@ -235,8 +235,9 @@ private val OpForms: [34]OpForm = [
     OpForm("=", 1, "tab( match(a) )"),
     OpForm("\\", 1, "\\a"),
     OpForm("/", 1, "/a"),
-    OpForm("*", 1, "a.length"),
-    OpForm("..", 1, "a..")
+    OpForm("*", 1, "*a"),
+    OpForm("..", 1, "a.."),
+    OpForm("[:]", 3, "a(b..c)")
 ]
 
 // The module the operators' functions are compiled in, once, the first time one is asked for.
@@ -285,7 +286,8 @@ private operators_chunk(index: usize) -> usize
 
                 text.push(s"  operator$i( a")
 
-                if f.arity == 2 then text.push(", b")
+                if f.arity >= 2 then text.push(", b")
+                if f.arity == 3 then text.push(", c")
 
                 text.push(s" ) = ${f.body}\n")
 

@@ -231,8 +231,9 @@ and `to` generate, and `/` by zero is the same fault.
 
 | Count | Spellings |
 |---|---|
-| 2 | `+ - * / \ // % mod div ^ **`, `< <= > >= == !=`, `:`, `in`, `not in`, `to`, `until`, `..`, `..<`, `..+`, and `[]` (the element `c(i)`) |
-| 1 | `-`, `!`, `?`, `=` (the scan match `=s`), `\`, `/`, `*` (the size, `.length`), and `..` (an unending range) |
+| 2 | `+ - * / \ // % mod div ^ **`, `< <= > >= == !=`, `:`, `in`, `not in`, `to`, `until`, `..`, `..<`, `..+`, `[]` (the element `c(i)`) |
+| 3 | `[:]` (the slice `c(i..j)`) |
+| 1 | `-`, `!`, `?`, `=` (the scan match `=s`), `\`, `/`, `*` (prefix `*`: the count of a co-expression, the length of anything else), and `..` (an unending range) |
 
 ```funl
 add = proc( "+", 2 )
@@ -242,6 +243,8 @@ write( proc("<", 2)(3, 5) )
 write( if proc("<", 2)(5, 3) then 'holds' else 'fails' )
 every write( proc("!", 1)([7, 8]) )
 write( proc("[]", 2)([5, 6, 7], 1) )
+write( proc("[:]", 3)([5, 6, 7, 8], 1, 2) )
+write( proc("*", 1)([5, 6, 7]), proc("*", 1)(create (1 to 3)) )
 write( if proc("+") then 'unary plus' else 'no unary plus' )
 ```
 
@@ -253,8 +256,14 @@ fails
 7
 8
 6
+[6, 7]
+3, 0
 no unary plus
 ```
+
+`proc("[:]", 3)` is Icon's `proc("[:]", 3)` with FunL's own slice: `c(i..j)` counts from 0 and includes
+`j`, where Icon's `s[i:j]` counts positions from 1 and stops before `j`, so the same numbers pick different
+elements. Position arithmetic stays with scanning.
 
 What is not an operator in Icon's sense is control, and `proc` fails for it: `&`, `|`, `and`, `or`, `not`,
 `~`, `<-`, assignment and its operator forms such as `+=`, scanning `?` and `limit`, whose operands are not

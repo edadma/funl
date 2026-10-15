@@ -108,6 +108,18 @@ PROC_GIVES_THE_UNARY_OPERATORS()
     assert_eq(ran_funl("write(proc(\"*\", 1)(\"abcd\"), proc(\"*\", 1)([1, 2]))\n"), "4, 2\nsucceeded")
 
 @test
+PROC_STAR_IS_THE_PREFIX_STAR_COUNT_OF_A_CO_EXPRESSION()
+    assert_eq(ran_funl("c = create (1 to 5)\n@c\n@c\nwrite(proc(\"*\", 1)(c), *c)\n"), "2, 2\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"*\", 1)([1, 2, 3]), proc(\"*\", 1)(\"abc\"))\n"), "3, 3\nsucceeded")
+
+@test
+PROC_GIVES_THE_SLICE_AS_FUNLS_OWN_RANGE_SLICE()
+    assert_eq(ran_funl("write(proc(\"[:]\", 3)([10, 20, 30, 40], 1, 2))\n"), "[20, 30]\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"[:]\", 3)(\"hello\", 1, 3))\n"), "ell\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"[:]\", 2) then 'yes' else 'no' )\n"), "no\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"[:]\", 3)([1, 2], 0, 5) then 'yes' else 'no' )\n"), "no\nsucceeded")
+
+@test
 PROC_GIVES_THE_SCAN_MATCH_OPERATOR()
     assert_eq(ran_funl("\"hello\" ? (write(proc(\"=\", 1)(\"he\")), write(&pos))\n"), "he\n3\nsucceeded")
     assert_eq(ran_funl("\"hello\" ? write( if proc(\"=\", 1)(\"xy\") then 'yes' else 'no' )\n"), "no\nsucceeded")
