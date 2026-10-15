@@ -77,7 +77,13 @@ READS_REFUSES_A_COUNT_THAT_IS_NOT_A_POSITIVE_INTEGER()
 
 @test
 WRITES_LEAVES_THE_LINE_OPEN_FOR_THE_NEXT_WRITE()
-    assert_eq(fed("writes( \"a\" )\nwrites( \"b\", 2 )\nwrite( \"c\" )\nwrites( \"d\\ne\" )\n", []), "ab, 2c\nd\ne<no newline>\nstatus: 0")
+    assert_eq(fed("writes( \"a\" )\nwrites( \"b\", 2 )\nwrite( \"c\" )\nwrites( \"d\\ne\" )\n", []), "ab2c\nd\ne<no newline>\nstatus: 0")
+
+@test
+WRITES_AND_EWRITES_JOIN_THEIR_ARGUMENTS_WITH_NO_SEPARATOR_WHERE_WRITE_AND_EWRITE_USE_A_COMMA()
+    assert_eq(fed("writes( \"a\", 1, #b, [2, 3] )\nwrite( \"x\", 1 )\n", []), "a1b[2, 3]x, 1\nstatus: 0")
+    assert_eq(fed("ewrites( \"a\", 1, \"c\" )\newrite( \"x\", 2 )\n", []), "stderr: a1cx, 2\nstatus: 0")
+    assert_eq(fed("writes( \"\", \"\" )\nwrites( 7 )\nwrite( \"\" )\n", []), "7\nstatus: 0")
 
 @test
 WRITES_WITH_NO_ARGUMENTS_WRITES_NOTHING()
