@@ -129,8 +129,8 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
         MutSet(s) -> write_items(out, n, s.items.view(), depth, "MutableSet(", ")")
         Map(m) -> write_entries(out, n, m, depth, "{", "}")
         MutMap(m) -> write_entries(out, n, m, depth, "MutableMap(", ")")
-        Array(a) -> write_items(out, n, a.items.view(), depth, "Array(", ")")
-        Buffer(a) -> write_items(out, n, a.items.view(), depth, "Buffer(", ")")
+        Array(a) -> write_items(out, n, a.view(), depth, "Array(", ")")
+        Buffer(a) -> write_items(out, n, a.view(), depth, "Buffer(", ")")
         Ctor(id) -> write_ctor(out, current().ctors.at(usize(id)))
         CSet(p) ->
             // As `cset` would make it, its characters in ascending order; a complement as

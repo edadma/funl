@@ -1,5 +1,6 @@
 import io.github.edadma.funl.*
 import sh.sysl.linenoise.{history_add, history_set_max_len, read}
+import sysl.posix.tty.is_tty
 import sysl.text.Search
 
 // The driver: `funl <program.funl>` compiles the program, runs it, and prints what it wrote. A file
@@ -39,7 +40,9 @@ main(args: []string)
 
     if profiling then profile_start()
 
-    val code = run_file(args[1], (prompt) -> line(prompt), (text) -> print(text), (text) -> eprints(text), args[2..<args.len])
+    val code = run_file(args[1], (prompt) -> line(prompt), (text) -> out(text), (text) -> to_stderr(text), args[2..<args.len])
+
+    flush()
 
     if profiling
         profile_stop()
@@ -48,9 +51,32 @@ main(args: []string)
     exit(code)
 end main
 
-// A line, remembered for the arrow keys unless it is blank.
+// What standard output's current line holds so far, for `line`.
+private var tail: string = ""
+
+// `text` to standard output as the program writes it, minding the line it leaves unfinished.
+private out(text: string)
+    to_stdout(text)
+    tail = unfinished(tail, text)
+
+// A line, remembered for the arrow keys unless it is blank. What the program has written is pushed out
+// first; at a terminal, a line it left unfinished -- a prompt -- is handed to linenoise as the start of
+// the prompt, because linenoise redraws its line from the left margin and would otherwise erase it.
+// The cursor goes back to the margin for it, since linenoise first writes its prompt where the cursor
+// is, over the same text.
 private line(prompt: string) -> Option[string]
-    val got = read(prompt)
+    var p = prompt
+
+    if tail.bytes.len > 0 && is_tty(0) && is_tty(1)
+        prints("\r")
+        p = tail + prompt
+
+    flush()
+
+    val got = read(p)
+
+    // The line typed ends with the newline the terminal echoed.
+    tail = ""
 
     got match
         Some(l) -> if !l.trim().is_empty() then history_add(l)

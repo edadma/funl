@@ -69,8 +69,8 @@ PROLOG_SEES_BYTES_AS_AN_ATOMIC_VALUE_UNIFYING_BY_VALUE()
     val d = scratch()
     defer scrap(d)
 
-    val pl = put(d, "show.pl", "show(X) :- write(X), nl.\ntwin(X, X).\nkind(X, K) :- ( atomic(X) -> K = atomic ; K = other ).\n")
-    val program = s"import \"$pl\"\nval b = bytes([1, 2])\nshow(b)\nwrite( if twin(b, bytes([1, 2])) then \"same\" else \"differ\", if twin(b, bytes([1])) then \"same\" else \"differ\" )\nfree k\nkind(b, k)\nwrite( k )\n"
+    val pl = put(d, "show.pl", "show(X) :- write(X), nl.\nsame(X, X).\nkind(X, K) :- ( atomic(X) -> K = atomic ; K = other ).\n")
+    val program = s"import \"$pl\"\nval b = bytes([1, 2])\nshow(b)\nwrite( if same(b, bytes([1, 2])) then \"same\" else \"differ\", if same(b, bytes([1])) then \"same\" else \"differ\" )\nfree k\nkind(b, k)\nwrite( k )\n"
 
     assert_eq(ran_funl(program), "bytes([1, 2])\nsame, differ\natomic\nsucceeded")
 

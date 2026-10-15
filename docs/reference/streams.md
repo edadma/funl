@@ -40,7 +40,20 @@ a
 bc
 ```
 
-A line still open when the program ends is ended for it.
+Output goes out as the program writes it, not when the program ends, and a line still open when the
+program ends stays open: no newline is added for it. Before a read of standard input, what has been
+written is pushed out, so a prompt written with `writes` is showing when the read waits:
+
+```funl
+writes( "name? " )
+write( "hello, " + (read() | "nobody") )
+```
+
+```output
+name? hello, nobody
+```
+
+At a terminal, the prompt stays in front of what is typed.
 
 ## `read` and `reads`
 
@@ -83,5 +96,6 @@ ewrite( "warning:", "empty input" )
 if read() == undefined then stop( "no input" )
 ```
 
-Standard output and standard error are collected separately while the program runs, and `funl` prints
-the output first and the error lines when the program ends.
+Each goes out as it is written, standard output pushed out ahead of anything written to standard
+error, so a terminal showing both shows them in the order the program wrote them. Prolog's `write/1`,
+`nl/0` and `format/2` write to the same standard output as `write`, in the order they run.

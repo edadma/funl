@@ -195,8 +195,8 @@ element_get(c: Value, key: Value) -> Result[Option[Value], Fault]
     val i = integer(key)?
 
     x match
-        Array(a) -> Ok(if in_range(i, a.items.len()) then Some(a.items.at(usize(i))) else None)
-        Buffer(a) -> Ok(if in_range(i, a.items.len()) then Some(a.items.at(usize(i))) else None)
+        Array(a) -> Ok(if in_range(i, a.len()) then Some(a.at(usize(i))) else None)
+        Buffer(a) -> Ok(if in_range(i, a.len()) then Some(a.at(usize(i))) else None)
         Compound(p) -> Ok(if in_range(i, p.args.len()) then Some(p.args.at(usize(i))) else None)
         _ -> element_at(x, Int(i))
 end element_get
@@ -263,7 +263,7 @@ data_field(x: Value, name: u32) -> Result[Option[Value], Fault]
         MutMap(m) -> return named_key(m, n)
         Buffer(b) ->
             if n == "removeLast"
-                return b.items.pop() match
+                return b.pop_back() match
                     Some(e) -> Ok(Some(e))
                     None -> Err(domain_error("non_empty", y, "'removeLast' was asked of an empty buffer"))
         _ -> ()
@@ -315,11 +315,11 @@ end element_set
 
 private set_item(col: Value, a: *ArrayObj, key: Value, x: Value, back: bool) -> Result[unit, Fault]
     val i = integer(key)?
-    val at = checked_index(col, i, a.items.len())?
+    val at = checked_index(col, i, a.len())?
 
-    if back then trailed(col, Int(long(at)), a.items.at(at), true)
+    if back then trailed(col, Int(long(at)), a.at(at), true)
 
-    a.items.set(at, x)
+    a.set(at, x)
     Ok(())
 
 // Record an element's old value. With nothing on the control stack nothing can fail back past the
@@ -349,7 +349,7 @@ put_element_back(c: Value, key: Value, old: Value, had: bool)
 
 private put_item_back(a: *ArrayObj, key: Value, old: Value)
     key match
-        Int(i) -> if i >= 0 && usize(i) < a.items.len() then a.items.set(usize(i), old)
+        Int(i) -> if i >= 0 && usize(i) < a.len() then a.set(usize(i), old)
         _ -> ()
 
 // `SwapElems`: the two elements named by the top four cells -- a collection and a key, twice --
@@ -387,7 +387,7 @@ changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, Fault]
         Buffer(b) ->
             if o != Add then return Ok(false)
 
-            b.items.push(x)
+            b.push(x)
             current().allocated += sizeof(Value)
             Ok(true)
         MutSet(s) ->

@@ -508,7 +508,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/relations.md 24 7 0 1\n" +
     "docs/reference/scanning.md 20 4 0 0\n" +
     "docs/reference/source-files.md 1 3 2 0\n" +
-    "docs/reference/streams.md 3 0 2 0\n" +
+    "docs/reference/streams.md 4 0 2 0\n" +
     "docs/reference/strings.md 19 9 0 0\n" +
     "docs/reference/success-and-failure.md 17 5 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +

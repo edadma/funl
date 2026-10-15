@@ -103,7 +103,7 @@ private write_spans(base: usize, argc: usize) -> Result[Value, Fault]
 
         if g.start == 0 then out.push("(?,?)") else out.push(s"(${g.start - 1},${g.end - 1})")
 
-    v.output.push(out.finish())
+    put_out(v, out.finish() + "\n")
     Ok(Unit)
 
 // The data's expected answer, with an unset group written one way.

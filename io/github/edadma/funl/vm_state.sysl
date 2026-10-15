@@ -92,10 +92,12 @@ struct Vm
     // Its name belongs to the file that declares it (`Resolved.own_types`).
     data_types: Buf[Buf[usize]]
 
-    // What `write` printed, a line per call.
-    output: Buf[string]
+    // Where standard output goes, as it is written (`io.sysl`'s `put_out`): the process's own stream
+    // by default, the driver's sink when it gives one, a capture in the tests.
+    put: &Fn(string) -> unit
 
-    // A line Prolog's `write/1` has begun and `nl/0` has not yet ended.
+    // What standard output's current line holds so far: empty when the last thing written ended a
+    // line. `format/2`'s column stops count from it, and the top level ends it before an answer.
     line: string
 
     // -- Prolog (`pl_load.sysl`, `pl_ops.sysl`) ----------------------------------------------------
@@ -272,10 +274,9 @@ struct Vm
 
     // -- standard error (`io.sysl`) ----------------------------------------------------------------
 
-    // What `ewrite`, `ewrites` and `stop` wrote, a line each as `output` holds standard output's, and
-    // the line `ewrites` has begun; the driver prints them to standard error when the run ends.
-    errput: Buf[string]
-    err_line: string
+    // Where standard error goes, as `put` is standard output's: what `ewrite`, `ewrites` and `stop`
+    // write. The default pushes out what standard output holds first, so the two keep program order.
+    eput: &Fn(string) -> unit
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -303,11 +304,11 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
 
     var v = Vm(
         buf(), 0, 0, buf(), null, null, buf(), buf(), buf(), NoMark, 0, Undefined, 1, buf(), buf(), buf(), buf(), 0,
-        buf(), map(), buf(), map(), buf(), buf(), buf(), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
+        buf(), map(), buf(), map(), buf(), buf(), (t) -> to_stdout(t), "", map(), map(), map(), map(), new_db(), Undefined, buf(), buf(), buf(), buf(), pl_flags(),
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf(), buf(), buf(), None, buf(), "")
+        buf(), buf(), buf(), None, (t) -> to_stderr(t))
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

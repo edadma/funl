@@ -153,6 +153,52 @@ AN_IMPORTED_NAME_SHADOWS_A_BUILTIN()
 
     assert_eq(ran_funl(s"import { reverse } from \"$m\"\nwrite( reverse([1, 2]) )\n"), "mine\nsucceeded")
 
+// An import shadows a builtin per arity, as a top-level `def` does: the builtin keeps every count
+// the import does not take.
+@test
+AN_IMPORTED_NAME_SHADOWS_A_BUILTIN_ONLY_AT_ITS_ARITY()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "pad.funl", "export def left( a, b ) = #mine\n")
+
+    assert_eq(ran_funl(s"import { left } from \"$m\"\nwrite( left(1, 2), left(\"ab\", 4, \"*\") )\n"), "mine, ab**\nsucceeded")
+
+// A Prolog predicate the program imports shadows a builtin at its arity: `same/2` and `left/2` are
+// the file's, `left/3` is still the builtin's.
+@test
+AN_IMPORTED_PROLOG_PREDICATE_SHADOWS_A_BUILTIN_AT_ITS_ARITY()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "mine.pl", "same(X, Y) :- X == Y ; X = 2.\nleft(X, got(X)).\n")
+    val text = s"import \"$pl\"\nfree y\nleft(1, y)\nwrite( y, left(\"ab\", 4, \"*\") )\n" +
+        "write( if same(2, 1) then #yes else #no, if same(1, 2) then #yes else #no, if same([1], [1]) then #yes else #no )\n"
+
+    assert_eq(ran_funl(text), "got(1), ab**\nyes, no, yes\nsucceeded")
+
+// The program's own definition comes before an imported Prolog predicate of the name: its
+// `left( a, b )` takes the call of two, and the builtin the call of three.
+@test
+A_PROGRAMS_OWN_DEFINITION_COMES_BEFORE_AN_IMPORTED_PREDICATE()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "mine.pl", "left(X, got(X)).\n")
+
+    assert_eq(ran_funl(s"import \"$pl\"\ndef left( a, b ) = #own\nwrite( left(1, 2), left(\"ab\", 4, \"*\") )\n"), "own, ab**\nsucceeded")
+
+// An imported Prolog predicate and the program's function of the same Prolog key are one predicate
+// defined twice.
+@test
+AN_IMPORTED_PREDICATE_AND_A_FUNCTION_OF_ITS_KEY_ARE_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "mine.pl", "left(X, got(X)).\n")
+
+    assert(complaints(s"import \"$pl\"\ndef left( a ) = #own\nwrite( left(1) )\n").contains("`left/2` cannot be defined twice"))
+
 @test
 EXPORT_DEF_BEFORE_A_BLOCK_EXPORTS_EVERY_DEFINITION_IN_IT()
     val d = scratch()

@@ -55,6 +55,7 @@ private consulted_twice(heap: usize, floor: usize, growth: usize, first: string,
     val file = put(d, "rewritten.pl", first)
     var v = new_vm(heap, floor, growth)
     val was = enter(&v)
+    val c = capture_streams(&v)
 
     run(&v, prolog_text(s":- consult(\"$file\").\n").unwrap())
     write_text(file, second).unwrap()
@@ -62,8 +63,10 @@ private consulted_twice(heap: usize, floor: usize, growth: usize, first: string,
     val outcome = outcome_text(run(&v, prolog_text(s":- consult(\"$file\").\n$query").unwrap()))
     var said = ""
 
-    for line in v.output.view()
+    for line in c.lines.view()
         said = said + line + "\n"
+
+    if c.open.bytes.len > 0 then said = said + c.open + "\n"
 
     dispose_vm(&v)
     leave(was)

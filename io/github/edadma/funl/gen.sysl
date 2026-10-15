@@ -139,23 +139,23 @@ gen_next(v: *Vm) -> Result[bool, Fault]
             next = at + 1
             spent = next >= long(s.items.len())
         Array(a) ->
-            if at >= long(a.items.len())
+            if at >= long(a.len())
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = a.items.at(usize(at))
+            elem = a.at(usize(at))
             rest = v.stack.at(top - 2)
             next = at + 1
-            spent = next >= long(a.items.len())
+            spent = next >= long(a.len())
         Buffer(a) ->
-            if at >= long(a.items.len())
+            if at >= long(a.len())
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = a.items.at(usize(at))
+            elem = a.at(usize(at))
             rest = v.stack.at(top - 2)
             next = at + 1
-            spent = next >= long(a.items.len())
+            spent = next >= long(a.len())
         Map(m) ->
             if at >= long(m.keys.len())
                 v.stack.truncate(top - 2)

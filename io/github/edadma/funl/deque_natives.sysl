@@ -33,7 +33,7 @@ private do_push(base: usize, argc: usize) -> Result[Value, Fault]
     val b = buffer_of(arg(base, 0), "'push'")?
 
     for i in 1..<argc
-        b.items.insert(0, arg(base, i))
+        b.push_front(arg(base, i))
 
     current().allocated += (argc - 1) * sizeof(Value)
     Ok(deref(arg(base, 0)))
@@ -45,7 +45,7 @@ private do_put(base: usize, argc: usize) -> Result[Value, Fault]
     val b = buffer_of(arg(base, 0), "'put'")?
 
     for i in 1..<argc
-        b.items.push(arg(base, i))
+        b.push(arg(base, i))
 
     current().allocated += (argc - 1) * sizeof(Value)
     Ok(deref(arg(base, 0)))
@@ -54,15 +54,15 @@ private do_put(base: usize, argc: usize) -> Result[Value, Fault]
 private do_pop(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val b = buffer_of(arg(base, 0), "'pop'")?
 
-    if b.items.len() == 0 then return Ok(Refuses)
-
-    Ok(Gives(b.items.remove(0)))
+    b.pop_front() match
+        Some(x) -> Ok(Gives(x))
+        None -> Ok(Refuses)
 
 // `pull(b)`: the last element of buffer `b`, taken out of it; failure where `b` is empty.
 private do_pull(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val b = buffer_of(arg(base, 0), "'pull'")?
 
-    b.items.pop() match
+    b.pop_back() match
         Some(x) -> Ok(Gives(x))
         None -> Ok(Refuses)
 
@@ -110,14 +110,14 @@ private do_copy(base: usize, argc: usize) -> Result[Value, Fault]
         Array(a) ->
             val o = new_array(0)?
 
-            o.items.extend(a.items.view())
-            current().allocated += a.items.len() * sizeof(Value)
+            o.extend(a.view())
+            current().allocated += a.len() * sizeof(Value)
             Ok(Array(o))
         Buffer(a) ->
             val o = new_array(0)?
 
-            o.items.extend(a.items.view())
-            current().allocated += a.items.len() * sizeof(Value)
+            o.extend(a.view())
+            current().allocated += a.len() * sizeof(Value)
             Ok(Buffer(o))
         MutMap(m) ->
             val o = new_map()?

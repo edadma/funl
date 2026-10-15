@@ -427,8 +427,9 @@ is an immutable map, and nothing can be stored in it
 `put(b, x, ...)` adds each argument at the end of buffer `b`, as `b += x` does, and `push(b, x, ...)`
 puts each on the front in turn, so the last argument ends up first. Both answer the buffer. `get(b)`
 and `pop(b)` take the front element out, and `pull(b)` takes the last; each fails when the buffer is
-empty, so `while x = pop(b)` drains one. Taking from the front moves the other elements down, so a
-very long buffer drained from the front costs a pass over it each time.
+empty, so `while x = pop(b)` drains one. All five take amortised constant time, at the front as at
+the back: a buffer keeps a gap before its first element, so neither end moves the others, and a
+buffer used as a queue — `put` at the back, `get` from the front — is as cheap as a stack.
 
 ```funl
 b = buffer()
@@ -700,7 +701,7 @@ Text and bytes never turn into each other by themselves: `bytes(s)` encodes a st
 In Prolog a byte string is an **atomic, opaque value**: `atomic/1` is true of it, and `atom/1`,
 `number/1`, `compound/1` and `callable/1` are false. It unifies only with a byte string holding the
 same bytes, and `compare/3` puts it after every number, atom and string and orders two byte strings
-byte by byte. [`data/bytes.pl`](data/bytes.pl) holds `kinds/2`, `twin/2`, `order/3` and `sorted/2`.
+byte by byte. [`data/bytes.pl`](data/bytes.pl) holds `kinds/2`, `same/2`, `order/3` and `sorted/2`.
 
 ```funl
 import "data/bytes.pl"
@@ -712,9 +713,9 @@ order( b, bytes([1, 3]), o )
 sorted( [bytes([2]), b, 3, bytes([1])], s )
 write( k, o )
 write( s )
-write( if twin(b, bytes([1, 2])) then 'same' else 'differ' )
-write( if twin(b, bytes([1])) then 'same' else 'differ' )
-write( if twin(b, 'bytes') then 'same' else 'differ' )
+write( if same(b, bytes([1, 2])) then 'same' else 'differ' )
+write( if same(b, bytes([1])) then 'same' else 'differ' )
+write( if same(b, 'bytes') then 'same' else 'differ' )
 ```
 
 ```output

@@ -73,13 +73,13 @@ private pick(base: usize) -> Result[Answer, Fault]
             return Ok(Gives(Int(long(draw_below(u64(n))) + 1)))
         Big(_) -> return Err(domain_error("int", x, "'?' counts up to a 64-bit integer, and this one is larger"))
         Var(_) -> return Err(instantiation_error("instantiation error: '?' was given an unbound variable"))
-        Map(m) -> return pick_from(m.vals)
-        MutMap(m) -> return pick_from(m.vals)
-        Array(a) -> return pick_from(a.items)
-        Buffer(a) -> return pick_from(a.items)
-        Tuple(t) -> return pick_from(t.items)
-        Set(s) -> return pick_from(s.items)
-        MutSet(s) -> return pick_from(s.items)
+        Map(m) -> return pick_from(m.vals.view())
+        MutMap(m) -> return pick_from(m.vals.view())
+        Array(a) -> return pick_from(a.view())
+        Buffer(a) -> return pick_from(a.view())
+        Tuple(t) -> return pick_from(t.items.view())
+        Set(s) -> return pick_from(s.items.view())
+        MutSet(s) -> return pick_from(s.items.view())
         CSet(p) ->
             val k = cset_count(x, p.set, "cannot be listed")?
 
@@ -104,8 +104,8 @@ private pick_key(base: usize) -> Result[Answer, Fault]
     val x = deref(arg(base, 0))
 
     x match
-        Map(m) -> return pick_from(m.keys)
-        MutMap(m) -> return pick_from(m.keys)
+        Map(m) -> return pick_from(m.keys.view())
+        MutMap(m) -> return pick_from(m.keys.view())
         Var(_) -> return Err(instantiation_error("instantiation error: '?' was given an unbound variable"))
         CSet(p) ->
             val k = cset_count(x, p.set, "cannot be listed")?
@@ -121,10 +121,10 @@ private pick_key(base: usize) -> Result[Answer, Fault]
 
     Ok(Gives(Int(long(draw_below(u64(n))))))
 
-private pick_from(items: Buf[Value]) -> Result[Answer, Fault]
-    if items.len() == 0 then return Ok(Refuses)
+private pick_from(items: []const Value) -> Result[Answer, Fault]
+    if items.len == 0 then return Ok(Refuses)
 
-    Ok(Gives(items.at(usize(draw_below(u64(items.len()))))))
+    Ok(Gives(items[usize(draw_below(u64(items.len)))]))
 
 // How many things `?x` chooses among: the elements of a collection or the characters of a string. A
 // number or anything else with no elements is a type error.
