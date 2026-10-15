@@ -319,6 +319,11 @@ struct Program
     // Every name an `export` line declares, with where it is written, in order.
     exports: Buf[Spanned[string]]
 
+    // The text every span is an offset into -- the file itself, or with what the preprocessor
+    // included and expanded put after it -- and where each part of it came from.
+    source: Source
+    places: SourceMap
+
 // Where an `import` line takes its module from.
 enum Specifier
     // `"geometry.funl"`, `"family.pl"`: a file, relative to the file the import is written in.

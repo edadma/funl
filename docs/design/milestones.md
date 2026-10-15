@@ -226,7 +226,7 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
     (I15), assignment to a string section (I10). Waits on those four; each answered "no" drops its
     part.
 21. **The preprocessor**: the directives the answer to I20 keeps, over the token stream, with
-    positions through `$include`. Waits on I20.
+    positions through `$include`. I20 decided: Icon's whole preprocessor.
 
 **Done when:** an Icon program of each kind in the chapter — a co-expression pipeline, a scanner
 with `bal` and `&pos`, a `static` memo, a variadic logger, a file filter reading standard input —

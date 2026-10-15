@@ -283,6 +283,9 @@ struct Resolved
     // The code being resolved, which positions are read in.
     src: Source
 
+    // Where each part of `src` came from, for a position named in a message's text.
+    places: SourceMap
+
     // What each call of a name reaches, by the offset of the name, as the resolver decided it --
     // knowing whether the call is in a goal (`called_in`), and before the program's own definitions
     // became Prolog predicates.
@@ -805,7 +808,7 @@ private with_id(ids: Option[Buf[usize]], id: usize) -> Buf[usize]
 // Resolve `prog`, whose top level's frame `top_up` names and whose imports brought `im`, adding
 // every refusal and warning to `report`.
 resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report) -> Resolved
-    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, map(), map(), map(), map(), map(), map(), map(), map(), map(), map(), buf(), buf())
+    var res = Resolved(buf(), map(), buf(), 0, top_up, prog.stmts, map(), map(), map(), src, prog.places, map(), map(), map(), map(), map(), map(), map(), map(), map(), map(), buf(), buf())
 
     res.top = new_scope_id(&res)
 

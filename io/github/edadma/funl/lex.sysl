@@ -27,13 +27,45 @@ import sysl.text.from_utf8_unchecked
 
 private const TabWidth: usize = 8
 
-// The tokens of `src`, with every complaint about its spelling added to `report`.
+// The tokens of `src`, with every complaint about its spelling added to `report`. A line beginning
+// with `$` is not a directive here: this is the lexer alone, for text that is part of a file already
+// preprocessed -- an interpolation's hole.
 lex(src: Source, report: *Report) -> Tokens[Tok]
+    var pre = no_preprocessing(report)
+
+    lex_with(src, report, &pre, 0)
+
+// The tokens of `src`, read as file number `file` of what `pre` is preprocessing (`preproc.sysl`).
+// The tokens' spans are offsets into the program `pre` puts together; `report` gets every complaint
+// about the file at offsets into `src`, for the caller to move.
+//
+// **A directive is a line whose first character past its indentation is `$`.** It opens and closes
+// no block, as a line holding only a comment does -- except `$include`, whose file's statements stand
+// where the line does, so it is measured as a statement line is. A line a false `$ifdef` covers is
+// skipped unread.
+//
+// **The program is built in the order its tokens are read**: the file's text is copied into it up to
+// each place something else goes in -- an included file, a definition's text -- so every token's
+// offset is past the offsets of the tokens before it, which is what a scope rule reading order from
+// offsets needs.
+lex_with(src: Source, report: *Report, pre: *Pre, file: usize) -> Tokens[Tok]
     var s = scan(src)
     var lay = layout()
     var out: Tokens[Tok] = tokens()
     var line_start = true
     var first = true
+    var conds: Buf[Cond] = buf()
+
+    // The tokens from this index on still have offsets into `src`, and move to the program's when the
+    // next token not read from `src` is put after them.
+    var native_from: usize = 0
+
+    // `src`'s text up to `copied` is in the program; from `copied` on it goes in at offset `resume`.
+    var copied: usize = 0
+    var resume = pre.bytes.len()
+
+    // Whether the line being read is an `$include`, whose `$` the token loop below hands over.
+    var including = false
 
     // Where the last real token ended, which is where a `Newline` is said to be.
     var last_end: usize = 0
@@ -51,6 +83,27 @@ lex(src: Source, report: *Report) -> Tokens[Tok]
 
                 line_start = true
                 continue
+
+            if pre.on
+                val directive = s.peek() == Some(u8('$'))
+
+                if directive && !(taking(&conds) && is_include(&s))
+                    directive_line(&s, src, pre, file, &conds, report)
+
+                    if !s.accept_newline() then break
+
+                    line_start = true
+                    continue
+
+                if !directive && !taking(&conds)
+                    s.skip_to_line_end()
+
+                    if !s.accept_newline() then break
+
+                    line_start = true
+                    continue
+
+                including = directive
 
             // A line after one that ended on an infix operator is the rest of that statement, and
             // opens and closes nothing. One that is not indented past the statement is refused and
@@ -107,8 +160,45 @@ lex(src: Source, report: *Report) -> Tokens[Tok]
 
         val start = s.at
 
+        if including
+            including = false
+
+            include_line(&s, src, report) match
+                Some(inc) ->
+                    to_program(&out, native_from, copied, resume)
+                    copy_text(pre, file, src, copied, s.at)
+
+                    for t in included(pre, inc, file).items.view()
+                        out.items.push(t)
+
+                    copied = s.at
+                    resume = pre.bytes.len()
+                    native_from = out.len()
+                None -> ()
+
+            last_end = s.at
+            continue
+
+        val before = out.len()
+
         if one_token(&s, src, &lay, &out, report, c)
             last_end = s.at
+
+            // A name `$define` gave text is replaced by that text's tokens.
+            if pre.on && out.len() == before + 1
+                out.items.at(before).value match
+                    Name(w) ->
+                        if is_defined(pre, w)
+                            to_program(&out, native_from, copied, resume)
+
+                            val used = out.items.pop().unwrap()
+
+                            copy_text(pre, file, src, copied, s.at)
+                            expand(pre, w, used.span, &out)
+                            copied = s.at
+                            resume = pre.bytes.len()
+                            native_from = out.len()
+                    _ -> ()
         else
             // Nothing was made of it: say so and step over the character.
             s.next_char()
@@ -120,8 +210,56 @@ lex(src: Source, report: *Report) -> Tokens[Tok]
     for _ in 0..<lay.finish()
         out.push(Dedent, end)
 
+    if pre.on
+        unclosed(&conds, report)
+
+        // A main file nothing went into is the program as it stands.
+        if file != 0 || !pre.map.pieces.is_empty()
+            to_program(&out, native_from, copied, resume)
+            copy_text(pre, file, src, copied, src.bytes.len)
+
     out
-end lex
+end lex_with
+
+// Move the tokens of `out` from index `from` on from offsets into their file to offsets into the
+// program, where the file's offset `copied` is at `resume`.
+private to_program(out: *Tokens[Tok], from: usize, copied: usize, resume: usize)
+    if copied == resume then return
+
+    for i in from..<out.len()
+        val t = out.items.at(i)
+
+        out.items.set(i, Spanned(t.value, Span(t.span.start + resume - copied, t.span.end + resume - copied)))
+
+// The tokens on the rest of the line `s` is on, up to its end or a comment, which is left unread:
+// what a directive is given. Each token's span is an offset into `src`.
+line_tokens(s: *Scanner, src: Source, report: *Report) -> Tokens[Tok]
+    var lay = layout()
+    var out: Tokens[Tok] = tokens()
+
+    loop
+        s.skip_blanks()
+
+        if blank_rest(s) then break
+
+        if s.starts_with("/*".bytes)
+            s.skip_block_comment("/*".bytes, "*/".bytes, true) match
+                Ok(_) -> continue
+                Err(sp) ->
+                    report.add(error(Span(sp.start, sp.start + 2), "this comment is never closed")
+                        .with_label("opened here")
+                        .with_note("a `/*` comment ends at the matching `*/`, and comments nest"))
+                    break
+
+        val c = s.peek().unwrap()
+        val start = s.at
+
+        if !one_token(s, src, &lay, &out, report, c)
+            s.next_char()
+            report.add(error(Span(start, s.at), s"`${from_utf8_unchecked(src.text(Span(start, s.at)))}` cannot begin anything here"))
+
+    out
+end line_tokens
 
 // Whether nothing but a comment is left on this line.
 // Move past a regex literal from its opening backtick, answering whether its closing one was found

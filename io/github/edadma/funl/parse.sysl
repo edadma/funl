@@ -233,9 +233,12 @@ tag(t: Tok) -> u8
         StarStar -> 89
 end tag
 
-// The program in `src`, with every complaint about its syntax added to `report`.
+// The program in `src`, preprocessed (`preproc.sysl`), with every complaint about its syntax added to
+// `report`. Its spans are offsets into the program it carries, which is `src` unless something was
+// included or expanded.
 parse(src: Source, report: *Report) -> Program
-    var p = Parser(lex(src, report), report, src, 0, 0, 0, buf())
+    val pp = preprocess(src, report)
+    var p = Parser(pp.toks, report, pp.src, 0, 0, 0, buf())
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
     var imports: Buf[ImportDecl] = buf()
@@ -280,7 +283,7 @@ parse(src: Source, report: *Report) -> Program
         p.skip_line()
     end loop
 
-    Program(clauses, stmts, imports, exports)
+    Program(clauses, stmts, imports, exports, pp.src, pp.map)
 end parse
 
 // Whether the token `k` places past the cursor is the name `word`.

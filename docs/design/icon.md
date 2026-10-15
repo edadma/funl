@@ -626,29 +626,12 @@ design that scopes the conversion to an expression instead of a global counter.
 
 ## The preprocessor
 
-**Icon:** before compiling, lines beginning with `$` are directives: `$define name text`,
-`$undef`, `$ifdef`, `$ifndef`, `$else`, `$endif`, `$include "file"`, `$line n "file"`, `$error
-text`. Predefined names describe the platform and the features built in (`_UNIX`,
-`_CO_EXPRESSIONS`, `_LARGE_INTEGERS`, …). Substitution is by token, not inside strings.
-
-**FunL today:** `val` names a constant, `import` brings another file's names, and nothing selects
-code by platform or feature when compiling. A line beginning with `$` is free (`$name`
-interpolates only inside a string).
-
-**Proposed:** Icon's directives, run over the token stream after the lexer and before the parser,
-so substitution is by token and never reaches into a string or a comment: `$define` (a sequence of
-tokens), `$undef`, `$ifdef`/`$ifndef`/`$else`/`$endif`, `$include` (textual, unlike `import`),
-`$line` and `$error`. Predefined: `_FUNL`, `_MACOS`, `_LINUX`, `_UNIX`, `_CO_EXPRESSIONS`,
-`_LARGE_INTEGERS`, and `_HTTP`, `_ASYNC`, `_PROFILE` for the features built in. Diagnostics name the
-file and line a token came from, through `$include` and `$line`. In a literate file the directives
-are in the tangled program, as everything else is.
-
-> **Open question I20 — a preprocessor.** (a) Icon's directives, token-level, as above; (b) only
-> conditional compilation on platform and features, `$ifdef` and its partners, with `val` and
-> `import` covering `$define` and `$include`; (c) none. **Recommendation: (b).** `val` and
-> `import` are better than `$define` and `$include` in every way but token pasting, and a textual
-> include is the thing modules replaced. Selecting code by platform or feature is the one capability
-> nothing covers. If parity is meant to the letter, (a) costs little more on top of (b).
+> **Decided (user, 2026-10-15) — I20: Icon's whole preprocessor**, not only conditional
+> compilation (the narrower recommendation was declined): `$define`, `$undef`, `$ifdef`, `$ifndef`,
+> `$else`, `$endif`, `$include` (positions carried through, include cycles refused), `$line` and
+> `$error`, with the platform and feature names predefined, over FunL's token stream and in a
+> literate file's tangled program. Built: `preproc.sysl`; specified in
+> [Source files](../reference/source-files.md#the-preprocessor).
 
 ## Graphics
 
@@ -686,5 +669,5 @@ own book, rather than part of the language.
 | I17 | writing to a file | handle methods, `f.write(x)` |
 | I18 | how keywords are spelled | `&name`, one token |
 | I19 | `&error` and `runerr` | nothing more; `catch` and `throw` cover them |
-| I20 | a preprocessor | conditional compilation only |
+| I20 | a preprocessor | decided: Icon's whole preprocessor |
 | I21 | the graphics facilities | out of scope; a later native module |

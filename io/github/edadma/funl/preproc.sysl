@@ -1,0 +1,694 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.buf.{Buf, buf}
+import sysl.fs.read_text
+import sysl.slices.sort_by
+import sysl.text.{Search, from_utf8_unchecked, str_builder}
+
+// The preprocessor (`icon.md` § "The preprocessor", decided as Icon's whole set): a line whose first
+// character past its indentation is `$` is a directive.
+//
+//     $define name text     name stands for the tokens of text from here on
+//     $undef name           and no longer does
+//     $ifdef name           the lines up to the matching $else or $endif are read only when name is defined
+//     $ifndef name          ... only when it is not
+//     $else                 the other branch
+//     $endif                the end of the conditional
+//     $include "file"       file's tokens, read relative to the including file, stand here
+//     $line n "file"        the next line is line n of file, in diagnostics
+//     $error text           refuse the program, saying text
+//
+// **It works on tokens, inside the lexer.** A defined name is replaced where the lexer reads it as a
+// name, so substitution never reaches into a string, a comment or a longer name, and the replacement
+// is the definition's tokens, never its characters read again. Conditionals are line-level: a line a
+// false branch covers is skipped unread, so it opens and closes no block.
+//
+// **Every token is placed in one program**, put together in the order the tokens are read: the main
+// file's text up to an `$include`, the included file's, the rest of the main file's, with a copy of a
+// definition's text wherever it is used. A span is an offset into that program, so whatever reads the
+// text again at a token's span -- an interpolated string's holes -- reads the characters it came
+// from, no two expansions of one definition share a span, and a later token's offset is past an
+// earlier one's. The `SourceMap` says which file, and where in it, each part of the program came
+// from, and every diagnostic is drawn against that file: its name, its line (renumbered by `$line`),
+// its column and its text.
+//
+// Predefined: `_FUNL`, `_CO_EXPRESSIONS` and `_LARGE_INTEGERS` always; `_MACOS`, `_LINUX` and `_UNIX`
+// for the platform; `_HTTP`, `_ASYNC` and `_PROFILE` for the features built in. Each stands for `1`.
+
+// -- where the program came from -----------------------------------------------------------------
+
+// A `$line` directive: from offset `at` of its file on, the line that is really line `line` is shown
+// as line `shown` of `name`.
+struct LineMark
+    at: usize
+    line: usize
+    shown: usize
+    name: string
+
+// One file the program is read from: the document as its reader has it, the program text it holds
+// (the same, but for a literate file's tangle), and the `$line` directives in it, in order.
+struct MapFile
+    doc: Source
+    prog: Source
+    text: string
+    marks: Buf[LineMark]
+
+// Offsets `from` to `to` of the program are file `file`'s, from its offset `local` on: the file's own
+// text, or -- `copy` -- a definition's text, copied there where the definition was used.
+struct Piece
+    from: usize
+    to: usize
+    file: usize
+    local: usize
+    copy: bool
+
+// Where each part of a preprocessed program came from. File 0 is the main file; with no pieces at
+// all, the program is the main file as it stands.
+struct SourceMap
+    files: Buf[MapFile]
+    pieces: Buf[Piece]
+
+    // Whether every offset is the main file's own, unrenumbered: nothing was included, expanded or
+    // moved by `$line`, so the program is the main file and its report draws as it always has.
+    plain(self) -> bool
+        if !self.pieces.is_empty() then return false
+
+        for f in self.files.view()
+            if !f.marks.is_empty() then return false
+
+        true
+end SourceMap
+
+// The map of a program nothing was done to.
+no_map() -> SourceMap = SourceMap(buf(), buf())
+
+// The file and the offset in it that offset `at` of the program came from. An offset where one piece
+// ends and the next begins is the next one's; the very end is the last one's.
+resolve(m: SourceMap, at: usize) -> (usize, usize)
+    if m.pieces.is_empty() then return (0, at)
+
+    for p in m.pieces.view()
+        if at >= p.from && at < p.to then return (p.file, p.local + at - p.from)
+
+    for i in 0..<m.pieces.len()
+        val p = m.pieces.at(m.pieces.len() - 1 - i)
+
+        if at == p.to then return (p.file, p.local + at - p.from)
+
+    val last = m.pieces.at(m.pieces.len() - 1)
+
+    (last.file, last.local + last.to - last.from)
+
+// Offset `local` of file `file`'s own text, as an offset into the program: the inverse of `resolve`
+// for a file's text, which a complaint gathered while the file was read is moved by.
+private to_combined(m: SourceMap, file: usize, local: usize) -> usize
+    var found: Option[usize] = None
+
+    for p in m.pieces.view()
+        if p.file == file && !p.copy && local >= p.local && local <= p.local + (p.to - p.from)
+            found = Some(p.from + local - p.local)
+
+    found match
+        Some(at) -> at
+        None -> if file == 0 && m.pieces.is_empty() then local else 0
+
+// The `$line` directive in force at offset `at` of a file, if any is.
+private mark_at(marks: Buf[LineMark], at: usize) -> Option[LineMark]
+    var found: Option[LineMark] = None
+
+    for m in marks.view()
+        if m.at <= at then found = Some(m)
+
+    found
+
+// Where offset `at` of the program is, as `file:line:column` -- the file it came from, its line as
+// `$line` numbers it, and the column its reader sees.
+placed(m: SourceMap, at: usize) -> string
+    val (fi, local) = resolve(m, at)
+    val f = m.files.at(fi)
+    val loc = f.prog.locate(local)
+    val col = loc.col + column_shift(f.prog.name)
+
+    mark_at(f.marks, local) match
+        Some(mk) -> s"${mk.name}:${shown_line(mk, loc.line)}:$col"
+        None -> s"${f.prog.name}:${loc.line}:$col"
+
+private shown_line(mk: LineMark, line: usize) -> usize = if line >= mk.line then mk.shown + (line - mk.line) else mk.shown
+
+// -- drawing a report ----------------------------------------------------------------------------
+
+private struct Ranked
+    start: usize
+    index: usize
+
+// `report`, about a program `m` maps, drawn diagnostic by diagnostic against the file each points
+// into -- sorted and cut off as `Report.render` does. `doc` is the main file as its reader has it.
+render_mapped(report: Report, doc: Source, m: SourceMap) -> string
+    var order: Buf[Ranked] = buf()
+
+    for i in 0..<report.len()
+        order.push(Ranked(report.at(i).span.start, i))
+
+    val xs = order.view()
+
+    sort_by(xs, (p, q) -> p.start < q.start || (p.start == q.start && p.index < q.index))
+
+    val shown = if report.limit == 0 || report.limit > xs.len then xs.len else report.limit
+    var b = str_builder()
+
+    for i in 0..<shown
+        if i > 0 then b.push("\n")
+
+        b.push(render_placed(report.at(xs[i].index), doc, m))
+
+    if shown < xs.len then b.push(s"\nshowing the first ${shown} of ${xs.len}\n")
+
+    b.finish()
+end render_mapped
+
+// One diagnostic, moved onto the file its span came from.
+private render_placed(d: Diagnostic, doc0: Source, m: SourceMap) -> string
+    val (fi, local) = resolve(m, d.span.start)
+    val f = m.files.at(fi)
+    val doc = if fi == 0 then doc0 else f.doc
+    val prog = f.prog
+    val start = if local > prog.bytes.len then prog.bytes.len else local
+    val end = if start + d.span.len() > prog.bytes.len then prog.bytes.len else start + d.span.len()
+    var sp = Span(start, end)
+    var src = prog
+
+    if is_literate_funl(doc.name)
+        sp = untangle_span(doc, prog, sp)
+        src = doc
+
+    val moved = Diagnostic(d.severity, sp, d.message, d.label, d.note)
+
+    mark_at(f.marks, start) match
+        Some(mk) -> renumbered(moved, src, mk)
+        None -> moved.render(src)
+end render_placed
+
+// `d`, drawn as `$line` numbers its line: against a source holding only that line, at the line number
+// and under the name the directive gives.
+private renumbered(d: Diagnostic, src: Source, mk: LineMark) -> string
+    val loc = src.locate(d.span.start)
+    val shown = shown_line(mk, loc.line)
+    val ls = src.line_span(loc.line)
+    var b = str_builder()
+
+    for _ in 1..<shown
+        b.push("\n")
+
+    b.push(from_utf8_unchecked(src.text(ls)))
+
+    val text = b.finish()
+    val fake = source_of(mk.name, text)
+    val pad = shown - 1
+    val col = if d.span.start > ls.start then d.span.start - ls.start else 0
+
+    Diagnostic(d.severity, Span(pad + col, pad + col + d.span.len()), d.message, d.label, d.note).render(fake)
+end renumbered
+
+// -- the preprocessor's state --------------------------------------------------------------------
+
+// A `$define`: its text as written, and that text's tokens with spans measured from its start, where
+// it was written (file and offset). A predefined name's text is no file's, and its expansions are
+// placed where it is used.
+struct Definition
+    name: string
+    text: string
+    toks: Buf[Spanned[Tok]]
+    file: usize
+    local: usize
+    predefined: bool
+
+// An open `$ifdef` or `$ifndef`: whether the lines it covers now are read, whether the lines around
+// it are, whether its `$else` has been seen, and where it is, with the directive's name.
+struct Cond
+    taking: bool
+    outer: bool
+    else_seen: bool
+    at: Span
+    kind: string
+
+// What the lexer carries while it preprocesses: whether it does (an interpolation's hole is lexed
+// without), where the diagnostics of an included file go once they are moved, the program being put
+// together and its map, the definitions, the files being read (outermost first) and the names being
+// expanded.
+struct Pre
+    on: bool
+    top: *Report
+    bytes: Buf[u8]
+    map: SourceMap
+    defs: Buf[Definition]
+    reading: Buf[string]
+    active: Buf[string]
+
+no_preprocessing(report: *Report) -> Pre = Pre(false, report, buf(), no_map(), buf(), buf(), buf())
+
+// The tokens of a preprocessed file, the program they are placed in, and its map.
+struct Preprocessed
+    toks: Tokens[Tok]
+    src: Source
+    map: SourceMap
+
+// Preprocess and lex `src`, a FunL program (a literate one already tangled), every complaint going
+// into `report` at offsets into the program answered.
+preprocess(src: Source, report: *Report) -> Preprocessed
+    var pre = Pre(true, report, buf(), no_map(), buf(), buf(), buf())
+
+    pre.map.files.push(MapFile(src, src, "", buf()))
+    pre.reading.push(src.name)
+    predefine(&pre)
+
+    var own = full_report()
+    val toks = lex_with(src, &own, &pre, 0)
+
+    moved(&pre, own, 0)
+
+    val whole = if pre.map.pieces.is_empty() then src else source(src.name, pre.bytes.view())
+
+    Preprocessed(toks, whole, pre.map)
+
+// What `r` gathered at offsets into file `file`, moved to the program's offsets and into `pre.top`.
+private moved(pre: *Pre, r: Report, file: usize)
+    for i in 0..<r.len()
+        val d = r.at(i)
+        val at = to_combined(pre.map, file, d.span.start)
+
+        pre.top.add(Diagnostic(d.severity, Span(at, at + d.span.len()), d.message, d.label, d.note))
+
+// The names every program starts with defined.
+private predefine(pre: *Pre)
+    var names: Buf[string] = buf()
+
+    names.push("_FUNL")
+    names.push("_CO_EXPRESSIONS")
+    names.push("_LARGE_INTEGERS")
+#if macos
+    names.push("_MACOS")
+#endif
+#if linux
+    names.push("_LINUX")
+#endif
+#if posix
+    names.push("_UNIX")
+#endif
+#if feature_http
+    names.push("_HTTP")
+#endif
+#if feature_async
+    names.push("_ASYNC")
+#endif
+#if feature_profile
+    names.push("_PROFILE")
+#endif
+
+    for n in names.view()
+        var toks: Buf[Spanned[Tok]] = buf()
+
+        toks.push(Spanned(IntLit(1), Span(0, 1)))
+        pre.defs.push(Definition(n, "1", toks, 0, 0, true))
+
+// Copy file `file`'s text from `from` to `to` (of `src`, its text) to the end of the program.
+copy_text(pre: *Pre, file: usize, src: Source, from: usize, to: usize)
+    if to <= from then return
+
+    val at = pre.bytes.len()
+
+    for i in from..<to
+        pre.bytes.push(src.bytes[i])
+
+    pre.map.pieces.push(Piece(at, pre.bytes.len(), file, from, false))
+
+// Copy a definition's text from `from` to `to` to the end of the program, placed at file `file`'s
+// offset `local`.
+private copy_def(pre: *Pre, d: Definition, from: usize, to: usize, file: usize, local: usize)
+    if to <= from then return
+
+    val at = pre.bytes.len()
+
+    for i in from..<to
+        pre.bytes.push(d.text.bytes[i])
+
+    pre.map.pieces.push(Piece(at, pre.bytes.len(), file, local, true))
+
+private find_def(pre: *Pre, name: string) -> Option[usize]
+    for i in 0..<pre.defs.len()
+        if pre.defs.at(i).name == name then return Some(i)
+
+    None
+
+// Whether `name` is defined and not already being expanded -- a definition naming itself, directly or
+// through another, leaves the name as it is rather than expanding without end.
+is_defined(pre: *Pre, name: string) -> bool
+    if find_def(pre, name).is_none() then return false
+
+    for a in pre.active.view()
+        if a == name then return false
+
+    true
+
+// The tokens `name` stands for, used at `used` (an offset into the program), pushed onto `out`, with a
+// copy of the definition's text put at the end of the program for them to be placed in. A name in
+// the text that is itself defined is expanded in turn, in its place.
+expand(pre: *Pre, name: string, used: Span, out: *Tokens[Tok])
+    val d = pre.defs.at(find_def(pre, name).unwrap())
+
+    if d.toks.is_empty() then return
+
+    val (file, local) = if d.predefined then resolve(pre.map, used.start) else (d.file, d.local)
+
+    // The text up to `upto` is copied; from there on it goes in at `resume`.
+    var upto: usize = 0
+    var resume = pre.bytes.len()
+
+    pre.active.push(name)
+
+    for t in d.toks.view()
+        val sp = Span(t.span.start + resume - upto, t.span.end + resume - upto)
+
+        val nested = t.value match
+            Name(n) -> if is_defined(pre, n) then Some(n) else None
+            _ -> None
+
+        nested match
+            Some(n) ->
+                copy_def(pre, d, upto, t.span.end, file, if d.predefined then local else local + upto)
+                expand(pre, n, sp, out)
+                upto = t.span.end
+                resume = pre.bytes.len()
+            None -> out.push(t.value, sp)
+
+    copy_def(pre, d, upto, d.text.bytes.len, file, if d.predefined then local else local + upto)
+    pre.active.pop()
+end expand
+
+// -- directives ----------------------------------------------------------------------------------
+
+// Whether the lines being read now are the program's -- no conditional is open, or the innermost
+// open one is on a branch that is taken.
+taking(conds: *Buf[Cond]) -> bool = conds.is_empty() || conds.at(conds.len() - 1).taking
+
+// Whether `s`, at a `$`, is at an `$include`.
+is_include(s: *Scanner) -> bool
+    if !s.starts_with("$include".bytes) then return false
+
+    s.peek_at(8) match
+        Some(c) -> !is_ident_cont(c)
+        None -> true
+
+// The name a directive takes, after blanks, and its span.
+private directive_name(s: *Scanner, src: Source) -> Option[Spanned[string]]
+    s.skip_blanks()
+
+    s.read_ident(is_ident_start, is_ident_cont) match
+        Some(sp) -> Some(Spanned(from_utf8_unchecked(src.text(sp)), sp))
+        None -> None
+
+// Refuse anything but blanks and a comment after a directive that takes nothing more.
+private ends_here(s: *Scanner, what: string, report: *Report)
+    s.skip_blanks()
+
+    if s.peek().is_none() || s.at_line_end() || s.starts_with(";;".bytes) || s.starts_with("/*".bytes) then return
+
+    val from = s.at
+
+    s.skip_to_line_end()
+    report.add(error(Span(from, s.at), "nothing more is written on a `" + what + "` line")
+        .with_label("not part of the directive"))
+
+// One directive line, `s` at its `$`, read up to the end of the line (its newline left for the
+// caller). `file` is the file's number in the map and `conds` its open conditionals; complaints go
+// to `report` at offsets into `src`. `$include` is not read here: it is a line of the program, and
+// the lexer hands it to `include_line`.
+directive_line(s: *Scanner, src: Source, pre: *Pre, file: usize, conds: *Buf[Cond], report: *Report)
+    val start = s.at
+
+    s.bump()
+
+    val word = s.read_ident(is_ident_start, is_ident_cont) match
+        Some(sp) -> from_utf8_unchecked(src.text(sp))
+        None -> ""
+
+    val at = Span(start, s.at)
+    val what = "$" + word
+    val live = taking(conds)
+
+    if word == "ifdef" || word == "ifndef"
+        if live
+            directive_name(s, src) match
+                Some(n) ->
+                    ends_here(s, what, report)
+
+                    val defined = find_def(pre, n.value).is_some()
+
+                    conds.push(Cond(defined == (word == "ifdef"), true, false, at, what))
+                None ->
+                    report.add(error(at, "`" + what + "` takes the name it asks about")
+                        .with_note("`$ifdef name` reads the lines after it when `name` is defined, `$ifndef name` when it is not"))
+                    conds.push(Cond(false, true, false, at, what))
+        else
+            conds.push(Cond(false, false, false, at, what))
+    elif word == "else"
+        if conds.is_empty()
+            report.add(error(at, "this `$else` has no `$ifdef` or `$ifndef` to belong to"))
+        else
+            var c = conds.at(conds.len() - 1)
+
+            if c.outer then ends_here(s, what, report)
+
+            if c.else_seen
+                report.add(error(at, "this `" + c.kind + "` has an `$else` already").with_label("a second `$else`"))
+            else
+                c.taking = c.outer && !c.taking
+                c.else_seen = true
+                conds.set(conds.len() - 1, c)
+    elif word == "endif"
+        if conds.is_empty()
+            report.add(error(at, "this `$endif` has no `$ifdef` or `$ifndef` to close"))
+        else
+            if conds.at(conds.len() - 1).outer then ends_here(s, what, report)
+
+            conds.pop()
+    elif !live
+        ()
+    elif word == "define"
+        define_line(s, src, pre, file, at, report)
+    elif word == "undef"
+        directive_name(s, src) match
+            Some(n) ->
+                ends_here(s, what, report)
+
+                find_def(pre, n.value) match
+                    Some(i) -> pre.defs.remove(i)
+                    None -> ()
+            None -> report.add(error(at, "`$undef` takes the name whose definition it ends"))
+    elif word == "line"
+        line_line(s, src, pre, file, at, report)
+    elif word == "error"
+        s.skip_blanks()
+
+        val from = s.at
+
+        s.skip_to_line_end()
+
+        val said = from_utf8_unchecked(src.text(Span(from, s.at))).trim()
+
+        report.add(error(Span(at.start, s.at), if said == "" then "`$error` refuses the program here" else said)
+            .with_label("an `$error` directive"))
+    elif word == ""
+        report.add(error(at, "a directive's name follows the `$` that begins its line").with_note(Directives))
+    else
+        report.add(error(at, "`" + what + "` is not a directive").with_note(Directives))
+
+    s.skip_to_line_end()
+end directive_line
+
+private const Directives: string = "the directives are `$define`, `$undef`, `$ifdef`, `$ifndef`, `$else`, `$endif`, `$include`, `$line` and `$error`"
+
+// `$define name text`.
+private define_line(s: *Scanner, src: Source, pre: *Pre, file: usize, at: Span, report: *Report)
+    val n = directive_name(s, src) match
+        Some(n) -> n
+        None ->
+            report.add(error(at, "`$define` takes the name it defines")
+                .with_note("`$define name text` makes `name` stand for the tokens of `text`"))
+            return
+
+    if s.peek() == Some(u8('('))
+        report.add(error(n.span, s"`${n.value}` is followed by `(`, and a definition takes no parameters")
+            .with_note("a space between the name and `(` makes the parenthesis part of the text"))
+        return
+
+    if keyword(n.value).is_some()
+        report.add(error(n.span, s"`${n.value}` is a reserved word, and cannot be defined"))
+        return
+
+    val line = line_tokens(s, src, report)
+    var toks: Buf[Spanned[Tok]] = buf()
+    var text = ""
+    var local: usize = 0
+
+    if line.len() > 0
+        local = line.items.at(0).span.start
+
+        val last = line.items.at(line.len() - 1).span.end
+
+        text = from_utf8_unchecked(src.text(Span(local, last)))
+
+        for t in line.items.view()
+            toks.push(Spanned(t.value, Span(t.span.start - local, t.span.end - local)))
+
+    find_def(pre, n.value) match
+        Some(i) ->
+            if !same_text(pre.defs.at(i), text, toks)
+                report.add(error(n.span, s"`${n.value}` is defined already, as different text")
+                    .with_note(s"`$$undef ${n.value}` ends the definition in force, and a `$$define` after it gives a new one"))
+            return
+        None -> ()
+
+    pre.defs.push(Definition(n.value, text, toks, file, local, false))
+end define_line
+
+// Whether definition `d` is `text`, whose tokens are `toks`, token for token -- the blanks and
+// comments between them aside.
+private same_text(d: Definition, text: string, toks: Buf[Spanned[Tok]]) -> bool
+    if d.toks.len() != toks.len() then return false
+
+    for i in 0..<toks.len()
+        val x = d.toks.at(i).span
+        val y = toks.at(i).span
+
+        if d.text.slice(x.start, x.end) != text.slice(y.start, y.end) then return false
+
+    true
+
+// `$line n` and `$line n "file"`: the next line is line `n`, of `file` when one is named and of the
+// file named already otherwise.
+private line_line(s: *Scanner, src: Source, pre: *Pre, file: usize, at: Span, report: *Report)
+    val toks = line_tokens(s, src, report)
+    val f = pre.map.files.at(file)
+
+    var n: long = 0
+    var named = ""
+    var ok = toks.len() == 1 || toks.len() == 2
+
+    if ok
+        toks.items.at(0).value match
+            IntLit(v) -> n = v
+            _ -> ok = false
+
+    if ok && toks.len() == 2
+        toks.items.at(1).value match
+            StrLit(t) -> named = t
+            _ -> ok = false
+
+    if !ok || n < 1
+        report.add(error(at, "`$line` takes the next line's number, and the file's name in quotes if it names one")
+            .with_note("`$line 10 \"gen.funl\"` makes the next line line 10 of `gen.funl` in diagnostics"))
+        return
+
+    s.skip_to_line_end()
+
+    val here = s.at
+
+    if named == ""
+        named = mark_at(f.marks, here) match
+            Some(mk) -> mk.name
+            None -> f.prog.name
+
+    f.marks.push(LineMark(here, src.locate(here).line + 1, usize(n), named))
+end line_line
+
+// A file an `$include` names, read and ready to lex, and where the directive is in the including file.
+struct Inc
+    at: Span
+    path: string
+    doc: Source
+    prog: Source
+    text: string
+
+// An `$include` line, `s` at its `$`, read to its end: the file it names, or `None` when the line is
+// refused, with why in `report`.
+include_line(s: *Scanner, src: Source, report: *Report) -> Option[Inc]
+    val start = s.at
+
+    s.bump()
+    s.read_ident(is_ident_start, is_ident_cont)
+
+    val at = Span(start, s.at)
+    val toks = line_tokens(s, src, report)
+
+    s.skip_to_line_end()
+
+    var given = ""
+
+    if toks.len() == 1
+        toks.items.at(0).value match
+            StrLit(t) -> given = t
+            _ -> ()
+
+    if given == ""
+        report.add(error(at, "`$include` takes the name of the file it includes, in quotes")
+            .with_note("`$include \"defs.funl\"` reads `defs.funl`, beside the file the line is in"))
+        return None
+
+    val path = module_path(src.name, given)
+
+    val text = read_text(path) match
+        Ok(t) -> t
+        Err(e) ->
+            report.add(error(at, s"`$path` cannot be read: $e"))
+            return None
+
+    val doc = source_of(path, text)
+
+    val prog = funl_source(doc) match
+        Ok(p) -> p
+        Err(d) ->
+            report.add(error(at, s"`$path` cannot be included").with_note(d.render(doc)))
+            return None
+
+    Some(Inc(at, path, doc, prog, text))
+end include_line
+
+// The tokens of included file `inc`, placed in the program after everything put there so far, its
+// complaints moved into `pre.top`. **A file being included already is refused**, at the line that
+// would include it again, since that inclusion would never end.
+included(pre: *Pre, inc: Inc, file: usize) -> Tokens[Tok]
+    for i in 0..<pre.reading.len()
+        if same_file(pre.reading.at(i), inc.path)
+            var chain = str_builder()
+
+            for j in i..<pre.reading.len()
+                chain.push(s"`${pre.reading.at(j)}` includes ")
+
+            chain.push(s"`${inc.path}`")
+
+            var r = full_report()
+
+            r.add(error(inc.at, s"`${inc.path}` is being included already, so including it here would never end")
+                .with_note(chain.finish()))
+            moved(pre, r, file)
+            return tokens()
+
+    val ix = pre.map.files.len()
+
+    pre.map.files.push(MapFile(inc.doc, inc.prog, inc.text, buf()))
+    pre.reading.push(inc.path)
+
+    var inner = full_report()
+    val got = lex_with(inc.prog, &inner, pre, ix)
+
+    pre.reading.pop()
+    moved(pre, inner, ix)
+    got
+end included
+
+// Every conditional still open at the end of a file, refused: a file closes its own.
+unclosed(conds: *Buf[Cond], report: *Report)
+    for c in conds.view()
+        report.add(error(c.at, s"this `${c.kind}` has no `$$endif`")
+            .with_note("a conditional ends with `$endif` in the file it begins in"))

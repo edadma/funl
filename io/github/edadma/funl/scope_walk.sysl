@@ -135,7 +135,7 @@ walk_stmt(w: *Walk, s: Stmt)
             for d in ctors.view()
                 if refused_as_variable(w, d.name, d.at) then continue
 
-                val origin = located(w.res.src, d.at.start)
+                val origin = placed(w.res.places, d.at.start)
 
                 // The same declaration read again -- a file loaded once more after a refusal -- is
                 // not a second constructor.

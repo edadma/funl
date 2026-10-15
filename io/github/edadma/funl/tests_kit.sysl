@@ -186,10 +186,11 @@ unplaced(said: string) -> string
 compiled_text(text: string) -> Result[usize, string]
     val src = source_of("test.funl", text)
     var r = full_report()
+    var places = no_map()
 
-    compile_program(src, &r) match
+    compile_program_placed(src, &r, &places) match
         Some(chunk) -> Ok(chunk)
-        None -> Err(r.render(src))
+        None -> Err(render_report(r, src, src, places))
 
 // The transcript of FunL program `text`, run on both heaps; a refused program answers
 // `assembly: ` and its diagnostics.
@@ -222,10 +223,11 @@ rendered(text: string) -> string
     val was = enter(&v)
     val src = source_of("test.funl", text)
     var r = full_report()
+    var places = no_map()
 
-    compile_program(src, &r)
+    compile_program_placed(src, &r, &places)
 
-    val out = r.render(src)
+    val out = render_report(r, src, src, places)
 
     dispose_vm(&v)
     leave(was)

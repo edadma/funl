@@ -386,7 +386,8 @@ module_from_text(file: string, text: string, at: Span, report: *Report) -> Resul
     v.loading.push(file)
 
     var inner = full_report()
-    val made = compile_module(fl, file_up(m), &inner)
+    var places = no_map()
+    val made = compile_module(fl, file_up(m), &inner, &places)
 
     v.loading.pop()
 
@@ -402,7 +403,7 @@ module_from_text(file: string, text: string, at: Span, report: *Report) -> Resul
             Ok(ModLoad(index, true))
         Err(r) ->
             forget_since(mark)
-            report.add(error(at, s"`$file` could not be loaded").with_note(render_report(inner, doc, fl)))
+            report.add(error(at, s"`$file` could not be loaded").with_note(render_report(inner, doc, fl, places)))
             Err(r)
 end module_from_text
 
@@ -641,7 +642,7 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
             Some(rs) ->
                 for i in rs.view()
                     val r = res.rels.at(i)
-                    val at = located(res.src, r.clauses.at(0).head.start)
+                    val at = placed(res.places, r.clauses.at(0).head.start)
 
                     if r.function
                         out.exports.push(ModExport(n, ExFunction(r.chunk, r.arity), s"the FunL function `$n` at $at, which is `${pred_key(n, r.arity + 1)}` to Prolog"))
