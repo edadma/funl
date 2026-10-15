@@ -243,6 +243,7 @@ private put_term(w: *Writer, x: Value, max: u16, depth: long)
         Bytes(_) -> emit(w, render(x))
         Handle(_) -> emit(w, render(x))
         Promise(_) -> emit(w, render(x))
+        CoExpr(_) -> emit(w, render(x))
 end put_term
 
 // An atom. `inner` says it stands inside a term, where `,` and `|` are quoted even by `write`: bare,

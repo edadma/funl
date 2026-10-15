@@ -66,6 +66,33 @@ AN_INTEGER_LITERAL_PAST_64_BITS_IS_READ_IN_ANY_OF_THE_FOUR_BASES()
     assert_eq(complaints("write( 0x1_0000_0000_0000_000_ )\n"), "error 1:31 this number is not a digit\n")
 
 @test
+ICONS_RADIX_LITERAL_IS_ONE_NUMBER_FOR_ANY_BASE_FROM_2_TO_36()
+    assert_eq(ran_funl("write( 16rFF, 16rff, 2r1010, 36rZZ, 8R777, 16r1_F )\n"), "255, 255, 10, 1295, 511, 31\nsucceeded")
+    assert_eq(ran_funl("write( 36rZZZZZZZZZZZZZZZZZZZZ, 16r1_0000_0000_0000_0000, 16rFFFFFFFFFFFFFFFF, 16r7FFFFFFFFFFFFFFF )\n"),
+        "13367494538843734067838845976575, 18446744073709551616, 18446744073709551615, 9223372036854775807\nsucceeded")
+    assert_eq(ran_funl("write( -16rFF, 16rFF - 1, 2r11 * 2r11, [2r1, 16rA] )\n"), "-255, 254, 9, [1, 10]\nsucceeded")
+
+@test
+A_RADIX_LITERAL_IN_A_PROGRAM_AGREES_WITH_THE_SAME_STRING_CONVERTED()
+    assert_eq(ran_funl("write( 16rFF == integer('16rFF'), 36rZZ == integer('36rZZ'), 2r1010 == integer('2r1010') )\n"), "255, 1295, 10\nsucceeded")
+
+@test
+A_RADIX_LITERAL_DOES_NOT_MULTIPLY_A_NAME()
+    assert_eq(ran_funl("val rFF = 10\nwrite( 16rFF, 16 * rFF )\n"), "255, 160\nsucceeded")
+
+@test
+A_BAD_RADIX_LITERAL_IS_ONE_ERROR_AT_ITS_MISTAKE()
+    assert_eq(complaints("write( 1r1 )\n"), "error 1:8 this number is not a digit\n")
+    assert_eq(complaints("write( 37rZ )\n"), "error 1:8 this number is not a digit\n")
+    assert_eq(complaints("write( 0r1 )\n"), "error 1:8 this number is not a digit\n")
+    assert_eq(complaints("write( 100r1 )\n"), "error 1:8 this number is not a digit\n")
+    assert_eq(complaints("write( 2r102 )\n"), "error 1:12 this number is not a digit\n")
+    assert_eq(complaints("write( 16rFG )\n"), "error 1:12 this number is not a digit\n")
+    assert_eq(complaints("write( 16r )\n"), "error 1:11 this number is no digits\n")
+    assert_eq(complaints("write( 16r_F )\n"), "error 1:11 this number is not a digit\n")
+    assert_eq(complaints("write( 16rF_ )\n"), "error 1:13 this number is not a digit\n")
+
+@test
 A_DOT_OR_AN_E_AFTER_AN_INTEGER_THAT_IS_NO_FLOAT_LEAVES_THE_INTEGER_ALONE()
     val text = "val e = 10\nval l = [1, 2, 3]\n" +
         "write( [1..5], [1..<5], [2..+3], 2e, 2e - 1, 0x1e, l.length )\n" +

@@ -1,0 +1,179 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Tracing and introspection (`trace.sysl`): `&trace`'s lines for calls, returns, suspensions,
+// resumptions and failures, and its count; `display()` and `&dump`; `collect()`, `&collections` and
+// `&allocated`; and the refusals of assigning them anything but an integer.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+// -- &trace ------------------------------------------------------------------------------------------
+
+@test
+TRACE_IS_ZERO_UNTIL_ASSIGNED_AND_TRACES_NOTHING_THEN()
+    assert_eq(ran_funl("def f(x) = x + 1\nwrite(&trace, f(1))\n"), "0, 2\nsucceeded")
+
+@test
+TRACE_REPORTS_A_CALL_AND_ITS_RETURN_NESTED_BY_DEPTH()
+    assert_eq(ran_funl("def g(x) = x * 2\ndef f(x) = g(x) + 1\n&trace = -1\nwrite(f(3), &trace)\n"),
+        "stderr: test.funl:2 | f(3)\n" +
+        "stderr: test.funl:1 | | g(3)\n" +
+        "stderr: test.funl:1 | | g returned 6\n" +
+        "stderr: test.funl:2 | f returned 7\n" +
+        "7, -1\nsucceeded")
+
+@test
+TRACE_SHOWS_EACH_ARGUMENT_AND_VALUE_AS_ITS_IMAGE()
+    assert_eq(ran_funl("def f(a, b, c) = [a, b]\n&trace = -1\nf('x', [1], ())\n"),
+        "stderr: test.funl:1 | f(\"x\", [1], ())\n" +
+        "stderr: test.funl:1 | f returned [\"x\", [1]]\n" +
+        "succeeded")
+
+@test
+TRACE_REPORTS_A_GENERATOR_SUSPENDING_RESUMING_AND_FAILING()
+    assert_eq(ran_funl("def g()\n  yield 1\n  yield 2\n&trace = -1\nevery write(g())\n"),
+        "stderr: test.funl:1 | g()\n" +
+        "stderr: test.funl:1 | g suspended 1\n" +
+        "1\n" +
+        "stderr: test.funl:1 | g resumed\n" +
+        "stderr: test.funl:1 | g suspended 2\n" +
+        "2\n" +
+        "stderr: test.funl:1 | g resumed\n" +
+        "stderr: test.funl:1 | g failed\n" +
+        "succeeded")
+
+@test
+TRACE_REPORTS_A_FUNCTION_THAT_FAILS_AND_EVERY_FRAME_FAILURE_LEAVES()
+    assert_eq(ran_funl("def inner(x) = 0 < x\ndef outer(x) = inner(x) + 1\n&trace = -1\nwrite(if outer(0) then 'yes' else 'no')\n"),
+        "stderr: test.funl:2 | outer(0)\n" +
+        "stderr: test.funl:1 | | inner(0)\n" +
+        "stderr: test.funl:1 | | inner failed\n" +
+        "stderr: test.funl:2 | outer failed\n" +
+        "no\nsucceeded")
+
+@test
+TRACE_COUNTS_DOWN_ONE_A_LINE_AND_STOPS_AT_ZERO()
+    assert_eq(ran_funl("def f(x) = x\n&trace = 3\nf(1)\nf(2)\nwrite(&trace)\n&trace = 1\nf(3)\nwrite(&trace)\n"),
+        "stderr: test.funl:1 | f(1)\n" +
+        "stderr: test.funl:1 | f returned 1\n" +
+        "stderr: test.funl:1 | f(2)\n" +
+        "0\n" +
+        "stderr: test.funl:1 | f(3)\n" +
+        "0\nsucceeded")
+
+@test
+TRACE_SHOWS_A_PRELUDE_FUNCTION_AND_A_LAMBDA_AND_NOTHING_ONCE_OFF()
+    assert_eq(ran_funl("def sq(x) = x * x\n&trace = -1\nwrite(map(sq, [2]))\nwrite((x -> x + 1)(5))\n&trace = 0\nwrite(sq(1))\n"),
+        "stderr: funl:prelude:33 | map(<function sq>, [2])\n" +
+        "stderr: test.funl:1 | | sq(2)\n" +
+        "stderr: test.funl:1 | | sq returned 4\n" +
+        "stderr: funl:prelude:33 | map returned [4]\n" +
+        "[4]\n" +
+        "stderr: test.funl:4 | lambda(5)\n" +
+        "stderr: test.funl:4 | lambda returned 6\n" +
+        "6\n1\nsucceeded")
+
+@test
+TRACE_LEAVES_PROLOG_AND_BUILTINS_OUT()
+    assert_eq(ran_funl("&trace = -1\nwrite(reverse([1, 2]), 'ab'.length)\n"), "[2, 1], 2\nsucceeded")
+
+@test
+A_TAIL_CALL_TAKES_ITS_CALLERS_PLACE_IN_THE_TRACE()
+    assert_eq(ran_funl("def down(0) = 'done'\ndef down(n) = down(n - 1)\n&trace = -1\nwrite(down(2))\n"),
+        "stderr: test.funl:1 | down(2)\n" +
+        "stderr: test.funl:1 | down(1)\n" +
+        "stderr: test.funl:1 | down(0)\n" +
+        "stderr: test.funl:1 | down returned \"done\"\n" +
+        "done\nsucceeded")
+
+@test
+TRACE_AND_DUMP_REFUSE_ANYTHING_BUT_AN_INTEGER()
+    faults_with("&trace = 'on'\n", "'&trace' wants a 64-bit integer and was given the string 'on'")
+    faults_with("&dump = 1.5\n", "'&dump' wants a 64-bit integer and was given the real 1.5")
+
+@test
+COLLECTIONS_AND_ALLOCATED_CANNOT_BE_ASSIGNED()
+    assert_eq(complaints("&collections = 1\n&allocated = 2\n&trace <- 1\n"),
+        "error 1:1 `&collections` cannot be assigned\n" +
+        "error 2:1 `&allocated` cannot be assigned\n" +
+        "error 3:1 `&trace` cannot be assigned with `<-`\n")
+
+// -- display() and &dump -----------------------------------------------------------------------------
+
+@test
+DISPLAY_WRITES_THE_RUNNING_FUNCTIONS_LOCALS_AND_THE_TOP_LEVEL_NAMES()
+    assert_eq(ran_funl("n = 3\ns = 'a'\ndef f(x)\n  y = x + n\n  display()\n  y\nwrite(f(4))\n"),
+        "stderr: f local identifiers:\n" +
+        "stderr:    x = 4\n" +
+        "stderr:    y = 7\n" +
+        "stderr: \n" +
+        "stderr: top-level identifiers:\n" +
+        "stderr:    n = 3\n" +
+        "stderr:    s = \"a\"\n" +
+        "7\nsucceeded")
+
+@test
+DISPLAY_AT_THE_TOP_LEVEL_WRITES_ITS_NAMES_ONLY_UNSET_ONES_UNDEFINED()
+    assert_eq(ran_funl("a = [1]\ndisplay()\nb = 2\n"),
+        "stderr: top-level identifiers:\n" +
+        "stderr:    a = [1]\n" +
+        "stderr:    b = undefined\n" +
+        "succeeded")
+
+@test
+DISPLAY_NAMES_THE_SLOTS_OF_THE_CLAUSE_THAT_IS_RUNNING()
+    assert_eq(ran_funl("def f(0) = 0\ndef f(n)\n  m = n - 1\n  display()\n  m\nf(1)\n"),
+        "stderr: f local identifiers:\n" +
+        "stderr:    n = 1\n" +
+        "stderr:    m = 0\n" +
+        "stderr: \n" +
+        "stderr: top-level identifiers:\n" +
+        "succeeded")
+
+@test
+DISPLAY_THROUGH_A_FUNCTION_VALUE_REPORTS_ITS_CALLER()
+    assert_eq(ran_funl("def f(k)\n  val d = display\n  d()\n  k\nf(9)\n"),
+        "stderr: f local identifiers:\n" +
+        "stderr:    k = 9\n" +
+        "stderr:    d = <function display>\n" +
+        "stderr: \n" +
+        "stderr: top-level identifiers:\n" +
+        "succeeded")
+
+@test
+DUMP_WRITES_THE_REPORT_WHEN_THE_PROGRAM_ENDS()
+    assert_eq(ran_funl("x = 1\n&dump = 1\nwrite('done')\n"),
+        "done\n" +
+        "stderr: Termination dump:\n" +
+        "stderr: \n" +
+        "stderr: top-level identifiers:\n" +
+        "stderr:    x = 1\n" +
+        "succeeded")
+
+    // Not set, or set back to zero, the end writes nothing.
+    assert_eq(ran_funl("&dump = 1\n&dump = 0\nwrite(&dump)\n"), "0\nsucceeded")
+
+@test
+DUMP_WRITES_THE_REPORT_WHEN_THE_PROGRAM_FAULTS_TOO()
+    val said = ran_funl("def f(x)\n  y = x\n  error('stop')\n&dump = -1\nf(2)\n")
+
+    assert(said.contains("stderr: Termination dump:\n"), said)
+    assert(said.contains("stderr: f local identifiers:\nstderr:    x = 2\nstderr:    y = 2\n"), said)
+    assert(said.contains("fault: "), said)
+
+// -- the collector -----------------------------------------------------------------------------------
+
+@test
+COLLECT_COLLECTS_AND_COLLECTIONS_COUNTS_IT()
+    assert_eq(ran_funl("c = &collections\ncollect()\ncollect()\nwrite(if &collections - c >= 2 then 'counted' else 'not', collect())\n"), "counted, ()\nsucceeded")
+
+@test
+ALLOCATED_GROWS_AS_THE_PROGRAM_ALLOCATES_AND_ACROSS_COLLECTIONS()
+    assert_eq(ran_funl("a = &allocated\ns = ''\nfor i <- 1..50\n  s = s + 'ab'\nb = &allocated\ncollect()\nc = &allocated\nwrite(if b > a then 'grew' else 'not', if c >= b then 'kept' else 'lost')\n"),
+        "grew, kept\nsucceeded")

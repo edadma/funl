@@ -89,6 +89,9 @@ private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[
     v.frame = f
     v.code = target
     v.ip = 0
+
+    if v.trace != 0 then trace_call(v, f)
+
     Ok(())
 
 // A call in tail position. When nothing resumable was made in the running frame, the frame is reused
@@ -119,6 +122,9 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
 
     v.code = target
     v.ip = 0
+
+    if v.trace != 0 then trace_call(v, f)
+
     Ok(())
 
 private is_async_chunk(v: *Vm, target: usize) -> bool = target < v.chunks.len() && v.chunks.at(target).is_async
@@ -226,6 +232,8 @@ ret(v: *Vm) -> Result[unit, string]
     val value = v.stack.pop() match
         Some(x) -> x
         None -> return Err("Return with nothing on the operand stack")
+
+    if v.trace != 0 then trace_return(v, f, value, v.control.len() > f.entry)
 
     // A `yield` inside an expression returns with that expression's operands still standing above
     // the frame's base; the `Restore` has saved them, and the caller must not see them.
