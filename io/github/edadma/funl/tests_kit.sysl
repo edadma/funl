@@ -5,6 +5,19 @@ import sh.sysl.parsing.{full_report, source_of}
 import sysl.buf.{Buf, buf}
 import sysl.fs.{make_temp_dir, remove_dir_all, write_text}
 import sysl.text.{Search, chars_of, split, str_builder}
+#if feature_graphics
+import sh.sysl.sdl3.{HINT_VIDEO_DRIVER, set_hint}
+#endif
+
+// **Every window a test opens is made by SDL's dummy video driver**, which keeps it in memory: nothing
+// in the suite opens a window on screen, which from a shell no one is at the console of would never
+// return. Every run starts here.
+#if feature_graphics
+headless_video() = set_hint(HINT_VIDEO_DRIVER, "dummy")
+#endif
+#if !feature_graphics
+headless_video() = ()
+#endif
 
 // The harness: assemble a program into a fresh VM, run it, and answer what it said.
 //
@@ -108,6 +121,8 @@ run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, stri
 
 // Run what `build` compiles on a VM with this heap and schedule, keeping the warnings it rendered.
 run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled) -> Said
+    headless_video()
+
     var v = new_vm(heap, floor, growth)
     val was = enter(&v)
     var out = str_builder()

@@ -10,7 +10,9 @@ done with it is a method on that handle. The module exports `open`, which makes 
 which joins two; and `color_value`, which reads a colour.
 
 This page covers windows on a **hidden canvas**: a picture drawn in memory and read back, with no
-window on screen. Drawing, images, text and events come with later parts of the module.
+window on screen. [Windows on screen](graphics-screen.md) has the rest of a window's life: shown,
+moved, resized and closed by its user. Drawing, images, text and events come with later parts of the
+module.
 
 ## Hidden canvases
 
@@ -35,18 +37,11 @@ write( w )
 <closed window handle>
 ```
 
-**A window on screen is not in this build yet.** Opening one, which is what `open` does when
-`canvas` is not `#hidden`, faults and names the feature it needs:
-
-```funl
-import { open } from funl:graphics
-
-w = open( "hello" )
-```
-
-```error
-'open': a window on screen is not in this build -- it is behind the `graphics` feature
-```
+**Without `canvas: #hidden`, `open` shows the window on screen**
+([Windows on screen](graphics-screen.md)). That is behind the `graphics` feature, which a `funl`
+build has unless it was built with `--no-default-features`; in a build without it, opening a window
+on screen faults with a `system_error` saying that a window on screen is not in this build and is
+behind the `graphics` feature.
 
 A canvas opened with no `size` is Icon's default, 80 columns by 12 lines of the default font. It
 starts painted in its background colour.
@@ -75,7 +70,7 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "pos": undefined, "posx": undefined, "posy": undefined, "pointer": undefined, "pointerx": undefined, "pointery": undefined, "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "displaywidth": undefined, "displayheight": undefined}
 ```
 
 | attribute | value | default |
@@ -83,8 +78,10 @@ red, 3, dashed
 | `size` | `(width, height)` | `(480, 156)` |
 | `width`, `height` | an integer from 1 to 32767 | |
 | `label` | the title, a string | `open`'s title |
-| `canvas` | `#hidden` (`#normal`, `#maximal` and `#iconic` are on-screen states) | |
+| `canvas` | `#hidden`, or `#normal` for a window on screen | `#normal` |
 | `resize` | whether the user may resize the window | `false` |
+| `pos`, `posx`, `posy` | where the window is on its display, `(x, y)`; a hidden canvas keeps it for when it is shown | `undefined` until set or shown |
+| `pointer`, `pointerx`, `pointery` | where the pointer is over the window, `(x, y)`; setting it moves the pointer; a hidden canvas has none, and setting it fails | `undefined` until known |
 | `fg`, `bg` | a colour | `"black"`, `"white"` |
 | `reverse` | `true` swaps `fg` and `bg`, `false` swaps them back | `false` |
 | `linewidth` | an integer, 0 or more | `1` |
@@ -94,7 +91,8 @@ red, 3, dashed
 | `clipx`, `clipy`, `clipw`, `cliph` | the clip rectangle; setting one when there is none starts from the whole canvas, and `undefined` takes it away | `undefined` |
 | `dx`, `dy` | the origin, added to every coordinate | `0` |
 | `depth` | read-only: bits per pixel | `24` |
-| `density` | read-only: device pixels per point, always 1 on a hidden canvas | `1` |
+| `density` | read-only: device pixels per point, 2 on a high-density display, always 1 on a hidden canvas | `1` |
+| `displaywidth`, `displayheight` | read-only: the size of the display the window is on; a hidden canvas has none | `undefined` |
 
 **Changing the size keeps the picture.** The pixels the old and new sizes share stay, and the rest
 is painted in the background colour.

@@ -1,0 +1,271 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sh.sysl.plutovg as pv
+#if feature_graphics
+import sh.sysl.sdl3 as sdl
+import sysl.slices.as_ptr
+#endif
+
+// The window on screen under `funl:graphics`, over the `sysl-lang/sdl3` package (`graphics.md` in the
+// library docs). **Only this file touches SDL**: `native_graphics.sysl` keeps the canvas -- the plutovg
+// surface every drawing goes into -- and asks this file to give a canvas a window, to show its pixels
+// there, and to say what happened to it.
+//
+// **A window is an SDL window, its renderer and one streaming texture**, as `sysl-lang/cairo-sdl3-demo`
+// joins cairo to SDL: the canvas's ARGB32 pixels are copied into the texture and presented when the
+// program waits, never per drawing call. The texture is remade only when the surface's size changes.
+//
+// **It is behind the `graphics` feature.** SDL is a library the machine must have installed, so a
+// build without the feature links none: every function here answers that there is no screen, and a
+// hidden canvas -- which never comes here -- works as it does with the feature on.
+//
+// **SDL's video calls are made on the thread FunL runs on**, the process's main thread, which macOS
+// requires of them; nothing here starts a thread.
+
+// What happened to a window on screen since the program last looked, for `native_graphics.sysl` to
+// carry into its canvas. The window is named by its SDL id.
+enum ScreenNews
+    // The window was resized, to `w` by `h` points.
+    Resized(id: u32, w: long, h: long)
+
+    // Part of the window needs drawing again.
+    Exposed(id: u32)
+
+    // The pointer moved over the window, to `x`, `y` in its points.
+    Pointed(id: u32, x: long, y: long)
+
+#if feature_graphics
+// A window on screen. The renderer and the texture are `Option`s so that closing can let them go
+// before the window, which is the order SDL needs: destroying a window destroys its renderer with it.
+// Module-wide, as `screens` is, so that the suite can read back what a window was shown.
+private[funl] struct Screen
+    window: &sdl.Window
+    renderer: Option[&sdl.Renderer]
+    texture: Option[&sdl.Texture]
+    tw: long
+    th: long
+    id: u32
+    close_asked: bool
+
+// process-wide: every window on screen by place, `None` once closed; a canvas holds its place.
+private[funl] var screens: Buf[Option[Screen]] = buf()
+
+// process-wide: whether SDL's video has been brought up, which the first window does.
+private var video_up: bool = false
+
+// process-wide: whether the platform asked the whole program to end (the last window closed, the
+// application's Quit menu).
+private var quit_asked: bool = false
+
+// Whether this build has windows on screen.
+const HasScreen: bool = true
+
+private video() -> Result[unit, string]
+    if video_up then return Ok(())
+
+    if !sdl.init(sdl.INIT_VIDEO) then return Err(s"no window can be opened here: ${sdl.error()}")
+
+    video_up = true
+    Ok(())
+
+private screen_at(at: usize) -> Screen = screens.at(at).unwrap()
+
+// A window titled `title`, `w` by `h` points, resizable by the user when `resizable`, shown or kept
+// hidden: its place, or why SDL would not make it.
+screen_open(title: string, w: long, h: long, resizable: bool, shown: bool) -> Result[usize, string]
+    video()?
+
+    var flags = sdl.WINDOW_HIGH_PIXEL_DENSITY
+
+    if resizable then flags = flags | sdl.WINDOW_RESIZABLE
+    if !shown then flags = flags | sdl.WINDOW_HIDDEN
+
+    val win = sdl.create_window(title, i32(w), i32(h), flags) match
+        Some(made) -> made
+        None -> return Err(s"the window could not be made: ${sdl.error()}")
+
+    val r = win.create_renderer() match
+        Some(made) -> made
+        None -> return Err(s"the window could not be drawn in: ${sdl.error()}")
+
+    val s = Screen(win, Some(r), None, 0, 0, win.id(), false)
+
+    for i in 0..<screens.len()
+        if screens.at(i).is_none()
+            screens.set(i, Some(s))
+            return Ok(i)
+
+    screens.push(Some(s))
+    Ok(screens.len() - 1)
+end screen_open
+
+// The window at `at` closed: its texture, then its renderer, then the window itself.
+screen_close(at: usize)
+    if at >= screens.len() then return
+
+    var s = screens.at(at) match
+        Some(s) -> s
+        None -> return
+
+    screens.set(at, None)
+    s.texture = None
+    s.renderer = None
+
+// Device pixels per point of the window at `at`, a whole number at least 1: 2 on a retina display.
+screen_density(at: usize) -> long
+    val d = long(screen_at(at).window.pixel_density() + 0.5)
+
+    if d < 1 then 1 else d
+
+// The canvas `surface` shown in the window at `at`: copied into its texture, and presented.
+screen_show(at: usize, surface: &pv.Surface)
+    var s = screen_at(at)
+
+    val r = s.renderer match
+        Some(r) -> r
+        None -> return
+
+    val w = long(surface.width())
+    val h = long(surface.height())
+
+    if s.texture.is_none() || s.tw != w || s.th != h
+        s.texture = None
+        s.texture = r.create_texture(sdl.PixelFormat.Argb8888, sdl.TextureAccess.Streaming, i32(w), i32(h))
+        s.tw = w
+        s.th = h
+
+        s.texture match
+            Some(t) -> t.set_blend_mode(sdl.BlendMode.Off)
+            None -> ()
+
+        screens.set(at, Some(s))
+
+    val t = s.texture match
+        Some(t) -> t
+        None -> return
+
+    t.update(as_ptr(surface.data()), surface.stride())
+    r.copy(t)
+    r.present()
+end screen_show
+
+screen_title(at: usize, title: string) = screen_at(at).window.set_title(title)
+
+screen_size(at: usize, w: long, h: long) = screen_at(at).window.set_size(i32(w), i32(h))
+
+screen_resizable(at: usize, on: bool) = screen_at(at).window.set_resizable(on)
+
+screen_visible(at: usize, on: bool) = if on then screen_at(at).window.show() else screen_at(at).window.hide()
+
+screen_raise(at: usize) = screen_at(at).window.raise()
+
+screen_place(at: usize, x: long, y: long) = screen_at(at).window.set_position(i32(x), i32(y))
+
+// Where the window at `at` is on its display, in points.
+screen_position(at: usize) -> (long, long)
+    val (x, y) = screen_at(at).window.position()
+
+    (long(x), long(y))
+
+// The pointer moved to `x`, `y` of the window at `at`.
+screen_warp(at: usize, x: long, y: long) = sdl.warp_mouse(screen_at(at).window, f32(x), f32(y))
+
+// The size of the display the window at `at` is on, in points; `None` when SDL cannot say.
+screen_display(at: usize) -> Option[(long, long)]
+    val b = sdl.display_bounds(screen_at(at).window.display())?
+
+    Some((long(b.w), long(b.h)))
+
+// Whether the window at `at` has been asked to close, from its title bar.
+screen_close_asked(at: usize) -> bool = screen_at(at).close_asked
+
+// Whether the platform has asked the program to end.
+screens_quit_asked() -> bool = quit_asked
+
+// The place of the window SDL calls `id`.
+private place_of(id: u32) -> Option[usize]
+    for i in 0..<screens.len()
+        screens.at(i) match
+            Some(s) -> if s.id == id then return Some(i)
+            None -> ()
+
+    None
+
+// What has happened to the windows on screen, waiting up to `ms` milliseconds for the first thing
+// when nothing has. A close asked for and a quit are kept here; the rest is answered.
+screen_news(ms: long) -> Buf[ScreenNews]
+    var out: Buf[ScreenNews] = buf()
+
+    if !video_up then return out
+
+    var next = if ms > 0 then sdl.wait_event_timeout(i32(ms)) else sdl.poll_event()
+
+    while next.is_some()
+        val e = next.unwrap()
+        val kind = e.kind()
+
+        if kind == sdl.EventKind.Quit
+            quit_asked = true
+        elif kind == sdl.EventKind.WindowCloseRequested
+            place_of(e.window_id()) match
+                Some(at) ->
+                    var s = screen_at(at)
+
+                    s.close_asked = true
+                    screens.set(at, Some(s))
+                None -> ()
+        elif kind == sdl.EventKind.WindowResized
+            out.push(Resized(e.window_id(), long(e.window_data1()), long(e.window_data2())))
+        elif kind == sdl.EventKind.WindowExposed
+            out.push(Exposed(e.window_id()))
+        elif kind == sdl.EventKind.MouseMotion
+            out.push(Pointed(e.window_id(), long(e.mouse_x()), long(e.mouse_y())))
+
+        next = sdl.poll_event()
+
+    out
+end screen_news
+
+// The SDL id of the window at `at`.
+screen_id(at: usize) -> u32 = screen_at(at).id
+#endif
+
+#if !feature_graphics
+const HasScreen: bool = false
+
+screen_open(title: string, w: long, h: long, resizable: bool, shown: bool) -> Result[usize, string] =
+    Err("a window on screen is not in this build -- it is behind the `graphics` feature")
+
+screen_close(at: usize) = ()
+
+screen_density(at: usize) -> long = 1
+
+screen_show(at: usize, surface: &pv.Surface) = ()
+
+screen_title(at: usize, title: string) = ()
+
+screen_size(at: usize, w: long, h: long) = ()
+
+screen_resizable(at: usize, on: bool) = ()
+
+screen_visible(at: usize, on: bool) = ()
+
+screen_raise(at: usize) = ()
+
+screen_place(at: usize, x: long, y: long) = ()
+
+screen_position(at: usize) -> (long, long) = (0, 0)
+
+screen_warp(at: usize, x: long, y: long) = ()
+
+screen_display(at: usize) -> Option[(long, long)] = None
+
+screen_close_asked(at: usize) -> bool = true
+
+screens_quit_asked() -> bool = true
+
+screen_news(ms: long) -> Buf[ScreenNews] = buf()
+
+screen_id(at: usize) -> u32 = 0
+#endif

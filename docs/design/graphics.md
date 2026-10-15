@@ -59,19 +59,27 @@ These are reported to the org, not routed around ([Rule 9](#closed-by-design)):
   absent from `plutovg.sysl`, whose only PNG writer is `write_png(path)`. `image_bytes` waits on it;
   writing a scratch file and reading it back would be the workaround [Rule 9](#closed-by-design)
   forbids.
+- **F5 — sdl3 does not bind `SDL_MaximizeWindow`, `SDL_MinimizeWindow` or `SDL_RestoreWindow`.**
+  Icon's `canvas=maximal` and `canvas=iconic` are those calls, and they fault naming them until the
+  package binds them. (`SDL_SyncWindow` is unbound too; `sync()` does not need it, since a frame is
+  on screen once `SDL_RenderPresent` returns.)
+- **F6 — SDL has no call that lowers a window.** `SDL_RaiseWindow` has no opposite in SDL3, so
+  Icon's `Lower()` (`w.lower()` in the table below) is not built: whether FunL drops it or reaches
+  each platform's own call is a question for the user.
 
 ## The window
 
 **The window handle, its canvas and context, `open` with `canvas: #hidden`, `clone`, `couple`,
 `close`, `uncouple`, the attribute map and colour specifications are built** — see the library page,
-[`funl:graphics`](../library/graphics.md). What remains of this section is for the later items.
+[`funl:graphics`](../library/graphics.md). **So is the window on screen** — the `graphics` feature,
+showing on wait, `flush`, `sync`, `delay`, `raise`, `pos`, `pointer`, the display's size, density,
+a resize keeping the picture, several windows, and the wait at the program's end — on
+[Windows on screen](../library/graphics-screen.md). What remains of this section is for the later
+items.
 
 **`&window` is kept** (keywords are [I18](language.md#icon-parity)'s `&name`): assignable, set by
 `open` to the window it makes, failing when no window is open, so a helper procedure can draw on "the
 current window" as Icon's do — `&window.draw_line(…)`.
-
-**Setting `canvas: #normal` later shows a hidden canvas**, in a build that has windows (item 7); today
-it faults, as opening one does.
 
 ### The attributes still to come
 
@@ -86,7 +94,10 @@ enumerations symbols, the rest strings):
 | `image` (a file loaded at open, the canvas sized to it) | 4, images |
 | `font`, `leading`, `x`, `y`, `row`, `col`; read-only `ascent`, `descent`, `fheight`, `fwidth` | 5, fonts and text |
 | `cursor`, `echo`, `inputmask` | 6, events |
-| `pos`, `posx`, `posy`, `pointer`, `pointerx`, `pointery`; read-only `displaywidth`, `displayheight` | 7, windows on screen |
+
+`pointer` is read as the table pairs it with `pointerx` and `pointery`: where the pointer is, as
+`pos` is where the window is. Icon's `pointer` -- the pointer's *shape* -- has no attribute here yet:
+which shape names FunL takes is open, and SDL's dummy driver cannot make a system cursor to test one.
 
 **The default size, 80 columns by 12 lines of the default font, is 480 by 156 until item 5** carries
 `"fixed"`; item 5 computes it from that face's metrics, as Icon's `wopen` does.
@@ -215,7 +226,7 @@ value without a file — a FunL addition, small, and what a test or a program se
 ### What an event is
 
 **`w.event()` answers the next event's code, as Icon's `Event()` does, and sets the event
-keywords.** It blocks while the queue is empty, showing the canvas first (it [flushes](#when-the-screen-is-updated)).
+keywords.** It blocks while the queue is empty, showing the canvas first (it [flushes](../library/graphics-screen.md#opening-and-showing)).
 
 - **A key** with a character is a one-character string — `"a"`, `"A"`, `"\r"`, `"\e"`, `"\x03"` for
   control-C — as Icon's. With `inputmask` holding `"k"`, a key's release is reported too, as the
@@ -273,41 +284,15 @@ driver that waits on two sources is F2.
 **SDL's video calls are made on the process's main thread**, which is the thread FunL's instruction
 loop and kairos run on; macOS refuses them from any other. FunL starts no thread for graphics.
 
-### When the screen is updated
+### The screen's events reach the queue
 
-Drawing goes into the canvas's surface, and **the surface is shown — copied into the SDL texture and
-presented — when the program waits**: at `flush()`, `sync()`, `delay()`, `event()`, `pending()`,
-`active()`, `read()`, an `await`, and when the program ends with a window still open (it then waits
-for the window to be closed, as Icon's `WDone` does, unless the program called `close()`). `sync()` is
-`flush()` plus waiting until SDL has presented the frame. Between those, a hundred `draw_point`s
-cost one copy, not a hundred — Icon's book gives exactly this latitude ("output may be buffered").
-
-**A resize** keeps the canvas's pixels where they were, fills the new area with `bg`, and queues
-`#resize`, as Icon's does; `resize: false` (the default, Icon's) stops the user from resizing.
-
-## Testing without a screen
-
-**A window cannot be opened from a session that is not at the console** — on this Mac anything that
-starts `NSApplication` from a `Background` shell never returns (`~/CLAUDE.md`). So the suite must be
-able to test every facility with no window on screen, and it can:
-
-- **Drawing, text, images and contexts** are tested on `canvas: #hidden`, which is a plutovg surface
-  and nothing else. A test draws, then reads back with `pixel` and compares colour strings at chosen
-  points — that a fill stopped at the clip, that a dash left a gap, that `#reverse` drawn twice
-  restores the pixel, that `"fixed"` at size 13 puts ink in a known cell — or compares
-  `image_bytes()` of a small region against bytes held as a literal in the test. The surface is
-  deterministic because plutovg is vendored at a fixed version and a hidden canvas has density 1.
-- **Events** are tested on a hidden canvas through `enqueue`: the test queues a press, a drag and a
-  release, and the program under test reads them with `event()` and `next_event()` and sees the
-  keywords and maps Icon's would.
-- **The on-screen path** — SDL window, texture, SDL events routed by window id, resize — is tested
-  with SDL's dummy video driver (`SDL_VIDEO_DRIVER=dummy`, which `sysl-lang/sdl3`'s own sixty-four
-  tests use): the window is made and drawn into memory, and SDL events are injected with
-  `push_event`. Before the item that builds it starts, it proves the dummy driver opens from a
-  `Background` shell on macOS without starting `NSApplication`; if it does not, that is reported
-  before any test is written that would hang the gate.
-- **Nothing in the suite opens a real window.** An example under `examples/` may, and is run by hand
-  from a console shell (`launchctl managername` says `Aqua`).
+The window on screen is built ([Windows on screen](../library/graphics-screen.md)), and what it does
+with SDL's events is the part the queue waits on. `show_screens()` (`native_graphics.sysl`) is the
+wait point every waiting call goes through — `event()`, `pending()`, `active()` and `read()` call
+it before they block, as `flush`, `delay` and the loop already do. A user's resize already resizes the
+canvas, keeping the picture and filling the new area with `bg`; it also **queues `#resize`**, a close
+from the title bar **queues `#close`**, and SDL's keys, buttons, motion and wheel become Icon's codes
+on the canvas's queue, routed by window id (`take_news`).
 
 ## Closed by design
 

@@ -152,7 +152,7 @@ Each is argued where it arises; this is the list.
 | G2 What `close()` closes | the canvas, as `WClose`, and every handle on it; `uncouple()` closes one (user, 2026-10-15) | [graphics](../library/graphics.md#clones-couples-and-closing) |
 | G3 How attributes are read and set | a map with natural values: `set(m)`, `get(name)`, `attributes()` (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |
 | G6 Coordinates on a high-density screen | points, the surface at `density`; a hidden canvas density 1 (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |
-| G12 Module and feature | `funl:graphics` in the core over vendored plutovg; on-screen windows behind a `graphics` feature over `sdl3`, on in `default` (user, 2026-10-15) | [graphics](../library/graphics.md#hidden-canvases) |
+| G12 Module and feature | `funl:graphics` in the core over vendored plutovg; on-screen windows behind a `graphics` feature over `sdl3`, on in `default` (user, 2026-10-15) | [graphics](../library/graphics.md#hidden-canvases), [on screen](../library/graphics-screen.md) |
 | I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [keywords](../reference/keywords.md) |
 | I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md) |
 | I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md#the-creators-locals) |
