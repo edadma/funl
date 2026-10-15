@@ -531,7 +531,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
 
 // `docs/library/graphics-screen.md`'s line, which a build without the `graphics` feature does not run.
 #if feature_graphics
-private val ScreenCensus: string = "docs/library/graphics-screen.md 6 1 0 0\n"
+private val ScreenCensus: string = "docs/library/graphics-screen.md 7 0 1 0\n"
 #endif
 #if !feature_graphics
 private val ScreenCensus: string = ""

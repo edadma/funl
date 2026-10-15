@@ -148,12 +148,26 @@ private pause(ms: long)
         take_news(0)
         left -= step
 
-// `w.flush()` and `w.sync()`: every canvas shown on screen as it now is; answers `w`. A frame is
-// presented by the time SDL's present returns, so `sync` waits for nothing more than `flush` does.
+// `w.flush()`: every canvas shown on screen as it now is; answers `w`. A frame is presented by the
+// time SDL's present returns.
 private[funl] do_flush(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val w = window_arg(base, 0, "flush")?
 
     show_screens()
+    Ok(Some(Handle(w.h)))
+
+// `w.sync()`: what `flush` does, and then every request made of `w`'s window -- its size, its place,
+// maximizing, minimizing -- waited for, as `SDL_SyncWindow` does; answers `w`. A hidden canvas has no
+// window to wait for.
+private[funl] do_sync(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "sync")?
+
+    show_screens()
+
+    val c = canvas_at(w.at)
+
+    if c.screen >= 0 then screen_sync(usize(c.screen))
+
     Ok(Some(Handle(w.h)))
 
 // `w.delay(ms)`: the canvases shown, then `ms` milliseconds waited; answers `w`.
@@ -176,5 +190,19 @@ private[funl] do_raise(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val c = canvas_at(w.at)
 
     if c.screen >= 0 then screen_raise(usize(c.screen))
+
+    Ok(Some(Handle(w.h)))
+
+// `w.lower()`: `w`'s window sent behind the others; answers `w`. A hidden canvas has no window to
+// lower, as it has none to raise. Where the platform's window system cannot lower a window, the call
+// faults with `system_error` saying so.
+private[funl] do_lower(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "lower")?
+    val c = canvas_at(w.at)
+
+    if c.screen >= 0 then
+        screen_lower(usize(c.screen)) match
+            Ok(_) -> ()
+            Err(why) -> return Err(system_error(s"'lower': $why"))
 
     Ok(Some(Handle(w.h)))
