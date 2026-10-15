@@ -278,6 +278,11 @@ struct Vm
     // write. The default pushes out what standard output holds first, so the two keep program order.
     eput: &Fn(string) -> unit
 
+    // The program's top-level functions, for `proc` to find by name (`proc.sysl`), and the family
+    // chunks it has made for a name of several counts, by the members they hold.
+    top_fns: Buf[TopFn]
+    proc_chunks: Map[string, usize]
+
     // -- the program's name (`&progname`) -------------------------------------------------------------
 
     // The name the program was run under -- the file `funl` was given -- set by the driver; empty for
@@ -324,7 +329,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf(), buf(), buf(), None, (t) -> to_stderr(t), "", null, null, 0)
+        buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", null, null, 0)
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

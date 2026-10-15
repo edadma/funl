@@ -27,6 +27,7 @@ install_natives(v: *Vm)
     install_time(v)
     install_async(v)
     install_prelude(v)
+    install_proc(v)
 #if feature_http
     install_http(v)
 #endif

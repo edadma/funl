@@ -179,13 +179,15 @@ f(a,b)
 
 ## Character sets
 
-A **cset** is a set of characters: `cset(s)` makes one of the characters of string `s`, and five are
+A **cset** is a set of characters: `cset(s)` makes one of the characters of string `s`, and seven are
 named.
 
 | name | holds |
 |---|---|
 | `letters` | `A`–`Z` and `a`–`z` |
 | `digits` | `0`–`9` |
+| `lowercase` | `a`–`z`, Icon's `&lcase` |
+| `uppercase` | `A`–`Z`, Icon's `&ucase` |
 | `alphanum` | the letters and the digits |
 | `ascii` | the 128 ASCII characters |
 | `cset_all` | every character |
@@ -207,6 +209,9 @@ cset("aeiouy"), cset("ab"), cset("456789")
 3, ["a", "b", "n"]
 a vowel
 ```
+
+`lowercase` and `uppercase` split `letters` by case, so `lowercase + uppercase == letters`. A
+program's own `lowercase` or `uppercase` shadows the cset, as it does any other builtin.
 
 `complement(c)` is every character not in `c`. A character is any Unicode one, so a complement is
 kept as "every character but these", written `complement(cset(…))`, and the operators, `in` and
