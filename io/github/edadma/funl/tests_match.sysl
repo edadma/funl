@@ -1,0 +1,111 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// `e match` over a block of clauses, Icon's `case`: the subject made once, committed choice, a body
+// that may generate, failure when no clause takes the value, and `(e)` comparing with `e`'s value.
+
+@test
+THE_FIRST_CLAUSE_THAT_TAKES_THE_VALUE_GIVES_THE_RESULT()
+    val text = "def kind( n ) =\n  n match\n    0 -> 'zero'\n    m | m < 0 -> 'negative'\n    _ -> 'positive'\n" +
+        "write( kind(0), kind(-3), kind(5) )\n"
+
+    assert_eq(ran_funl(text), "zero, negative, positive\nsucceeded")
+
+@test
+A_VALUE_NO_CLAUSE_TAKES_FAILS_THE_MATCH_AND_DOES_NOT_FAULT()
+    val text = "def one( x ) =\n  x match\n    1 -> 'one'\n" +
+        "write( one(1) )\nif not one(5) then write( #failed )\nwrite( one(7) or #fallback )\n"
+
+    assert_eq(ran_funl(text), "one\nfailed\nfallback\nsucceeded")
+
+@test
+THE_SUBJECT_IS_MADE_ONCE_AND_ONLY_ITS_FIRST_VALUE_IS_MATCHED()
+    // `2` and `3` are never tried: the guard refusing `1` fails the whole `match`.
+    val text = "def sub() =\n  (1 | 2 | 3) match\n    n | n > 1 -> n\n" +
+        "if not sub() then write( #bounded )\n" +
+        "val v = (write( #made ) & 1) match\n  1 -> #first\n  _ -> #other\nwrite( v )\n"
+
+    assert_eq(ran_funl(text), "bounded\nmade\nfirst\nsucceeded")
+
+@test
+THE_CHOSEN_BODY_MAY_GENERATE_AND_ITS_VALUES_ARE_THE_MATCHS()
+    val text = "def gen( x ) =\n  x match\n    3 -> 1 to x\n    _ -> 0\nevery write( gen(3) )\nwrite( [gen(2)] )\n"
+
+    assert_eq(ran_funl(text), "1\n2\n3\n[0]\nsucceeded")
+
+@test
+CHOICE_IS_COMMITTED_SO_A_FAILING_BODY_DOES_NOT_TRY_THE_NEXT_CLAUSE()
+    val text = "def c( x ) =\n  x match\n    1 -> fail\n    _ -> #later\nwrite( c(1) or #committed, c(2) )\n"
+
+    assert_eq(ran_funl(text), "committed, later\nsucceeded")
+
+@test
+A_PARENTHESIZED_EXPRESSION_IN_A_PATTERN_COMPARES_WITH_ITS_VALUE()
+    val text = "val limit = 10\ndef at( x ) =\n  x match\n    (limit) -> #limit\n    (limit + 1) -> #past\n    ((1) | (2)) -> #small\n    _ -> #other\n" +
+        "write( at(10), at(11), at(1), at(2), at(5) )\n" +
+        "def pair( p ) =\n  p match\n    [(limit), b] -> b\n    _ -> #no\nwrite( pair([10, 4]), pair([4, 10]) )\n"
+
+    assert_eq(ran_funl(text), "limit, past, small, small, other\n4, no\nsucceeded")
+
+@test
+A_PARENTHESIZED_EXPRESSION_THAT_FAILS_TAKES_NOTHING()
+    val text = "def none() = fail\ndef cmp( x ) =\n  x match\n    (none()) -> #never\n    _ -> #through\nwrite( cmp(1) )\n"
+
+    assert_eq(ran_funl(text), "through\nsucceeded")
+
+@test
+PARENTHESES_AROUND_A_CONS_OR_AN_ALTERNATION_STILL_GROUP_A_PATTERN()
+    val text = "def f( l ) =\n  l match\n    [] -> #empty\n    (h:_) -> h\nwrite( f([]), f([7, 8]) )\n" +
+        "def g( n ) =\n  n match\n    (0 | 1) -> #bit\n    _ -> #more\nwrite( g(1), g(4) )\n"
+
+    assert_eq(ran_funl(text), "empty, 7\nbit, more\nsucceeded")
+
+@test
+A_TUPLE_IS_MATCHED_BY_SEVERAL_PARAMETERS_AND_UNIT_BY_NONE()
+    val text = "val t = (1, 2) match\n  (a, b) -> a + b\nwrite( t )\nval u = () match\n  () -> #unit\nwrite( u )\n"
+
+    assert_eq(ran_funl(text), "3\nunit\nsucceeded")
+
+@test
+A_LAMBDAS_PARENTHESIZED_PARAMETER_STILL_BINDS()
+    assert_eq(ran_funl("write( ((x) -> x + 1)(2) )\n"), "3\nsucceeded")
+
+@test
+A_MATCH_TAKES_EVERYTHING_BEFORE_IT_BUT_A_LAMBDAS_ARROW()
+    val text = "val k = 2 + 3 match\n  5 -> #sum\nwrite( k )\nval f = x -> x match\n  0 -> #zero\n  _ -> #some\nwrite( f(0), f(9) )\n"
+
+    assert_eq(ran_funl(text), "sum\nzero, some\nsucceeded")
+
+@test
+RETURN_BREAK_AND_A_NESTED_MATCH_REACH_THROUGH_A_CLAUSE()
+    val text = "def first( l ) =\n  l match\n    [] -> return #empty\n    _ -> ()\n  #nonempty\nwrite( first([]), first([1]) )\n" +
+        "for i <- 1..5\n  val w = i match\n    3 -> break\n    n -> n * 10\n  write( w )\n" +
+        "def both( a, b ) =\n  a match\n    0 ->\n      b match\n        0 -> #both\n        _ -> #a\n    _ -> #neither\n" +
+        "write( both(0, 0), both(0, 1), both(1, 0) )\n"
+
+    assert_eq(ran_funl(text), "empty, nonempty\n10\n20\nboth, a, neither\nsucceeded")
+
+@test
+THE_SCANNING_MATCH_FUNCTION_IS_UNTOUCHED()
+    assert_eq(ran_funl("write( 'hello' ? match('he') )\n"), "3\nsucceeded")
+
+@test
+A_MATCH_IS_CLOSED_BY_END_MATCH_AND_NOTHING_ELSE()
+    val text = "def long( x ) =\n  x match\n    1 -> #a\n    2 -> #b\n  end match\nwrite( long(2) )\n"
+
+    assert_eq(ran_funl(text), "b\nsucceeded")
+    assert_eq(complaints("def g( x ) =\n  x match\n    1 -> #a\n  end if\n"), "error 4:3 `end if` does not match the `match` it closes\n")
+
+@test
+A_MATCH_WITHOUT_A_BLOCK_OR_WITH_A_LINE_THAT_IS_NO_CLAUSE_IS_REFUSED()
+    assert(complaints("val y = 3 match 3 -> 4\n").index_of("error 1:11 `match` is followed by an indented block of clauses").is_some(), "no block")
+    assert_eq(complaints("def f( x ) =\n  x match\n    1 -> #a\n    write( x )\n"),
+        "error 4:5 every line of a `match` block is a clause, `pattern -> result`\n")
+
+@test
+A_NAME_THE_PATTERN_BINDS_IS_NOT_SEEN_BY_ANOTHER_CLAUSE()
+    val text = "val a = #outer\ndef f( x ) =\n  x match\n    [a] -> a\n    _ -> a\nwrite( f([5]), f(3) )\n"
+
+    assert_eq(ran_funl(text), "5, outer\nsucceeded")

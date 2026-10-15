@@ -280,8 +280,8 @@ write( zip(0.., 1..) )
 
 **The list functions take lists.** A string, a tuple and a map are each one value, not a list of
 parts, and so is a number, an atom or `()`, so `zip`, `zipWith`, `map`, `filter`, `take`, `drop`,
-`concat`, `reverse`, `sort`, `elem`, `sum`, `join`, `head`, `tail`, `foldl`, `product`, `maximum`,
-`dropWhile`, `nub`, `group` and the rest refuse one rather than answer for a single element. A list,
+`concat`, `sort`, `elem`, `sum`, `join`, `head`, `tail`, `foldl`, `product`, `maximum`,
+`dropWhile`, `nub`, `group` and the rest refuse one rather than answer for a single element (`reverse` alone answers a string: its characters in the other order, [String functions](../reference/strings.md#reverse-of-a-string)). A list,
 a range, a set, an array and a buffer are accepted:
 
 ```funl

@@ -757,6 +757,30 @@ circle(2), blank
 2
 ```
 
+A record cannot be assigned, but `with(r, {f: x})` is a copy of `r` with the named fields replaced, and
+`r` is as it was. A name that is no field of the record is an error.
+
+```funl
+data point(x, y)
+p = point(1, 2)
+write( with(p, {y: 5}), p )
+write( with(p, {x: 0, y: 0}) )
+```
+
+```output
+point(1, 5), point(1, 2)
+point(0, 0)
+```
+
+```funl
+data point(x, y)
+write( with(point(1, 2), {z: 3}) )
+```
+
+```error
+'with' was given the field 'z'
+```
+
 ## `undefined`
 
 A variable declared and never assigned holds `undefined`. `\x` succeeds, producing `x`, if `x` is

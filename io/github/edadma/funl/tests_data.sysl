@@ -223,6 +223,20 @@ A_RECORD_IS_REACHED_BY_FIELD_BY_NAME_AND_BY_INDEX()
     faults_with("data point(x, y)\nval p = point(1, 2)\np.x = 5\n", "point(1, 2) is a record, and its fields cannot be assigned")
 
 @test
+WITH_MAKES_A_COPY_OF_A_RECORD_WITH_FIELDS_REPLACED()
+    assert_eq(ran_funl("data point(x, y)\nval p = point(1, 2)\nval q = with(p, {y: 5})\nwrite( p, q, with(p, {x: 7, y: 8}), with(p, {}) )\nwrite( q.y, with(p, {x: 0}) == point(0, 2) )\n"),
+        "point(1, 2), point(1, 5), point(7, 8), point(1, 2)\n5, point(0, 2)\nsucceeded")
+    assert_eq(ran_funl("data shape = circle(r) | rect(w, h)\nwrite( with(rect(1, 2), {h: 9}) )\n"), "rect(1, 9)\nsucceeded")
+
+@test
+WITH_REFUSES_AN_UNKNOWN_FIELD_AND_WHAT_IS_NOT_A_RECORD_OR_A_MAP()
+    faults_with("data point(x, y)\nwrite( with(point(1, 2), {z: 3}) )\n", "'with' was given the field 'z'")
+    faults_with("write( with(5, {x: 1}) )\n", "'with' wants a record and was given the integer 5")
+    faults_with("data point(x, y)\nwrite( with(point(1, 2), [1]) )\n", "'with' wants a map of the fields to replace")
+    faults_with("data point(x, y)\nwrite( with(point(1, 2), {(1): 3}) )\n", "'with' names a field by a string key")
+    assert_eq(complaints("data point(x, y)\nwrite( with(point(1, 2)) )\n"), "error 2:8 `with` takes 2 arguments, and this call gives 1\n")
+
+@test
 A_FIELD_OF_WHAT_IS_NOT_A_RECORD_IS_AN_ERROR()
     faults_with("write( 5.x )\n", "the integer 5 has no field 'x'")
     faults_with("write( [1].x )\n", "[1] has no field 'x'")

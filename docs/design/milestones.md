@@ -186,8 +186,8 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
    `detab`, the cset argument of `trim`/`trim_start`/`trim_end`, `image`, `type`, `str`. Waits on
    nothing.
 2. **Conversions and literals**: `integer`, `real`, `numeric` from strings (`16rFF` included);
-   `0x`/`0o`/`0b` literals past 64 bits. Waits on nothing (the `NrDDD` literal waits on I16, and
-   is not built under the recommendation).
+   `0x`/`0o`/`0b` literals past 64 bits. The `NrDDD` literal is built (I16, decided
+   user, 2026-10-15).
 3. **Set and cset algebra**: `+`, `-` on csets, `**` on sets and csets, `complement`, the
    complement flag, `lower`/`upper`/`ascii`/`cset_all`. Waits on nothing.
 4. **Buffers as deques, and deletion**: `push`, `pop`, `get`, `pull`, `put`; `delete`, `m -= k`,
@@ -221,14 +221,61 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
     activation fault, bindings on a co-expression's own trail, and collection of abandoned
     co-expressions under the stress heap. Waits on item 17 and I9.
 19. **Tracing and introspection**: `&trace`, `display()`, `&dump`, `collect()`, `&collections`,
-    `&allocated`, the per-chunk name table. Waits on item 10.
+    `&allocated`, `&storage`, `&regions`, the per-chunk name table, and the per-chunk line table
+    that places a trace line at the call site and a fault at its line. Waits on item 10.
 20. **Answers that reopen a decision**: `translate` (I11), `reverse` of a string (I12), `with`
     (I15), assignment to a string section (I10). Waits on those four; each answered "no" drops its
     part.
 21. **The preprocessor**: the directives the answer to I20 keeps, over the token stream, with
-    positions through `$include`. Waits on I20.
+    positions through `$include`. I20 decided: Icon's whole preprocessor.
 
 **Done when:** an Icon program of each kind in the chapter — a co-expression pipeline, a scanner
 with `bal` and `&pos`, a `static` memo, a variadic logger, a file filter reading standard input —
 has a FunL translation as a string literal in a unit test that prints what Icon prints; every
 `icon.md` section is gone, and the page with it.
+
+## 12. Graphics
+
+**Rests on:** [Graphics](graphics.md) (user, 2026-10-15: I21 in scope); milestone 9's handles and
+generators; milestone 10's loop; milestone 11's `&name` keywords (item 10) and stream methods (item
+9); **answers needed first:** G1–G12, and two org findings built and released before the items that
+name them: **F1** (plutovg's font-face cache bound) and **F2** (a kairos driver that waits on a
+second source).
+
+Each item is one agent's deliverable, built, tested on hidden canvases with string-literal programs
+(an error path included), its part of `docs/library/graphics.md` written with programs the suite
+runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In dependency order:
+
+1. **The canvas and the context**: `funl:graphics` in the module table, the `window` handle kind
+   (canvas plus context), `open` with `canvas: #hidden` over plutovg, `set`/`get`/`attributes` with
+   their failures and faults, colour specifications and `color_value`, `pixel`, `image_bytes`,
+   `clone`, `couple`, `uncouple`, `close` closing every handle on the canvas. Waits on G1, G2, G3,
+   G5, G6, G12.
+2. **Drawing**: `draw_point`, `draw_line`, `draw_segment`, the rectangles, polygons, circles and
+   arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
+   `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1.
+3. **`drawop: #reverse`**: the coverage mask and the exclusive-or; drawing twice restores. Waits on
+   item 2 and G7.
+4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`
+   attribute, `draw_image` with Icon's image strings, the palette functions in FunL source,
+   `new_color` failing. Waits on item 1 and G8.
+5. **Fonts and text**: the `"fixed"` face carried in the binary, family lookup through the font-face
+   cache, `font` and its failure, the metric attributes, `text_width`, `draw_string`; the text cursor
+   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1.
+6. **Events on a hidden canvas**: the queue, `enqueue`, `event()`, `pending`, `active`, every event
+   code, the keywords `&x`, `&y`, `&row`, `&col`, `&interval`, `&control`, `&shift`, `&meta`,
+   `&released`, `&window` and the event-code keywords, per machine; `read`/`reads` with `echo`.
+   Waits on item 5, milestone 11 item 10, G9 and G10.
+7. **Windows on screen**: the `graphics` feature over `sdl3` (`--no-default-features` refusing a
+   visible canvas), the texture and showing on wait, `flush`, `sync`, `delay`, SDL events routed by
+   window id, `#close`, resize keeping pixels, several windows, the canvas attributes (`label`,
+   `pos`, `size`, `pointer`, `resize`, `canvas`), `raise`/`lower`, waiting at program end. First
+   proves the dummy video driver opens from a `Background` shell; tested only on it. Waits on item 6.
+8. **Events and the loop**: `next_event()` and its event map, the driver over SDL and libuv, `delay`
+   as a timer inside a task, the one queue shared by both forms. Waits on item 7, G11 and F2.
+
+**Done when:** Icon programs of each kind in the book — a rubber-band rectangle under `#reverse`, a
+click-and-drag sketcher, a text window that echoes what is typed, an image read, annotated and
+written — have FunL translations as string literals in unit tests that run on hidden canvases and
+check the pixels and events Icon's would give; an example under `examples/` opens a real window from
+a console shell; and `graphics.md` is gone, replaced by the library page.

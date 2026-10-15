@@ -250,10 +250,11 @@ end claim_after
 private compiled_block(page: string, text: string) -> Compiled
     val src = source_of(page, text)
     var r = full_report()
+    var places = no_map()
 
-    val chunk = compile_program(src, &r)
+    val chunk = compile_program_placed(src, &r, &places)
 
-    compiled_with(chunk, if r.is_empty() then "" else r.render(src))
+    compiled_with(chunk, if r.is_empty() then "" else render_report(r, src, src, places))
 
 // Load a Prolog block into the running VM as a whole program.
 private loaded_block(page: string, text: string) -> Compiled
@@ -497,19 +498,21 @@ EVERY_PAGE_CARRIES_THE_BLOCKS_IT_IS_EXPECTED_TO()
 private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/assignment.md 14 8 0 0\n" +
     "docs/reference/async.md 11 5 0 0\n" +
-    "docs/reference/data.md 40 22 0 0\n" +
-    "docs/reference/functions.md 31 21 0 0\n" +
-    "docs/reference/generators.md 24 5 0 0\n" +
+    "docs/reference/coexpressions.md 11 3 0 0\n" +
+    "docs/reference/data.md 41 23 0 0\n" +
+    "docs/reference/functions.md 48 27 0 0\n" +
+    "docs/reference/generators.md 26 7 0 0\n" +
+    "docs/reference/keywords.md 11 3 0 0\n" +
     "docs/reference/modules.md 18 21 0 0\n" +
-    "docs/reference/numbers.md 27 24 0 0\n" +
+    "docs/reference/numbers.md 28 24 0 0\n" +
     "docs/reference/packages.md 4 10 0 1\n" +
-    "docs/reference/prolog.md 42 6 0 0\n" +
+    "docs/reference/prolog.md 42 7 0 0\n" +
     "docs/reference/regex.md 21 8 0 0\n" +
     "docs/reference/relations.md 24 7 0 1\n" +
-    "docs/reference/scanning.md 20 4 0 0\n" +
-    "docs/reference/source-files.md 1 3 2 0\n" +
+    "docs/reference/scanning.md 23 5 0 0\n" +
+    "docs/reference/source-files.md 4 6 3 0\n" +
     "docs/reference/streams.md 4 0 2 0\n" +
-    "docs/reference/strings.md 19 9 0 0\n" +
+    "docs/reference/strings.md 22 11 0 0\n" +
     "docs/reference/success-and-failure.md 18 5 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
     AsyncCensus +

@@ -1,5 +1,6 @@
 module io.github.edadma.funl
 
+import sh.sysl.parsing.Span
 import sysl.buf.{Buf, buf}
 
 // Expressions and statements, compiled to the machine.
@@ -20,10 +21,13 @@ import sysl.buf.{Buf, buf}
 //     !c                     c; GenStart(false); GenNext
 //     i to j by k            i; j; k; PushInt(0); GenRange(true)
 //     |e                     top: MarkThrough; e; ChangeMark(top)
+//     e limit n              n; LimitSet(t); MarkThrough; SaveMark(m); e; LimitCount(t, m)   -- `limit.sysl`
 //     yield e                Choice(after); e; [ScanLeave(n)]; Return; after: PushUnit
 //     return e               e; [ScanLeave(n)]; ReturnCommit
 //     s ? e                  s; ScanBegin; e; ScanEnd
 //     e catch p -> r         SaveHeight(h); PushTrap(r); e; ExitTrap(h); ...   -- `catch.sysl`
+//     create e               Create(k)                 -- chunk k: e; CoYield    -- `coexpr.sysl`
+//     x @ c                  x; c; Activate
 //
 // `[ScanLeave(n)]` is there when the jump leaves `n` scans of the function's body that are open
 // around it, and puts back the scan state the outermost of them replaced.
@@ -98,7 +102,7 @@ private push_meaning(e: *Emit, c: Ctx, m: Meaning, n: string) -> Result[unit, st
 
 // Push builtin `id`'s value: a builtin that names a value is made once, into the chunk's constants,
 // and one of a fixed arity is a function value over its `value_chunk`.
-private push_builtin(e: *Emit, id: usize, n: string) -> Result[unit, string]
+push_builtin(e: *Emit, id: usize, n: string) -> Result[unit, string]
     current().natives.at(id).how match
         Constant(go) ->
             val made = go(0, 0) match
@@ -147,8 +151,21 @@ callee_name(f: &Expr) -> string = f.kind match
         _ -> name
     _ -> ""
 
-// Push `x`'s value.
+// The source line of offset `pos`, as the chunk's line table keeps it.
+line_of(c: Ctx, pos: usize) -> u32 = u32(c.res.src.locate(pos).line)
+
+// Push `x`'s value. **Each instruction is put down to the line of the innermost expression that
+// emitted it**: `x`'s line while its own code is emitted, and the enclosing expression's again after,
+// so a call written over several lines is placed where it begins, its arguments where they do.
 compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    val outer = e.line_now
+
+    e.at_line(line_of(c, x.span.start))
+    value_of(e, c, x)?
+    e.at_line(outer)
+    Ok(())
+
+private value_of(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
         Ref(n) -> push_meaning(e, c, c.meaning(n, x.span.start), n)?
         Anon -> e.op(PushVar)
@@ -162,7 +179,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 compile_value(e, c, a)?
 
             e.op(if items.len() == 0 then PushUnit else MakeTuple(items.len()))
-        CallE(n, at, args) -> call_named(e, c, n, at.start, args, false)?
+        CallE(n, at, args) -> call_named(e, c, x, n, at.start, args, false)?
         ApplyE(f, args) -> apply(e, c, f, args, false)?
         Conj(a, b) ->
             compile_value(e, c, a)?
@@ -244,6 +261,10 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(PushInt(0))
             e.op(NativeGen(native_id("$random_pick").unwrap(), 1))
         RandKeyE -> return Err("a random key outside a store reached the compiler")
+        KeywordE(n) -> keyword_value(e, n)?
+        SetKeywordE(n, x, back) ->
+            compile_value(e, c, x)?
+            keyword_store(e, n, back)?
         RangeE(from, upto, by, inclusive) ->
             compile_value(e, c, from)?
             compile_value(e, c, upto)?
@@ -261,6 +282,17 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(MarkThrough)
             compile_value(e, c, a)?
             e.op(ChangeMark(top))
+        LimitE(id, a, n) ->
+            val inner = c.in_block(id)?
+            val count = slot_of_name(inner, limit_count_name(id))?
+            val mark = slot_of_name(inner, limit_mark_name(id))?
+
+            compile_value(e, c, n)?
+            e.op(LimitSet(count))
+            e.op(MarkThrough)
+            e.op(SaveMark(mark))
+            compile_value(e, c, a)?
+            e.op(LimitCount(count, mark))
         YieldE(a) -> suspend(e, c, a, false)?
         AwaitE(a) ->
             // **Bounded, like `return`**: the operand's first value, its choice points discarded,
@@ -359,6 +391,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         UndefE -> e.op(PushConst(e.constant(Undefined)))
         MapE(keys, vals) -> compile_map(e, c, keys, vals)?
         MapRestE(_, _, _) -> return Err("a map pattern's `..` the resolver refused reached the compiler")
+        SpreadE(_) -> return Err("a `..` outside a call's arguments, which the resolver refused, reached the compiler")
         SetE(items) -> compile_set(e, c, items)?
         SetElemE(coll, k, a, back) -> compile_store(e, c, coll, k, a, back)?
         UpdateElemE(coll, k, o, a) -> compile_update(e, c, coll, k, o, a)?
@@ -369,22 +402,53 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             compile_value(e, c.in_scan(), body)?
             e.op(ScanEnd)
         CatchE(id, s, pat, guard, r) -> compile_catch(e, c, id, s, pat, guard, r)?
+        MatchE(s, cs) -> compile_match(e, c, s, cs)?
+        ValueP(_) -> return Err("a value pattern reached the compiler outside a pattern")
         RegexE(p, groups) -> compile_pattern_value(e, c, p, groups)?
-        AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
+        AsE(n, a) ->
+            // `name @ c` where an expression is read: transmission.
+            compile_value(e, c, expr(Ref(n), Span(x.span.start, x.span.start + n.bytes.len)))?
+            compile_value(e, c, a)?
+            e.op(Activate)
+        CreateE(a) ->
+            // The expression is a chunk of its own, compiled in this scope -- it runs in a copy of
+            // this frame -- inside no loop and no scan of it.
+            var loops: Buf[Looping] = buf()
+            var inner = emit("create")
+
+            compile_value(&inner, Ctx(c.res, c.sc, c.blk, &loops, 0), a)?
+            inner.op(CoYield)
+            e.op(Create(finish(inner)?))
+        ActivateE(a, co) ->
+            compile_value(e, c, a)?
+            compile_value(e, c, co)?
+            e.op(Activate)
+        RefreshE(a) ->
+            compile_value(e, c, a)?
+            e.op(Native(native_id("&refresh").unwrap(), 1))
+        SizeE(a) ->
+            compile_value(e, c, a)?
+            e.op(Native(native_id("&size").unwrap(), 1))
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
 
     Ok(())
-end compile_value
+end value_of
 
 // `f(args)` for a callee that is an expression, in tail position when `tail` (and then followed by
 // `Return`). **`x.name(args)` is a method call**: `MethodOf` before the arguments and `CallMethod`
 // after, so a handle's method is found by name when it is called, and any other `x` has its field
 // read before the arguments are made, as `Field` then `CallValue` would.
 apply(e: *Emit, c: Ctx, f: &Expr, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    e.at_line(line_of(c, f.span.start))
+
+    if has_spread(args)
+        compile_value(e, c, f)?
+        return spread_call(e, c, args, tail)
+
     // `m.f(args)`, `m` a module: a call of what the module exports as `f`, made directly.
     qualified_callee(c, f) match
-        Some(m) -> return call_meaning(e, c, c.res.picked(f.span.start, callee_name(f), m, args.len()), callee_name(f), args, tail)
+        Some(m) -> return call_meaning(e, c, c.res.picked(f, callee_name(f), m, args.len()), callee_name(f), args, tail)
         None -> ()
 
     val method = f.kind match
@@ -481,10 +545,42 @@ private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
 
     Ok(if v.depth == 0 then StoreSlot(v.slot) else StoreUp(v.depth, v.slot))
 
-// `name(args)`, the name written at offset `pos`: a call of whatever the name means. In tail
-// position (`tail`) a call that can reuse the frame is a tail call, and every path ends in `Return`.
-call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string] =
-    call_meaning(e, c, c.res.picked(pos, n, c.meaning(n, pos), args.len()), n, args, tail)
+// Store the top of the stack into the variable `n` names at offset `pos`, trailing the old value for
+// failure to restore when `back`.
+store_variable(e: *Emit, c: Ctx, n: string, pos: usize, back: bool) -> Result[unit, string]
+    if back
+        val v = variable(c, n, pos)?
+
+        e.op(StoreBack(v.depth, v.slot))
+    else
+        e.op(store_to(c, n, pos)?)
+
+    Ok(())
+
+// `name(args)`, the call `call`, the name written at offset `pos`: a call of whatever the name
+// means. In tail position (`tail`) a call that can reuse the frame is a tail call, and every path
+// ends in `Return`. The call is put down to the line its name is written on, which a call in tail
+// position, compiled without `compile_value`, needs as much as any.
+//
+// **A spread call, `f(..xs)`, is a call of `f`'s value** with the arguments counted when it runs
+// (`variadic.sysl`).
+call_named(e: *Emit, c: Ctx, call: &Expr, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    e.at_line(line_of(c, pos))
+
+    if has_spread(args)
+        push_meaning(e, c, c.meaning(n, pos), n)?
+        return spread_call(e, c, args, tail)
+
+    call_meaning(e, c, c.res.picked(call, n, c.meaning(n, pos), args.len()), n, args, tail)
+
+// The arguments of a spread call and the call, its callee's value already pushed.
+private spread_call(e: *Emit, c: Ctx, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    spread_args(e, c, args)?
+    e.op(CallSpread(tail))
+
+    if tail then e.op(Return)
+
+    Ok(())
 
 // The same, of a name `n` that means `m`: a name of the file's own, or one a module exports.
 call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bool) -> Result[unit, string]
@@ -515,7 +611,7 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
         Function(r, up) ->
             val rel = c.res.rels.at(r)
 
-            if args.len() == rel.arity + 1
+            if !rel.variadic && args.len() == rel.arity + 1
                 function_as_relation(e, c, rel.chunk, up, args)?
 
                 if tail then e.op(Return)
@@ -711,6 +807,10 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
 
         // A constructor's name is resolved to the constructor wherever it is read; nothing is stored.
         DataS(_, _) -> ()
+
+        // Run at the head of the body, once per function value (`body_head` in `compile_fn.sysl`).
+        StaticS(_, _, _) -> ()
+        InitialS(_) -> ()
 
     Ok(())
 
