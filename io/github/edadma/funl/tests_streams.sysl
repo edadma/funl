@@ -2,7 +2,7 @@ module io.github.edadma.funl
 @tests
 
 import sysl.buf.{Buf, buf}
-import sysl.text.{Search, join}
+import sysl.text.Search
 
 // The standard streams (`docs/reference/streams.md`): `writes`, `ewrite`, `ewrites` and `stop` on the
 // way out, `read()` and `reads(n)` on the way in. Programs that read run through `run_source`, which
@@ -11,26 +11,25 @@ import sysl.text.{Search, join}
 private struct Feed
     lines: Buf[string]
     at: usize
-    said: Buf[string]
-    complained: Buf[string]
+    said: &Capture
 
-// The transcript of FunL program `text` reading `lines`: what it wrote, then what it wrote to standard
-// error after `stderr:`, then the status after `status:`.
+// The transcript of FunL program `text` reading `lines`, in the order things happened: what it wrote,
+// what it wrote to standard error with each line after `stderr: `, each line it read after `read: `
+// (at the point the read took it), `<no newline>` where the output ends in an unfinished line, then
+// the status after `status:`.
 private fed(text: string, lines: []string) -> string
     var script: Buf[string] = buf()
 
     for l in lines
         script.push(l)
 
-    val f: &Feed = Feed(script, 0, buf(), buf())
+    val f: &Feed = Feed(script, 0, new_capture())
 
-    val status = run_source("test.funl", text, (prompt) -> next_fed(f), (t) -> f.said.push(t), (t) -> if !t.is_empty() then f.complained.push(t))
+    val status = run_source("test.funl", text, (prompt) -> next_fed(f), (t) -> captured(f.said, t), (t) -> captured_err(f.said, t))
+    val wrote = transcript(f.said)
+    val unended = if wrote.bytes.len > 0 && !wrote.ends_with("\n") then "<no newline>\n" else ""
 
-    for c in f.complained.view()
-        f.said.push(s"stderr: ${c.trim()}")
-
-    f.said.push(s"status: $status")
-    join(f.said.view(), "\n")
+    s"$wrote${unended}status: $status"
 
 private next_fed(f: &Feed) -> Option[string]
     if f.at >= f.lines.len() then return None
@@ -38,12 +37,14 @@ private next_fed(f: &Feed) -> Option[string]
     val l = f.lines.at(f.at)
 
     f.at += 1
+    f.said.pieces.push(s"read: $l\n")
+    f.said.fresh = true
     Some(l)
 
 @test
 READ_ANSWERS_EACH_LINE_WITHOUT_ITS_NEWLINE_AND_FAILS_AT_THE_END()
     assert_eq(fed("while (l <- read())\n  write( l )\nwrite( read() | \"end\" )\n", ["one", "two words", ""]),
-        "one\ntwo words\n\nend\nstatus: 0")
+        "read: one\none\nread: two words\ntwo words\nread: \n\nend\nstatus: 0")
 
 @test
 READ_ON_AN_EMPTY_INPUT_FAILS_AT_ONCE()
@@ -51,19 +52,19 @@ READ_ON_AN_EMPTY_INPUT_FAILS_AT_ONCE()
 
 @test
 READS_TAKES_CHARACTERS_ACROSS_LINES_NEWLINES_INCLUDED()
-    assert_eq(fed("write( reads(2) )\nwrite( reads(4) )\n", ["abc", "def"]), "ab\nc\nde\nstatus: 0")
+    assert_eq(fed("write( reads(2) )\nwrite( reads(4) )\n", ["abc", "def"]), "read: abc\nab\nread: def\nc\nde\nstatus: 0")
 
 @test
 READS_GIVES_WHAT_IS_LEFT_WHEN_THE_INPUT_ENDS_AND_THEN_FAILS()
-    assert_eq(fed("write( reads(100) )\nwrite( reads(1) | \"end\" )\n", ["ab"]), "ab\n\nend\nstatus: 0")
+    assert_eq(fed("write( reads(100) )\nwrite( reads(1) | \"end\" )\n", ["ab"]), "read: ab\nab\n\nend\nstatus: 0")
 
 @test
 READS_COUNTS_CHARACTERS_NOT_BYTES()
-    assert_eq(fed("write( reads(2) )\nwrite( reads(1) )\n", ["héllo"]), "hé\nl\nstatus: 0")
+    assert_eq(fed("write( reads(2) )\nwrite( reads(1) )\n", ["héllo"]), "read: héllo\nhé\nl\nstatus: 0")
 
 @test
 READ_TAKES_THE_REST_OF_A_LINE_READS_BEGAN()
-    assert_eq(fed("write( reads(2) )\nwrite( read() )\nwrite( read() )\n", ["abcd", "efg"]), "ab\ncd\nefg\nstatus: 0")
+    assert_eq(fed("write( reads(2) )\nwrite( read() )\nwrite( read() )\n", ["abcd", "efg"]), "read: abcd\nab\ncd\nread: efg\nefg\nstatus: 0")
 
 @test
 READS_REFUSES_A_COUNT_THAT_IS_NOT_A_POSITIVE_INTEGER()
@@ -76,7 +77,7 @@ READS_REFUSES_A_COUNT_THAT_IS_NOT_A_POSITIVE_INTEGER()
 
 @test
 WRITES_LEAVES_THE_LINE_OPEN_FOR_THE_NEXT_WRITE()
-    assert_eq(fed("writes( \"a\" )\nwrites( \"b\", 2 )\nwrite( \"c\" )\nwrites( \"d\\ne\" )\n", []), "ab, 2c\nd\ne\nstatus: 0")
+    assert_eq(fed("writes( \"a\" )\nwrites( \"b\", 2 )\nwrite( \"c\" )\nwrites( \"d\\ne\" )\n", []), "ab, 2c\nd\ne<no newline>\nstatus: 0")
 
 @test
 WRITES_WITH_NO_ARGUMENTS_WRITES_NOTHING()
@@ -85,7 +86,7 @@ WRITES_WITH_NO_ARGUMENTS_WRITES_NOTHING()
 @test
 EWRITE_AND_EWRITES_GO_TO_STANDARD_ERROR_NOT_STANDARD_OUTPUT()
     assert_eq(fed("write( \"out\" )\newrite( \"oops\", 1 )\newrites( \"a\" )\newrites( \"b\" )\n", []),
-        "out\nstderr: oops, 1\nstderr: ab\nstatus: 0")
+        "out\nstderr: oops, 1\nstderr: ab<no newline>\nstatus: 0")
 
 @test
 STOP_WRITES_TO_STANDARD_ERROR_AND_ENDS_THE_PROGRAM_WITH_STATUS_1()
@@ -97,8 +98,34 @@ STOP_IS_NOT_CAUGHT()
     assert_eq(fed("write( (stop(\"x\") catch e -> \"caught\") )\nwrite( \"after\" )\n", []), "stderr: x\nstatus: 1")
 
 @test
-THE_TEST_KIT_SHOWS_STANDARD_ERROR_LINES_AFTER_STANDARD_OUTPUT()
-    assert_eq(ran_funl("write( 1 )\newrite( \"e\" )\nwrite( read() | \"no input\" )\n"), "1\nno input\nstderr: e\nsucceeded")
+THE_TEST_KIT_SHOWS_STANDARD_ERROR_LINES_WHERE_THE_PROGRAM_WROTE_THEM()
+    assert_eq(ran_funl("write( 1 )\newrite( \"e\" )\nwrite( read() | \"no input\" )\n"), "1\nstderr: e\nno input\nsucceeded")
+
+@test
+A_LINE_THE_PROGRAM_LEAVES_UNFINISHED_GETS_NO_NEWLINE()
+    assert_eq(fed("write( 1 )\nwrites( \"end\" )\n", []), "1\nend<no newline>\nstatus: 0")
+    assert_eq(fed("writes( \"a\\n\" )\n", []), "a\nstatus: 0")
+    assert_eq(fed("writes( \"\" )\n", []), "status: 0")
+
+@test
+A_PROMPT_IS_WRITTEN_BEFORE_THE_READ_THAT_FOLLOWS_IT_TAKES_ITS_LINE()
+    assert_eq(fed("writes( \"name: \" )\nval n = read()\nwrite( \"hi \" + n )\nwrites( \"again: \" )\nwrite( read() | \"none\" )\n", ["bob"]),
+        "name: read: bob\nhi bob\nagain: none\nstatus: 0")
+
+@test
+STANDARD_ERROR_AND_STANDARD_OUTPUT_KEEP_THE_ORDER_THE_PROGRAM_WROTE_THEM_IN()
+    assert_eq(fed("write( 1 )\newrite( \"e1\" )\nwrite( \"two\" )\newrites( \"e\" )\newrite( 2 )\nwrite( 3 )\nstop( \"bye\" )\n", []),
+        "1\nstderr: e1\ntwo\nstderr: e2\n3\nstderr: bye\nstatus: 1")
+
+@test
+FUNL_AND_PROLOG_OUTPUT_GO_OUT_IN_THE_ORDER_THEY_RAN()
+    val d = scratch()
+    defer scrap(d)
+
+    val file = put(d, "says.pl", "pl_says(X) :- write(X), write(' ').\npl_ends(X) :- format(\"~w~n\", [X]).\n")
+
+    assert_eq(fed(s"import \"$file\"\nwrites( \"funl \" )\nif pl_says(#one) then writes( \"funl \" )\nif pl_ends(#two) then writes( \"funl\" )\n", []),
+        "funl one funl two\nfunl<no newline>\nstatus: 0")
 
 @test
 CHDIR_CHANGES_THE_DIRECTORY_RELATIVE_PATHS_ARE_READ_FROM()

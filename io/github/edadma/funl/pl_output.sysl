@@ -1,9 +1,10 @@
 module io.github.edadma.funl
 
-import sysl.text.{chars_of, str_builder}
+import sysl.text.chars_of
 
-// Prolog's output: the `write` family, `nl/0`, `tab/1` and `put_char/1`. Text goes onto the line
-// `nl/0` ends (`Vm.line`), as FunL's `write` puts it.
+// Prolog's output: the `write` family, `nl/0`, `tab/1` and `put_char/1`. Text goes to standard
+// output as it is written, through the same sink as FunL's `write` (`io.sysl`'s `put_out`), so the
+// two keep the order they ran in.
 
 install_prolog_output(v: *Vm)
     register(v, "write/1", 1, (b, n) -> written(b, write_opts(false, false, true)))
@@ -16,26 +17,10 @@ install_prolog_output(v: *Vm)
     register(v, "tab/1", 1, pl_tab)
     register(v, "put_char/1", 1, pl_put_char)
 
-private out(text: string)
-    val v = current()
+private out(text: string) = put_out(current(), text)
 
-    v.line = v.line + text
-
-// `t` onto the current line, each newline in it ending the line as `nl/0` does.
-put_text(t: string)
-    val v = current()
-    var line = str_builder()
-
-    line.push(v.line)
-
-    for c in chars_of(t.bytes)
-        if c == '\n'
-            v.output.push(line.finish())
-            line = str_builder()
-        else
-            line.push_char(c)
-
-    v.line = line.finish()
+// `t` onto standard output, each newline in it ending the line as `nl/0` does.
+put_text(t: string) = put_out(current(), t)
 
 // The first argument, written with options `o`.
 private written(base: usize, o: WriteOpts) -> Result[Value, Fault]
@@ -43,10 +28,7 @@ private written(base: usize, o: WriteOpts) -> Result[Value, Fault]
     Ok(Unit)
 
 private pl_nl(base: usize, argc: usize) -> Result[Value, Fault]
-    val v = current()
-
-    v.output.push(v.line)
-    v.line = ""
+    out("\n")
     Ok(Unit)
 
 private pl_writeln(base: usize, argc: usize) -> Result[Value, Fault]

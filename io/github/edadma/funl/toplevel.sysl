@@ -18,8 +18,10 @@ import sysl.text.{Search, join}
 // written, and a `;` fails back into the same run for the next. **An answer with nothing left to
 // resume ends in `.` and asks nothing.**
 //
-// Lines come from `line` and everything said goes to `say`, a line at a time, so the driver chooses
-// the terminal (`prolog/main.sysl` reads through linenoise) and a test hands in a script.
+// Lines come from `line` and everything said goes to `say`, so the driver chooses the terminal
+// (`prolog/main.sysl` reads through linenoise) and a test hands in a script. `say` is the machine's
+// standard output: what a query writes goes there as it runs, and the top level's own lines -- the
+// answers, `false.`, the errors -- follow it, after a newline where the query left a line unfinished.
 
 const QueryPrompt: string = "?- "
 const MorePrompt: string = "|    "
@@ -42,13 +44,14 @@ toplevel(files: []string, line: &Fn(string) -> Option[string], say: &Fn(string) 
 
     // `read/1` in a query reads the lines that follow it, as the queries are read.
     v.input = line
+    v.put = say
 
     for f in files
-        if halted.is_none() then halted = consult_named(&v, f, say)
+        if halted.is_none() then halted = consult_named(&v, f)
 
     val status = halted match
         Some(n) -> n
-        None -> answer_queries(&v, line, say)
+        None -> answer_queries(&v, line)
 
     dispose_vm(&v)
     leave(was)
@@ -57,8 +60,10 @@ end toplevel
 
 // Answer queries on `v`, the machine in charge, until `halt` or the end of input: the status to exit
 // with. The `prolog` executable's session after its files are consulted, and `funl file.pl`'s after
-// the file is loaded.
-answer_queries(v: *Vm, line: &Fn(string) -> Option[string], say: &Fn(string) -> unit) -> int
+// the file is loaded. The top level says what it has to say on `v`'s standard output.
+answer_queries(v: *Vm, line: &Fn(string) -> Option[string]) -> int
+    val say: &Fn(string) -> unit = (text) -> told(v, text)
+
     v.input = line
 
     loop
@@ -98,7 +103,8 @@ private read_query(line: &Fn(string) -> Option[string], say: &Fn(string) -> unit
 
 // Consult the file named `file`, as `consult/1` from the top level would, saying only what goes wrong.
 // `Some(status)` where a directive of the file halted.
-private consult_named(v: *Vm, file: string, say: &Fn(string) -> unit) -> Option[int]
+private consult_named(v: *Vm, file: string) -> Option[int]
+    val say: &Fn(string) -> unit = (text) -> told(v, text)
     val at = point(0)
     var args: Buf[&Term] = buf()
 
@@ -148,8 +154,6 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
     var outcome = run(v, chunk)
 
     loop
-        said(v, say)
-
         outcome match
             Halted(n) -> return Some(n)
             Failed ->
@@ -454,12 +458,11 @@ private resumable(v: *Vm) -> bool
 
     false
 
-// What the run wrote, said and forgotten.
-private said(v: *Vm, say: &Fn(string) -> unit)
-    for l in v.output.view()
-        say(l)
-
-    v.output.truncate(0)
+// `text` as a line of the top level's own on `v`'s standard output, after ending the line the query
+// left unfinished, if it did.
+private told(v: *Vm, text: string)
+    end_line(v)
+    put_out(v, text + "\n")
 
 // Commit to the answer the session stopped at: nothing the query left can be resumed, and nothing it
 // bound will be undone, so the machine is empty for the next query.
