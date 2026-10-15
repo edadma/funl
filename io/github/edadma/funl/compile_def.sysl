@@ -152,6 +152,8 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal
 
         val key = if r.function then pred_key(r.name, r.arity + 1) else pred_key(r.name, r.arity)
 
+        if r.function then note_top_fn(r.name, r.arity, r.chunk)
+
         if is_builtin(key) then continue
 
         val head = r.clauses.at(0).head

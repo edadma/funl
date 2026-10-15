@@ -260,31 +260,6 @@ log(..args)
 > defined. **Recommendation: (a).** It keeps "the nearer, more specific definition wins", which
 > Option C already uses, and lets a fixed arity be the fast case of a variadic one.
 
-### Calling by name
-
-**Icon:** `proc(s)` is the procedure, builtin or operator named by the string `s` (`proc("+", 2)`);
-**string invocation** `"write"(x)` and `"+"(1, 2)` calls it directly; `function()` generates the
-names of the builtins; `name(v)` and `variable(s)` go between a variable and its name; `invocable`
-tells the linker what string invocation may reach.
-
-**FunL today:** a function or builtin named without a call is a value, and `import * as m` gives a
-module as a map of its names, so `m(name)` is calling by name *within a module*. A string followed
-by `(…)` is indexing it — `"write"(1)` is the character `r`, by the [one way to
-index](language.md#data) — so string invocation is closed to FunL.
-
-**Proposed:** `proc(name)` and `proc(name, n)` — the function value the program's top level, then
-the builtins and the prelude, give that name, optionally that arity; an operator's spelling, `"+"`,
-gives its section `(+)`; it fails for a name nothing defines. `builtins()` generates the builtins'
-names. `invocable` is not needed: nothing is linked away. **`name(v)` and `variable(s)` are not
-adopted**: a local is a numbered slot, resolved when compiled, and has no name at run time.
-
-> **Open question I6 — reflection by name.** (a) `proc` over top-level names and builtins only, no
-> `variable`/`name`, no string invocation; (b) also `variable(s)` for top-level variables, keeping
-> a name table for the top-level frame. **Recommendation: (a).** Top-level names are already in a
-> table the compiler builds; locals by name would need a name per slot at run time for a feature
-> almost no Icon program uses. String invocation would reopen indexing and buys nothing over
-> `proc(s)(…)`.
-
 ## Co-expressions
 
 **Icon:** `create e` makes a co-expression: `e`, with a copy of the current procedure's locals,
