@@ -490,7 +490,7 @@ private held(items: *Buf[Value]) -> Result[Value, string]
     val o = new_array(0)?
 
     for x in items.view()
-        o.items.push(x)
+        o.push(x)
 
     current().allocated += items.len() * sizeof(Value)
     Ok(Array(o))
@@ -564,10 +564,10 @@ private begin_run(m: *Merge, n: usize)
 // Write the next element of the merge: the right run's when `right`, else the left's.
 private take_next(m: *Merge, from: *ArrayObj, to: *ArrayObj, right: bool)
     if right
-        to.items.set(m.k, from.items.at(m.j))
+        to.set(m.k, from.at(m.j))
         m.j += 1
     else
-        to.items.set(m.k, from.items.at(m.i))
+        to.set(m.k, from.at(m.i))
         m.i += 1
 
     m.k += 1
@@ -598,9 +598,9 @@ private sort_by_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
     loop
         val from = slot_array(f, SortFrom)?
         val to = slot_array(f, SortTo)?
-        val n = from.items.len()
+        val n = from.len()
 
-        if m.width >= n then return Ok(Answered(list_of(&from.items, Nil)?))
+        if m.width >= n then return Ok(Answered(list_of_values(from.view(), Nil)?))
 
         if m.k >= m.hi
             m.lo = m.hi
@@ -618,8 +618,8 @@ private sort_by_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
 
             var args: Buf[Value] = buf()
 
-            args.push(from.items.at(m.j))
-            args.push(from.items.at(m.i))
+            args.push(from.at(m.j))
+            args.push(from.at(m.i))
             return Ok(Calls(f.args.at(0), args))
         else
             take_next(&m, from, to, m.j < m.hi)
@@ -658,26 +658,26 @@ private zip_with_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
         Returned(x) ->
             val out = slot_array(f, ZipOut)?
 
-            out.items.push(x)
+            out.push(x)
             current().allocated += sizeof(Value)
             at = slot_count(f, ZipAt)? + 1
         Missed -> at = slot_count(f, ZipAt)? + 1
 
-    var len = slot_array(f, 0)?.items.len()
+    var len = slot_array(f, 0)?.len()
 
     for i in 1..<lists
-        val k = slot_array(f, i)?.items.len()
+        val k = slot_array(f, i)?.len()
 
         if k < len then len = k
 
-    if at >= len then return Ok(Answered(list_of(&slot_array(f, ZipOut)?.items, Nil)?))
+    if at >= len then return Ok(Answered(list_of_values(slot_array(f, ZipOut)?.view(), Nil)?))
 
     set_count(f, ZipAt, at)?
 
     var args: Buf[Value] = buf()
 
     for i in 0..<lists
-        args.push(slot_array(f, i)?.items.at(at))
+        args.push(slot_array(f, i)?.at(at))
 
     Ok(Calls(f.args.at(0), args))
 
