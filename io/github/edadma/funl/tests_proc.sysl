@@ -1,0 +1,65 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Calling by name: `proc(name)` and `proc(name, n)` over the program's top-level functions, the
+// builtins and the prelude, and `builtins()`.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+PROC_GIVES_A_TOP_LEVEL_FUNCTION_BY_NAME()
+    assert_eq(ran_funl("def double(x) = x * 2\nf = proc(\"double\")\nwrite(f(21))\n"), "42\nsucceeded")
+    assert_eq(ran_funl("def double(x) = x * 2\nwrite(proc(\"double\")(4))\n"), "8\nsucceeded")
+
+@test
+PROC_GIVES_A_BUILTIN_AND_A_PRELUDE_FUNCTION()
+    assert_eq(ran_funl("write(proc(\"abs\")(-3))\n"), "3\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"max\")(2, 9, 4))\n"), "9\nsucceeded")
+    assert_eq(ran_funl("write(proc(\"map\")(x -> x + 1, [1, 2]))\n"), "[2, 3]\nsucceeded")
+
+@test
+A_PROGRAMS_OWN_FUNCTION_HIDES_A_BUILTIN_OF_THE_SAME_NAME()
+    assert_eq(ran_funl("def abs(x) = 'mine'\nwrite(proc(\"abs\")(-3))\n"), "mine\nsucceeded")
+
+@test
+PROC_FAILS_FOR_A_NAME_NOTHING_DEFINES()
+    assert_eq(ran_funl("write( if proc(\"no_such_thing\") then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"\") then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("x = 5\nwrite( if proc(\"x\") then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("write( if proc(\"letters\") then 'got' else 'none' )\n"), "none\nsucceeded")
+
+@test
+PROC_WITH_A_COUNT_PICKS_THAT_ARITY_AND_FAILS_FOR_ANOTHER()
+    assert_eq(ran_funl("def f(a) = 'one'\ndef f(a, b) = 'two'\nwrite(proc(\"f\", 1)(0), proc(\"f\", 2)(0, 0))\n"), "one, two\nsucceeded")
+    assert_eq(ran_funl("def f(a) = 'one'\nwrite( if proc(\"f\", 2) then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("def f(a) = 'one'\nwrite( if proc(\"f\", -1) then 'got' else 'none' )\n"), "none\nsucceeded")
+
+@test
+PROC_WITHOUT_A_COUNT_GIVES_THE_WHOLE_FAMILY_OF_A_NAME()
+    assert_eq(ran_funl("def f(a) = 'one'\ndef f(a, b) = 'two'\ng = proc(\"f\")\nwrite(g(0), g(0, 0))\n"), "one, two\nsucceeded")
+
+@test
+PROC_OF_A_NAME_AND_A_STRING_FOLLOWED_BY_PARENS_IS_STILL_AN_INDEX()
+    assert_eq(ran_funl("write(\"write\"(1))\n"), "r\nsucceeded")
+
+@test
+PROC_REFUSES_AN_ARGUMENT_OF_THE_WRONG_KIND()
+    faults_with("proc(3)\n", "'proc' wants the name as a string and was given")
+    faults_with("proc(\"abs\", \"x\")\n", "'proc' wants the number of arguments as an integer and was given")
+
+@test
+PROC_REFUSES_A_WRONG_COUNT_OF_ARGUMENTS_AT_COMPILE_TIME()
+    assert_eq(complaints("proc()\n"), "error 1:1 `proc` takes 1 or 2 arguments, and this call gives 0\n")
+    assert_eq(complaints("proc(\"a\", 1, 2)\n"), "error 1:1 `proc` takes 1 or 2 arguments, and this call gives 3\n")
+
+@test
+BUILTINS_GENERATES_THE_NAMES_OF_THE_BUILTINS()
+    assert_eq(ran_funl("seen = set()\nevery seen += builtins()\nwrite( ('abs' in seen) | 'no', ('write' in seen) | 'no', ('is/2' in seen) | 'no', ('_list' in seen) | 'no' )\n"), "abs, write, no, no\nsucceeded")
+    assert_eq(ran_funl("n = 0\nevery builtins() do n += 1\nwrite( if n > 50 then 'many' else 'few' )\n"), "many\nsucceeded")
+    assert_eq(ran_funl("write(type(proc(\"abs\")))\n"), "function\nsucceeded")

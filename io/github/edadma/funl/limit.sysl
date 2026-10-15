@@ -1,0 +1,63 @@
+module io.github.edadma.funl
+
+import sh.sysl.dal
+
+// Limitation, `e limit n`: `e`'s values, at most `n` of them.
+//
+//     n; LimitSet(t); MarkThrough; SaveMark(m); e; LimitCount(t, m)
+//
+// **`n` runs first and is an ordinary expression**, so it may generate. Its choice points stay
+// beneath the mark around `e`: when `e` has produced its quota, or has no more values, the next
+// failure resumes `n`, and its next value limits `e` afresh from the start -- `(1 to 3) limit (1 | 2)`
+// produces `1`, then `1, 2`. A limit of 0 fails at once, without evaluating `e`.
+//
+// **The count is kept in a slot, not an operand cell**: backtracking into `e` restores the cells
+// above the mark's floor, and would put an operand count back to what it was when `e` last left a
+// choice point. An ordinary store to a slot is not undone by backtracking, so each value `e`
+// produces counts once, however it was reached.
+//
+// **The mark's place is kept in a slot too**, because the mark around `e` need not be the innermost
+// one when `e` produces a value: `|x` leaves its own mark open between rounds. Ending the limitation
+// ends the bounded expression the slot names, with everything opened inside it.
+
+// `LimitSet(slot)`: pop the limit into the slot; false for a limit of 0, which fails.
+limit_set(v: *Vm, slot: usize) -> Result[bool, Fault]
+    val n = v.stack.pop() match
+        Some(x) -> deref(x)
+        None -> return Err(Broken("LimitSet with an empty operand stack"))
+
+    val count = n match
+        Int(k) ->
+            if k < 0 then return Err(domain_error("not_less_than_zero", n, s"'limit' wants a count of zero or more, and was given $k"))
+
+            k
+        Big(p) ->
+            if dal.sign(p.n) < 0 then return Err(domain_error("not_less_than_zero", n, s"'limit' wants a count of zero or more, and was given ${render(n)}"))
+
+            // More values than any run could produce: no limit at all.
+            long::Max
+        _ -> return Err(kind_error(n, "integer", s"'limit' wants a count of values as an integer, and was given ${described(n)}"))
+
+    if count == 0 then return Ok(false)
+
+    set_slot(v.frame, slot, Int(count))?
+    Ok(true)
+
+// `LimitCount(count, mark)`: one more value; after the last, end `e`'s bounded expression, keeping
+// the value on top.
+limit_count(v: *Vm, count: usize, mark: usize) -> Result[unit, Fault]
+    val left = slot_of(v.frame, count)? match
+        Int(k) -> k - 1
+        _ -> return Err(Broken("a limitation's count slot holds no count"))
+
+    if left > 0
+        set_slot(v.frame, count, Int(left))?
+        return Ok(())
+
+    val x = v.stack.pop() match
+        Some(x) -> x
+        None -> return Err(Broken("LimitCount with an empty operand stack"))
+
+    unmark_to(v, slot_of(v.frame, mark)?)?
+    v.stack.push(x)
+    Ok(())

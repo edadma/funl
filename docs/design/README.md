@@ -39,6 +39,7 @@ Read them in order; each leans on the one before it.
 | [Modules and native modules](modules.md) | modules and `import` as slate has them, `funl:` modules over sysl packages, features, values that cross, the first batch, and `async`/`await` |
 | [Packages](packages.md) | the manifest, specifiers and what they resolve to, exact versions and `funl.sum`, the cache and `vendor/`, offline use, `funl add`, and what a package can and cannot bring |
 | [Icon parity](icon.md) | everything Icon 9.5 has that FunL lacks — `until`, `case`, limitation, `static`, variadic calls, co-expressions, scanning keywords, the string, cset, structure, number and I/O functions, keywords, the preprocessor — what is covered already, and how each new piece runs on the machine |
+| [Graphics](graphics.md) | Icon's graphics facilities as `funl:graphics`: the window handle, canvas and context, attributes as a map, drawing, colours, fonts, images, events and the loop, hidden canvases for testing, and the sysl packages under it |
 | [Milestones](milestones.md) | the order the work is done in, and what proves each step |
 
 ## Conventions on these pages
@@ -136,6 +137,10 @@ Each is argued where it arises; this is the list.
 | M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
 | Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [icon](icon.md) |
+| I6 Reflection by name | `proc(name)` and `proc(name, n)` over top-level names and builtins (the prelude too); fails for an unknown name; no `variable`/`name`, no string invocation (user, 2026-10-15) | [functions](../reference/functions.md#calling-by-name) |
+| I3 Limitation, `\` being integer division | the infix word `e limit n`, Icon's semantics (a generating `n` re-limits); `\` stays division (user, 2026-10-15) | [icon](icon.md#limitation) |
+| I21 Are Icon's graphics facilities in scope? | yes, as the native module `funl:graphics`, designed in its own chapter; its questions are G1–G12 (user, 2026-10-15) | [graphics](graphics.md) |
+| I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [icon](icon.md#keywords) |
 
 ## Open questions
 
@@ -145,10 +150,8 @@ Each has a recommendation in its chapter; the user decides them before the miles
 |---|---|---|
 | I1 The loop `until` beside the range `until` | both, by position: prefix is the loop, infix the range | [icon](icon.md#until) |
 | I2 A `case` expression | postfix `e match` over a clause block; no match fails; `(e)` in a pattern compares with `e`'s value | [icon](icon.md#case) |
-| I3 Limitation, `\` being integer division (decided) | the infix word `e limit n`; `\` stays division | [icon](icon.md#limitation) |
 | I4 Whose is a `static`: the definition's or each closure's? | each closure value's | [icon](icon.md#static-and-initial) |
 | I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family | [icon](icon.md#variadic-procedures-and-list-invocation) |
-| I6 Reflection by name | `proc(name)` over top-level names and builtins; no `variable`/`name`, no string invocation | [icon](icon.md#calling-by-name) |
 | I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` | [icon](icon.md#co-expressions) |
 | I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it | [icon](icon.md#co-expressions) |
 | I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
@@ -158,9 +161,19 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | I13 Icon's string comparison operators | none; polymorphic comparison covers them | [icon](icon.md#string-comparison) |
 | I14 Icon's implicit conversion | none; a function per conversion | [icon](icon.md#string-comparison) |
 | I15 Mutable records (decided: a record is a term) | keep immutable; add `with(r, {f: x})` | [icon](icon.md#records) |
-| I16 Radix literals `16rFF` (decided: juxtaposition) | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` | [icon](icon.md#bits-radix-and-conversion) |
+| I16 Radix literals `16rFF` (decided, user, 2026-10-15: built) | the `NrDDD` literal, bases 2-36, any size; `0x`/`0o`/`0b` stay | [icon](icon.md#bits-radix-and-conversion) |
 | I17 Writing to a file | handle methods, `f.write(x)`; `write` stays "print these" | [icon](icon.md#input-and-output) |
-| I18 How keywords are spelled | `&name`, one token when `&` touches a letter | [icon](icon.md#keywords) |
 | I19 `&error` and `runerr` (decided: `catch`) | nothing more; `catch` and `throw` cover them | [icon](icon.md#errors) |
 | I20 A preprocessor | conditional compilation on platform and features only | [icon](icon.md#the-preprocessor) |
-| I21 Icon's graphics facilities | out of parity's scope; a later native module | [icon](icon.md#graphics) |
+| G1 Methods on the window, or functions taking it | methods; `&window` an assignable keyword, no implicit-window forms | [graphics](graphics.md#the-window) |
+| G2 What `close()` closes | the canvas, as `WClose`, and every handle on it; `uncouple()` closes one | [graphics](graphics.md#the-window) |
+| G3 How attributes are read and set | a map with natural values: `set(m)`, `get(name)`, `attributes()` | [graphics](graphics.md#attributes-are-a-map) |
+| G4 The default font | a permissively licensed monospaced face carried in the binary as `"fixed"` | [graphics](graphics.md#text-and-fonts) |
+| G5 Anti-aliasing | accept plutovg's; integer coordinates through pixel centres, so axis-aligned shapes are exact | [graphics](graphics.md#coordinates) |
+| G6 Coordinates on a high-density screen | points, the surface at `density`; a hidden canvas density 1 | [graphics](graphics.md#coordinates) |
+| G7 `drawop: #reverse` | built, as a coverage mask exclusive-ored into the pixels | [graphics](graphics.md#drawing) |
+| G8 Image formats | read what stb_image reads; write PNG only | [graphics](graphics.md#images) |
+| G9 Key releases | under `inputmask` `"k"`, the same code with `&released` succeeding | [graphics](graphics.md#what-an-event-is) |
+| G10 Whose are `&x`, `&y`, `&control`, … | the running machine's, set by `event()` | [graphics](graphics.md#what-an-event-is) |
+| G11 The promise form of `Event()` | `w.next_event()`, a promise of an event map; no keywords set | [graphics](graphics.md#events-and-the-loop) |
+| G12 Module and feature | `funl:graphics` in the core over vendored plutovg; on-screen windows behind a `graphics` feature over `sdl3`, on in `default` | [graphics](graphics.md#the-questions-collected) |
