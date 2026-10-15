@@ -78,7 +78,7 @@ dependencies {
   // `funl:graphics`'s windows on screen, behind the `graphics` feature: SDL is a library the machine
   // has to have installed, where a hidden canvas needs nothing, so a build without the feature keeps
   // every hidden canvas and links no SDL.
-  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.6", optional = true }
+  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.7", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`

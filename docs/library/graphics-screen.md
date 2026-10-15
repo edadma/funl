@@ -39,7 +39,7 @@ Between those, a hundred drawing calls cost one copy to the screen, the latitude
 | method | what it does |
 |---|---|
 | `w.flush()` | shows every window's canvas as it now is, and answers `w` |
-| `w.sync()` | the same: the frame is on screen by the time it answers |
+| `w.sync()` | `flush`, then every pending request to the window -- its size, place, maximizing -- waited for |
 | `w.delay(ms)` | shows the canvases, then waits `ms` milliseconds, the windows answering their user meanwhile; answers `w` |
 | `w.raise()` | brings `w`'s window in front of the others, and answers `w` |
 
@@ -86,17 +86,24 @@ normal, (100, 80)
 hidden
 ```
 
-`#maximal` and `#iconic`, Icon's other canvas states, fault for now: SDL can maximize and minimize a
-window, and the `sdl3` package does not bind those calls yet.
+`#maximal` and `#iconic`, Icon's other canvas states, maximize and minimize the window, and `#normal`
+restores it from either. These are requests to the window manager, which may refuse or act later:
+`set` waits for the answer, and **reading `canvas` reports what the window is** -- including a window
+its user has maximized or minimized -- so after a refusal it still says `normal`. A hidden canvas set
+to `#maximal` or `#iconic` is given its window and then asked for the state. `sync()` waits for every
+pending request to the window, as SDL's `SDL_SyncWindow` does.
 
 ```funl
 import { open } from funl:graphics
 
-w = open( "big", {canvas: #maximal} )
+w = open( "big", {canvas: #hidden} )
+write( w.get("canvas") )
+write( w.sync().get("canvas") )
 ```
 
-```error
-'open': `#maximal` and `#iconic` need SDL's maximize and minimize, which the `sdl3` package does not bind yet
+```output
+hidden
+hidden
 ```
 
 ## Where the window is, and the pointer

@@ -183,6 +183,28 @@ screen_visible(at: usize, on: bool) = if on then screen_at(at).window.show() els
 
 screen_raise(at: usize) = screen_at(at).window.raise()
 
+// The window at `at` asked to be in canvas state `state` -- `"maximal"`, `"iconic"` or `"normal"` --
+// and SDL's pending requests waited for. A window manager may refuse; `screen_state` tells what it did.
+screen_arrange(at: usize, state: string)
+    val win = screen_at(at).window
+
+    if state == "maximal" then win.maximize()
+    else if state == "iconic" then win.minimize()
+    else win.restore()
+
+    win.sync()
+
+// What the window at `at` is: `"maximal"`, `"iconic"` or `"normal"`.
+screen_state(at: usize) -> string
+    val win = screen_at(at).window
+
+    if win.is_maximized() then "maximal"
+    else if win.is_minimized() then "iconic"
+    else "normal"
+
+// Every request made of the window at `at` waited for, as SDL's `SDL_SyncWindow` does.
+screen_sync(at: usize) = screen_at(at).window.sync()
+
 screen_place(at: usize, x: long, y: long) = screen_at(at).window.set_position(i32(x), i32(y))
 
 // Where the window at `at` is on its display, in points.
@@ -393,6 +415,12 @@ screen_resizable(at: usize, on: bool) = ()
 screen_visible(at: usize, on: bool) = ()
 
 screen_raise(at: usize) = ()
+
+screen_arrange(at: usize, state: string) = ()
+
+screen_state(at: usize) -> string = "normal"
+
+screen_sync(at: usize) = ()
 
 screen_place(at: usize, x: long, y: long) = ()
 

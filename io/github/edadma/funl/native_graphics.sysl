@@ -55,10 +55,6 @@ private const MaxSide: long = 32767
 // What a window on screen answers in a build that has none.
 private const NoScreen: string = "a window on screen is not in this build -- it is behind the `graphics` feature"
 
-// What `canvas: #maximal` and `canvas: #iconic` answer: SDL can maximize and minimize a window, and
-// the `sdl3` package does not bind those calls yet.
-private const NoMaximize: string = "`#maximal` and `#iconic` need SDL's maximize and minimize, which the `sdl3` package does not bind yet"
-
 // A canvas: its pixels and the plutovg canvas drawing on them, how many handles are open on it, and
 // its attributes; its event queue, oldest first; the handles open on it, oldest first, which the
 // collector does not see -- a handle leaves the list when it is uncoupled or forgotten, so every one
@@ -201,7 +197,7 @@ install_graphics(v: *Vm)
     register_method(v, w, "clone", Variadic, do_clone)
     register_method(v, w, "uncouple", 0, do_uncouple)
     register_method(v, w, "flush", 0, do_flush)
-    register_method(v, w, "sync", 0, do_flush)
+    register_method(v, w, "sync", 0, do_sync)
     register_method(v, w, "delay", 1, do_delay)
     register_method(v, w, "raise", 0, do_raise)
     register_stepping_method(v, w, "pixel", Variadic, start_pixel, step_pixel)
@@ -475,6 +471,8 @@ private settable(m: *MapObj, name: string) -> Result[unit, Fault]
 private applied(at: usize, ctx: WinContext, m: *MapObj, name: string) -> Result[Option[WinContext], Fault]
     settable(m, name)?
 
+    canvases.set(at, Some(live_state(canvas_at(at))))
+
     var p = Pending(canvas_at(at), ctx)
 
     for i in 0..<m.keys.len()
@@ -500,6 +498,21 @@ private applied(at: usize, ctx: WinContext, m: *MapObj, name: string) -> Result[
     canvases.set(at, Some(onto_screen(kept, now, name)?))
     Ok(Some(p.ctx))
 
+// The window at `at` asked to be in `state`, and the state it is in afterwards.
+private screen_arranged(at: usize, state: string) -> string
+    screen_arrange(at, state)
+    screen_state(at)
+
+// Canvas `c` with its `state` as its window is: a window maximized or minimized by its user, or
+// refused a request, is what it now is, not what was last asked. A hidden canvas has no window.
+private live_state(c: WinCanvas) -> WinCanvas
+    if c.screen < 0 || c.state == "hidden" then return c
+
+    var out = c
+
+    out.state = screen_state(usize(c.screen))
+    out
+
 // Canvas `c`, which was `was`, carried onto the screen: a window made for it when it is first shown,
 // at the display's density, and every change to its title, size, resizing, visibility, position and
 // pointer handed to the window it has.
@@ -514,6 +527,8 @@ private onto_screen(c: WinCanvas, was: WinCanvas, name: string) -> Result[WinCan
             Err(why) -> return Err(system_error(s"'$name': $why"))
 
         out.screen = long(at)
+
+        if out.state != "normal" then out.state = screen_arranged(at, out.state)
 
         out.pos match
             Some((x, y)) -> screen_place(at, x, y)
@@ -531,7 +546,11 @@ private onto_screen(c: WinCanvas, was: WinCanvas, name: string) -> Result[WinCan
         if out.label != was.label then screen_title(at, out.label)
         if out.width != was.width || out.height != was.height then screen_size(at, out.width, out.height)
         if out.resize != was.resize then screen_resizable(at, out.resize)
-        if out.state != was.state then screen_visible(at, out.state != "hidden")
+        if out.state != was.state
+            screen_visible(at, out.state != "hidden")
+
+            if out.state != "hidden" && (out.state != "normal" || was.state != "hidden")
+                out.state = screen_arranged(at, out.state)
 
         if out.pos != was.pos
             out.pos match
@@ -631,7 +650,6 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
             None -> return Ok(None)
 
         if mode != "hidden" && !HasScreen then return Err(system_error(s"'$name': $NoScreen"))
-        if mode == "maximal" || mode == "iconic" then return Err(system_error(s"'$name': $NoMaximize"))
 
         q.cv.state = mode
     else if k == "pos" || k == "posx" || k == "posy"
@@ -789,7 +807,7 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
         "width" -> Int(c.width)
         "height" -> Int(c.height)
         "label" -> new_str(c.label)?
-        "canvas" -> atom(c.state)
+        "canvas" -> atom(live_state(c).state)
         "resize" -> boolean(c.resize)
         "posx" -> part(pos, false)
         "posy" -> part(pos, true)

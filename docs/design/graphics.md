@@ -54,10 +54,6 @@ These are reported to the org, not routed around ([Rule 9](#closed-by-design)):
   absent from `plutovg.sysl`, whose only PNG writer is `write_png(path)`. `image_bytes` waits on it;
   writing a scratch file and reading it back would be the workaround [Rule 9](#closed-by-design)
   forbids.
-- **F5 — sdl3 does not bind `SDL_MaximizeWindow`, `SDL_MinimizeWindow` or `SDL_RestoreWindow`.**
-  Icon's `canvas=maximal` and `canvas=iconic` are those calls, and they fault naming them until the
-  package binds them. (`SDL_SyncWindow` is unbound too; `sync()` does not need it, since a frame is
-  on screen once `SDL_RenderPresent` returns.)
 - **F6 — SDL has no call that lowers a window.** `SDL_RaiseWindow` has no opposite in SDL3, so
   Icon's `Lower()` (`w.lower()` in the table below) is not built: whether FunL drops it or reaches
   each platform's own call is a question for the user.
