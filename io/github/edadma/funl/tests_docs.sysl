@@ -517,7 +517,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/library/README.md 0 0 0 0\n" +
     AsyncCensus +
     "docs/library/fs.md 13 2 0 0\n" +
-    "docs/library/graphics.md 13 2 0 0\n" +
+    "docs/library/graphics.md 17 2 0 0\n" +
     HttpCensus +
     "docs/library/json.md 7 1 0 0\n" +
     "docs/library/prelude.md 15 14 0 0\n" +

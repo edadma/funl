@@ -1,0 +1,242 @@
+module io.github.edadma.funl
+@tests
+
+// `funl:graphics`'s drawing (`docs/library/graphics.md` § "Drawing"): every drawing method on a
+// hidden canvas, read back through `pixel` as a picture -- `#` black, `.` white, `r` red and `+` any
+// other colour, an anti-aliased edge among them.
+
+private const Show: string =
+    "def dot( p ) = if p == \"0,0,0\" then \"#\" else if p == \"65535,65535,65535\" then \".\" else if p == \"65535,0,0\" then \"r\" else \"+\"\n" +
+    "def show( w ) = for y <- 0 to w.get(\"height\") - 1 do write( join([dot(p) | p <- w.pixel(0 - w.get(\"dx\"), y - w.get(\"dy\"), w.get(\"width\"), 1)]) )\n"
+
+// FunL program `body` run with `w` a hidden canvas `width` by `height` and `show(w)` printing it.
+private drawn(width: long, height: long, body: string) -> string =
+    ran_funl("import { open, color_value } from funl:graphics\n" + Show + s"w = open( \"t\", {canvas: #hidden, size: ($width, $height)} )\n" + body)
+
+@test
+POINTS_LINES_AND_RECTANGLES_COVER_THE_PIXELS_ICONS_WOULD()
+    assert_eq(drawn(10, 8, "write( w.draw_point(0, 0, 9, 7) )\nw.draw_line( 1, 1, 5, 1, 5, 4 )\nw.draw_rectangle( 6, 2, 3, 2 )\nshow( w )\n"),
+        "<window handle>\n" +
+        "#.........\n" +
+        ".#####....\n" +
+        ".....#####\n" +
+        ".....##..#\n" +
+        ".....#####\n" +
+        "..........\n" +
+        "..........\n" +
+        ".........#\nsucceeded")
+
+@test
+A_FILL_COVERS_ITS_EXTENTS_AND_A_NEGATIVE_EXTENT_REACHES_BACK()
+    assert_eq(drawn(10, 6, "w.fill_rectangle()\nw.set( {fg: \"red\"} ).fill_rectangle( 1, 1, 3, 2 )\nw.set( {fg: \"white\"} ).fill_rectangle( 8, 5, -2, -3 )\n" +
+            "w.set( {fg: \"red\"} ).fill_rectangle( 9, 4 ).fill_rectangle( undefined, 5, 1 )\nshow( w )\n"),
+        "##########\n" +
+        "#rrr######\n" +
+        "#rrr##..##\n" +
+        "######..##\n" +
+        "######..#r\n" +
+        "r########r\nsucceeded")
+
+@test
+SEGMENTS_ARE_SEPARATE_AND_A_POLYGON_CLOSES()
+    assert_eq(drawn(10, 8, "w.draw_segment( 0, 0, 0, 3, 2, 7, 9, 7 )\nw.draw_polygon( 4, 1, 8, 1, 8, 4 )\nshow( w )\nw.erase_area().fill_polygon( 0, 0, 4, 0, 4, 4, 0, 4, 0, 2, 2, 2, 2, 6, 0, 6 )\nshow( w )\n"),
+        "#.........\n" +
+        "#..++####.\n" +
+        "#...++++#.\n" +
+        "#....+++#.\n" +
+        ".......++.\n" +
+        "........+.\n" +
+        "..........\n" +
+        "..########\n" +
+        "####......\n" +
+        "####......\n" +
+        "..##......\n" +
+        "..##......\n" +
+        "##........\n" +
+        "##........\n" +
+        "..........\n" +
+        "..........\nsucceeded")
+
+@test
+CIRCLES_ARE_DRAWN_THROUGH_PIXEL_CENTRES_AND_FILLED_ON_THE_GRID()
+    assert_eq(drawn(12, 9, "w.fill_circle( 6, 4, 3 )\nshow( w )\nw.erase_area().draw_circle( 5, 4, 3 )\nshow( w )\n"),
+        "............\n" +
+        "...++++++...\n" +
+        "...+####+...\n" +
+        "...+####+...\n" +
+        "...+####+...\n" +
+        "...+####+...\n" +
+        "...++++++...\n" +
+        "............\n" +
+        "............\n" +
+        "............\n" +
+        "...+++++....\n" +
+        "..+++++++...\n" +
+        "..++...++...\n" +
+        "..++...++...\n" +
+        "..++...++...\n" +
+        "..+++++++...\n" +
+        "...+++++....\n" +
+        "............\nsucceeded")
+
+@test
+ARCS_RUN_CLOCKWISE_AND_A_FILLED_ARC_IS_A_PIE()
+    assert_eq(drawn(8, 6, "w.draw_arc( 0, 0, 7, 5, 0, pi )\nshow( w )\nw.erase_area().fill_arc( 0, 0, 8, 6, 0, -pi / 2 )\nshow( w )\nw.erase_area().fill_circle( 4, 3, 3, pi / 2, pi )\nshow( w )\n"),
+        "........\n" +
+        "........\n" +
+        "+.....++\n" +
+        "++....++\n" +
+        "++++++++\n" +
+        ".++++++.\n" +
+        "....+++.\n" +
+        "....###+\n" +
+        "....###+\n" +
+        "........\n" +
+        "........\n" +
+        "........\n" +
+        ".+++....\n" +
+        ".+##....\n" +
+        ".+##....\n" +
+        ".+##....\n" +
+        ".+##....\n" +
+        ".+++....\nsucceeded")
+
+@test
+A_CURVE_PASSES_THROUGH_EVERY_POINT()
+    assert_eq(drawn(8, 6, "w.draw_curve( 0, 5, 3, 0, 7, 5 )\nshow( w )\nw.erase_area().draw_curve( 1, 1, 6, 1, 6, 4, 1, 4, 1, 1 )\nshow( w )\n"),
+        "..+++...\n" +
+        ".+++++..\n" +
+        ".++.+++.\n" +
+        "+++..+++\n" +
+        "++....++\n" +
+        "++....++\n" +
+        ".++++++.\n" +
+        "++++++++\n" +
+        "++....++\n" +
+        "++....++\n" +
+        "++++++++\n" +
+        ".++++++.\nsucceeded")
+
+@test
+DASHED_AND_STRIPED_LINES_AND_A_WIDE_ONE()
+    assert_eq(drawn(12, 9, "w.set( {linestyle: #dashed} ).draw_line( 0, 0, 11, 0 ).draw_line( 0, 2, 0, 8 )\nw.set( {linestyle: #striped, fg: \"red\"} ).draw_line( 2, 4, 11, 4 )\n" +
+            "w.set( {bg: \"black\"} ).draw_line( 2, 6, 11, 6 )\nshow( w )\n" +
+            "w.set( {bg: \"white\", fg: \"black\", linestyle: #solid, linewidth: 2} ).erase_area().draw_line( 1, 2, 8, 2 ).draw_rectangle( 2, 4, 3, 3 )\nshow( w )\n"),
+        "####....####\n" +
+        "............\n" +
+        "#...........\n" +
+        "#...........\n" +
+        "#.rrrr....rr\n" +
+        "#...........\n" +
+        "..rrrr####rr\n" +
+        "............\n" +
+        "............\n" +
+        "............\n" +
+        "#########...\n" +
+        "#########...\n" +
+        ".#####......\n" +
+        ".#####......\n" +
+        ".##.##......\n" +
+        ".#####......\n" +
+        ".#####......\n" +
+        "............\nsucceeded")
+
+@test
+A_TEXTURED_FILL_PAINTS_THE_PATTERN_AND_A_MASKED_ONE_ITS_ONES()
+    assert_eq(drawn(8, 4, "w.set( {fillstyle: #textured, pattern: \"4,#9696\"} ).fill_rectangle()\nshow( w )\n" +
+            "w.set( {fillstyle: #masked, pattern: \"2,1,2\", fg: \"red\"} ).fill_rectangle( 0, 0, 4, 4 )\nshow( w )\n" +
+            "w.set( {fillstyle: #textured, fg: \"black\", pattern: \"gray\"} ).erase_area( 0, 0, 8, 2 ).draw_line( 0, 0, 7, 0 )\nshow( w )\n"),
+        "#..##..#\n" +
+        ".##..##.\n" +
+        "#..##..#\n" +
+        ".##..##.\n" +
+        "r.r##..#\n" +
+        ".r#r.##.\n" +
+        "r.r##..#\n" +
+        ".r#r.##.\n" +
+        "#.#.#.#.\n" +
+        "........\n" +
+        "r.r##..#\n" +
+        ".r#r.##.\nsucceeded")
+
+@test
+PATTERN_TAKES_ICONS_NAMES_AND_BIT_PATTERNS_AND_FAILS_ON_ANYTHING_ELSE()
+    assert_eq(drawn(4, 3, "for p <- [\"grid\", \"Checkers\", \"1,#1\", \"32,4294967295\", \"12,#fff000\", \"3,1,2,4\"] do write( w.set({pattern: p}).get(\"pattern\") )\n" +
+            "for p <- [\"plaid\", \"33,#1\", \"0,#1\", \"2,#7\", \"2,#\", \"2,1,,2\", \"8,#123\",\",#1\", \"4\", \"2,4\"] do write( w.set({pattern: p}) | #refused )\n" +
+            "write( w.set({pattern: 7}) | #refused, w.get(\"pattern\") )\n"),
+        "grid\nCheckers\n1,#1\n32,4294967295\n12,#fff000\n3,1,2,4\n" +
+        "refused\nrefused\nrefused\nrefused\nrefused\nrefused\nrefused\nrefused\nrefused\nrefused\n" +
+        "refused, 3,1,2,4\nsucceeded")
+
+@test
+A_TRANSPARENT_FOREGROUND_PAINTS_AT_HALF_COVERAGE()
+    assert_eq(drawn(4, 1, "w.set( {fg: \"transparent black\"} ).fill_rectangle( 0, 0, 2, 1 )\nwrite( w.pixel(0, 0), w.get(\"fg\") )\n" +
+            "w.set( {fg: \"Opaque-blue\"} ).fill_rectangle( 0, 0, 1, 1 )\nwrite( w.pixel(0, 0), w.get(\"fg\") )\n" +
+            "w.set( {fg: \"transparent #ff0000\", reverse: true} )\nwrite( w.get(\"fg\"), w.get(\"bg\") )\nw.set( {reverse: false} ).fill_rectangle( 3, 0, 1, 1 )\nwrite( w.pixel(3, 0), w.get(\"fg\") )\n" +
+            "write( w.set({bg: \"transparent red\"}) | #refused, w.set({fg: \"transparent\"}) | #refused, w.set({fg: \"opaque transparent red\"}) | #refused, color_value(\"opaque red\") | #refused )\n"),
+        "32639,32639,32639, transparent black\n" +
+        "0,0,65535, Opaque-blue\n" +
+        "white, #ff0000\n" +
+        "65535,0,0, #ff0000\n" +
+        "refused, refused, refused, refused\nsucceeded")
+
+@test
+THE_ORIGIN_MOVES_EVERY_COORDINATE_AND_A_CLONES_CLIP_IS_ITS_OWN()
+    assert_eq(drawn(6, 4, "w.set( {dx: 1, dy: 1} ).draw_line( 0, 0, 2, 0, 2, 2 )\nc = w.clone( {fg: \"red\", dx: 0, dy: 0} ).clip( 4, 0, 2, 4 )\nc.fill_rectangle()\n" +
+            "w.draw_point( 4.0, 1 )\nw.draw_rectangle( -1, -1, 1, 1 )\nshow( w )\n"),
+        "##..rr\n" +
+        "####rr\n" +
+        "...#r#\n" +
+        "...#rr\nsucceeded")
+
+@test
+CLIP_SETS_THE_CLIP_ATTRIBUTES_AND_DRAWING_STAYS_INSIDE()
+    assert_eq(drawn(3, 3, "w.clip( 1, 1, 1, 2 ).fill_rectangle()\nshow( w )\nwrite( w.get(\"clipx\"), w.get(\"clipy\"), w.get(\"clipw\"), w.get(\"cliph\") )\n" +
+            "w.clip().set( {dx: 1, dy: 1} ).clip( 0, 0, -1, -1 )\nwrite( w.get(\"clipx\"), w.get(\"clipy\"), w.get(\"clipw\"), w.get(\"cliph\") )\n" +
+            "w.set( {fg: \"red\"} ).erase_area().draw_circle( 0, 0, 1 )\nw.clip().set( {fg: \"black\"} ).draw_point( 1, 1 ).draw_rectangle( 0, 0 )\nshow( w )\nwrite( w.clip().get(\"clipw\") )\n"),
+        "...\n" +
+        ".#.\n" +
+        ".#.\n" +
+        "1, 1, 1, 2\n" +
+        "0, 0, 1, 1\n" +
+        "+..\n" +
+        ".##\n" +
+        ".##\n" +
+        "undefined\nsucceeded")
+
+@test
+COPY_AREA_COPIES_OVERLAPPING_AND_ACROSS_WINDOWS()
+    assert_eq(drawn(8, 4, "w.fill_rectangle( 0, 0, 3, 2 ).fill_rectangle( 3, 2, 1, 1 )\nwrite( w.copy_area(w, 0, 0, 4, 3, 2, 1) )\nshow( w )\n" +
+            "u = open( \"u\", {canvas: #hidden, size: (3, 3), bg: \"red\"} )\nw.copy_area( u, 6, 2, 4, 4, -1, 0 )\nshow( u )\n" +
+            "u.set( {bg: \"red\"} ).erase_area().clip( 0, 0, 2, 2 )\nw.copy_area( u )\nshow( u )\n"),
+        "<window handle>\n" +
+        "###.....\n" +
+        "#####...\n" +
+        "..###...\n" +
+        ".....#..\n" +
+        "...\n" +
+        "...\n" +
+        "...\n" +
+        "##r\n" +
+        "##r\n" +
+        "rrr\nsucceeded")
+
+@test
+A_DRAWING_METHOD_FAULTS_ON_A_WRONG_COUNT_A_WRONG_KIND_OR_A_CLOSED_WINDOW()
+    assert_eq(drawn(4, 3, "write( w.draw_point(1) catch e -> e )\nwrite( w.draw_point() catch e -> e )\nwrite( w.draw_line(1, 2, 3, 4, 5) catch e -> e )\n" +
+            "write( w.draw_segment(1, 2, 3, 4, 5) catch e -> e )\nwrite( w.draw_circle(1, 2, 3, 4, 5, 6) catch e -> e )\nwrite( w.draw_point(1, \"a\") catch e -> e )\n" +
+            "write( w.fill_rectangle(1, 2, #x) catch e -> e )\nwrite( w.draw_point(1, undefined) catch e -> e )\nwrite( w.clip(1.5) catch e -> e )\n" +
+            "write( w.copy_area(3) catch e -> e )\nwrite( w.copy_area() catch e -> e )\nwrite( w.clip(1, 2, 3, 4, 5) catch e -> e )\nw.close()\nwrite( w.draw_line(0, 0, 1, 1) catch e -> e )\n"),
+        "error(existence_error(procedure, /(draw_point, 1)), context(_G2, \"'draw_point' takes coordinates in pairs, x and y, and was given 1 argument\"))\n" +
+        "error(existence_error(procedure, /(draw_point, 0)), context(_G5, \"'draw_point' takes coordinates in pairs, x and y, and was given 0 arguments\"))\n" +
+        "error(existence_error(procedure, /(draw_line, 5)), context(_G8, \"'draw_line' takes two points or more, each an x and a y, and was given 5 arguments\"))\n" +
+        "error(existence_error(procedure, /(draw_segment, 5)), context(_G11, \"'draw_segment' takes segments of four numbers, x1, y1, x2 and y2, and was given 5 arguments\"))\n" +
+        "error(existence_error(procedure, /(draw_circle, 6)), context(_G14, \"'draw_circle' takes groups of x, y and a radius, each with a start and an extent if wanted, and was given 6 arguments\"))\n" +
+        "error(type_error(number, \"a\"), context(_G17, \"'draw_point' wants a number and was given the string 'a'\"))\n" +
+        "error(type_error(number, x), context(_G20, \"'fill_rectangle' wants a number and was given the atom x\"))\n" +
+        "error(type_error(number, undefined), context(_G23, \"'draw_point' wants a number and was given undefined\"))\n" +
+        "error(type_error(integer, 1.5), context(_G26, \"'clip' wants an integer and was given the real 1.5\"))\n" +
+        "error(type_error(handle, 3), context(_G29, \"'copy_area' wants a handle and was given the integer 3\"))\n" +
+        "error(existence_error(procedure, /(copy_area, 0)), context(_G32, \"'copy_area' takes a window and at most six numbers, and was given 0 arguments\"))\n" +
+        "error(existence_error(procedure, /(clip, 5)), context(_G35, \"'clip' takes at most 4 arguments and was given 5\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G38, \"'draw_line' was called on the handle <closed window handle>\"))\nsucceeded")

@@ -73,7 +73,6 @@ enumerations symbols, the rest strings):
 
 | attribute | item |
 |---|---|
-| `pattern` (Icon's pattern specifications, and its failure) | 2, drawing |
 | `image` (a file loaded at open, the canvas sized to it) | 4, images |
 | `pos`, `posx`, `posy`, `pointer`, `pointerx`, `pointery`; read-only `displaywidth`, `displayheight` | 7, windows on screen |
 
@@ -82,38 +81,16 @@ Not adopted: `display` (an X server's name), `gamma`, `iconpos`, `iconlabel`, `i
 
 ## Drawing
 
-Every Icon drawing function is a method; a function that takes a repeated group of arguments
-(`DrawLine(x1, y1, x2, y2, x3, y3, …)`, `DrawPoint(x1, y1, x2, y2, …)`, `DrawRectangle` with several
-rectangles) takes the same flat list, so a variadic call ([I5](../reference/functions.md#variadic-functions))
-or a spread passes a computed list.
+**The drawing methods, their coordinates, `linestyle`, `fillstyle`, `pattern`, `clip` and
+`copy_area` are built** — see [the library page](../library/graphics.md#drawing). What remains is
+for the later items:
 
 | Icon | FunL |
 |---|---|
-| `DrawPoint(x, y, …)` | `w.draw_point(x, y, …)` |
-| `DrawLine(x1, y1, x2, y2, …)` | `w.draw_line(…)` — a polyline through every point |
-| `DrawSegment(x1, y1, x2, y2, …)` | `w.draw_segment(…)` — separate segments, four numbers each |
-| `DrawRectangle`, `FillRectangle` | `w.draw_rectangle(x, y, wd, ht, …)`, `w.fill_rectangle(…)`; `fill_rectangle()` with none fills the whole canvas |
-| `DrawPolygon`, `FillPolygon` | `w.draw_polygon(x1, y1, …)`, `w.fill_polygon(…)` |
-| `DrawCircle(x, y, r, theta, alpha, …)` | `w.draw_circle(…)`, `w.fill_circle(…)` — `theta` and `alpha` in radians, as Icon's |
-| `DrawArc(x, y, wd, ht, theta, alpha, …)` | `w.draw_arc(…)`, `w.fill_arc(…)` — an arc of the ellipse in the box |
-| `DrawCurve(x1, y1, …)` | `w.draw_curve(…)` — Icon's smooth curve through every point, a closed one when the first point is the last |
 | `DrawString(x, y, s)` | `w.draw_string(x, y, s)` — `y` is the baseline, as Icon's |
-| `EraseArea(x, y, wd, ht)` | `w.erase_area(…)` — fills with `bg`; with no arguments, the whole canvas |
-| `CopyArea(w1, w2, x, y, wd, ht, x2, y2)` | `w1.copy_area(w2, x, y, wd, ht, x2, y2)` — `w2` may be `w1`, and an overlapping copy is done through a scratch surface |
-| `Clip(x, y, wd, ht)`, `Clip()` | `w.clip(x, y, wd, ht)`, `w.clip()` — also the `clip*` attributes |
-| `Fg(s)`, `Bg(s)`, `Font(s)`, `Pattern(s)`, `DrawOp(s)` | the attributes; `w.set({fg: s})` |
 | `TextWidth(s)` | `w.text_width(s)` |
 | `Raise()`, `Lower()` | `w.raise()`, `w.lower()` |
 | `WDefault(prog, opt)` | not adopted: X resources ([out of scope](#out-of-scope)) |
-
-**A width or height may be negative**, which Icon defines as extending left or up from the point; a
-missing `wd`/`ht` means "to the edge of the canvas", also Icon's.
-
-**`linestyle`** strokes with plutovg's dash; `#striped` draws the gaps in `bg`. **`fillstyle`** and
-**`pattern`** take Icon's pattern specifications — the named ones (`"black"`, `"gray"`,
-`"checkers"`, `"grains"`, …) and the bit-pattern strings `"#8,…"` and `"8,#…"` — made into a small
-tiled plutovg texture: `#textured` paints the ones in `fg` and the zeros in `bg`, `#masked` paints
-the ones only.
 
 **`drawop: #reverse`** is Icon's rubber-band operation: drawing the same thing twice restores what
 was there. plutovg's `Xor` operator is Porter-Duff's, not a bitwise one, so the module draws the
@@ -123,15 +100,8 @@ partial pixel cannot be undone by a second exclusive-or.
 
 ### Coordinates
 
-**Coordinates are numbers, `Int` or `Real`**, measured from the canvas's top left, `x` right and
-`y` down, with `dx`/`dy` added first as Icon's are. **An integer coordinate names a pixel**, and the
-module draws through the pixel's centre (it adds 0.5 before handing plutovg the point), so a
-`draw_point`, a horizontal or vertical line, and a rectangle with integer corners touch exactly the
-pixels Icon's would, with no anti-aliased fringe. A diagonal line or an arc is anti-aliased — plutovg
-has no aliased mode, and Icon's book leaves the pixels of a slanted line to the display
-([G5](#the-questions-collected)).
-
-**On a high-density display the canvas is measured in points, not device pixels** ([G6](#the-questions-collected)).
+**Coordinates on a hidden canvas are built** ([the library page](../library/graphics.md#coordinates),
+G5 decided). **On a high-density display the canvas is measured in points, not device pixels** ([G6](#the-questions-collected)).
 A window opened at `size: (400, 300)` is 400 by 300 points on screen; its surface has `density`
 times as many pixels in each direction, and drawing is scaled by it, so lines and text are sharp on a
 retina screen. `pixel(x, y)` answers the colour at the point's top-left device pixel, and
@@ -141,10 +111,8 @@ reads is the same on every machine.
 ### Colours
 
 **Colour specifications, `color_value` and `pixel` are built** ([the library
-page](../library/graphics.md#colours)). Icon's `"transparent"` and `"opaque"` modifiers are taken for
-`fg` (painting at half and full coverage being what a 24-bit display can show of them), which is
-drawing's, item 2: today `fg` refuses them as it refuses any string that is no colour. The window
-itself has no alpha.
+page](../library/graphics.md#colours)), and so are `fg`'s `"transparent"` and `"opaque"` modifiers
+([painting styles](../library/graphics.md#painting-styles)). The window itself has no alpha.
 
 **Palettes are module functions**: `palette_chars(p)`, `palette_color(p, s)`, `palette_key(p, c)`,
 `palette_grays(p)` over Icon's `c1`–`c6` and `g2`–`g256`, written in FunL and carried as source
@@ -288,7 +256,7 @@ able to test every facility with no window on screen, and it can:
 | G2 | what `close()` closes | **Decided (user, 2026-10-15)**: the canvas, as `WClose`, closing every handle on it; `uncouple()` closes only the one |
 | G3 | how attributes are read and set | **Decided (user, 2026-10-15)**: a map with natural values: `set(m)`, `get(name)`, `attributes()`; no `"name=value"` strings |
 | G4 | the default font | **Decided (user, 2026-10-15)**: a permissively licensed monospaced face carried in the binary as `"fixed"` — JetBrains Mono Regular, OFL 1.1, at 10 points — so text is the same everywhere and in tests |
-| G5 | anti-aliasing | accept plutovg's; integer coordinates drawn through pixel centres so points, axis lines and rectangles are pixel-exact |
+| G5 | anti-aliasing | **Decided (user, 2026-10-15)**: accept plutovg's; integer coordinates stroked through pixel centres (filled shapes on the grid) so points, axis lines and rectangles are pixel-exact |
 | G6 | coordinates on a high-density screen | **Decided (user, 2026-10-15)**: points, with the surface at `density` times the pixels; a hidden canvas always density 1 |
 | G7 | `drawop: #reverse` | built, as a coverage mask exclusive-ored into the pixels, not anti-aliased |
 | G8 | image formats | read what stb_image reads; write PNG only, refusing another extension |

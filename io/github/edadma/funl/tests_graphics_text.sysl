@@ -145,6 +145,13 @@ THE_TEXT_METHODS_FAULT_ON_A_WRONG_ARGUMENT()
         "error(existence_error(handle, <closed window handle>), context(_G23, \"'write' was called on the handle <closed window handle>\"))\nsucceeded")
 
 @test
+A_TRANSPARENT_FOREGROUND_DRAWS_TEXT_AT_HALF_COVERAGE()
+    assert_eq(on_text("for fg <- [\"black\", \"transparent black\"] do\n" +
+            "  w = open( \"t\", {canvas: #hidden, size: (12, 13), fg: fg} )\n" +
+            "  w.draw_string(0, 10, \"H\")\n  w.goto_xy(6, 10).writes(\"H\")\n  write( w.pixel(1, 5), w.pixel(7, 5) )\n"),
+        "8738,8738,8738, 8738,8738,8738\n37008,37008,37008, 37008,37008,37008\nsucceeded")
+
+@test
 AN_EVENTS_ROW_AND_COLUMN_ARE_CELLS_OF_THE_WINDOWS_FONT()
     assert_eq(on_text("w = open( \"t\", {canvas: #hidden, size: (100, 100)} )\n" +
             "w.enqueue( \"x\", 13, 27 )\nw.event()\nwrite( &row, &col )\n" +

@@ -11,8 +11,8 @@ which joins two; `color_value`, which reads a colour; and `active`, which finds 
 events waiting.
 
 This page covers windows on a **hidden canvas**: a picture drawn in memory and read back, with no
-window on screen, its events, put on its queue by the program, and [text and fonts](#text-and-fonts).
-Drawing and images come with later parts of the module.
+window on screen, [drawing](#drawing) on it, its events, put on its queue by the program, and
+[text and fonts](#text-and-fonts). Images come with a later part of the module.
 
 ## Hidden canvases
 
@@ -78,7 +78,7 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
 ```
 
 | attribute | value | default |
@@ -91,11 +91,12 @@ red, 3, dashed
 | `cursor` | whether the text cursor is shown | `false` |
 | `echo` | whether keys read as text are drawn as they are typed | `true` |
 | `inputmask` | the events reported beyond the usual: `"m"` motion with no button held, `"k"` a key's release ([events](#events)) | `""` |
-| `fg`, `bg` | a colour | `"black"`, `"white"` |
+| `fg`, `bg` | a colour; `fg` may also be [transparent](#painting-styles) | `"black"`, `"white"` |
 | `reverse` | `true` swaps `fg` and `bg`, `false` swaps them back | `false` |
 | `linewidth` | an integer, 0 or more | `1` |
 | `linestyle` | `#solid`, `#dashed` or `#striped` | `#solid` |
 | `fillstyle` | `#solid`, `#textured` or `#masked` | `#solid` |
+| `pattern` | a [pattern](#painting-styles): a name or a bit pattern, a string | `"black"` |
 | `drawop` | `#copy` or `#reverse` | `#copy` |
 | `clipx`, `clipy`, `clipw`, `cliph` | the clip rectangle; setting one when there is none starts from the whole canvas, and `undefined` takes it away | `undefined` |
 | `dx`, `dy` | the origin, added to every coordinate | `0` |
@@ -194,6 +195,175 @@ write( [p | p <- w.pixel(2, 0, 2, 1)] )
 
 A canvas holds eight bits of each component, so a pixel's numbers are multiples of 257: a colour
 drawn and read back is `color_value`'s answer where that already is one.
+
+## Drawing
+
+**Every Icon drawing function is a method of the window, and answers the window**, so drawing calls
+chain. A function Icon gives a repeated group of arguments takes the same flat list:
+`w.draw_line(x1, y1, x2, y2, x3, y3)` is one line through three points.
+
+| method | what it draws |
+|---|---|
+| `w.draw_point(x, y, …)` | a pixel at each point |
+| `w.draw_line(x1, y1, x2, y2, …)` | a line through every point |
+| `w.draw_segment(x1, y1, x2, y2, …)` | a separate line for each four numbers |
+| `w.draw_rectangle(x, y, wd, ht, …)`, `w.fill_rectangle(…)` | a rectangle's outline, or its inside |
+| `w.draw_polygon(x1, y1, …)`, `w.fill_polygon(…)` | a closed polygon; its inside is filled by the even-odd rule |
+| `w.draw_circle(x, y, r, theta, alpha, …)`, `w.fill_circle(…)` | a circle about `(x, y)`, or the arc of it from angle `theta` through `alpha` more |
+| `w.draw_arc(x, y, wd, ht, theta, alpha, …)`, `w.fill_arc(…)` | an arc of the ellipse in the rectangle |
+| `w.draw_curve(x1, y1, …)` | a smooth curve through every point, closed when the first point is the last |
+| `w.erase_area(x, y, wd, ht, …)` | the rectangle painted in the background colour |
+| `w1.copy_area(w2, x, y, wd, ht, x2, y2)` | the rectangle of `w1` copied to `w2` at `(x2, y2)` |
+| `w.clip(x, y, wd, ht)`, `w.clip()` | sets the clip rectangle, or takes it away |
+
+A filled circle or arc is a pie, its inside running to the centre. Angles are in radians, measured
+from the positive `x` axis; since `y` grows downwards, a positive angle turns clockwise on the
+screen. `theta` defaults to 0 and `alpha` to a whole turn.
+
+### Coordinates
+
+**Coordinates are numbers, measured from the canvas's top left corner, with `dx` and `dy` added
+first.** An integer coordinate names a pixel. A line goes through the centres of the pixels it
+names and covers both its end points, so a horizontal or vertical line, a point and a rectangle with
+integer corners cover exactly the pixels Icon's would, with no blurred edge. As in Icon,
+**`draw_rectangle(x, y, wd, ht)` covers `wd + 1` columns and `ht + 1` rows**, from `x` to `x + wd`,
+while **`fill_rectangle(x, y, wd, ht)` covers exactly `wd` by `ht` pixels**. A slanted line, a
+circle and a curve are smoothed (anti-aliased) at their edges.
+
+**A rectangle's numbers may be left out**: a missing `x` or `y` is the canvas's corner, a missing
+`wd` or `ht` reaches the canvas's edge, so `fill_rectangle()` fills the whole canvas and
+`erase_area()` clears it. **A negative width or height reaches left or up** from the point.
+
+```funl
+import { open } from funl:graphics
+
+def dot( p ) = if p == "0,0,0" then "#" else if p == "65535,65535,65535" then "." else "+"
+def show( w ) = for y <- 0 to w.get("height") - 1 do write( join([dot(p) | p <- w.pixel(0, y, w.get("width"), 1)]) )
+
+w = open( "shapes", {canvas: #hidden, size: (12, 7)} )
+w.draw_line( 0, 0, 4, 0, 4, 3 ).draw_point( 0, 6 )
+w.draw_rectangle( 6, 1, 4, 3 ).fill_rectangle( 8, 6, -2, -1 )
+show( w )
+```
+
+```output
+#####.......
+....#.#####.
+....#.#...#.
+....#.#...#.
+......#####.
+......##....
+#...........
+```
+
+A circle's outline goes through pixel centres too, so `draw_circle(x, y, r)` spans `2r + 1` pixels;
+a filled circle's edge lies on the pixel grid, so `fill_circle(x, y, r)` spans `2r`, about the
+corner where four pixels meet.
+
+```funl
+import { open } from funl:graphics
+
+def dot( p ) = if p == "0,0,0" then "#" else if p == "65535,65535,65535" then "." else "+"
+def show( w ) = for y <- 0 to w.get("height") - 1 do write( join([dot(p) | p <- w.pixel(0, y, w.get("width"), 1)]) )
+
+w = open( "round", {canvas: #hidden, size: (15, 7)} )
+w.fill_circle( 3, 3, 3 )
+w.draw_circle( 10, 3, 3, 0, pi )
+show( w )
+```
+
+```output
+++++++.........
++####+.........
++####+.........
++####+.++...++.
++####+.++...++.
+++++++.+++++++.
+........+++++..
+```
+
+A line of `linewidth` 0 or 1 is one pixel wide. A wider line of odd width is centred on its pixels'
+centres; one of even width is centred on the grid line at their top left, which is where it covers
+whole pixels.
+
+### Painting styles
+
+**`linestyle`** is `#solid`, `#dashed` -- dashes and gaps each four line widths long -- or
+`#striped`, the same dashes over a line in the background colour.
+
+**`fillstyle`** decides what every drawing paints with. `#solid` paints the foreground. `#textured`
+paints the window's **`pattern`**, its ones in the foreground and its zeros in the background, and
+`#masked` paints its ones only, leaving what is under the zeros. The pattern repeats from the
+canvas's corner. A pattern is one of Icon's names -- `"black"`, `"verydark"`, `"darkgray"`,
+`"gray"`, `"lightgray"`, `"verylight"`, `"white"`, `"vertical"`, `"diagonal"`, `"horizontal"`,
+`"grid"`, `"trellis"`, `"checkers"`, `"grains"`, `"scales"`, `"waves"` -- or a bit pattern: a width
+from 1 to 32, a comma, and the rows from the top, either `#` and hexadecimal digits, as many to a row
+as the width needs (`"4,#9696"`), or decimal numbers separated by commas (`"4,9,6,6,9"`). The low bit
+of a row is its leftmost pixel. Setting `pattern` to anything else fails.
+
+**A foreground colour may start with `transparent` or `opaque`**, Icon's modifiers: `"transparent
+red"` paints at half coverage, mixing evenly with what is there, and `"opaque red"` is `"red"`. The
+background is always opaque and refuses them; `reverse` hands the background the colour alone.
+
+```funl
+import { open } from funl:graphics
+
+def dot( p ) = if p == "0,0,0" then "#" else if p == "65535,65535,65535" then "." else "+"
+def show( w ) = for y <- 0 to w.get("height") - 1 do write( join([dot(p) | p <- w.pixel(0, y, w.get("width"), 1)]) )
+
+w = open( "styles", {canvas: #hidden, size: (12, 6)} )
+w.set( {linestyle: #dashed} ).draw_line( 0, 0, 11, 0 )
+w.set( {fillstyle: #textured, pattern: "4,#9696"} ).fill_rectangle( 0, 2, 8, 4 )
+w.set( {fillstyle: #solid, fg: "transparent black"} ).fill_rectangle( 9, 2, 3, 4 )
+show( w )
+write( w.pixel(10, 3) )
+```
+
+```output
+####....####
+............
+#..##..#.+++
+.##..##..+++
+#..##..#.+++
+.##..##..+++
+32639,32639,32639
+```
+
+### Erasing, copying and clipping
+
+**`erase_area` paints the background colour**, whatever the fill style. **`copy_area` copies
+pixels exactly**: each window's `dx` and `dy` move its own coordinates, what lies off `w1`'s canvas
+copies as `w1`'s background, and `x2` and `y2` default to `w2`'s corner. `w2` may be `w1`, and the
+two rectangles may overlap: the copy is read whole before any of it is written.
+
+**`clip(x, y, wd, ht)` sets the clip rectangle** -- the `clipx`, `clipy`, `clipw` and `cliph`
+attributes -- with Icon's rectangle, moved by `dx` and `dy`; drawing, erasing and copying then touch
+only the pixels inside it. `clip()` takes it away. A clone has a context of its own, so its clip
+rectangle limits only its own drawing.
+
+```funl
+import { open } from funl:graphics
+
+def dot( p ) = if p == "0,0,0" then "#" else if p == "65535,65535,65535" then "." else "+"
+def show( w ) = for y <- 0 to w.get("height") - 1 do write( join([dot(p) | p <- w.pixel(0, y, w.get("width"), 1)]) )
+
+w = open( "copies", {canvas: #hidden, size: (8, 4)} )
+w.fill_rectangle( 0, 0, 2, 2 )
+w.copy_area( w, 0, 0, 2, 2, 1, 1 )
+w.clip( 5, 0, 3, 4 ).fill_circle( 4, 2, 4 ).clip()
+show( w )
+```
+
+```output
+##...##+
+###..##+
+.##..##+
+.....##+
+```
+
+**A drawing method faults** on a count of numbers its groups cannot make (an odd count of
+coordinates, say), on an argument that is not a number -- `clip` and `copy_area` want integers -- and
+on a closed window.
 
 ## Text and fonts
 
