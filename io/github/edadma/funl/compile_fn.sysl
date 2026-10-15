@@ -216,7 +216,7 @@ body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             if c.scans > 0
                 value_tail(e, c, x)?
             else
-                call_named(e, c, n, at.start, args, true)?
+                call_named(e, c, x, n, at.start, args, true)?
         ApplyE(f, args) ->
             if c.scans > 0
                 value_tail(e, c, x)?

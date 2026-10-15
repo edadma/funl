@@ -162,7 +162,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 compile_value(e, c, a)?
 
             e.op(if items.len() == 0 then PushUnit else MakeTuple(items.len()))
-        CallE(n, at, args) -> call_named(e, c, n, at.start, args, false)?
+        CallE(n, at, args) -> call_named(e, c, x, n, at.start, args, false)?
         ApplyE(f, args) -> apply(e, c, f, args, false)?
         Conj(a, b) ->
             compile_value(e, c, a)?
@@ -384,7 +384,7 @@ end compile_value
 apply(e: *Emit, c: Ctx, f: &Expr, args: Buf[&Expr], tail: bool) -> Result[unit, string]
     // `m.f(args)`, `m` a module: a call of what the module exports as `f`, made directly.
     qualified_callee(c, f) match
-        Some(m) -> return call_meaning(e, c, c.res.picked(f.span.start, callee_name(f), m, args.len()), callee_name(f), args, tail)
+        Some(m) -> return call_meaning(e, c, c.res.picked(f, callee_name(f), m, args.len()), callee_name(f), args, tail)
         None -> ()
 
     val method = f.kind match
@@ -481,10 +481,11 @@ private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
 
     Ok(if v.depth == 0 then StoreSlot(v.slot) else StoreUp(v.depth, v.slot))
 
-// `name(args)`, the name written at offset `pos`: a call of whatever the name means. In tail
-// position (`tail`) a call that can reuse the frame is a tail call, and every path ends in `Return`.
-call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string] =
-    call_meaning(e, c, c.res.picked(pos, n, c.meaning(n, pos), args.len()), n, args, tail)
+// `name(args)`, the call `call`, the name written at offset `pos`: a call of whatever the name
+// means. In tail position (`tail`) a call that can reuse the frame is a tail call, and every path
+// ends in `Return`.
+call_named(e: *Emit, c: Ctx, call: &Expr, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string] =
+    call_meaning(e, c, c.res.picked(call, n, c.meaning(n, pos), args.len()), n, args, tail)
 
 // The same, of a name `n` that means `m`: a name of the file's own, or one a module exports.
 call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bool) -> Result[unit, string]

@@ -1,0 +1,58 @@
+module io.github.edadma.funl
+@tests
+
+import sh.sysl.parsing.{full_report, source_of}
+
+// What the resolver decides each call reaches is kept against the call's own node, not its position:
+// the parser makes some calls itself, and two of them can be written at one place. `=s` is
+// `tab(match(s))` with both names where the `=` is.
+
+// The builtin the resolver decided `call` reaches, or `none` when it decided something else.
+private picked_builtin(res: Resolved, call: &Expr, name: string) -> string =
+    res.picked(call, name, Unknown, 1) match
+        Builtin(id) -> if id == builtin("tab") then "tab" elif id == builtin("match") then "match" else "another"
+        _ -> "none"
+
+@test
+TWO_CALLS_AT_ONE_POSITION_KEEP_WHAT_EACH_REACHES()
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val src = source_of("test.funl", "'abc' ? =\"ab\"\n")
+    var r = full_report()
+    val prog = parse(src, &r)
+    val res = resolve(src, prog, TopUp, imports_of(src, prog, &r), &r)
+
+    assert(!r.has_errors())
+
+    var said = ""
+
+    prog.stmts.at(0) match
+        ExprS(e) -> e.kind match
+            ScanE(_, outer) -> outer.kind match
+                CallE(tab, tab_at, args) ->
+                    val inner = args.at(0)
+
+                    inner.kind match
+                        CallE(m, m_at, _) ->
+                            assert(tab_at.start == m_at.start && outer.span.start == inner.span.start)
+                            said = s"$tab ${picked_builtin(res, outer, tab)}, $m ${picked_builtin(res, inner, m)}"
+                        _ -> ()
+                _ -> ()
+            _ -> ()
+        _ -> ()
+
+    dispose_vm(&v)
+    leave(was)
+    assert_eq(said, "tab tab, match match")
+
+// The same, run: `match` is handed the string, not what `tab` was resolved to take, as a function's
+// last expression, as arguments and in a conjunction.
+@test
+PREFIX_EQUALS_RUNS_WITH_BOTH_CALLS_AT_ITS_POSITION()
+    val text = "def k() = 'pq' ? =\"p\"\n" +
+        "write( k() )\n" +
+        "def skip( s ) = (=s)\n" +
+        "'hello' ? write( skip('he'), =\"llo\", pos(0) )\n" +
+        "'abc' ? (=\"a\" & =\"b\" & write(tab(0)))\n"
+
+    assert_eq(ran_funl(text), "p\nhe, llo, 6\nc\nsucceeded")

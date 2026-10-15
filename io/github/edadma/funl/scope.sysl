@@ -249,6 +249,12 @@ struct LoopSlots
     // where its body settles.
     continued: bool
 
+// What one call reaches, kept against the call's own node: two calls the parser made at one
+// position (`=s` is `tab(match(s))`, both written where the `=` is) are two calls.
+struct Pick
+    call: &Expr
+    meaning: Meaning
+
 // What the resolver decided about a whole program.
 struct Resolved
     rels: Buf[Rel]
@@ -283,10 +289,11 @@ struct Resolved
     // The code being resolved, which positions are read in.
     src: Source
 
-    // What each call of a name reaches, by the offset of the name, as the resolver decided it --
-    // knowing whether the call is in a goal (`called_in`), and before the program's own definitions
-    // became Prolog predicates.
-    picks: Map[usize, Meaning]
+    // What each call of a name reaches, as the resolver decided it -- knowing whether the call is in
+    // a goal (`called_in`), and before the program's own definitions became Prolog predicates. Kept
+    // by the call's node (`Pick.call`, compared by identity), filed under the offset its span starts
+    // at so a lookup reads only the calls written there.
+    picks: Map[usize, Buf[Pick]]
 
     // What each name an `import { ... }` declares means, and each `import * as` alias its map
     // (`module.sysl`).
@@ -698,11 +705,35 @@ struct Resolved
                 _ -> false
             None -> false
 
-    // The call written at offset `pos`, of `name` meaning `m` there with `argc` arguments: what the
-    // resolver decided it reaches (`picks`), or `called`'s answer when it decided nothing.
-    picked(self, pos: usize, name: string, m: Meaning, argc: usize) -> Meaning = self.picks.get(pos) match
-        Some(p) -> p
-        None -> self.called(name, m, argc)
+    // The call `call`, of `name` meaning `m` there with `argc` arguments: what the resolver decided
+    // it reaches (`picks`), or `called`'s answer when it decided nothing.
+    picked(self, call: &Expr, name: string, m: Meaning, argc: usize) -> Meaning
+        self.picks.get(call.span.start) match
+            Some(ps) ->
+                for p in ps.view()
+                    if p.call == call then return p.meaning
+            None -> ()
+
+        self.called(name, m, argc)
+
+    // Keeps what the call `call` reaches, for `picked`; a call walked again keeps the later answer.
+    pick(*self, call: &Expr, m: Meaning)
+        val at = call.span.start
+
+        self.picks.get(at) match
+            Some(ps) ->
+                var kept = ps
+
+                for i in 0..<kept.len()
+                    if kept.at(i).call == call
+                        kept.set(i, Pick(call, m))
+                        return
+
+                kept.push(Pick(call, m))
+            None ->
+                var ps: Buf[Pick] = buf()
+                ps.push(Pick(call, m))
+                self.picks.put(at, ps)
 
     // Whether one of the FunL definitions among `ms` is the Prolog predicate of `argc` arguments: a
     // relation of `argc`, or a function of one fewer.

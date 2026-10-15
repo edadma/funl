@@ -410,7 +410,7 @@ walk(w: *Walk, e: &Expr)
                         w.report.add(error(e.span, s"`$n` is not defined")
                             .with_note("a name is a parameter, a `val`, a function, or declared with `free`"))
         CallE(n, at, args) ->
-            val m = picked_call(w, n, w.meaning(n, at.start), at, args.len())
+            val m = picked_call(w, e, n, w.meaning(n, at.start), args.len())
 
             if is_all_solutions(m, n)
                 all_solutions(w, n, at, args)
@@ -464,7 +464,7 @@ walk(w: *Walk, e: &Expr)
                                 _ ->
                                     val qn = s"${ref_name(x)}.$name"
 
-                                    check_call(w, picked_call(w, qn, m, f.span, args.len()), qn, f.span, args.len())
+                                    check_call(w, picked_call(w, f, qn, m, args.len()), qn, f.span, args.len())
                         None -> ()
                 _ -> ()
 
@@ -701,15 +701,15 @@ private not_exported_at(w: *Walk, x: &Expr, name: string, at: Span)
         Ref(g) -> w.report.add(not_exported(w.res, g, name, at))
         _ -> ()
 
-// What a call of `n` written at `at` with `argc` arguments reaches, `n` meaning `m` there: decided
-// here, where it is known whether the call is in a goal, and kept for the compiler.
-private picked_call(w: *Walk, n: string, m: Meaning, at: Span, argc: usize) -> Meaning
+// What the call `call` of `n` with `argc` arguments reaches, `n` meaning `m` there: decided here,
+// where it is known whether the call is in a goal, and kept for the compiler.
+private picked_call(w: *Walk, call: &Expr, n: string, m: Meaning, argc: usize) -> Meaning
     val p = w.res.called_in(n, m, argc, w.goal)
 
     // Kept for every call, not only a family's: by the time the compiler reads the call, the
     // program's own definitions are Prolog predicates too, and the name would mean more than it
     // did here.
-    w.res.picks.put(at.start, p)
+    w.res.pick(call, p)
     p
 
 // A call of `n`, which means `m`, with as many arguments as it takes.

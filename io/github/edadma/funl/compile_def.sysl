@@ -444,9 +444,9 @@ private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest:
 private tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
     x.kind match
         CallE(n, at, args) ->
-            c.res.picked(at.start, n, c.meaning(n, at.start), args.len()) match
-                Relation(_) -> call_named(e, c, n, at.start, args, true)?
-                Predicate(_) -> call_named(e, c, n, at.start, args, true)?
+            c.res.picked(x, n, c.meaning(n, at.start), args.len()) match
+                Relation(_) -> call_named(e, c, x, n, at.start, args, true)?
+                Predicate(_) -> call_named(e, c, x, n, at.start, args, true)?
                 _ -> returning(e, c, x)?
         Conj(a, b) ->
             compile_value(e, c, a)?

@@ -137,7 +137,7 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             var outer: Buf[&Expr] = buf()
 
             inner.push(e)
-            outer.push(expr(CallE("match", e.span, inner), at))
+            outer.push(expr(CallE("match", t.span, inner), at))
 
             expr(CallE("tab", t.span, outer), at)
         Bar ->
