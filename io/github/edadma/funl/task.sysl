@@ -345,6 +345,13 @@ refused_binding(v: *Vm) -> Fault
 
     permission_error("bind", "variable", Var(x), said)
 
+// **Activating a co-expression another task made is a fault naming both tasks**, as binding its
+// variable is: a co-expression runs as part of the task that made it, on that task's variables.
+refused_activation(v: *Vm, o: *CoExprObj) -> Fault
+    val said = s"${task_named(v, v.task, v.task_fn)} cannot activate a co-expression ${task_by_number(v, o.task)} made"
+
+    permission_error("activate", "coexpression", CoExpr(o), said)
+
 // What became of handing the turn to the next ready machine.
 enum Resumed
     // A machine is running and carries on.

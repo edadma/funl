@@ -286,3 +286,100 @@ def first( xs ) = create (return !xs)
 ```error
 `return` cannot be written inside `create`
 ```
+
+## With `async` tasks
+
+A co-expression is not a task: nothing schedules it, and it runs only when something activates it,
+**as part of the task that activates it**. An `await` inside one waits as that task does: the task
+is parked inside the co-expression, other tasks run, and when the promise settles the task resumes
+there, its activator still waiting at the `@`. `await` is bounded, so a co-expression that awaits
+for each result generates the values to await first:
+
+```funl
+async def tenfold( x ) =
+  await ()
+  x * 10
+
+val c = create (i <- !(1..3)) & await tenfold( i )
+every write( !c )
+```
+
+```output
+10
+20
+30
+```
+
+A co-expression belongs to the task that made it. **Activating it from another task is the fault
+`permission_error(activate, coexpression, C)`**, as binding another task's logic variable is. Each
+task has its own `&main`, the co-expression it started in:
+
+```funl
+val c = create !(1..3)
+
+async def steal() =
+  await ()
+  write( (@c) catch e -> e.message )
+  write( 'x' @ &main )
+
+await steal()
+write( @c )
+```
+
+```output
+task 1 (`steal`) cannot activate a co-expression the top level made
+x
+1
+```
+
+## Logic variables
+
+A co-expression may bind any logic variable its task may, and **the binding is recorded on the
+co-expression's own trail**: its own backtracking undoes it, and its activator's does not. Failing
+back into the co-expression for its next result undoes what the last one bound:
+
+```funl
+free x
+val c = create x ~ !['a', 'b', 'c']
+write( @c, x )
+write( @c, x )
+```
+
+```output
+a, a
+b, b
+```
+
+A binding made inside a co-expression of a variable from outside it outlasts the activator's
+backtracking, as an assignment made there would:
+
+```funl
+free y
+val d = create y ~ 1
+write( (@d & fail) | y )
+```
+
+```output
+1
+```
+
+So a co-expression walks a relation's solutions one activation at a time:
+
+```funl
+def
+  append([], ys, ys)
+  append(h : t, ys, h : r) :- append(t, ys, r)
+
+free xs, ys
+val splits = create append(xs, ys, [1, 2]) & (xs, ys)
+write( @splits )
+write( @splits )
+```
+
+```output
+([], [1, 2])
+([1], [2])
+```
+
+A co-expression nothing refers to any more is collected, however far its expression had got: a
+generator abandoned half way costs nothing.

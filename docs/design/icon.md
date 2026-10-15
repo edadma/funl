@@ -247,34 +247,18 @@ log(..args)
 > - A result or a failure goes to the activator, or -- that one having ended, or being suspended at
 >   a result of its own, which symmetric activation can bring about -- to `&main`, which is always
 >   waiting at an `@` while anything else runs.
-> - `return`, `yield`, and `break` or `continue` leaving `create` are refused when compiled, as is
->   `await` inside `create` until item 18.
+> - `return`, `yield`, and `break` or `continue` leaving `create` are refused when compiled.
+>   `await` inside `create` is allowed where the enclosing function or top level may await.
 > - At the top level the innermost frame is the top level's, so a co-expression made there copies
 >   the top-level names; a top-level function it calls still reads the originals.
 
-**With `async` tasks** (milestone 11 item 18). A co-expression is not a task: the loop never
-schedules it, and it runs only when activated. It **runs as part of the task that activates it**
-(built: the task's promise, number and `&main` go with the running machine across every switch). An
-`await` inside a co-expression parks the running machine — the co-expression's — and the task waits;
-its activator chain stays suspended in its objects, and when the promise settles, the task resumes
-inside the co-expression. A co-expression belongs to the task that created it: activating it from
-another task is the fault `permission_error(activate, coexpression, C)`, as binding another task's
-variable is refused. Each task has its own `&main`, the machine it started on (built).
-
-**What the collector sees.** A `CoExprObj`'s tracer walks its parked machine as the running one is
-walked, both frame copies, and its activator; the running chain is reached from the VM's `&current`
-and `&main` (built). A co-expression nothing refers to is collected, its finalizer releasing its
-machine's buffers — a generator abandoned half way costs nothing more; item 18 proves it under the
-stress heap.
-
-> **Open question I9 — logic variables inside a co-expression.** A binding a co-expression makes
-> is trailed on its own trail, so only its own backtracking undoes it; the activator's backtracking
-> does not reach into a co-expression. (a) **a co-expression may bind any variable its task may**,
-> with that consequence documented (a binding made inside `c` of a variable from outside survives
-> the activator's backtracking, as an ordinary assignment would); (b) a co-expression may bind only
-> variables it made, as a task may bind only its own. **Recommendation: (a).** It is the same
-> visible rule as an assignment in a co-expression, and refusing it would make a co-expression
-> useless for walking a relation's solutions, the obvious use.
+> **Decided (user, 2026-10-15) — I9: a co-expression binds any logic variable its task may, on its
+> own trail.** Built (item 18) with the rest of this section: `await` inside `create` parks the task
+> inside the co-expression; activating another task's co-expression is
+> `permission_error(activate, coexpression, C)`; a variable records the machine that made it, and a
+> binding by any other machine is always trailed, since each machine's stamps are its own clock; an
+> abandoned co-expression is collected, shown under the stress heap. See
+> [co-expressions](../reference/coexpressions.md#with-async-tasks).
 
 ## Scanning
 

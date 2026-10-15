@@ -191,11 +191,166 @@ CREATE_REFUSES_WHAT_WOULD_LEAVE_IT()
         "  0\n" +
         "def g() = create (yield 1)\n" +
         "def h() = create (return 2)\n" +
-        "async def k() = create (await 3)\n" +
+        "def k() = create (await 3)\n" +
         "def l() = create (every !(1..3) do break)\n"
 
     assert_eq(complaints(text),
         "error 3:16 `break` cannot leave `create`\n" +
         "error 5:18 `yield` cannot be written inside `create`\n" +
         "error 6:18 `return` cannot be written inside `create`\n" +
-        "error 7:24 `await` cannot be written inside `create`\n")
+        "error 7:18 `await` is written in an `async` function or at the top level\n")
+
+// -- with tasks ----------------------------------------------------------------------------------------
+
+@test
+AWAIT_INSIDE_A_CO_EXPRESSION_AT_THE_TOP_LEVEL()
+    val text = "async def tenfold(x) =\n" +
+        "    await ()\n" +
+        "    x * 10\n" +
+        "\n" +
+        "val c = create (i <- !(1..3)) & await tenfold(i)\n" +
+        "every write(!c)\n" +
+        "write(*c)\n"
+
+    assert_eq(ran_funl(text), "10\n20\n30\n3\nsucceeded")
+
+// While a co-expression awaits, its task waits and other tasks run; the task resumes inside the
+// co-expression, its activator still suspended at the `@`.
+@test
+AWAIT_INSIDE_A_CO_EXPRESSION_PARKS_ITS_TASK()
+    val text = "async def slow(x) =\n" +
+        "    await ()\n" +
+        "    x\n" +
+        "\n" +
+        "async def other() =\n" +
+        "    await ()\n" +
+        "    write('other ran')\n" +
+        "\n" +
+        "async def go() =\n" +
+        "    val c = create (x <- !['a', 'b']) & 'got ' + await slow(x)\n" +
+        "    other()\n" +
+        "    write(@c)\n" +
+        "    write(@c)\n" +
+        "    write(if @c then 'more' else 'over', if &current == &main then 'at its &main' else 'elsewhere')\n" +
+        "\n" +
+        "await go()\n" +
+        "write('done')\n"
+
+    assert_eq(ran_funl(text), "other ran\ngot a\ngot b\nover, at its &main\ndone\nsucceeded")
+
+// An awaited task's fault is raised at the `await` inside the co-expression, and so at its `@`.
+@test
+A_FAULT_AWAITED_INSIDE_IS_RAISED_AT_THE_AT()
+    val text = "async def broken() =\n" +
+        "    await ()\n" +
+        "    1 / 0\n" +
+        "\n" +
+        "val c = create (await broken())\n" +
+        "write((@c) catch e -> 'caught ' + e.message)\n" +
+        "write(if @c then 'again' else 'over')\n"
+
+    assert_eq(unplaced(ran_funl(text)), "caught 1 / 0 divides by zero\nover\nsucceeded")
+
+@test
+ANOTHER_TASKS_CO_EXPRESSION_CANNOT_BE_ACTIVATED()
+    val text = "val c = create !(1..3)\n" +
+        "val top = &main\n" +
+        "\n" +
+        "async def steal() =\n" +
+        "    await ()\n" +
+        "    write((@c) catch error(permission_error(activate, coexpression, _), context(_, m)) -> m)\n" +
+        "    write((!c) catch e -> e.message)\n" +
+        "    write(('x' @ top) catch _ -> 'not its &main either')\n" +
+        "    write('y' @ &main)\n" +
+        "    val mine = create 'mine'\n" +
+        "    write(@mine)\n" +
+        "    mine\n" +
+        "\n" +
+        "val theirs = await steal()\n" +
+        "write(@c)\n" +
+        "write((@theirs) catch e -> e.message)\n"
+
+    assert_eq(unplaced(ran_funl(text)),
+        "task 1 (`steal`) cannot activate a co-expression the top level made\n" +
+        "task 1 (`steal`) cannot activate a co-expression the top level made\n" +
+        "not its &main either\ny\nmine\n1\n" +
+        "the top level cannot activate a co-expression task 1 made\nsucceeded")
+
+@test
+AN_UNCAUGHT_ACTIVATION_REFUSAL_IS_A_FAULT()
+    coexpr_fault("async def f(c) =\n    await ()\n    @c\n\nawait f(create 1)\n",
+        "task 1 (`f`) cannot activate a co-expression the top level made")
+
+// -- with logic variables --------------------------------------------------------------------------------
+
+// The loop first makes the top level's clock run ahead of the co-expression's: a binding is trailed
+// on the co-expression's own trail whatever the two clocks say, so failing back into the generator
+// undoes it before the next.
+@test
+A_CO_EXPRESSIONS_BACKTRACKING_UNDOES_ITS_OWN_BINDINGS()
+    val text = "every i = 1 to 20 do ()\n" +
+        "free x\n" +
+        "val c = create (x ~ !['a', 'b', 'c'])\n" +
+        "write(@c, x)\n" +
+        "write(@c, x)\n" +
+        "write(@c, x)\n" +
+        "write(if @c then 'more' else 'over', x)\n"
+
+    assert_eq(ran_funl(text), "a, a\nb, b\nc, c\nover, c\nsucceeded")
+
+// The activator's backtracking does not reach into a co-expression: a binding made inside survives
+// it, as an assignment there would. A variable the co-expression made and the activator binds is
+// the activator's to undo.
+@test
+THE_ACTIVATORS_BACKTRACKING_DOES_NOT_UNDO_A_CO_EXPRESSIONS_BINDING()
+    val text = "def fresh() =\n" +
+        "    free w\n" +
+        "    w\n" +
+        "\n" +
+        "free y\n" +
+        "val d = create (y ~ 1)\n" +
+        "write((@d & fail) | y)\n" +
+        "val w = @(create fresh())\n" +
+        "write((w ~ 2 & fail) | (if w is variable then 'unbound' else 'bound'))\n" +
+        "write(w ~ 3, w)\n"
+
+    assert_eq(ran_funl(text), "1\nunbound\n3, 3\nsucceeded")
+
+// Walking a relation's solutions one activation at a time, the obvious use.
+@test
+A_CO_EXPRESSION_WALKS_A_RELATIONS_SOLUTIONS()
+    val text = "def\n" +
+        "  append([], ys, ys)\n" +
+        "  append(h : t, ys, h : r) :- append(t, ys, r)\n" +
+        "\n" +
+        "free xs, ys\n" +
+        "val splits = create (append(xs, ys, [1, 2]) & (xs, ys))\n" +
+        "write(@splits)\n" +
+        "write(@splits)\n" +
+        "write(@splits)\n" +
+        "write(if @splits then 'more' else 'over')\n"
+
+    assert_eq(ran_funl(text), "([], [1, 2])\n([1], [2])\n([1, 2], [])\nover\nsucceeded")
+
+// -- collection ----------------------------------------------------------------------------------------
+
+// Each co-expression is abandoned half way through its generator, and far more are made than the
+// stressed heap could hold: one kept alive would exhaust it.
+@test
+AN_ABANDONED_CO_EXPRESSION_IS_COLLECTED()
+    val text = "def drop(n, acc) = if n == 0 then acc else drop(n - 1, acc + @(create !(n..)))\nwrite(drop(3000, 0))\n"
+    val tight = stressed(() -> compiled_text(text))
+
+    assert_eq(tight.text, "4501500\nsucceeded")
+    assert(tight.collections > 100, s"the stressed heap collected ${tight.collections} times")
+
+// The premise of the test above: the same co-expressions kept alive are more than the stressed heap
+// holds.
+@test
+THE_STRESSED_HEAP_CANNOT_HOLD_THREE_THOUSAND_LIVE_CO_EXPRESSIONS()
+    val text = "def started(c) = @c & c\n" +
+        "def keep(n, cs) = if n == 0 then cs else keep(n - 1, started(create !(n..)) : cs)\n" +
+        "write(*keep(3000, []))\n"
+    val said = stressed(() -> compiled_text(text)).text
+
+    assert(said.contains("heap exhausted"), said)

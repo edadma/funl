@@ -587,10 +587,7 @@ walk(w: *Walk, e: &Expr)
             w.sc.yields = true
             walk(w, x)
         AwaitE(x) ->
-            if w.creating
-                w.report.add(error(e.span, "`await` cannot be written inside `create`")
-                    .with_note("a co-expression runs when `@` activates it; await the value before `create`, or after the `@`"))
-            elif !w.waits
+            if !w.waits
                 w.report.add(error(e.span, "`await` is written in an `async` function or at the top level")
                     .with_note("it belongs to the function it is written in: make that one `async def`, or `async` before a lambda"))
 

@@ -106,7 +106,13 @@ end end_trial
 private needs_trail(v: *Vm, x: *VarObj) -> bool
     val n = v.control.len()
 
-    n > 0 && x.stamp < v.control.at(n - 1).stamp
+    n > 0 && older_than(v, x, v.control.at(n - 1).stamp)
+
+// Whether `x` is older than the choice point stamped `top` on the running machine's control stack. A
+// variable another machine made -- a co-expression's activator's, or a co-expression's own bound by
+// its activator -- is dated by that machine's clock, so it counts as older: **a binding a
+// co-expression makes is undone by its own backtracking**, whenever the variable was made.
+private older_than(v: *Vm, x: *VarObj, top: u64) -> bool = x.stamp < top || x.machine != machine_id(v)
 
 // `x <- e`: store `x` into slot `slot` of frame `f`, recording what it held for failure to put back.
 // With nothing on the control stack nothing can fail back past the store, and no record is made.
@@ -209,7 +215,7 @@ commit_trail(v: *Vm, h: usize, ends: bool)
         val u = v.trail.at(i)
 
         val keep = u match
-            Bind(x) -> x.stamp < top
+            Bind(x) -> older_than(v, x, top)
             Assign(_, _, _) -> !ends
             Elem(_, _, _, _) -> !ends
             Scan(_, _) -> !ends

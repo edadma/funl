@@ -143,6 +143,7 @@ Each is argued where it arises; this is the list.
 | I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [icon](icon.md#keywords) |
 | I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` (user, 2026-10-15) | [icon](icon.md#co-expressions) |
 | I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it (user, 2026-10-15) | [icon](icon.md#co-expressions) |
+| I9 Logic variables inside a co-expression | it binds any its task may, on its own trail: its own backtracking undoes the binding, its activator's does not (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md#logic-variables) |
 
 ## Open questions
 
@@ -154,7 +155,6 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | I2 A `case` expression | postfix `e match` over a clause block; no match fails; `(e)` in a pattern compares with `e`'s value | [icon](icon.md#case) |
 | I4 Whose is a `static`: the definition's or each closure's? | each closure value's | [icon](icon.md#static-and-initial) |
 | I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family | [icon](icon.md#variadic-procedures-and-list-invocation) |
-| I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
 | I10 Icon's positions in indexing (decided: one way, 0-based) | keep the decision; add assignment to a section of a string variable | [icon](icon.md#sections-and-indexing) |
 | I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#map-and-reverse) |
 | I12 `reverse` of a string (P3.5) | `reverse(s)` reverses it; P3.5 stands for the rest | [icon](icon.md#map-and-reverse) |

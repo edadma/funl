@@ -26,6 +26,13 @@ import sysl.buf.{Buf, buf}
 // **It runs as part of the task that activates it**: the task's own fields -- its promise, the machine
 // it gives way to, its number, its `&main` -- go with the running machine across every switch. A
 // task's `&main` is made the first time the task needs one, numbered before any co-expression it makes.
+// An `await` inside a co-expression parks the running machine -- the co-expression's -- so the task
+// waits inside it, its activators suspended in their objects. **A co-expression belongs to the task
+// that made it**: activating it from another is refused (`refused_activation`).
+//
+// **A binding a co-expression makes is on its own trail**, so only its own backtracking undoes it. Each
+// machine stamps with its own clock, so a logic variable records the machine that made it
+// (`machine_id`), and a binding by any other machine is always trailed (`trail.sysl`).
 
 // A co-expression's states (`CoExprObj.state`).
 const CoFresh: u8 = 0
@@ -53,6 +60,10 @@ running_co(v: *Vm) -> Result[*CoExprObj, string]
 
 // Whether the running machine is a co-expression's, rather than a task's `&main`.
 in_co(v: *Vm) -> bool = v.co != null && v.co.start != NoMachine
+
+// The running machine's number, for the logic variables it makes (`VarObj.machine`): its
+// co-expression's, or 0 for a task's `&main`.
+machine_id(v: *Vm) -> u64 = if in_co(v) then v.co.id else 0
 
 // `&source`: the co-expression that last activated the running one; `&main`'s, until something
 // activates it, is `&main` itself.
@@ -171,6 +182,8 @@ activate(v: *Vm) -> Result[bool, Fault]
 // `x` at its `@`, or the running one already -- and false when the instruction fails, either because
 // `o` is over or because `o` resumes by failing into its own control stack.
 activate_co(v: *Vm, o: *CoExprObj, x: Value) -> Result[bool, Fault]
+    if o.task != v.task then return Err(refused_activation(v, o))
+
     val me = running_co(v)?
 
     // Activating the running co-expression hands it its own value.
@@ -231,12 +244,24 @@ co_over(v: *Vm) -> bool
 
     switch_co(v, me, handed_to(v, me))
     me.state = CoDone
+    release_machine(me.machine)
     me.machine = empty_machine()
     true
+
+// Give back the buffers of machine `m`, set aside and never to run again.
+release_machine(m: Machine)
+    m.stack.release()
+    m.control.release()
+    m.saved.release()
+    m.trail.release()
+    m.scans.release()
+    m.captures.release()
 
 // `GenNext` over a co-expression: activate it, and leave a choice point that activates it again when
 // failure comes back, so `!c` generates its results until it has no more.
 gen_coexpr(v: *Vm, o: *CoExprObj, top: usize) -> Result[bool, Fault]
+    if o.task != v.task then return Err(refused_activation(v, o))
+
     if o.state == CoDone
         v.stack.truncate(top - 2)
         return Ok(false)

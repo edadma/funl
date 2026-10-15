@@ -113,12 +113,7 @@ trace_coexpr(p: *u8, h: *gc.Heap)
 finalize_coexpr(p: *u8)
     val o: *CoExprObj = ptr_cast(p)
 
-    o.machine.stack.release()
-    o.machine.control.release()
-    o.machine.saved.release()
-    o.machine.trail.release()
-    o.machine.scans.release()
-    o.machine.captures.release()
+    release_machine(o.machine)
 
 trace_tuple(p: *u8, h: *gc.Heap)
     val o: *TupleObj = ptr_cast(p)

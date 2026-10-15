@@ -206,12 +206,17 @@ struct ArrayObj
 //
 // **`task` is the task that made it** (`Vm.task`), and the only one that may bind it: **each task has
 // its own trail and stamp**, so a binding by another could be undone by neither correctly.
+//
+// **`machine` is the co-expression whose machine made it** (`machine_id`), 0 for a task's `&main`. A
+// stamp is dated by its own machine's clock, so it says nothing about another machine's choice
+// points: a variable bound by a machine other than the one that made it is always trailed.
 struct VarObj
     value: Value
     bound: bool
     stamp: u64
     id: u64
     task: u32
+    machine: u64
 
 // A function value: the chunk of its code and the frame it was made in, which becomes the static
 // link of every frame a call of it makes.
@@ -371,6 +376,7 @@ new_var() -> Result[*VarObj, string]
     o.bound = false
     o.stamp = v.stamp
     o.task = v.task
+    o.machine = machine_id(v)
     o.id = v.var_count
     v.var_count += 1
     Ok(o)
