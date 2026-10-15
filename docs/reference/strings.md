@@ -199,7 +199,7 @@ write( s, t )
 s(5..<5) = ','
 s(7..) = 'there'
 write( s )
-write( ((s(0..0) <- 'J') & false) | s )
+write( ((s(0..0) <- 'J') & 1 > 2) | s )
 ```
 
 ```output

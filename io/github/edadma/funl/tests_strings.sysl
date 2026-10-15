@@ -71,12 +71,12 @@ TRANSLATE_MAPS_EACH_CHARACTER_BY_POSITION_AND_THE_LATER_DUPLICATE_WINS()
         "hippo\nybc\ncafe\nabc|\n|\nbac\nsucceeded")
     faults_with("write(translate('abc', 'ab', 'x'))\n", "'translate' was given strings of different lengths")
     faults_with("write(translate('abc', 'a', 1))\n", "'translate' wants a string and was given the integer 1")
-    faults_with("write(translate('abc', 'a'))\n", "'translate' takes 3 arguments")
+    assert_eq(complaints("write(translate('abc', 'a'))\n"), "error 1:7 `translate` takes 3 arguments, and this call gives 2\n")
 
 @test
 REVERSE_OF_A_STRING_IS_THE_STRING_BACKWARDS_BY_CHARACTERS()
     assert_eq(ran_funl("write(reverse('abc'))\nwrite(reverse('né') + '|')\nwrite(reverse('') + '|')\nwrite(reverse([1, 2, 3]))\n"),
-        "cba\népp|\n|\n[3, 2, 1]\nsucceeded")
+        "cba\nén|\n|\n[3, 2, 1]\nsucceeded")
     faults_with("write(reverse(5))\n", "'reverse' wants a list and reached the integer 5")
 
 // A test produces its first argument or fails, so it serves as a condition and as a filter.

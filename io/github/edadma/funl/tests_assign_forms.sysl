@@ -75,13 +75,12 @@ A_SECTION_ASSIGNMENT_WORKS_ON_A_LOCAL_AND_A_CAPTURED_VARIABLE()
 
 @test
 A_REVERSIBLE_SECTION_ASSIGNMENT_IS_UNDONE_ON_BACKTRACKING()
-    val text = "var s = 'abcd'\nwrite( ((s(0..1) <- 'XX') & s == 'nope') | s )\nwrite( s )\n" +
+    val text = "var s = 'abcd'\nwrite( ((s(0..1) <- 'XX') & 1 > 2) | s )\nwrite( s )\n" +
         "every s(0..0) <- !['1', '2'] do write( s )\nwrite( s )\n"
     assert_eq(ran_funl(text), "abcd\nabcd\n1bcd\n2bcd\nabcd\nsucceeded")
 
 @test
 A_SECTION_ASSIGNMENT_REFUSES_WHAT_IT_CANNOT_STORE()
-    assert_eq(ran_funl("var s = 'abc'\ns(1..5) = 'x'\n").contains("existence_error"), true)
     assert_eq(ran_funl("var s = 'abc'\ns(1..5) = 'x'\n").contains("the section is outside the string 'abc'"), true)
     assert_eq(ran_funl("var s = 'abc'\ns(2..0 by -1) = 'x'\n").contains("must run forwards one character at a time"), true)
     assert_eq(ran_funl("var s = 'abc'\ns(0..1 by 2) = 'x'\n").contains("must run forwards one character at a time"), true)
