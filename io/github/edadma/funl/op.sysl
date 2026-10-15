@@ -55,6 +55,16 @@ enum Op
     // including that mark and the cells above its floor, and making the mark around it the innermost.
     UnmarkTo(slot: usize)
 
+    // `e limit n` (`limit.sysl`): pop `n` into slot `slot` of the running frame as the number of
+    // values `e` may still produce. `n` not an integer is a type error and a negative one a domain
+    // error; 0 fails, so `e` is not evaluated.
+    LimitSet(slot: usize)
+
+    // `e` has produced a value: count it down in slot `count`, and when none remain end the bounded
+    // expression whose mark slot `mark` recorded, keeping the value -- `e` is never resumed again, so
+    // the next failure reaches whatever was resumable before it, `n`'s generator among them.
+    LimitCount(count: usize, mark: usize)
+
     // -- operands -----------------------------------------------------------------------------------
 
     Pop

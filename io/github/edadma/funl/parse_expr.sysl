@@ -688,6 +688,12 @@ private led(left: &Expr, t: Spanned[Tok], p: *Parser) -> &Expr
 
             return expr(ScanE(left, body), left.span.to(body.span))
         CatchW -> return catching(p, left)
+        Name(_) ->
+            // Only `limit` has an infix power among names (`power`).
+            val id = p.node_id()
+            val n = parse_expr(p, LimitPower)
+
+            return expr(LimitE(id, left, n), left.span.to(n.span))
         _ -> ()
 
     // `(e op)`: the operator's right operand is the `)`, which makes this half of a section.

@@ -499,7 +499,7 @@ private val DocBlockCensus: string = "docs/reference/README.md 0 0 0 0\n" +
     "docs/reference/async.md 11 5 0 0\n" +
     "docs/reference/data.md 40 22 0 0\n" +
     "docs/reference/functions.md 31 21 0 0\n" +
-    "docs/reference/generators.md 24 5 0 0\n" +
+    "docs/reference/generators.md 26 7 0 0\n" +
     "docs/reference/keywords.md 6 3 0 0\n" +
     "docs/reference/modules.md 18 21 0 0\n" +
     "docs/reference/numbers.md 27 24 0 0\n" +

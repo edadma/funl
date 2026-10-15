@@ -31,6 +31,7 @@ every write( 1 to 3 )
 | `a \| b` | every value of `a`, then every value of `b` |
 | `\|e` | the values of `e`, then `e`'s values again, for as long as each round produces one |
 | `i to j`, `i until j`, optional `by k` | the numbers from `i` to `j`, inclusive (`to`) or exclusive (`until`) of `j`, in steps of `k` (1 when there is no `by`) |
+| `e limit n` | at most the first `n` values of `e` |
 | a call to a generating function | each value the function produces |
 
 ```funl
@@ -83,6 +84,76 @@ every write( |(n < 3 and (n = n + 1)) )
 1
 2
 3
+```
+
+## `limit` takes the first few values
+
+`e limit n` produces at most `n` of `e`'s values. Once it has produced them, `e` is never resumed
+again, so whatever fails after it goes back past it.
+
+```funl
+val words = ['to', 'be', 'or', 'not']
+every write( !words limit 3 )
+every write( (1 | 2 | 3) limit 2 )
+every write( (|'again') limit 2 )
+```
+
+```output
+to
+be
+or
+1
+2
+again
+again
+```
+
+A limit larger than the number of values there are takes them all, and a limit of 0 fails at once,
+without evaluating `e`.
+
+`n` is evaluated first, and it is an ordinary expression, so it may generate too. When backtracking
+goes back past `e`, it resumes `n`, and each new limit starts `e` afresh:
+
+```funl
+every write( (1 to 9) limit (1 | 2) )
+write( '--' )
+every write( (1 to 9) limit 1 to 3 )
+```
+
+```output
+1
+1
+2
+--
+1
+1
+2
+1
+2
+3
+```
+
+`limit` binds more loosely than a range, a cons and arithmetic, and more tightly than a comparison,
+`&`, `|` and assignment. So `e limit 1 to 3` limits `e` to each of 1, 2 and 3, and an alternation
+being limited needs its parentheses. `limit` is a word only where an operator stands, after a whole
+operand; anywhere else it is an ordinary name, so `val limit = 10` still declares one.
+
+A limit that is not an integer is a type error, and a negative one a domain error:
+
+```funl
+every write( (1 to 3) limit -1 )
+```
+
+```error
+'limit' wants a count of zero or more, and was given -1
+```
+
+```funl
+every write( (1 to 3) limit 'two' )
+```
+
+```error
+'limit' wants a count of values as an integer, and was given the string 'two'
 ```
 
 ## `to` counts with any number
