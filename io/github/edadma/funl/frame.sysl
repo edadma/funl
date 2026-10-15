@@ -74,12 +74,12 @@ make_closure(v: *Vm, target: usize, up: usize) -> Result[unit, string]
 function_value(v: *Vm, target: usize, d: *FrameObj) -> Result[Value, string]
     if target >= v.chunks.len() then return Err(s"a function value over chunk $target, which does not exist")
 
-    val ch = v.chunks.at(target)
+    val (count, home) = statics_of_chunk(v, target)
 
-    if ch.statics == 0 then return new_closure(target, d)
+    if count == 0 then return new_closure(target, d)
 
-    if ch.home != NoHome
-        val held = slot_of(d, ch.home)?
+    if home != NoHome
+        val held = slot_of(d, home)?
 
         held match
             Func(_) -> return Ok(held)
@@ -89,25 +89,31 @@ function_value(v: *Vm, target: usize, d: *FrameObj) -> Result[Value, string]
 
     st.up = d
 
-    for _ in 0..<ch.statics
+    for _ in 0..<count
         st.slots.push(Undefined)
 
-    v.allocated += ch.statics * sizeof(Value)
+    v.allocated += count * sizeof(Value)
 
     val made = new_closure(target, st)?
 
-    if ch.home != NoHome then set_slot(d, ch.home, made)?
+    if home != NoHome then set_slot(d, home, made)?
 
     Ok(made)
 
 // The static link of a direct call of `target` whose function is defined in frame `d`: the statics
 // frame of the function's value there when it has `static`s, and `d` otherwise.
 private statics_up(v: *Vm, target: usize, d: *FrameObj) -> Result[*FrameObj, string]
-    if target >= v.chunks.len() || v.chunks.at(target).statics == 0 then return Ok(d)
+    val (count, _) = statics_of_chunk(v, target)
+
+    if count == 0 then return Ok(d)
 
     function_value(v, target, d)? match
         Func(c) -> Ok(c.up)
         _ -> Err("a function value that is not a function")
+
+// Chunk `target`'s statics, as `Vm.chunk_statics` keeps them: none for a chunk it has no entry for.
+private statics_of_chunk(v: *Vm, target: usize) -> (usize, usize) =
+    if target < v.chunk_statics.len() then v.chunk_statics.at(target) else (0, NoHome)
 
 // A new frame for `target` over the top `argc` values, with static link `up`.
 //
@@ -134,9 +140,12 @@ private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[
     f.cut = v.control.len()
     v.allocated += argc * sizeof(Value)
 
+    if v.trace != 0 then trace_call(v, f, v.code, before_ip(v.ip))
+
     v.frame = f
     v.code = target
     v.ip = 0
+
     Ok(())
 
 // A call in tail position. When nothing resumable was made in the running frame, the frame is reused
@@ -168,8 +177,11 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
     f.cut = v.control.len()
     f.fail_to = NoMark
 
+    if v.trace != 0 then trace_call(v, f, v.code, before_ip(v.ip))
+
     v.code = target
     v.ip = 0
+
     Ok(())
 
 private is_async_chunk(v: *Vm, target: usize) -> bool = target < v.chunks.len() && v.chunks.at(target).is_async
@@ -277,6 +289,8 @@ ret(v: *Vm) -> Result[unit, string]
     val value = v.stack.pop() match
         Some(x) -> x
         None -> return Err("Return with nothing on the operand stack")
+
+    if v.trace != 0 then trace_return(v, f, value, v.control.len() > f.entry)
 
     // A `yield` inside an expression returns with that expression's operands still standing above
     // the frame's base; the `Restore` has saved them, and the caller must not see them.

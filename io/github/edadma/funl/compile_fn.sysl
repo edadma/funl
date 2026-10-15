@@ -40,7 +40,7 @@ import sysl.buf.{Buf, buf}
 // so the others are never attempted. Clause `i` begins at `starts.at(i)`; its head, after its
 // `FrameHead` or `Mark; Frame`, at `afters.at(i)`; `starts.at(n)` is the `NoMatch`.
 compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
-    var e = emit_function(r.name, r.arity)
+    var e = emit_function(r.name, if r.variadic then AnyArity else r.arity)
     var heads: Buf[ClauseHead] = buf()
 
     e.is_async = is_async_rel(r)
@@ -54,6 +54,10 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
             e.home = res.scopes.at(r.outer).declared(0, statics_home(r.chunk)) match
                 Some(s) -> s
                 None -> NoHome
+
+    // A variadic function takes any count, and its last parameter is the list of the arguments past
+    // its fixed ones, made before any clause looks (`variadic.sysl`).
+    if r.variadic then e.op(PackRest(r.arity - 1))
 
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)
@@ -88,6 +92,7 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
             _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
 
         e.place(starts.at(i))
+        e.at_line(line_of(c, cl.head.start))
 
         if h.clean
             e.op(FrameHead(h.slots, next, h.body, NoMark))
@@ -104,8 +109,13 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
         clause_body(&e, c, b, h.clean, next, h.body)?
 
     e.place(starts.at(r.clauses.len()))
+
+    // No clause matching is put down to where the function begins.
+    if r.clauses.len() > 0 then e.at_line(u32(res.src.locate(r.clauses.at(0).head.start).line))
+
     e.op(NoMatch)
     reuse_slots(&e)
+    name_function(&e, res, r, starts)
     install(e, r.chunk)
 end compile_function
 
@@ -250,6 +260,7 @@ private clean_head(c: Ctx, params: Buf[&Expr], b: FnBody) -> bool
 private clean_pattern(p: &Expr) -> bool
     p.kind match
         Disj(_, _) -> false
+        ValueP(_) -> false
         TupleE(items) -> all_clean(items)
         CallE(_, _, args) -> all_clean(args)
         ApplyE(_, args) -> all_clean(args)
@@ -278,12 +289,15 @@ private constant_keys(keys: Buf[&Expr]) -> bool
 // (`ScanLeave`) on the way to `Return`, and a call inside it is an ordinary call, made with the
 // scan's subject in force.
 body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
+    // The `Return` a tail path ends in is put down to the line of the expression it returns.
+    e.at_line(line_of(c, x.span.start))
+
     x.kind match
         CallE(n, at, args) ->
             if c.scans > 0
                 value_tail(e, c, x)?
             else
-                call_named(e, c, n, at.start, args, true)?
+                call_named(e, c, x, n, at.start, args, true)?
         ApplyE(f, args) ->
             if c.scans > 0
                 value_tail(e, c, x)?
@@ -378,6 +392,50 @@ match_fresh(e: *Emit, c: Ctx, p: &Expr) -> Result[unit, string]
     var seen = unseen(c.res.scopes.at(c.sc).count())
 
     pattern(e, c, p, &seen, NoParam)
+
+// `s match` and its clauses: `s`'s first value on the stack, then each clause under a mark of its
+// own, tried in order as a function's clauses are:
+//
+//     MarkThrough; <s>; UnmarkKeep
+//     c1:   Mark(c2); Dup; <pattern>; <guard>; FailIfFalse; Unmark; Pop; <body>; Branch(end)
+//     c2:   ...
+//           Fail
+//     end:
+//
+// **Committed choice**: once a clause's pattern and guard hold, `Unmark` drops what is left of them
+// and the subject goes; failure in the body is the body's own, so a body that generates makes the
+// `match` generate. A value no clause takes fails the `match`, where a function's `NoMatch` faults.
+compile_match(e: *Emit, c: Ctx, subject: &Expr, clauses: Buf[MatchClause]) -> Result[unit, string]
+    val end = e.label()
+
+    e.op(MarkThrough)
+    compile_value(e, c, subject)?
+    e.op(UnmarkKeep)
+
+    for cl in clauses.view()
+        val inner = c.in_block(cl.id)?
+        val next = e.label()
+
+        e.op(Mark(next))
+        e.op(Dup)
+        match_fresh(e, inner, cl.pat)?
+
+        cl.guard match
+            Some(g) ->
+                compile_value(e, inner, g)?
+                e.op(FailIfFalse)
+            None -> ()
+
+        e.op(Unmark)
+        e.op(Pop)
+        compile_value(e, inner, cl.body)?
+        e.op(Branch(end))
+        e.place(next)
+
+    e.op(Fail)
+    e.place(end)
+    Ok(())
+end compile_match
 
 // What `pattern` is given for a pattern that is not one of a function's parameters.
 private const NoParam: usize = 4294967295
@@ -481,6 +539,14 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
             pattern(e, c, x, seen, param)?
         MapE(keys, vals) -> map_pattern(e, c, keys, vals, None, seen, param)?
         MapRestE(keys, vals, rest) -> map_pattern(e, c, keys, vals, Some(rest), seen, param)?
+        ValueP(x) ->
+            // `(x)`: the value must equal `x`'s first value; `x` failing fails the pattern.
+            inspect(e, param)
+            e.op(MarkThrough)
+            compile_value(e, c, x)?
+            e.op(UnmarkKeep)
+            e.op(TestEq)
+            e.op(Pop)
         _ -> return Err("a pattern the resolver refused reached the compiler")
 
     Ok(())

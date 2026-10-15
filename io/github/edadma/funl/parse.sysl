@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.container.{Map, map}
 
 // The parser: the token cursor, the report, and the forms that are not expressions -- statements,
 // `free`, and definitions with their clauses.
@@ -26,6 +27,10 @@ struct Parser
     // The constructs that ended at the cursor, for an `end` marker to be checked against
     // (`parse_end.sysl`).
     closers: Buf[Closer]
+
+    // Where each parenthesized expression read so far ends, by where it begins, so a `match` clause
+    // can tell `(limit)`, a value it compares with, from `limit`, a name it binds.
+    parens: Map[usize, usize]
 
     // A fresh lambda id.
     lambda_id(*self) -> usize
@@ -231,13 +236,18 @@ tag(t: Tok) -> u8
         AsyncW -> 87
         AwaitW -> 88
         StarStar -> 89
-        StaticW -> 90
-        InitialW -> 91
+        AmpName(_) -> 90
+        CreateW -> 91
+        StaticW -> 92
+        InitialW -> 93
 end tag
 
-// The program in `src`, with every complaint about its syntax added to `report`.
+// The program in `src`, preprocessed (`preproc.sysl`), with every complaint about its syntax added to
+// `report`. Its spans are offsets into the program it carries, which is `src` unless something was
+// included or expanded.
 parse(src: Source, report: *Report) -> Program
-    var p = Parser(lex(src, report), report, src, 0, 0, 0, buf())
+    val pp = preprocess(src, report)
+    var p = Parser(pp.toks, report, pp.src, 0, 0, 0, buf(), map())
     var clauses: Buf[Clause] = buf()
     var stmts: Buf[Stmt] = buf()
     var imports: Buf[ImportDecl] = buf()
@@ -282,7 +292,7 @@ parse(src: Source, report: *Report) -> Program
         p.skip_line()
     end loop
 
-    Program(clauses, stmts, imports, exports)
+    Program(clauses, stmts, imports, exports, pp.src, pp.map)
 end parse
 
 // Whether the token `k` places past the cursor is the name `word`.

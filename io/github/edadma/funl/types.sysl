@@ -42,6 +42,7 @@ enum TypeTest
     BytesT
     HandleT
     PromiseT
+    CoExprT
     UndefinedT
 
     // An unbound logic variable.
@@ -77,6 +78,7 @@ builtin_type(name: string) -> Option[TypeTest]
     if name == "bytes" then return Some(BytesT)
     if name == "handle" then return Some(HandleT)
     if name == "promise" then return Some(PromiseT)
+    if name == "coexpression" then return Some(CoExprT)
     if name == "undefined" then return Some(UndefinedT)
     if name == "variable" then return Some(VariableT)
 
@@ -170,6 +172,9 @@ of_type(v: *Vm, x: Value, t: TypeTest) -> bool
             _ -> false
         PromiseT -> y match
             Promise(_) -> true
+            _ -> false
+        CoExprT -> y match
+            CoExpr(_) -> true
             _ -> false
         UndefinedT -> y match
             Undefined -> true

@@ -147,7 +147,7 @@ EQUALITY_AND_INEQUALITY_PRODUCE_THEIR_RIGHT_OPERAND_OR_FAIL()
 COMPARING_AN_UNBOUND_VARIABLE_IS_AN_INSTANTIATION_ERROR()
     val said = ran_funl("free x, y\nwrite(x != y)\n")
 
-    assert(said.contains("fault: main@"), said)
+    assert(said.contains("fault: main at test.funl:2:"), said)
     assert(said.contains("instantiation error: '!=' was given an unbound variable"), said)
 
 // A term can be written in a head and not yet built in ordinary code, so the bound-argument half of

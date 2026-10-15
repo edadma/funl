@@ -94,7 +94,10 @@ bind_prelude(res: *Resolved)
     for x in md.exports.view()
         x.kind match
             ExFunction(chunk, arity) ->
-                res.rels.push(Rel(x.name, arity, buf(), chunk, true, NoScope, 0, buf()))
+                res.rels.push(Rel(x.name, arity, buf(), chunk, true, NoScope, 0, buf(), false))
+                res.prelude.put(x.name, with_member(x.name, res.prelude.get(x.name), Function(res.rels.len() - 1, md.up)))
+            ExVariadic(chunk, arity) ->
+                res.rels.push(Rel(x.name, arity, buf(), chunk, true, NoScope, 0, buf(), true))
                 res.prelude.put(x.name, with_member(x.name, res.prelude.get(x.name), Function(res.rels.len() - 1, md.up)))
             _ -> ()
 
@@ -112,6 +115,7 @@ prelude_function(name: string) -> Result[Value, Fault]
         if x.name == name
             x.kind match
                 ExFunction(chunk, _) -> return Ok(function_value(v, chunk, link(v, md.up)?)?)
+                ExVariadic(chunk, _) -> return Ok(function_value(v, chunk, link(v, md.up)?)?)
                 _ -> ()
 
     Err(Broken(s"the prelude has no function `$name`"))

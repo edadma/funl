@@ -60,6 +60,22 @@ struct PromiseObj
     message: string
     waiters: Buf[usize]
 
+// A co-expression (`coexpr.sysl`): its machine while it is not the one running, the chunk of its
+// expression (`NoMachine` for a task's `&main`, which has none), the copy of its creator's frame it
+// runs in and a second copy that `^c` starts from, the co-expression that last activated it
+// (`&source`), how many results it has produced (`*c`), the number it prints with, the task that made
+// it, and its state (`CoFresh`, `CoRunning`, `CoAtActivate`, `CoAtYield`, `CoDone`).
+struct CoExprObj
+    machine: Machine
+    start: usize
+    frame: *FrameObj
+    pristine: *FrameObj
+    activator: *CoExprObj
+    results: u64
+    id: u64
+    task: u32
+    state: u8
+
 struct CompoundObj
     functor: u32
     args: Buf[Value]
@@ -314,6 +330,24 @@ new_promise() -> Result[*PromiseObj, string]
     o.value = Undefined
     o.message = ""
     o.waiters = buf()
+    Ok(o)
+
+// A co-expression over chunk `start`, running in `frame` and refreshed from `pristine`, made by task
+// `task` in state `state`, numbered one past the last made.
+new_coexpr(start: usize, frame: *FrameObj, pristine: *FrameObj, task: u32, state: u8) -> Result[*CoExprObj, string]
+    val v = current()
+    val o: *CoExprObj = ptr_cast(take(v, sizeof(CoExprObj), &coexpr_kind)?)
+
+    v.coexprs_made += 1
+    o.machine = empty_machine()
+    o.start = start
+    o.frame = frame
+    o.pristine = pristine
+    o.activator = null
+    o.results = 0
+    o.id = v.coexprs_made
+    o.task = task
+    o.state = state
     Ok(o)
 
 new_tuple(n: usize) -> Result[*TupleObj, string]
