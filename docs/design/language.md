@@ -1433,7 +1433,7 @@ built yet is in [Icon parity](icon.md).
 | `suspend e` | `yield e`, which yields every value of `e` | [above](#functions-are-generators-when-their-body-is) |
 | `suspend e1 do e2` | `every x = e1 do (yield x; e2)` | |
 | `return e`, bounded, failing the call when `e` fails | the same | [above](#functions-are-generators-when-their-body-is) |
-| `fail` (in a procedure) | `return fail`; a bare `fail` is a statement that fails and moves on | |
+| `fail` (in a procedure) | `return fail`; a bare `fail` is a statement that fails and moves on | [above](#functions-are-generators-when-their-body-is) |
 | `next` | `continue` | [above](#control-structures-and-which-of-them-are-bounded) |
 | `break e` | `break (e)` | |
 | `while`, `repeat`, `if`, `until` | the same (I1: the loop `until` at the start of an expression, the exclusive range after an operand) | [success and failure](../reference/success-and-failure.md#a-loop-fails-when-it-runs-out) |
@@ -1445,7 +1445,7 @@ built yet is in [Icon parity](icon.md).
 | `proc(s, i)` | the same, over top-level names, builtins and operators' spellings; no string invocation (I6) | [functions](../reference/functions.md#calling-by-name) |
 | `create`, `@`, `^`, `*`, `!` on co-expressions, `&current`, `&source`, `&main` | the same (I7, I8, I9) | [co-expressions](../reference/coexpressions.md) |
 | `record` | `data`; `with(r, {f: x})` for a copy with fields replaced (I15) | [data](../reference/data.md#records) |
-| `x := e`, `x <- e` reversible | `x = e`, `x <- e` | [above](#assignment-and-assignment-that-undoes-itself) |
+| `x := e`, `x <- e` reversible | `x = e`, `x <- e`; `(x := e) & f` is `(x = e) & f` | [above](#assignment-and-assignment-that-undoes-itself) |
 | `x :=: y` | `x, y = y, x`, for every assignable place: `a(i), a(j) = a(j), a(i)` | |
 | `\x`, `/x` | the same, assignable | [above](#data) |
 | `*x` | `*x`, and `x.length` | |
@@ -1472,6 +1472,14 @@ built yet is in [Icon parity](icon.md).
 | the graphics facilities | `funl:graphics` (I21) | [graphics](graphics.md) |
 | a call with too few arguments gets `&null`, extra ones are dropped | not adopted: a call is resolved by its count, decided; two arities or a variadic `def` say it | [above](#one-name-several-arities) |
 | `&fail`, `&null` as values | `fail`, `undefined` | |
+
+> **Decided (user, 2026-10-15) — `fail` is an expression, not a leaving statement.** A bare `fail`
+> does not leave the function as Icon's does: it is Icon's `&fail`, an expression that fails, so the
+> statement fails and control moves to the next. `return fail` is Icon's procedure `fail`.
+
+> **Decided (user, 2026-10-15) — assignment stays the lowest rung of the binding-power ladder.**
+> `x = e & f` is `x = (e & f)`. Icon's `(x := e) & f` is written `(x = e) & f` in FunL
+> ([assignment](../reference/assignment.md#-assigns)).
 
 > **Decided (user, 2026-10-15) — I2, a `case` expression: postfix `e match`** over a block of
 > clauses: the subject made once and bounded, committed choice, an unbounded body, no clause taking

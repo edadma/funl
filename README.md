@@ -132,6 +132,11 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
   past the slots both bind.
 - A real prints as sysl prints a float, so `write(1.0)` prints `1`; Prolog keeps ISO float output
   (`1.0`).
+- Icon's facilities are all there (`docs/design/icon.md`): co-expressions (`create`, `@`, `^`),
+  `static` and `initial`, `e match` over clauses, `e limit n`, the loop `until`, variadic `def`
+  with `..args` and `f(..list)`, `&`-keywords including `&trace`, the `$define`/`$ifdef`/`$include`
+  preprocessor, csets, deques, `random`, bit functions, more string functions, and the standard
+  streams `read`, `reads`, `ewrite` and `stop`.
 - Prolog reads and writes `1.0Inf` and `1.5NaN`, has SWI's `float_overflow`, `float_zero_div` and
   `float_undefined` flags, and reads integers in any radix.
 
