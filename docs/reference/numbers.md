@@ -461,14 +461,13 @@ write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )
 -1, 1, 0, 0.25, 3
 ```
 
-`pi` and `epsilon` (the gap between 1.0 and the next real above it) are values, written without
-parentheses. Euler's number is `exp(1)`, which leaves `e` an ordinary name with nothing to hide.
-`pi` is a builtin like the functions, and a program's own `pi` — a `val`, a parameter — hides it
-where it is in scope, as any declaration hides a builtin (see
-[Assignment and scope](assignment.md#a-builtins-name-is-free-to-use)).
+`pi`, `e` (Euler's number), `phi` (the golden ratio) and `epsilon` (the gap between 1.0 and the next
+real above it) are values, written without parentheses. Each is a builtin like the functions, and a
+program's own `e` or `pi` — a `val`, a parameter — hides it where it is in scope, as any declaration
+hides a builtin (see [Assignment and scope](assignment.md#a-builtins-name-is-free-to-use)).
 
 ```funl
-write( pi, epsilon, exp(1) )
+write( pi, e, phi, epsilon )
 write( 2 * pi )
 val f = pi -> pi + 1
 write( f(1) )
@@ -477,10 +476,30 @@ write( e )
 ```
 
 ```output
-3.141592653589793, 0.0000000000000002220446049250313, 2.718281828459045
+3.141592653589793, 2.718281828459045, 1.618033988749895, 0.0000000000000002220446049250313
 6.283185307179586
 2
 2
+```
+
+`dtor(x)` turns degrees into radians and `rtod(x)` radians into degrees; each answers a real.
+
+```funl
+write( dtor(180), rtod(pi), dtor(90) )
+write( sin( dtor(30) ) )
+```
+
+```output
+3.141592653589793, 180, 1.5707963267948966
+0.49999999999999994
+```
+
+```funl
+write( dtor('a') )
+```
+
+```error
+'dtor' wants a number and was given the string 'a'
 ```
 
 A function given an argument it has no value for is a fault, as `(-8) ^ (1/3)` is.
@@ -581,6 +600,125 @@ write( even(1/2) )
 
 ```error
 'even' wants an integer and was given the rational 1/2
+```
+
+## Bits
+
+`iand`, `ior` and `ixor` combine two integers bit by bit, `icom` flips every bit, and `ishift(i, j)`
+shifts `i` left by `j` places, or right by `-j` places when `j` is negative. The integers are read as if
+two's complement went on for ever, so a negative one has an endless run of ones on its left, and
+nothing overflows: a result past 64 bits is a big integer. A right shift rounds down, so `ishift(-8, -1)`
+is `-4` and `ishift(-1, -100)` is `-1`.
+
+```funl
+write( iand(12, 10), ior(12, 10), ixor(12, 10), icom(5) )
+write( ishift(1, 4), ishift(256, -4), ishift(-8, -1) )
+write( ishift(1, 70), iand(-1, 2 ^ 70), icom(2 ^ 70) )
+```
+
+```output
+8, 14, 6, -6
+16, 16, -4
+1180591620717411303424, 1180591620717411303424, -1180591620717411303425
+```
+
+Anything but an integer is a fault.
+
+```funl
+write( iand(1.5, 1) )
+```
+
+```error
+'iand' wants an integer and was given the real 1.5
+```
+
+```funl
+write( ishift(1, 0.5) )
+```
+
+```error
+'ishift' wants an integer and was given the real 0.5
+```
+
+## Random numbers
+
+The prefix `?` draws at random, and what it draws depends on what follows.
+
+| | |
+|---|---|
+| `?n`, `n` a positive integer | an integer from 1 to `n`, a die roll: `n` is a count, not an index |
+| `?0` | a real from 0 up to, but not including, 1 |
+| `?s`, `s` a string | one character of it |
+| `?c`, `c` a list, range, tuple, set, array or buffer | one element of it |
+| `?m`, `m` a map | one value of it |
+
+An empty string or collection has nothing to draw, so the draw fails. A negative count, or something
+with no elements, is a fault. `random()` is the same real from 0 up to 1 as `?0`, for a program that
+says what it means.
+
+```funl
+n = ?6
+write( if n >= 1 and n <= 6 then 'a die' else 'not a die' )
+write( ?"a", ?[7], ?{8}, ?array([9]) )
+r = random()
+write( if r >= 0 and r < 1 then 'below one' else 'out of range' )
+write( if ?"" then 'drew' else 'nothing to draw' )
+```
+
+```output
+a die
+a, 7, 8, 9
+below one
+nothing to draw
+```
+
+```funl
+write( ?(-1) )
+```
+
+```error
+'?' wants a count of zero or more and was given -1
+```
+
+`?` is a prefix operator, so it takes nothing away from the infix `s ? e` that scans a string: `"abc" ? ?"a"`
+scans `"abc"` with the draw `?"a"`.
+
+On an array, a buffer or a mutable map, `?c` can also be assigned to, and then it picks a random element
+of `c` to replace. The collection is evaluated once. `?c = x`, `?c += x` and `?c <- x` all work as
+they do on a named element, and on an empty collection they fail.
+
+```funl
+a = array([0, 0, 0])
+every 1 to 5 do ?a += 2
+write( sum(a) )
+b = buffer()
+b += 1
+?b = 9
+write( b )
+```
+
+```output
+10
+Buffer(9)
+```
+
+**The generator** is sysl's PCG32, seeded from the operating system the first time a program draws, so
+two runs differ. `random_seed(n)` restarts it from the seed `n` and `random_seed()` reads the seed it
+started from, so a run is repeated by setting the same one. The sequences repeat within FunL; they are
+not the ones Icon's own generator would give.
+
+```funl
+random_seed(7)
+a = [random(), ?100, ?"abcdef"]
+random_seed(7)
+b = [random(), ?100, ?"abcdef"]
+write( if a == b then 'repeated' else 'differs' )
+write( random_seed() )
+```
+
+```output
+repeated
+7
 ```
 
 ## Converting a string to a number

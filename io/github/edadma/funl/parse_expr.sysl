@@ -125,6 +125,10 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             val e = parse_expr(p, BangPower)
 
             expr(BangE(e), t.span.to(e.span))
+        Question ->
+            val e = parse_expr(p, BangPower)
+
+            expr(RandE(e), t.span.to(e.span))
         Equals ->
             // `=s` is `tab(match(s))`: move past `s` if the subject goes on with it.
             val e = parse_expr(p, BangPower)

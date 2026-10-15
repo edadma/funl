@@ -1,0 +1,63 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Assignment forms: every symbolic arithmetic or set operator's `op=`, the place evaluated once, and
+// several targets assigned with `<-`, each store undone on backtracking.
+
+@test
+EVERY_SYMBOLIC_OPERATOR_HAS_AN_ASSIGNING_FORM()
+    val text = "var x = 100\nx += 5\nx -= 3\nx *= 2\nx /= 4\nwrite( x )\nx //= 5\nwrite( x )\n" +
+        "x \\= 2\nx %= 4\nwrite( x )\nx ^= 10\nwrite( x )\nvar y = -7\ny //= 2\nwrite( y )\n"
+    assert_eq(ran_funl(text), "51\n10\n1\n1\n-4\nsucceeded")
+
+@test
+FLOOR_DIVISION_ASSIGNS_INTO_AN_ELEMENT_WITH_THE_PLACE_EVALUATED_ONCE()
+    val text = "a = array([17, 9])\na(0) //= 5\nvar n = 0\ndef at() = (n += 1; 1)\na(at()) //= 2\nwrite( a, n )\n"
+    assert_eq(ran_funl(text), "Array(3, 4), 1\nsucceeded")
+
+@test
+SET_OPERATORS_ASSIGN_INTO_A_MUTABLE_SET_IN_PLACE()
+    val text = "var s = {1, 2, 3}\nval t = s\ns **= {2, 3, 4}\nwrite( s, t )\nval m = set({1, 2, 3})\nm **= {2, 3, 9}\nm += 7\nm -= 2\nwrite( m )\n"
+    assert_eq(ran_funl(text), "{2, 3}, {1, 2, 3}\nMutableSet(3, 7)\nsucceeded")
+
+@test
+ORDERING_ASSIGNMENTS_KEEP_A_RUNNING_MINIMUM_AND_MAXIMUM()
+    assert_eq(ran_funl("var lo = 9\nvar hi = 0\nfor k <- [4, 6, 2, 8] do\n  lo >:= k\n  hi <:= k\nwrite( lo, hi )\n"), "2, 8\nsucceeded")
+
+@test
+AN_ASSIGNING_OPERATOR_FAULTS_AS_ITS_OPERATOR_DOES()
+    val said = ran_funl("var q = 7\nq //= 0\n")
+    assert(said.contains("7 // 0 divides by zero"), said)
+    val inter = ran_funl("var k = 3\nk **= 2\n")
+    assert(inter.contains("fault: "), inter)
+
+@test
+SEVERAL_NAMES_ARE_ASSIGNED_WITH_BACK_ARROW()
+    assert_eq(ran_funl("var a = 1\nvar b = 2\na, b <- b, a\nwrite( a, b )\nx = 1\ny = 2\nz = 3\nx, y, z <- z, x, y\nwrite( x, y, z )\n"),
+        "2, 1\n3, 1, 2\nsucceeded")
+    assert_eq(ran_funl("p, q <- 1, 2\nwrite( p, q )\n"), "1, 2\nsucceeded")
+
+@test
+A_TUPLE_OF_NAMES_IS_ASSIGNED_WITH_BACK_ARROW()
+    assert_eq(ran_funl("var a = 1\nvar b = 2\n(a, b) <- (b, a)\nwrite( a, b )\n"), "2, 1\nsucceeded")
+
+@test
+BACKTRACKING_PUTS_EVERY_TARGET_BACK()
+    val text = "var a = 1\nvar b = 2\nwrite( ((a, b) <- (b, a)) & a > 5 | (a, b) )\nwrite( a, b )\n" +
+        "every (a, b) <- (![10, 20], a + b) do write( a, b )\nwrite( a, b )\n"
+    assert_eq(ran_funl(text), "(1, 2)\n1, 2\n10, 3\n20, 3\n1, 2\nsucceeded")
+
+@test
+EVERY_VALUE_IS_MADE_BEFORE_ANY_TARGET_IS_STORED()
+    assert_eq(ran_funl("def f()\n  var a = 0\n  var b = 1\n  a, b <- b, a + b\n  a, b <- b, a + b\n  (a, b)\n\nwrite( f() )\n"),
+        "(1, 2)\nsucceeded")
+
+@test
+A_MALFORMED_REVERSIBLE_ASSIGNMENT_IS_REFUSED()
+    assert_eq(complaints("var a = 1\nvar b = 2\na, b <- 1\n"), "error 3:1 this assigns 2 variables and gives 1 value\n")
+    assert_eq(complaints("var a = 1\na, 3 <- 1, 2\n"), "error 2:4 a multiple assignment assigns names, and this is not one\n")
+    assert_eq(complaints("var a = 1\nvar b = 2\n(a, b) <- (1, 2, 3)\n"), "error 3:1 this assigns 2 variables and gives 3 values\n")
+    assert_eq(complaints("var a = 1\nvar b = 2\ndef f() = (1, 2)\n(a, b) <- f()\n"),
+        "error 4:11 a tuple of names is assigned with `<-` from a tuple of as many values\n")
