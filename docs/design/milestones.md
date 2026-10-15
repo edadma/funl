@@ -257,13 +257,13 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
    `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1. Done.
 3. **`drawop: #reverse`**: the coverage mask and the exclusive-or; drawing twice restores. Waits on
-   item 2 and G7.
+   item 2 and G7. Done.
 4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`
    attribute, `draw_image` with Icon's image strings, the palette functions in FunL source,
    `new_color` failing. Waits on item 1 and G8.
 5. **Fonts and text**: the `"fixed"` face carried in the binary, family lookup through the font-face
    cache, `font` and its failure, the metric attributes, `text_width`, `draw_string`; the text cursor
-   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1.
+   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1. Done.
 6. **Events on a hidden canvas**: the queue, `enqueue`, `event()`, `pending`, `active`, every event
    code, the keywords `&x`, `&y`, `&row`, `&col`, `&interval`, `&control`, `&shift`, `&meta`,
    `&released`, `&window` and the event-code keywords, per machine; `read`/`reads` with `echo`.

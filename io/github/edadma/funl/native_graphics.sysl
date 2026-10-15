@@ -43,10 +43,6 @@ private val GraphicsNames: [4]string = ["open", "couple", "color_value", "active
 private const WindowKind: string = "window"
 private const PixelsKind: string = "window pixels"
 
-// A canvas opened with no `size` is Icon's default: 80 columns by 12 lines of the default font.
-private const DefaultWidth: long = 480
-private const DefaultHeight: long = 156
-
 // The largest side a canvas may have, as an X server refuses a window wider than 32767 pixels.
 private const MaxSide: long = 32767
 
@@ -65,6 +61,10 @@ struct WinCanvas
     width: long
     height: long
     resize: bool
+    // The text cursor, on the canvas as Icon keeps it: `x` the left of the next character, `y` its
+    // baseline, both before the origin is taken away (`graphics_text.sysl`).
+    x: long
+    y: long
     cursor: bool
     echo: bool
     inputmask: string
@@ -105,11 +105,6 @@ struct EventKeys
 // The event keywords before any event: everything 0, and no modifier held.
 no_event_keys() -> EventKeys = EventKeys(0, 0, 0, 0, 0, 0)
 
-// The default font's character cell, which `&row` and `&col` count in: the default canvas is 80
-// columns by 12 lines of it, `DefaultWidth` by `DefaultHeight`.
-private const CellWidth: long = 6
-private const CellHeight: long = 13
-
 // The mouse's event codes, each also a keyword answering it, `&lpress` -- and `#resize`, `&resize`.
 private val MouseCodes: [10]string = ["lpress", "ldrag", "lrelease", "mpress", "mdrag", "mrelease", "rpress", "rdrag",
     "rrelease", "resize"]
@@ -121,7 +116,8 @@ private const NothingComes: string = "no event is queued, and none can come whil
 // A context: how many handles share it, and its attributes. A colour is kept as the specification
 // it was given, which `get` answers, and as the components it names; `fg_alpha` is the coverage the
 // foreground paints at, a half for Icon's `"transparent"` modifier. `clipw` is negative when there
-// is no clip rectangle, as Icon keeps it.
+// is no clip rectangle, as Icon keeps it. The font is kept as its specification and as its place in
+// the table of faces (`graphics_text.sysl`), with the line spacing the text cursor moves by.
 struct WinContext
     refs: usize
     fg: string
@@ -141,6 +137,9 @@ struct WinContext
     cliph: long
     dx: long
     dy: long
+    font: string
+    face: usize
+    leading: long
 
 // An open window handle and its places.
 struct Win
@@ -151,7 +150,7 @@ struct Win
 // process-wide: every open canvas by place, `None` once closed. A handle is collected storage, which
 // cannot hold the counted references a surface and a plutovg canvas are, so they wait here; places are
 // never shared, so every VM in the process can keep its canvases in the one table.
-private var canvases: Buf[Option[WinCanvas]] = buf()
+var canvases: Buf[Option[WinCanvas]] = buf()
 
 // process-wide: the generation of each place in `canvases`, for the reason that table is.
 private var generations: Buf[long] = buf()
@@ -160,12 +159,15 @@ private var generations: Buf[long] = buf()
 var contexts: Buf[Option[WinContext]] = buf()
 
 // Every attribute, in the order `attributes()` gives them.
-private val Attributes: [25]string = ["size", "width", "height", "label", "canvas", "resize", "cursor", "echo",
+private val Attributes: [35]string = ["size", "width", "height", "label", "canvas", "resize", "cursor", "echo",
     "inputmask", "fg", "bg", "reverse",
-    "linewidth", "linestyle", "fillstyle", "pattern", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density"]
+    "linewidth", "linestyle", "fillstyle", "pattern", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density",
+    "font", "leading", "ascent", "descent", "fheight", "fwidth", "x", "y", "row", "col"]
 
 install_graphics(v: *Vm)
     val w = register_handle_kind_forgetting(v, WindowKind, close_canvas, detach_window)
+
+    install_text(v, w)
 
     register_handle_kind(v, PixelsKind, (h) -> ())
     optional_past(v, register_generator(v, "graphics.open", 2, do_open), 1)
@@ -335,7 +337,7 @@ private is_attribute(k: string) -> bool
 
     false
 
-private is_read_only(k: string) -> bool = k == "depth" || k == "density"
+private is_read_only(k: string) -> bool = k == "depth" || k == "density" || is_metric(k)
 
 // -- surfaces --------------------------------------------------------------------------------------
 
@@ -452,7 +454,7 @@ private applied(at: usize, ctx: WinContext, m: *MapObj, name: string) -> Result[
     canvases.set(at, Some(kept))
     Ok(Some(p.ctx))
 
-private whole(x: Value) -> Option[long] = x match
+whole(x: Value) -> Option[long] = x match
     Int(n) -> Some(n)
     _ -> None
 
@@ -598,6 +600,12 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
         q.ctx.dy = whole(x) match
             Some(n) -> n
             None -> return Ok(None)
+    else if is_text_attribute(k)
+        text_assigned(q.cv, q.ctx, k, x) match
+            Some((cv, ctx)) ->
+                q.cv = cv
+                q.ctx = ctx
+            None -> return Ok(None)
     else
         return Err(Broken(s"'$name' has no way to set `$k`"))
 
@@ -644,6 +652,8 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
         t.items.set(1, Int(c.height))
         return Ok(Tuple(t))
 
+    if is_text_attribute(k) then return text_attribute(c, ctx, k)
+
     val clip = ctx.clipw >= 0
 
     Ok(k match
@@ -677,7 +687,7 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
 
 private default_context() -> WinContext =
     WinContext(1, "black", Rgb(0, 0, 0), 1.0, "white", Rgb(65535, 65535, 65535), false, 1, intern("solid"), intern("solid"),
-        "black", intern("copy"), 0, 0, -1, -1, 0, 0)
+        "black", intern("copy"), 0, 0, -1, -1, 0, 0, "fixed", fixed_face(), face_at(fixed_face()).height())
 
 // Whether attribute map `m` asks for a hidden canvas: a fault for a visible one, which this build
 // cannot open, and `None` for a `canvas` value that is no canvas state at all.
@@ -693,6 +703,16 @@ private hidden_asked(m: Option[*MapObj]) -> Result[Option[unit], Fault]
                 None -> Ok(None)
 
     Err(system_error(s"'open': $NoScreen"))
+
+// Whether attribute map `m` sets any of `names`.
+private mentions(m: *MapObj, names: []const string) -> bool
+    for i in 0..<m.keys.len()
+        val k = key_text(m.keys.at(i)).unwrap_or("")
+
+        for n in names
+            if k == n then return true
+
+    false
 
 // `open(title, attrs)`: a window titled `title` with `attrs` applied. Fails where a value in `attrs`
 // is one Icon would refuse.
@@ -710,8 +730,9 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     val h = new_handle(kind_named(WindowKind))?
     val start = default_context()
+    val (wd, ht) = text_area(start.face)
 
-    val (s, drawn) = blank(DefaultWidth, DefaultHeight, start.bg_rgb) match
+    val (s, drawn) = blank(wd, ht, start.bg_rgb) match
         Some(made) -> made
         None ->
             h.closed = true
@@ -721,8 +742,8 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     wins.push(h)
 
-    val at = keep_canvas(WinCanvas(s, drawn, 1, title, DefaultWidth, DefaultHeight, false, false, true, "", buf(), wins,
-        current()))
+    val at = keep_canvas(WinCanvas(s, drawn, 1, title, wd, ht, false, 0, face_at(start.face).ascent, false, true, "", buf(),
+        wins, current()))
     val k = keep_context(start)
 
     h.n = long(at)
@@ -737,6 +758,24 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
         Err(f) ->
             close_handle(h)
             return Err(f)
+
+    // With no size given, the canvas is 80 columns by 12 lines of the font it was opened with, and
+    // with no place given, the text cursor is at row 1, column 1 of that font, as Icon's `wopen` has.
+    if !mentions(attrs.unwrap(), ["size", "width", "height"]) && ctx.face != start.face
+        val (fw, fh) = text_area(ctx.face)
+
+        resized(canvas_at(at), fw, fh, ctx.bg_rgb) match
+            Some(r) -> canvases.set(at, Some(r))
+            None ->
+                close_handle(h)
+                return Ok(Refuses)
+
+    if !mentions(attrs.unwrap(), ["x", "y", "row", "col"])
+        var c = canvas_at(at)
+
+        c.x = ctx.dx
+        c.y = face_at(ctx.face).ascent + ctx.dy
+        canvases.set(at, Some(c))
 
     // A new canvas is painted in the background colour it was opened with.
     canvas_at(at).surface.clear(channel(ctx.bg_rgb.r), channel(ctx.bg_rgb.g), channel(ctx.bg_rgb.b))
@@ -846,7 +885,7 @@ private do_uncouple(base: usize, argc: usize) -> Result[Option[Value], Fault]
 // -- pixels ----------------------------------------------------------------------------------------
 
 // Argument `i` of `argc`, an integer, or `fallback` where it is not given or `undefined`.
-private int_or(base: usize, argc: usize, i: usize, fallback: long, name: string) -> Result[long, Fault]
+int_or(base: usize, argc: usize, i: usize, fallback: long, name: string) -> Result[long, Fault]
     if i >= argc then return Ok(fallback)
 
     val x = deref(arg(base, i))
@@ -1022,7 +1061,12 @@ private do_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val x = ev.x - ctx.dx
     val y = ev.y - ctx.dy
 
-    current().keys = EventKeys(x, y, cell(y, CellHeight), cell(x, CellWidth), ev.interval, ev.mods)
+    // The cells are the window's font's: `fwidth` wide and `leading` high, its height where the leading
+    // is none.
+    val f = face_at(ctx.face)
+    val high = if ctx.leading > 0 then ctx.leading else f.height()
+
+    current().keys = EventKeys(x, y, cell(y, high), cell(x, f.fwidth), ev.interval, ev.mods)
     Ok(Some(code))
 
 // `w.pending()`: how many events are on `w`'s queue; fails when there are none.

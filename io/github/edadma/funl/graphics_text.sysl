@@ -1,0 +1,484 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, parse_long, split, str_builder}
+import sysl.text as text
+import sh.sysl.plutovg as pv
+
+// `funl:graphics`'s text and fonts (`docs/library/graphics.md`): the font a context draws with, its
+// metrics, `text_width`, `draw_string`, and the window as a text terminal -- a cursor moved by
+// `goto_rc` and `goto_xy`, written at by `write` and `writes`, scrolling the canvas when a line
+// passes its bottom.
+//
+// **A font is Icon's specification, `"family,style,…,size"`**, and a face is found for it in one
+// plutovg font-face cache: `"fixed"` is the face carried in this binary, the generic families
+// `mono`, `typewriter`, `sans` and `serif` are each the first of a list of system families the cache
+// has, and any other family is looked up by its exact name. The system's fonts are read the first
+// time a family other than `"fixed"` is asked for, so a program that only writes in `"fixed"` never
+// walks a font directory.
+//
+// **`"fixed"` is JetBrains Mono Regular** (SIL Open Font License 1.1, `fonts/OFL.txt` beside it),
+// at 10 points: ascent 10, descent 3, every character 6 wide -- so a window's default 80 columns by
+// 12 lines is 480 by 156, the size of Icon's default window.
+//
+// **The faces in use live in a process-wide table**, beside the canvases and contexts, and a context
+// keeps its face's place there. A face is the font, the size it is drawn at, and its metrics in whole
+// pixels; a specification asked for twice finds the face it made the first time.
+
+// The face every window starts with: JetBrains Mono Regular, read in place from the binary.
+private val FixedBytes: []const u8 = embed("fonts/JetBrainsMono-Regular.ttf")
+
+// The size of a font whose specification gives none, and the size of `"fixed"`.
+private const DefaultSize: long = 10
+
+// The generic families, each the system families it stands for in the order they are tried: macOS's
+// first, then the faces a Linux distribution usually carries.
+private val Mono: [4]string = ["Menlo", "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono"]
+private val Typewriter: [4]string = ["Courier", "Courier New", "Nimbus Mono PS", "Liberation Mono"]
+private val Sans: [4]string = ["Helvetica", "DejaVu Sans", "Liberation Sans", "Nimbus Sans"]
+private val Serif: [4]string = ["Times", "DejaVu Serif", "Liberation Serif", "Nimbus Roman"]
+
+// Every character a terminal is usually written with, whose widest advance is a face's `fwidth`.
+private const Printable: string = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
+// Every attribute this file answers for.
+private val TextAttributes: [10]string = ["font", "leading", "ascent", "descent", "fheight", "fwidth", "x", "y", "row", "col"]
+
+// A face in use: the font, the size it is drawn at, and its metrics rounded to whole pixels -- how
+// far it rises above the baseline and falls below it, and its widest character. `key` is what
+// another specification naming the same face finds it by.
+struct Face
+    key: string
+    font: &pv.Font
+    size: f32
+    ascent: long
+    descent: long
+    fwidth: long
+
+    // Icon's `fheight`: the height of a line of the face with nothing between lines.
+    height(self) -> long = self.ascent + self.descent
+end Face
+
+// process-wide: every face a context has used, by place. A face holds a counted reference to a
+// plutovg font, which collected storage cannot, and it never changes once made, so every VM in the
+// process can share the one table; faces are few, and are never closed.
+private var faces: Buf[Face] = buf()
+
+// process-wide: the font-face cache, with `"fixed"` filed in it, once a face has been asked for. The
+// system's fonts are the same for every VM, and reading them is a walk of the font directories that
+// is done once.
+private var cache: Option[&pv.FontCache] = None
+
+// process-wide: whether the system's fonts have been read into the cache, for the reason it is.
+private var system_read: bool = false
+
+install_text(v: *Vm, w: u32)
+    register_method(v, w, "text_width", 1, do_text_width)
+    register_method(v, w, "draw_string", Variadic, do_draw_string)
+    register_method(v, w, "goto_rc", Variadic, do_goto_rc)
+    register_method(v, w, "goto_xy", Variadic, do_goto_xy)
+    register_method(v, w, "write", Variadic, (b, n) -> put(b, n, "write"))
+    register_method(v, w, "writes", Variadic, (b, n) -> put(b, n, "writes"))
+
+// -- faces -----------------------------------------------------------------------------------------
+
+private the_cache() -> &pv.FontCache
+    cache match
+        Some(c) -> return c
+        None -> ()
+
+    val c = pv.font_cache()
+
+    // The bytes are this binary's own and plutovg reads them, so a refusal is a broken build.
+    c.add("fixed", pv.font_from_data(FixedBytes).unwrap())
+    cache = Some(c)
+    c
+
+face_at(at: usize) -> Face = faces.at(at)
+
+// The place of `"fixed"` at its default size, the face every context starts with.
+fixed_face() -> usize = font_face("fixed").unwrap()
+
+// The size of a canvas 80 columns by 12 lines of the face at `at`, as Icon's `wopen` makes one.
+text_area(at: usize) -> (long, long)
+    val f = face_at(at)
+
+    (80 * f.fwidth, 12 * f.height())
+
+private rounded(x: f32) -> long = long(x + 0.5)
+
+// The face of `font` at `size`, its metrics measured.
+private measured(key: string, font: &pv.Font, size: f32) -> Face
+    val m = font.metrics(size)
+    var widest: f32 = 0.0
+
+    // plutovg answers advances through a canvas, so a canvas of one pixel does the measuring.
+    val s = pv.surface(1, 1).unwrap()
+    val d = pv.canvas(s).unwrap()
+
+    d.set_font(font, size)
+
+    for i in 0..<Printable.bytes.len
+        val a = d.text_extents(Printable.slice(i, i + 1)).advance
+
+        if a > widest then widest = a
+
+    Face(key, font, size, rounded(m.ascent), rounded(-m.descent), rounded(widest))
+
+// A font specification's parts.
+private struct FontSpec
+    family: string
+    bold: bool
+    italic: bool
+    size: long
+
+// Specification `spec` read: a family, then any of the styles `bold` and `italic` and at most one
+// size, a whole number of points, in any order; `None` for anything else.
+private parsed_font(spec: string) -> Option[FontSpec]
+    val fields = split(spec, ",")
+    val family = fields[0].trim()
+
+    if family.bytes.len == 0 then return None
+
+    var out = FontSpec(family, false, false, 0)
+
+    for i in 1..<fields.len
+        val f = text.to_lower(fields[i].trim())
+
+        if f == "bold"
+            out.bold = true
+        else if f == "italic"
+            out.italic = true
+        else
+            val n = parse_long(f) match
+                Ok(n) -> n
+                Err(_) -> return None
+
+            if n < 1 || out.size > 0 then return None
+
+            out.size = n
+
+    Some(out)
+
+// The family of the cache that `family` names: `"fixed"`, the first of a generic family's list the
+// cache has, or `family` itself when the cache has it. Any case spells `"fixed"` and the generic
+// names; any other family is matched exactly.
+private found_family(family: string) -> Option[string]
+    val low = text.to_lower(family)
+
+    if low == "fixed" then return Some("fixed")
+
+    if !system_read
+        the_cache().load_system()
+        system_read = true
+
+    if low == "mono" then return first_filed(Mono)
+    if low == "typewriter" then return first_filed(Typewriter)
+    if low == "sans" then return first_filed(Sans)
+    if low == "serif" then return first_filed(Serif)
+
+    if the_cache().get(family).is_some() then Some(family) else None
+
+private first_filed(names: []const string) -> Option[string]
+    for n in names
+        if the_cache().get(n).is_some() then return Some(n)
+
+    None
+
+// The place of the face specification `spec` names, made the first time it is asked for; `None` when
+// `spec` is no specification or names a family there is no face of.
+font_face(spec: string) -> Option[usize]
+    val fs = parsed_font(spec)?
+    val family = found_family(fs.family)?
+    val size = if fs.size > 0 then fs.size else DefaultSize
+    val key = s"$family,${fs.bold},${fs.italic},$size"
+
+    for i in 0..<faces.len()
+        if faces.at(i).key == key then return Some(i)
+
+    val font = the_cache().get(family, fs.bold, fs.italic)?
+
+    faces.push(measured(key, font, f32(size)))
+    Some(faces.len() - 1)
+
+// -- attributes ------------------------------------------------------------------------------------
+
+is_text_attribute(k: string) -> bool
+    for a in TextAttributes
+        if a == k then return true
+
+    false
+
+// The attributes the font decides, which may be read and not set.
+is_metric(k: string) -> bool = k == "ascent" || k == "descent" || k == "fheight" || k == "fwidth"
+
+// `a` divided by `b`, rounded down, and 0 for no `b`.
+private floored(a: long, b: long) -> long
+    if b <= 0 then return 0
+
+    if a >= 0 then a / b else -((-a + b - 1) / b)
+
+// Canvas `cv` and context `ctx` with text attribute `k` set to `x`, or `None` when `x` is no value
+// `k` can take. Setting `font` sets `leading` to the new face's height, as Icon's does. The cursor's
+// place is kept on the canvas, so `x`, `y`, `row` and `col` are moved by the origin.
+text_assigned(cv: WinCanvas, ctx: WinContext, k: string, x: Value) -> Option[(WinCanvas, WinContext)]
+    var c = cv
+    var t = ctx
+
+    if k == "font"
+        val spec = x match
+            Str(p) -> p.s
+            _ -> return None
+
+        t.face = font_face(spec)?
+        t.font = spec
+        t.leading = face_at(t.face).height()
+        return Some((c, t))
+
+    val n = whole(x)?
+    val f = face_at(t.face)
+
+    if k == "leading"
+        t.leading = n
+    else if k == "x"
+        c.x = n + t.dx
+    else if k == "y"
+        c.y = n + t.dy
+    else if k == "row"
+        c.y = (n - 1) * t.leading + f.ascent + t.dy
+    else
+        c.x = (n - 1) * f.fwidth + t.dx
+
+    Some((c, t))
+
+// The value of text attribute `k` of canvas `c` and context `ctx`.
+text_attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fault]
+    val f = face_at(ctx.face)
+    val x = c.x - ctx.dx
+    val y = c.y - ctx.dy
+
+    Ok(k match
+        "font" -> new_str(ctx.font)?
+        "leading" -> Int(ctx.leading)
+        "ascent" -> Int(f.ascent)
+        "descent" -> Int(f.descent)
+        "fheight" -> Int(f.height())
+        "fwidth" -> Int(f.fwidth)
+        "x" -> Int(x)
+        "y" -> Int(y)
+        "row" -> Int(floored(y - f.ascent, ctx.leading) + 1)
+        _ -> Int(floored(x, f.fwidth) + 1))
+
+// -- arguments -------------------------------------------------------------------------------------
+
+private text_arg(base: usize, i: usize, name: string) -> Result[string, Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Str(p) -> Ok(p.s)
+        _ -> Err(kind_error(x, "string", s"'$name' wants a string and was given ${described(x)}"))
+
+private int_arg(base: usize, i: usize, name: string) -> Result[long, Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Int(n) -> Ok(n)
+        _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
+
+// -- drawing text ----------------------------------------------------------------------------------
+
+// The canvas of `c` ready to draw text in `ctx`: its state saved, the clip rectangle applied and the
+// face chosen. `restore()` on the canvas ends it.
+private begun(c: WinCanvas, ctx: WinContext, f: Face) -> &pv.Canvas = begun_on(c.drawn, ctx, f)
+
+// Plutovg canvas `d` ready to draw text in `ctx`, as `begun` makes a window's.
+private begun_on(d: &pv.Canvas, ctx: WinContext, f: Face) -> &pv.Canvas
+    d.save()
+
+    if ctx.clipw >= 0 && ctx.cliph >= 0
+        d.rect(f32(ctx.clipx), f32(ctx.clipy), f32(ctx.clipw), f32(ctx.cliph))
+        d.clip()
+
+    d.set_font(f.font, f.size)
+    d
+
+private painted_in(d: &pv.Canvas, c: Rgb) = d.rgb(channel(c.r), channel(c.g), channel(c.b))
+
+// The foreground, at the coverage its specification asks for: a half for a `"transparent"` one.
+private inked(d: &pv.Canvas, ctx: WinContext) =
+    d.rgba(channel(ctx.fg_rgb.r), channel(ctx.fg_rgb.g), channel(ctx.fg_rgb.b), ctx.fg_alpha)
+
+// `w.text_width(s)`: how far `s` would advance in the window's font, in whole pixels.
+private do_text_width(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "text_width")?
+    val s = text_arg(base, 1, "text_width")?
+    val f = face_at(context_at(w.ctx).face)
+    val d = canvas_at(w.at).drawn
+
+    d.set_font(f.font, f.size)
+    Ok(Some(Int(rounded(d.text_extents(s).advance))))
+
+// `w.draw_string(x, y, s, …)`: each string drawn in the foreground colour with its baseline starting
+// at `(x, y)`, moved by the origin; only the glyphs are painted, and the cursor stays where it was.
+// Every argument is checked before anything is drawn. Answers the window. Under `drawop: #reverse`
+// the glyphs are drawn onto a coverage mask and exclusive-ored into the canvas, so drawing the same
+// strings again restores it.
+private do_draw_string(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val given = argc - 1
+
+    if given == 0 || given % 3 != 0
+        return Err(wrong_count("draw_string", given, s"'draw_string' takes x, y and a string, repeated, and was given $given arguments"))
+
+    val w = window_arg(base, 0, "draw_string")?
+
+    for i in 0..<given / 3
+        int_arg(base, 1 + 3 * i, "draw_string")?
+        int_arg(base, 2 + 3 * i, "draw_string")?
+        text_arg(base, 3 + 3 * i, "draw_string")?
+
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    var mask: Option[&pv.Surface] = None
+    var d = c.drawn
+
+    if is_reversing(ctx)
+        val (s, m) = reverse_mask(c)?
+
+        d = m
+        mask = Some(s)
+
+    begun_on(d, ctx, face_at(ctx.face))
+
+    if mask.is_some() then d.rgb(1.0, 1.0, 1.0) else inked(d, ctx)
+
+    for i in 0..<given / 3
+        val x = int_arg(base, 1 + 3 * i, "draw_string")? + ctx.dx
+        val y = int_arg(base, 2 + 3 * i, "draw_string")? + ctx.dy
+
+        d.fill_text(text_arg(base, 3 + 3 * i, "draw_string")?, f32(x), f32(y))
+
+    d.restore()
+
+    mask match
+        Some(s) -> exclusive_ored(c, ctx, s)
+        None -> ()
+
+    Ok(Some(Handle(w.h)))
+
+// -- the text cursor -------------------------------------------------------------------------------
+
+// `w.goto_rc(r, c)`: the cursor to row `r`, column `c` of the window's font, each 1 when not given.
+private do_goto_rc(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc > 3 then return Err(wrong_count("goto_rc", argc - 1, s"'goto_rc' takes a row and a column and was given ${argc - 1} arguments"))
+
+    val w = window_arg(base, 0, "goto_rc")?
+    val r = int_or(base, argc, 1, 1, "goto_rc")?
+    val col = int_or(base, argc, 2, 1, "goto_rc")?
+    val ctx = context_at(w.ctx)
+    val f = face_at(ctx.face)
+    var c = canvas_at(w.at)
+
+    c.x = (col - 1) * f.fwidth + ctx.dx
+    c.y = (r - 1) * ctx.leading + f.ascent + ctx.dy
+    canvases.set(w.at, Some(c))
+    Ok(Some(Handle(w.h)))
+
+// `w.goto_xy(x, y)`: the cursor to `(x, y)`, moved by the origin, each 0 when not given.
+private do_goto_xy(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc > 3 then return Err(wrong_count("goto_xy", argc - 1, s"'goto_xy' takes x and y and was given ${argc - 1} arguments"))
+
+    val w = window_arg(base, 0, "goto_xy")?
+    val x = int_or(base, argc, 1, 0, "goto_xy")?
+    val y = int_or(base, argc, 2, 0, "goto_xy")?
+    val ctx = context_at(w.ctx)
+    var c = canvas_at(w.at)
+
+    c.x = x + ctx.dx
+    c.y = y + ctx.dy
+    canvases.set(w.at, Some(c))
+    Ok(Some(Handle(w.h)))
+
+// `w.write(x…)` and `w.writes(x…)`: the arguments written at the cursor as `write` and `writes` print
+// them -- `write` separating them with `, ` and ending the line, `writes` running them together --
+// answering `()`.
+private put(base: usize, argc: usize, name: string) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, name)?
+    var out = str_builder()
+
+    for i in 1..<argc
+        if i > 1 && name == "write" then out.push(", ")
+
+        out.push(render(arg(base, i)))
+
+    if name == "write" then out.push("\n")
+
+    canvases.set(w.at, Some(typed(canvas_at(w.at), context_at(w.ctx), out.finish())))
+    Ok(Some(Unit))
+
+// Canvas `c` with `t` typed at its cursor in context `ctx`, as a terminal shows it: a newline moves
+// the cursor to the start of the next line, scrolling the canvas up when that line's descent would
+// pass the bottom; a carriage return moves it to the start of its line, and a tab to the next column
+// after a multiple of 8. Each character is drawn over its cell, its background painted first.
+private typed(cv: WinCanvas, ctx: WinContext, t: string) -> WinCanvas
+    val f = face_at(ctx.face)
+    var c = cv
+    var from: usize = 0
+
+    for i in 0..<t.bytes.len
+        val b = t.bytes[i]
+
+        if b == u8('\n') || b == u8('\r') || b == u8('\t')
+            c = shown(c, ctx, f, t.slice(from, i))
+            from = i + 1
+
+            if b == u8('\t')
+                c.x = ctx.dx + (floored(c.x - ctx.dx, f.fwidth) / 8 + 1) * 8 * f.fwidth
+            else
+                c.x = ctx.dx
+
+            if b == u8('\n')
+                c.y += ctx.leading
+
+                if c.y + f.descent > c.height
+                    scrolled(c, ctx, c.y + f.descent - c.height)
+                    c.y = c.height - f.descent
+
+    shown(c, ctx, f, t.slice(from, t.bytes.len))
+
+// Canvas `c` with `s`, which holds no line break, drawn at its cursor over a cell of the background
+// colour as high as a line of `f`, and the cursor moved past it.
+private shown(cv: WinCanvas, ctx: WinContext, f: Face, s: string) -> WinCanvas
+    if s.bytes.len == 0 then return cv
+
+    var c = cv
+    val d = begun(c, ctx, f)
+    val advance = d.text_extents(s).advance
+
+    d.rect(f32(c.x), f32(c.y - f.ascent), advance, f32(f.height()))
+    painted_in(d, ctx.bg_rgb)
+    d.fill()
+    inked(d, ctx)
+    d.fill_text(s, f32(c.x), f32(c.y))
+    d.restore()
+    c.x += rounded(advance)
+    c
+
+// The pixels of canvas `c` moved up by `n` rows, the rows uncovered at the bottom painted in the
+// background colour; the whole canvas scrolls, whatever the clip rectangle.
+private scrolled(c: WinCanvas, ctx: WinContext, n: long)
+    val by = usize(if n < c.height then n else c.height)
+    val data = c.surface.data()
+    val stride = usize(c.surface.stride())
+    val rows = usize(c.height)
+
+    for y in 0..<rows - by
+        for b in 0..<stride
+            data[y * stride + b] = data[(y + by) * stride + b]
+
+    val d = c.drawn
+
+    d.save()
+    d.rect(0.0, f32(rows - by), f32(c.width), f32(by))
+    painted_in(d, ctx.bg_rgb)
+    d.fill()
+    d.restore()

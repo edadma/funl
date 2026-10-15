@@ -138,7 +138,7 @@ private struct Pen
 private is_named(id: u32, name: string) -> bool = atom_name(id) == name
 
 // A drawing begun on `w`, under the context's drawing operation.
-private began(w: Win) -> Result[Pen, Fault] = pen_on(w, is_named(context_at(w.ctx).drawop, "reverse"))
+private began(w: Win) -> Result[Pen, Fault] = pen_on(w, is_reversing(context_at(w.ctx)))
 
 // A drawing begun on `w`, onto a scratch coverage mask when `reversed` and onto the canvas otherwise:
 // the state saved, the context's clip rectangle applied, and the path empty.
@@ -149,14 +149,9 @@ private pen_on(w: Win, reversed: bool) -> Result[Pen, Fault]
     var d = c.drawn
 
     if reversed
-        val s = pv.surface(int(c.width), int(c.height)) match
-            Some(s) -> s
-            None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+        val (s, m) = reverse_mask(c)?
 
-        s.clear(0.0, 0.0, 0.0, 0.0)
-        d = pv.canvas(s) match
-            Some(m) -> m
-            None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+        d = m
         mask = Some(s)
 
     d.save()
@@ -178,27 +173,46 @@ private finished(pen: Pen) -> Result[Option[Value], Fault]
     pen.d.restore()
 
     pen.mask match
-        Some(m) -> reversed(pen, m)
+        Some(m) -> exclusive_ored(pen.c, pen.ctx, m)
         None -> ()
 
     Ok(Some(Handle(pen.w.h)))
 
-// `drawop: #reverse`'s exclusive-or: every pixel the shape covers at least half of has `fg ^ bg`
-// exclusive-ored into it, so drawing the same shape again restores it. A partly covered pixel is
-// either in or out -- an anti-aliased edge could not be undone by a second exclusive-or.
-private reversed(pen: Pen, m: &pv.Surface)
+// Whether context `ctx` draws in reverse.
+is_reversing(ctx: WinContext) -> bool = is_named(ctx.drawop, "reverse")
+
+// A coverage mask for drawing in reverse on canvas `c`: a clear surface the size of the canvas's, and
+// a plutovg canvas drawing on it. What is drawn there, opaque, `exclusive_ored` then applies.
+reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
+    val s = pv.surface(int(c.width), int(c.height)) match
+        Some(s) -> s
+        None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+
+    s.clear(0.0, 0.0, 0.0, 0.0)
+
+    val d = pv.canvas(s) match
+        Some(d) -> d
+        None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+
+    Ok((s, d))
+
+// `drawop: #reverse`'s exclusive-or: every pixel of canvas `c` that mask `m` covers at least half of
+// has context `ctx`'s `fg ^ bg` exclusive-ored into it, so drawing the same shape again restores it. A
+// partly covered pixel is either in or out -- an anti-aliased edge could not be undone by a second
+// exclusive-or.
+exclusive_ored(c: WinCanvas, ctx: WinContext, m: &pv.Surface)
     val from = m.data()
     val from_stride = long(m.stride())
-    val to = pen.c.surface.data()
-    val to_stride = long(pen.c.surface.stride())
-    val fg = pen.ctx.fg_rgb
-    val bg = pen.ctx.bg_rgb
+    val to = c.surface.data()
+    val to_stride = long(c.surface.stride())
+    val fg = ctx.fg_rgb
+    val bg = ctx.bg_rgb
     val xb = premultiplied(fg.b, 1.0) ^ premultiplied(bg.b, 1.0)
     val xg = premultiplied(fg.g, 1.0) ^ premultiplied(bg.g, 1.0)
     val xr = premultiplied(fg.r, 1.0) ^ premultiplied(bg.r, 1.0)
 
-    for y in 0..<pen.c.height
-        for x in 0..<pen.c.width
+    for y in 0..<c.height
+        for x in 0..<c.width
             if from[usize(y * from_stride + 4 * x + 3)] >= 128
                 val o = usize(y * to_stride + 4 * x)
 
