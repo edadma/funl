@@ -212,6 +212,28 @@ call_spread(v: *Vm, tail: bool) -> Result[bool, Fault]
 
     call_value(v, items.len(), tail)
 
+// `CallMethodSpread(name, tail)`: the argument list on top made the arguments, and what `MethodOf`
+// left beneath it called with that many, as `CallMethod` calls it. The list the spread arguments make
+// is always a list, so an integer on top is the count a generating method left there to be resumed
+// with (`call_method`).
+call_method_spread(v: *Vm, name: u32, tail: bool) -> Result[bool, Fault]
+    val top = v.stack.pop() match
+        Some(x) -> x
+        None -> return Err(Broken("the operand stack is empty"))
+
+    top match
+        Int(k) -> return call_method(v, name, usize(k), tail, true)
+        _ -> ()
+
+    var items: Buf[Value] = buf()
+
+    elements(top, "a spread call", &items)?
+
+    for x in items.view()
+        v.stack.push(x)
+
+    call_method(v, name, items.len(), tail, true)
+
 // -- `arity` --------------------------------------------------------------------------------------
 
 install_variadic(v: *Vm)

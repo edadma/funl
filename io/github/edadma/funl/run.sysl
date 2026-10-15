@@ -511,7 +511,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
                     v.stack.push(y)
                     Ok(Next)
                 None -> Ok(Fails)
-        CallMethod(name, argc, tail) -> Ok(fails_if(call_method(v, name, argc, tail)?))
+        CallMethod(name, argc, tail) -> Ok(fails_if(call_method(v, name, argc, tail, false)?))
         StoreBack(depth, slot) ->
             val x = pop(v)?
 
@@ -719,6 +719,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             args_spread(v)?
             Ok(Next)
         CallSpread(tail) -> Ok(fails_if(call_spread(v, tail)?))
+        CallMethodSpread(name, tail) -> Ok(fails_if(call_method_spread(v, name, tail)?))
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it
