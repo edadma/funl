@@ -1,0 +1,125 @@
+module io.github.edadma.funl
+@tests
+
+// `funl:graphics`'s events (`docs/library/graphics.md`, "Events"): `enqueue` filling a hidden canvas's
+// queue as the screen would, `event()` taking from it and setting the event keywords, which are the
+// running machine's own, `pending`, `active`, the `inputmask`, `cursor` and `echo` attributes, the
+// mouse's event-code keywords, and `&window`.
+
+// FunL program `body` run with `open` and `active` imported and `w` a hidden 40 by 30 canvas.
+private on_events(body: string) -> string =
+    ran_funl("import { open, active } from funl:graphics\n" +
+        "w = open( \"test\", {canvas: #hidden, size: (40, 30)} )\n" +
+        body)
+
+@test
+EVENT_TAKES_THE_OLDEST_AND_ANSWERS_ITS_CODE_AND_PENDING_COUNTS_WHAT_IS_LEFT()
+    assert_eq(on_events("w.enqueue( \"a\", 2, 1, \"s\", 40 )\nw.enqueue( #lpress, 3, 2 )\nw.enqueue( #home )\nwrite( w.pending() )\n" +
+            "write( w.event(), &x, &y, &interval, if &shift then #shift else #plain )\n" +
+            "write( w.event(), &x, &y, &interval, if &shift then #shift else #plain )\n" +
+            "write( w.event(), w.pending() | #empty )\n"),
+        "3\na, 2, 1, 40, shift\nlpress, 3, 2, 0, plain\nhome, empty\nsucceeded")
+
+@test
+THE_MOUSE_CODES_ARE_KEYWORDS_ANSWERING_THEIR_SYMBOLS()
+    assert_eq(ran_funl("write( &lpress, &ldrag, &lrelease, &mpress, &mdrag, &mrelease, &rpress, &rdrag, &rrelease, &resize )\n" +
+            "write( if &rdrag == #rdrag then #same else #different )\n"),
+        "lpress, ldrag, lrelease, mpress, mdrag, mrelease, rpress, rdrag, rrelease, resize\nsame\nsucceeded")
+
+@test
+EVERY_MODIFIER_SUCCEEDS_WHEN_HELD_AND_FAILS_WHEN_NOT()
+    assert_eq(on_events("def held() = [if &control then #c else #_, if &meta then #m else #_, if &shift then #s else #_, if &released then #r else #_]\n" +
+            "write( held() )\nw.enqueue( \"c\", 0, 0, \"cms\" )\nw.enqueue( \"c\" )\nw.enqueue( \"c\", 0, 0, undefined )\n" +
+            "w.event()\nwrite( held(), &control )\nw.event()\nwrite( held() )\nw.event()\nwrite( held() )\n"),
+        "[_, _, _, _]\n[c, m, s, _], undefined\n[_, _, _, _]\n[_, _, _, _]\nsucceeded")
+
+@test
+THE_POINTER_IS_IN_THE_WINDOWS_COORDINATES_AND_ROW_AND_COL_ARE_ITS_TEXT_CELL()
+    assert_eq(on_events("write( &x, &y, &row, &col, &interval )\nw.enqueue( \"x\", 13, 26 )\nw.event()\nwrite( &x, &y, &row, &col )\n" +
+            "w.enqueue( #ldrag, 5, 12 )\nw.event()\nwrite( &row, &col )\nw.enqueue( #ldrag, -1, -14 )\nw.event()\nwrite( &row, &col )\n" +
+            "w.set( {dx: 10, dy: 20} )\nw.enqueue( #lpress, 1, 1 )\nw.event()\nwrite( &x, &y )\n" +
+            "w.enqueue( #lpress, 1, 1 )\nw.set( {dx: 0, dy: 0} )\nw.event()\nwrite( &x, &y )\n"),
+        "0, 0, 0, 0, 0\n13, 26, 3, 3\n1, 1\n-1, 0\n1, 1\n11, 21\nsucceeded")
+
+@test
+INPUTMASK_LETS_IN_MOTION_AND_KEY_RELEASES_ONLY_WHEN_IT_ASKS_FOR_THEM()
+    assert_eq(on_events("w.enqueue( #move, 1, 1 )\nw.enqueue( \"q\", 0, 0, \"r\" )\nwrite( w.pending() | #empty )\n" +
+            "w.set( {inputmask: \"mk\"} )\nwrite( w.get(\"inputmask\") )\n" +
+            "w.enqueue( #move, 1, 1 )\nw.enqueue( \"q\", 0, 0, \"r\" )\nw.enqueue( \"q\" )\nwrite( w.pending() )\n" +
+            "write( w.event(), &x, if &released then #up else #down )\n" +
+            "write( w.event(), if &released then #up else #down )\nwrite( w.event(), if &released then #up else #down )\n" +
+            "w.set( {inputmask: \"k\"} )\nw.enqueue( #move )\nw.enqueue( #lpress )\nwrite( w.event() )\n"),
+        "empty\nmk\n3\nmove, 1, down\nq, up\nq, down\nlpress\nsucceeded")
+
+@test
+CURSOR_ECHO_AND_INPUTMASK_ARE_SET_AND_REFUSED_AS_ICON_DOES()
+    assert_eq(on_events("write( w.get(\"cursor\"), w.get(\"echo\"), w.get(\"inputmask\") )\n" +
+            "w.set( {cursor: true, echo: false, inputmask: \"k\"} )\nwrite( w.get(\"cursor\"), w.get(\"echo\"), w.get(\"inputmask\") )\n" +
+            "for v <- [{cursor: 1}, {echo: \"on\"}, {inputmask: \"mx\"}, {inputmask: #m}] do write( w.set(v) | #failed )\n" +
+            "write( w.get(\"cursor\"), w.get(\"echo\"), w.get(\"inputmask\") )\n" +
+            "c = w.clone()\nc.set( {inputmask: \"\"} )\nwrite( w.get(\"inputmask\") == \"\" | #kept )\n"),
+        "false, true, \ntrue, false, k\nfailed\nfailed\nfailed\nfailed\ntrue, false, k\n\nsucceeded")
+
+@test
+ACTIVE_GENERATES_EACH_WINDOW_WITH_AN_EVENT_WAITING()
+    assert_eq(on_events("v = open( \"v\", {canvas: #hidden, size: (2, 2)} )\nu = open( \"u\", {canvas: #hidden, size: (2, 2)} )\n" +
+            "w.enqueue( \"a\" )\nu.enqueue( \"b\" )\nevery write( active().get(\"label\") )\n" +
+            "w.event()\nevery write( active().get(\"label\") )\nu.event()\nwrite( active() catch e -> e )\n" +
+            "c = w.clone( {fg: \"red\"} )\nw.enqueue( \"z\" )\nwrite( active().get(\"fg\") )\nw.uncouple()\nwrite( active().get(\"fg\"), active().event() )\n"),
+        "test\nu\nu\nerror(system_error, context(_G2, \"'active': no event is queued, and none can come while the program waits: a hidden canvas takes events only from `enqueue`\"))\n" +
+        "black\nred, z\nsucceeded")
+
+@test
+A_FORGOTTEN_WINDOW_LEAVES_ACTIVE_ANSWERING_ONE_STILL_ON_THE_CANVAS()
+    assert_eq(ran_funl("import { open, active } from funl:graphics\nc = open( \"t\", {canvas: #hidden, size: (1, 1)} ).clone( {fg: \"blue\"} )\n" +
+            "&window = undefined\ncollect()\nc.enqueue( \"k\" )\nwrite( active().get(\"fg\") )\n"),
+        "blue\nsucceeded")
+
+@test
+EACH_TASK_HAS_ITS_OWN_EVENT_KEYWORDS()
+    assert_eq(on_events("async def reader( name ) =\n" +
+            "    write( name, w.event(), &x )\n" +
+            "    await ()\n" +
+            "    write( name, &x )\n" +
+            "\n" +
+            "w.enqueue( #lpress, 1, 1 )\nw.enqueue( #lpress, 2, 2 )\n" +
+            "a = reader( \"a\" )\nb = reader( \"b\" )\nwrite( \"top\", &x )\nawait a\nawait b\nwrite( \"top\", &x )\n"),
+        "a, lpress, 1\nb, lpress, 2\ntop, 0\na, 1\nb, 2\ntop, 0\nsucceeded")
+
+@test
+AN_EMPTY_QUEUE_FAULTS_RATHER_THAN_WAITING_FOR_EVER()
+    assert_eq(on_events("write( w.event() catch e -> e )\nw.close()\nwrite( w.event() catch e -> e )\nwrite( w.pending() catch e -> #closed )\n"),
+        "error(system_error, context(_G2, \"'event': no event is queued, and none can come while the program waits: a hidden canvas takes events only from `enqueue`\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G5, \"'event' was called on the handle <closed window handle>\"))\nclosed\nsucceeded")
+
+@test
+ENQUEUE_FAULTS_ON_WHAT_IS_NO_EVENT()
+    assert_eq(on_events("write( w.enqueue(\"ab\") catch e -> e )\nwrite( w.enqueue(\"\") catch e -> e )\nwrite( w.enqueue(3) catch e -> e )\n" +
+            "write( w.enqueue(\"a\", 0, 0, \"cq\") catch e -> e )\nwrite( w.enqueue(\"a\", 0, 0, 5) catch e -> e )\n" +
+            "write( w.enqueue(\"a\", 0, 0, \"\", -1) catch e -> e )\nwrite( w.enqueue(\"a\", 1.5) catch e -> e )\n" +
+            "write( w.enqueue() catch e -> e )\nwrite( w.pending() | #empty )\n"),
+        "error(domain_error(event_code, \"ab\"), context(_G2, \"'enqueue': a key's event code is one character, and was given the string 'ab'\"))\n" +
+        "error(domain_error(event_code, \"\"), context(_G5, \"'enqueue': a key's event code is one character, and was given the string ''\"))\n" +
+        "error(type_error(string, 3), context(_G8, \"'enqueue' wants an event code, a one-character string or a symbol, and was given the integer 3\"))\n" +
+        "error(domain_error(event_modifiers, \"cq\"), context(_G11, \"'enqueue': the modifiers are the letters c, m, s and r, and the string 'cq' has another\"))\n" +
+        "error(type_error(string, 5), context(_G14, \"'enqueue' wants the modifiers as a string of the letters c, m, s and r, and was given the integer 5\"))\n" +
+        "error(domain_error(not_less_than_zero, -1), context(_G17, \"'enqueue': an interval is 0 or more milliseconds, and was given -1\"))\n" +
+        "error(type_error(integer, 1.5), context(_G20, \"'enqueue' wants an integer and was given the real 1.5\"))\n" +
+        "error(existence_error(procedure, /(enqueue, 0)), context(_G23, \"'enqueue' takes an event code, then x, y, the modifiers and the interval, and was given 0 arguments\"))\n" +
+        "empty\nsucceeded")
+
+@test
+WINDOW_IS_THE_WINDOW_OPEN_MADE_LAST_OR_THE_ONE_ASSIGNED()
+    assert_eq(ran_funl("import { open } from funl:graphics\nwrite( &window | #none )\n" +
+            "a = open( \"a\", {canvas: #hidden} )\nb = open( \"b\", {canvas: #hidden} )\nwrite( &window.get(\"label\") )\n" +
+            "&window = a\nwrite( &window.get(\"label\") )\na.close()\nwrite( &window | #none )\n" +
+            "&window = b\nwrite( &window.get(\"label\") )\n&window = undefined\nwrite( &window | #none )\n" +
+            "write( (&window = 3) catch e -> e )\n"),
+        "none\nb\na\nnone\nb\nnone\n" +
+        "error(type_error(window, 3), context(_G2, \"'&window' wants a window, or undefined, and was given the integer 3\"))\nsucceeded")
+
+@test
+ONLY_WINDOW_OF_THE_GRAPHICS_KEYWORDS_IS_ASSIGNED()
+    assert_eq(complaints("&x = 1\n&shift = 1\n&lpress = 1\n&window <- 1\n"),
+        "error 1:1 `&x` cannot be assigned\nerror 2:1 `&shift` cannot be assigned\nerror 3:1 `&lpress` cannot be assigned\n" +
+        "error 4:1 `&window` cannot be assigned with `<-`\n")

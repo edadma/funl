@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
 import sh.sysl.plutovg as pv
+import sysl.text.chars_of
 
 // `funl:graphics`: Icon's windows, over the `sysl-lang/plutovg` package (`docs/library/graphics.md`).
 //
@@ -28,11 +29,16 @@ import sh.sysl.plutovg as pv
 // reads and writes the tables with nothing allocating in between.
 //
 // **Only a hidden canvas is in this build**, `canvas: #hidden`: a surface in memory, with no window
-// on screen, no display and no event source. A visible window faults, naming the feature it needs.
+// on screen and no display; its events come only from `enqueue`. A visible window faults, naming the
+// feature it needs.
+//
+// **Events wait on their canvas's queue**, and `event()` takes the oldest, answering its code and
+// setting the running machine's event keywords (`EventKeys`). `&window` is the VM's: `open` sets it,
+// a program may assign it, and the collector marks it.
 
 // What `funl:graphics` exports, each name the short form of a native `install_graphics` registered as
 // `graphics.name`.
-private val GraphicsNames: [3]string = ["open", "couple", "color_value"]
+private val GraphicsNames: [4]string = ["open", "couple", "color_value", "active"]
 
 private const WindowKind: string = "window"
 private const PixelsKind: string = "window pixels"
@@ -48,7 +54,9 @@ private const MaxSide: long = 32767
 private const NoScreen: string = "a window on screen is not in this build -- it is behind the `graphics` feature"
 
 // A canvas: its pixels and the plutovg canvas drawing on them, how many handles are open on it, and
-// its attributes.
+// its attributes; its event queue, oldest first; the handles open on it, oldest first, which the
+// collector does not see -- a handle leaves the list when it is uncoupled or forgotten, so every one
+// there is live -- and the VM they belong to.
 private struct WinCanvas
     surface: &pv.Surface
     drawn: &pv.Canvas
@@ -57,6 +65,58 @@ private struct WinCanvas
     width: long
     height: long
     resize: bool
+    cursor: bool
+    echo: bool
+    inputmask: string
+    queue: Buf[WinEvent]
+    wins: Buf[*HandleObj]
+    owner: *Vm
+
+// An event waiting on a canvas's queue: its code -- `key`, a one-character string, when `is_key`, the
+// symbol `sym` otherwise -- where it happened, in the canvas's own coordinates (no origin taken off),
+// the modifiers held and whether a key was let go (`Mod...` bits), and the milliseconds since the
+// event before it.
+private struct WinEvent
+    is_key: bool
+    key: string
+    sym: u32
+    x: long
+    y: long
+    mods: u8
+    interval: long
+
+private const ModControl: u8 = 1
+private const ModMeta: u8 = 2
+private const ModShift: u8 = 4
+private const ModReleased: u8 = 8
+
+// The event keywords as `event()` leaves them: `&x`, `&y`, `&row`, `&col`, `&interval`, and the
+// `Mod...` bits `&control`, `&meta`, `&shift` and `&released` succeed on. **They are the running
+// machine's** -- `Vm.keys`, parked and unparked with the rest of it -- so one task's `event()` never
+// changes what another reads.
+struct EventKeys
+    x: long
+    y: long
+    row: long
+    col: long
+    interval: long
+    mods: u8
+
+// The event keywords before any event: everything 0, and no modifier held.
+no_event_keys() -> EventKeys = EventKeys(0, 0, 0, 0, 0, 0)
+
+// The default font's character cell, which `&row` and `&col` count in: the default canvas is 80
+// columns by 12 lines of it, `DefaultWidth` by `DefaultHeight`.
+private const CellWidth: long = 6
+private const CellHeight: long = 13
+
+// The mouse's event codes, each also a keyword answering it, `&lpress` -- and `#resize`, `&resize`.
+private val MouseCodes: [10]string = ["lpress", "ldrag", "lrelease", "mpress", "mdrag", "mrelease", "rpress", "rdrag",
+    "rrelease", "resize"]
+
+// What `event()` and `active()` answer when nothing can come: in this build a canvas is filled only by
+// `enqueue`, which a program waiting on it cannot call.
+private const NothingComes: string = "no event is queued, and none can come while the program waits: a hidden canvas takes events only from `enqueue`"
 
 // A context: how many handles share it, and its attributes. A colour is kept as the specification
 // it was given, which `get` answers, and as the components it names. `clipw` is negative when there
@@ -97,7 +157,8 @@ private var generations: Buf[long] = buf()
 private var contexts: Buf[Option[WinContext]] = buf()
 
 // Every attribute, in the order `attributes()` gives them.
-private val Attributes: [21]string = ["size", "width", "height", "label", "canvas", "resize", "fg", "bg", "reverse",
+private val Attributes: [24]string = ["size", "width", "height", "label", "canvas", "resize", "cursor", "echo",
+    "inputmask", "fg", "bg", "reverse",
     "linewidth", "linestyle", "fillstyle", "drawop", "clipx", "clipy", "clipw", "cliph", "dx", "dy", "depth", "density"]
 
 install_graphics(v: *Vm)
@@ -113,6 +174,24 @@ install_graphics(v: *Vm)
     register_method(v, w, "clone", Variadic, do_clone)
     register_method(v, w, "uncouple", 0, do_uncouple)
     register_stepping_method(v, w, "pixel", Variadic, start_pixel, step_pixel)
+    register_method(v, w, "enqueue", Variadic, do_enqueue)
+    register_method(v, w, "event", 0, do_event)
+    register_method(v, w, "pending", 0, do_pending)
+    register_generator(v, "graphics.active", 0, do_active)
+    register_generator(v, "&window", 0, (b, n, c) -> window_now())
+    register(v, "&window=", 1, (b, n) -> store_window(b))
+    register(v, "&x", 0, (b, n) -> Ok(Int(current().keys.x)))
+    register(v, "&y", 0, (b, n) -> Ok(Int(current().keys.y)))
+    register(v, "&row", 0, (b, n) -> Ok(Int(current().keys.row)))
+    register(v, "&col", 0, (b, n) -> Ok(Int(current().keys.col)))
+    register(v, "&interval", 0, (b, n) -> Ok(Int(current().keys.interval)))
+    register_generator(v, "&control", 0, (b, n, c) -> held(ModControl))
+    register_generator(v, "&meta", 0, (b, n, c) -> held(ModMeta))
+    register_generator(v, "&shift", 0, (b, n, c) -> held(ModShift))
+    register_generator(v, "&released", 0, (b, n, c) -> held(ModReleased))
+
+    for code in MouseCodes
+        register_constant(v, s"&$code", (b, n) -> Ok(atom(code)))
 
 // The exports of `funl:graphics`.
 graphics_exports() -> Buf[ModExport] = native_exports("graphics", GraphicsNames)
@@ -166,6 +245,10 @@ private context_at(at: usize) -> WinContext = contexts.at(at).unwrap()
 // The canvas closed: its place freed and its generation moved on, so every other handle on it finds
 // it gone.
 private free_canvas(at: usize)
+    var c = canvas_at(at)
+
+    c.queue.release()
+    c.wins.release()
     canvases.set(at, None)
     generations.set(at, generations.at(at) + 1)
 
@@ -204,6 +287,12 @@ private detach_window(h: *HandleObj)
             free_canvas(at)
         else
             c.handles -= 1
+
+            for i in 0..<c.wins.len()
+                if c.wins.at(i) == h
+                    c.wins.remove(i)
+                    break
+
             canvases.set(at, Some(c))
 
     drop_context(h)
@@ -430,6 +519,18 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
         q.cv.resize = truth(x) match
             Some(b) -> b
             None -> return Ok(None)
+    else if k == "cursor"
+        q.cv.cursor = truth(x) match
+            Some(b) -> b
+            None -> return Ok(None)
+    else if k == "echo"
+        q.cv.echo = truth(x) match
+            Some(b) -> b
+            None -> return Ok(None)
+    else if k == "inputmask"
+        q.cv.inputmask = x match
+            Str(s) -> if is_mask(s.s) then s.s else return Ok(None)
+            _ -> return Ok(None)
     else if k == "fg"
         val (spec, c) = colour(x) match
             Some(found) -> found
@@ -535,6 +636,9 @@ private attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fau
         "label" -> new_str(c.label)?
         "canvas" -> atom("hidden")
         "resize" -> boolean(c.resize)
+        "cursor" -> boolean(c.cursor)
+        "echo" -> boolean(c.echo)
+        "inputmask" -> new_str(c.inputmask)?
         "fg" -> new_str(ctx.fg)?
         "bg" -> new_str(ctx.bg)?
         "reverse" -> boolean(ctx.reverse)
@@ -596,7 +700,12 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
             h.closed = true
             return Ok(Refuses)
 
-    val at = keep_canvas(WinCanvas(s, drawn, 1, title, DefaultWidth, DefaultHeight, false))
+    val wins: Buf[*HandleObj] = buf()
+
+    wins.push(h)
+
+    val at = keep_canvas(WinCanvas(s, drawn, 1, title, DefaultWidth, DefaultHeight, false, false, true, "", buf(), wins,
+        current()))
     val k = keep_context(start)
 
     h.n = long(at)
@@ -615,6 +724,7 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     // A new canvas is painted in the background colour it was opened with.
     canvas_at(at).surface.clear(channel(ctx.bg_rgb.r), channel(ctx.bg_rgb.g), channel(ctx.bg_rgb.b))
     contexts.set(k, Some(ctx))
+    current().window = Handle(h)
     Ok(Gives(Handle(h)))
 
 // `couple(w1, w2)`: a new window on `w1`'s canvas sharing `w2`'s context.
@@ -629,6 +739,7 @@ private do_couple(base: usize, argc: usize) -> Result[Value, Fault]
     var ctx = context_at(context.ctx)
 
     c.handles += 1
+    c.wins.push(h)
     ctx.refs += 1
     canvases.set(canvas.at, Some(c))
     contexts.set(context.ctx, Some(ctx))
@@ -701,6 +812,7 @@ private do_clone(base: usize, argc: usize) -> Result[Option[Value], Fault]
     var c = canvas_at(w.at)
 
     c.handles += 1
+    c.wins.push(h)
     canvases.set(w.at, Some(c))
     h.n = long(w.at)
     h.vals.push(Int(generations.at(w.at)))
@@ -793,3 +905,161 @@ private step_pixel(h: *HandleObj) -> Result[Option[Value], Fault]
     val c = Rgb(((p >> 16) & 255) * 257, ((p >> 8) & 255) * 257, (p & 255) * 257)
 
     Ok(Some(new_str(color_text(c))?))
+
+// -- events ----------------------------------------------------------------------------------------
+
+// Whether `s` is an `inputmask`: any of `"m"`, motion with no button held reported, and `"k"`, a key's
+// release reported.
+private is_mask(s: string) -> bool
+    for c in chars_of(s.bytes)
+        if c != 'm' && c != 'k' then return false
+
+    true
+
+private in_mask(mask: string, wanted: char) -> bool
+    for c in chars_of(mask.bytes)
+        if c == wanted then return true
+
+    false
+
+// `enqueue`'s modifiers, `x`: a string of `"c"` (`&control`), `"m"` (`&meta`), `"s"` (`&shift`) and
+// `"r"` (`&released`, a key let go), or `undefined` for none.
+private modifiers(x: Value) -> Result[u8, Fault]
+    val s = x match
+        Str(p) -> p.s
+        Undefined -> return Ok(0)
+        _ -> return Err(kind_error(x, "string", s"'enqueue' wants the modifiers as a string of the letters c, m, s and r, and was given ${described(x)}"))
+
+    var m: u8 = 0
+
+    for c in chars_of(s.bytes)
+        if c == 'c'
+            m = m | ModControl
+        elif c == 'm'
+            m = m | ModMeta
+        elif c == 's'
+            m = m | ModShift
+        elif c == 'r'
+            m = m | ModReleased
+        else
+            return Err(domain_error("event_modifiers", x, s"'enqueue': the modifiers are the letters c, m, s and r, and ${described(x)} has another"))
+
+    Ok(m)
+
+// `w.enqueue(code, x, y, mods, interval)`: an event put on `w`'s queue, where `event()` reads it as it
+// reads one the screen put there -- and, as the screen does, not put there when `inputmask` would
+// keep it off: motion with no button held without `"m"`, a key's release without `"k"`. `x` and `y`
+// are in `w`'s coordinates and default to 0, as do the modifiers and the interval.
+private do_enqueue(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc < 2 || argc > 6
+        return Err(wrong_count("enqueue", argc - 1, s"'enqueue' takes an event code, then x, y, the modifiers and the interval, and was given ${argc - 1} arguments"))
+
+    val w = window_arg(base, 0, "enqueue")?
+    val code = deref(arg(base, 1))
+
+    var ev = code match
+        Str(p) ->
+            if char_count(p.s) != 1
+                return Err(domain_error("event_code", code, s"'enqueue': a key's event code is one character, and was given ${described(code)}"))
+
+            WinEvent(true, p.s, 0, 0, 0, 0, 0)
+        Atom(id) -> WinEvent(false, "", id, 0, 0, 0, 0)
+        _ -> return Err(kind_error(code, "string", s"'enqueue' wants an event code, a one-character string or a symbol, and was given ${described(code)}"))
+
+    val ctx = context_at(w.ctx)
+
+    ev.x = int_or(base, argc, 2, 0, "enqueue")? + ctx.dx
+    ev.y = int_or(base, argc, 3, 0, "enqueue")? + ctx.dy
+    ev.mods = if argc > 4 then modifiers(deref(arg(base, 4)))? else 0
+    ev.interval = int_or(base, argc, 5, 0, "enqueue")?
+
+    if ev.interval < 0
+        return Err(domain_error("not_less_than_zero", Int(ev.interval), s"'enqueue': an interval is 0 or more milliseconds, and was given ${ev.interval}"))
+
+    val c = canvas_at(w.at)
+    val unasked_release = (ev.mods & ModReleased) != 0 && !in_mask(c.inputmask, 'k')
+    val unasked_motion = !ev.is_key && atom_name(ev.sym) == "move" && !in_mask(c.inputmask, 'm')
+
+    if !unasked_release && !unasked_motion then c.queue.push(ev)
+
+    Ok(Some(Unit))
+
+// The text cell, counted from 1, that coordinate `n` falls in when cells are `size` wide.
+private cell(n: long, size: long) -> long = (if n >= 0 then n / size else -((-n + size - 1) / size)) + 1
+
+// `w.event()`: the oldest event on `w`'s queue, taken off it, its code answered and the running
+// machine's event keywords set from it -- the pointer in `w`'s coordinates, its origin taken off. A
+// queue nothing can fill faults rather than waiting for ever.
+private do_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "event")?
+
+    if canvas_at(w.at).queue.is_empty() then return Err(system_error(s"'event': $NothingComes"))
+
+    val ev = canvas_at(w.at).queue.at(0)
+    val code = if ev.is_key then new_str(ev.key)? else Atom(ev.sym)
+
+    // The string made, the event is taken: nothing allocates from here on.
+    canvas_at(w.at).queue.remove(0)
+
+    val ctx = context_at(w.ctx)
+    val x = ev.x - ctx.dx
+    val y = ev.y - ctx.dy
+
+    current().keys = EventKeys(x, y, cell(y, CellHeight), cell(x, CellWidth), ev.interval, ev.mods)
+    Ok(Some(code))
+
+// `w.pending()`: how many events are on `w`'s queue; fails when there are none.
+private do_pending(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "pending")?
+    val n = canvas_at(w.at).queue.len()
+
+    Ok(if n == 0 then None else Some(Int(long(n))))
+
+// The first canvas from place `from` on that this VM opened and that has an event waiting, and the
+// oldest window open on it.
+private active_from(from: usize) -> Option[(usize, *HandleObj)]
+    val v = current()
+
+    for i in from..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.owner == v && !c.queue.is_empty() && c.wins.len() > 0 then return Some((i, c.wins.at(0)))
+            None -> ()
+
+    None
+
+// `active()`: each window that has an event waiting, one per canvas. Where none has, it faults:
+// nothing can queue one while the program waits.
+private do_active(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val (at, h) = active_from(usize(cursor)) match
+        Some(found) -> found
+        None -> return if cursor == 0 then Err(system_error(s"'active': $NothingComes")) else Ok(Refuses)
+
+    if active_from(at + 1).is_some() then Ok(GivesMore(Handle(h), long(at + 1))) else Ok(Gives(Handle(h)))
+
+// `&window`: the window `open` made last, or the one assigned; fails when that is closed or there is
+// none.
+private window_now() -> Result[Answer, Fault]
+    val x = current().window
+
+    x match
+        Handle(h) -> Ok(if !h.closed && canvas_live(h) then Gives(x) else Refuses)
+        _ -> Ok(Refuses)
+
+// `&window = w`: `w`, a window, or `undefined` for none.
+private store_window(base: usize) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+
+    x match
+        Undefined -> ()
+        Handle(h) ->
+            if h.kind != kind_named(WindowKind)
+                return Err(type_error("window", x, s"'&window' wants a window, or undefined, and was given ${described(x)}"))
+        Var(_) -> return Err(instantiation_error("instantiation error: '&window' was given an unbound variable"))
+        _ -> return Err(type_error("window", x, s"'&window' wants a window, or undefined, and was given ${described(x)}"))
+
+    current().window = x
+    Ok(x)
+
+// `&control`, `&meta`, `&shift`, `&released`: succeed, producing `undefined` as Icon's produce `&null`,
+// when the last event `event()` took had modifier `bit`; fail when not.
+private held(bit: u8) -> Result[Answer, Fault] = Ok(if (current().keys.mods & bit) != 0 then Gives(Undefined) else Refuses)

@@ -152,6 +152,8 @@ Each is argued where it arises; this is the list.
 | G2 What `close()` closes | the canvas, as `WClose`, and every handle on it; `uncouple()` closes one (user, 2026-10-15) | [graphics](../library/graphics.md#clones-couples-and-closing) |
 | G3 How attributes are read and set | a map with natural values: `set(m)`, `get(name)`, `attributes()` (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |
 | G6 Coordinates on a high-density screen | points, the surface at `density`; a hidden canvas density 1 (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |
+| G9 Key releases | under `inputmask` `"k"`, the same code with `&released` succeeding (user, 2026-10-15) | [graphics](../library/graphics.md#events) |
+| G10 Whose are `&x`, `&y`, `&control`, … | the running machine's (each task its own), set by `event()` (user, 2026-10-15) | [graphics](../library/graphics.md#events) |
 | G12 Module and feature | `funl:graphics` in the core over vendored plutovg; on-screen windows behind a `graphics` feature over `sdl3`, on in `default` (user, 2026-10-15) | [graphics](../library/graphics.md#hidden-canvases) |
 | I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [keywords](../reference/keywords.md) |
 | I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` (user, 2026-10-15) | [co-expressions](../reference/coexpressions.md) |
@@ -174,6 +176,4 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | G5 Anti-aliasing | accept plutovg's; integer coordinates through pixel centres, so axis-aligned shapes are exact | [graphics](graphics.md#coordinates) |
 | G7 `drawop: #reverse` | built, as a coverage mask exclusive-ored into the pixels | [graphics](graphics.md#drawing) |
 | G8 Image formats | read what stb_image reads; write PNG only | [graphics](graphics.md#images) |
-| G9 Key releases | under `inputmask` `"k"`, the same code with `&released` succeeding | [graphics](graphics.md#what-an-event-is) |
-| G10 Whose are `&x`, `&y`, `&control`, … | the running machine's, set by `event()` | [graphics](graphics.md#what-an-event-is) |
 | G11 The promise form of `Event()` | `w.next_event()`, a promise of an event map; no keywords set | [graphics](graphics.md#events-and-the-loop) |

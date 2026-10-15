@@ -271,6 +271,9 @@ roots(h: *gc.Heap)
     // for it, each holding its own machine.
     mark_machine(h, v.stack, v.saved, v.control, v.subject, v.scans, v.trail, v.frame, v.promise, v.co, v.co_main)
 
+    // `&window`.
+    mark_value(h, v.window)
+
     // **Every machine set aside, each walked exactly as the running one is**: a task parked at an
     // `await` -- the promise it waits for standing on its stack -- and one waiting for a task it
     // started to give way.
