@@ -130,48 +130,15 @@ It compiles as the partial function does, inline: a `Mark` per clause, the subje
 
 ### Limitation
 
-**Icon:** `e1 \ e2` evaluates `e2` first. Its value must be a non-negative integer (a negative one
-is a run-time error). `e1` is then evaluated and produces at most that many results; when it has
-produced them, it is not resumed again. **`e2` is an ordinary expression and may generate**: if the
-context backtracks past `e1`, it resumes `e2`, and each new limit starts `e1` afresh — so
-`(1 to 3) \ (1 | 2)` produces `1`, then `1, 2`. A limit of 0 fails at once without evaluating `e1`.
-Every time the limitation itself is evaluated afresh (a loop's next turn) `e2` is evaluated again.
-
-**FunL today:** `\` is integer division, which floors — a Decided block. The capability is
-**covered by the prelude**: `take(n, () -> e)` draws at most `n` values from the thunk and generates
-them, so `every write(take(3, () -> !xs))` is `every write(!xs \ 3)`.
-
-**Proposed:** an infix word, **`e limit n`**, because the thunk form is a mouthful for something as
-everyday as "the first three":
-
-```
-every write( !words limit 3 )
-every write( (1 | 2 | 3) limit 2 )
-```
-
-`limit` binds looser than `|`, `to` and `by`, and tighter than comparison, `&`, `and` and
-assignment, so the limited thing rarely needs parentheses (Icon's `\` binds tighter than `^`, so
-Icon programs parenthesize almost every use).
-
-**Machine:** the count must survive backtracking into `e`, which restores `e`'s operand cells, so
-it cannot be an operand cell. It is a **compiler-allocated slot**, since an ordinary store to a slot
-is not undone by backtracking ([frames](vm.md#frames-slots-and-closures)):
-
-```
-<n>                 generator; its choice points stay, so backtracking re-limits
-LimitSet(t)         slot t = n; n not an integer faults (type_error), negative faults
-                    (domain_error); t == 0 fails
-MarkThrough         e's region begins
-<e>
-LimitCount(t)       t -= 1; if t == 0, cut control back to the region's mark, dropping e's
-                    choice points, so the next failure reaches n's generator
-```
-
-> **Open question I3 — limitation.** (a) the infix word `limit`; (b) take back `\` for
-> limitation and move integer division to `//` alone (which already exists), reopening the Decided
-> block; (c) nothing new, `take(n, () -> e)` only. **Recommendation: (a).** (b) is Icon's
-> spelling but breaks every program and page that divides with `\`, and the decision that `\`
-> floors would have to move with it; (c) is covered but costs a lambda at every use.
+> **Decided (user, 2026-10-15) — I3, limitation: the infix word `e limit n`**; `\` stays integer
+> division. Built with Icon's semantics (`n` first, a generating `n` re-limits `e`, 0 fails without
+> evaluating `e`; a non-integer limit is a type error, a negative one a domain error) on
+> `LimitSet`/`LimitCount` and two hidden slots, the count and the place of `e`'s mark (`limit.sysl`).
+> The mark's place is recorded because `|x` and a suspended generator leave marks of their own open
+> above it. `limit` binds between a cons and a comparison (tighter than `|`, which this section's
+> draft put above it — FunL's `|` is looser than `&` and comparison, so no level satisfied the whole
+> draft), and is a word only in an operator's place. The language is described in
+> [Generators](../reference/generators.md#limit-takes-the-first-few-values).
 
 ## Procedures
 
@@ -394,19 +361,6 @@ its finalizer releasing its machine's buffers — a generator abandoned half way
 
 ## Scanning
 
-### `&subject` and `&pos`
-
-**Icon:** the scan's subject and position are the keywords `&subject` and `&pos`. Both can be
-read anywhere, and assigned: `&subject := s` starts scanning `s` at position 1, and `&pos := i`
-moves (failing when `i` is out of range). Outside any scan they are `""` and `1`. Assigning `&pos`
-is an assignment, not undone by backtracking.
-
-**Proposed:** the keywords as Icon has them (their spelling is [I18](#keywords)). Outside every
-scan the machine's subject is `""` and its position 1, so they read as Icon's do. **`&pos = i` is
-an ordinary assignment and `&pos <- i` the reversible one**, which Icon cannot say: the scan
-position's existing trail entry is what `<-` pushes. An assignment outside a scan sets the outer
-scan environment, which a scan saves on entry and puts back on leaving.
-
 ### Sections and indexing
 
 **Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the
@@ -503,7 +457,6 @@ cannot be assigned.
 | Icon | FunL | |
 |---|---|---|
 | `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
-| `&pi`, `&e`, `&phi` | the keywords (item 10); the values `pi`, `e` and `phi` exist | new |
 | `16rFF` literal | see I16 | |
 
 > **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
@@ -547,39 +500,26 @@ with a newline; no standard input, no standard error, no open file.
 
 ## Keywords
 
-**Icon's keywords are names that begin with `&`.** FunL needs a spelling for the ones it adopts:
+> **Decided (user, 2026-10-15) — I18: `&name` as Icon has it**, one token when `&` touches a letter;
+> `a &b` is refused with a note naming `a & b`. Built: the token and its refusal, `&subject` and
+> `&pos` (`&pos <- i` reversible), the csets, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the
+> clocks, `&version`, `&host`, `&progname`, `&features` (without `"co-expressions"` until they
+> exist), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). What remains:
 
 | keyword | FunL |
 |---|---|
-| `&subject`, `&pos` | adopted, assignable ([scanning](#subject-and-pos)) |
-| `&current`, `&source`, `&main` | adopted ([co-expressions](#co-expressions)) |
-| `&lcase`, `&ucase`, `&letters`, `&digits`, `&ascii`, `&cset` | adopted |
-| `&null`, `&fail` | adopted: `undefined` and `fail` |
-| `&pi`, `&e`, `&phi` | adopted |
-| `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)) |
-| `&random` | adopted, assignable |
-| `&time` (CPU milliseconds), `&clock`, `&date`, `&dateline` | adopted, read from the host as `funl:time` reads it |
-| `&version`, `&host`, `&progname` | adopted |
-| `&features` | adopted: generates `"co-expressions"`, `"large integers"`, the platform, and each FunL feature built in (`http`, `async`, `profile`) |
-| `&file`, `&line` | adopted: the source file and line where written, fixed when compiled |
-| `&level` | adopted: the depth of calls, counted along the frame chain |
+| `&current`, `&source`, `&main` | adopted ([co-expressions](#co-expressions)); `&features` then generates `"co-expressions"` too |
+| `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)): the three standard streams as the file handles item 9 makes |
 | `&trace` | adopted, assignable: while it is not zero, calls, returns, `yield`s, failures and resumptions are written to standard error, one line each, and it counts down per line as Icon's does; the check is a test on the call and return instructions only |
 | `&collections`, `&allocated`, `&storage`, `&regions` | `&collections` and `&allocated` from sysl's collector; the region keywords are not adopted (sysl's heap has no regions); `collect()` asks for a collection |
 | `&dump` | adopted: a non-zero value prints `display()`'s report when the program ends; `display()` prints the running function's named locals and the top-level names, from a name table the compiler keeps per chunk |
 | `&error`, `&errornumber`, `&errortext`, `&errorvalue` | see I19 |
-| `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | graphics; see I21 |
+| `&col`, `&row`, `&window`, `&x`, `&y`, `&interval`, `&control`, `&meta`, `&shift` and the mouse-event keywords | adopted in [Graphics](graphics.md#events) |
 
-**Machine:** `&name` is one token. Each keyword is either a constant folded when compiled, an
-instruction reading a machine field (`&subject`, `&pos`, `&current`, `&level`), or a call of a
-native. Assignable ones compile to a store instruction that checks the value's kind.
-
-> **Open question I18 — how keywords are spelled.** (a) **`&name` as Icon has it, lexed as one
-> token when `&` touches a letter**; conjunction keeps `&` with space after it, and `a &b`, which
-> today is a conjunction, is refused with a note naming `a & b`; (b) a module of plain names,
-> `import { subject, pos } from funl:icon`; (c) plain builtin names, `subject`, `pos`.
-> **Recommendation: (a).** Keywords are a namespace a reader recognises at a glance, a program's
-> names cannot shadow them, and the cost is one refusal for a spacing nobody writes. (c) collides
-> with `pos(i)`, which is a different thing from `&pos`.
+**Machine (as built, `keywords.sysl`):** a keyword is fixed when parsed (`&null`, `&fail`, `&file`,
+`&line`), a builtin constant folded when compiled, or a call of a builtin registered under the
+keyword's own spelling (`&pos`), which no FunL name can reach. A store is a builtin `&name=` or
+`&name<-` that checks the value's kind. The remaining keywords join the same table.
 
 ## Errors
 
@@ -632,11 +572,9 @@ some thirty keywords (`&window`, `&x`, `&y`, the mouse events) and about seventy
 (`WOpen`, `DrawLine`, `Event`, …). They are an optional part of an Icon build, described in their
 own book, rather than part of the language.
 
-> **Open question I21 — the graphics facilities.** (a) out of parity's scope: a later
-> `funl:graphics` native module over a sysl binding, designed on its own terms when wanted;
-> (b) in scope, with Icon's function set and keywords. **Recommendation: (a).** They are a
-> library, not the language, and a window needs a design of its own (which thread owns it, how
-> events reach the loop that runs `async` tasks) rather than a transcription of 1990s X11 calls.
+> **Decided (user, 2026-10-15) — I21, the graphics facilities: in scope**, as the native module
+> `funl:graphics`, with a design of its own: [Graphics](graphics.md), whose open questions are
+> G1–G12, built as milestone 12.
 
 ## The questions, collected
 
@@ -662,4 +600,4 @@ own book, rather than part of the language.
 | I18 | how keywords are spelled | `&name`, one token |
 | I19 | `&error` and `runerr` | nothing more; `catch` and `throw` cover them |
 | I20 | a preprocessor | conditional compilation only |
-| I21 | the graphics facilities | out of scope; a later native module |
+| I21 | the graphics facilities | decided: in scope, [Graphics](graphics.md) |

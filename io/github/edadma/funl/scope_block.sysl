@@ -90,6 +90,22 @@ walk_catch(w: *Walk, id: usize, subject: &Expr, pat: &Expr, guard: Option[&Expr]
     walk(w, recovery)
     w.blk = outer
 
+// `e limit n`: both read where the limitation is, `n` first as it runs first. Block `id`, which
+// nothing else is read in, holds the two hidden slots the limitation keeps its count and its mark in.
+walk_limit(w: *Walk, id: usize, subject: &Expr, n: &Expr)
+    val blk = w.sc.open(w.blk)
+
+    w.res.blocks.put(id, blk)
+    w.sc.declare(blk, limit_count_name(id), n.span, 0, false)
+    w.sc.declare(blk, limit_mark_name(id), n.span, 0, false)
+    walk(w, n)
+    walk(w, subject)
+
+// The hidden names of the slots limitation `id` keeps the count of values still to produce in, and
+// the place of the mark around its subject.
+limit_count_name(id: usize) -> string = "$limit" + s"$id"
+limit_mark_name(id: usize) -> string = "$limitmark" + s"$id"
+
 // The hidden name of the slot catch `id` keeps its control-stack height in.
 trap_name(id: usize) -> string = "$trap" + s"$id"
 

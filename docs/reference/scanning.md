@@ -329,6 +329,72 @@ b, uter
 bc, uter
 ```
 
+## `&subject` and `&pos`
+
+The [keywords](keywords.md) `&subject` and `&pos` are the scan's subject and position. Outside
+every scan they are `""` and `1`.
+
+```funl
+write( &subject == '', &pos )
+'hello' ? (tab(3) & write( &subject, &pos ))
+```
+
+```output
+, 1
+hello, 3
+```
+
+Both can be assigned. `&pos = i` moves to position `i`, written as any position is — `0` the end,
+a negative one counting back — and fails when `i` is outside the subject. `&subject = s` starts
+scanning `s` at position 1; outside a scan it sets the subject the scanning builtins work on, and a
+scan puts it back when it ends.
+
+```funl
+'abcdef' ?
+    &pos = -2
+    write( tab(0) )
+    write( if (&pos = 9) then 'moved' else 'stayed', &pos )
+
+&subject = 'outer'
+write( tab(3) )
+'inner' ? write( &subject )
+write( &subject, &pos )
+```
+
+```output
+ef
+stayed, 7
+ou
+inner
+outer, 3
+```
+
+`&pos = i` and `&subject = s` are ordinary assignments, which backtracking does not undo. **`&pos
+<- i` is the reversible one**: failure passing back over it puts the position back, as it puts back
+a `tab`.
+
+```funl
+'abcdef' ?
+    tab(2)
+    ((&pos <- 5) & fail) | write( 'failed back', &pos )
+    ((&pos = 5) & fail) | write( 'kept', &pos )
+```
+
+```output
+failed back, 2
+kept, 5
+```
+
+An assignment that is not a position or not a string is a fault:
+
+```funl
+'abc' ? (&pos = 'x')
+```
+
+```error
+'&pos' wants an integer and was given the string 'x'
+```
+
 ## `?=`
 
 `s ?= e` scans `s` and assigns the scan's value back to it. When the scan fails, `s` keeps its value.

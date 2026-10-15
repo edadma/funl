@@ -197,6 +197,10 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         UnmarkTo(slot) ->
             unmark_to(v, slot_of(v.frame, slot)?)?
             Ok(Next)
+        LimitSet(slot) -> Ok(fails_if(limit_set(v, slot)?))
+        LimitCount(count, mark) ->
+            limit_count(v, count, mark)?
+            Ok(Next)
         Pop ->
             pop(v)?
             Ok(Next)
