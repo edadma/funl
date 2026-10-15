@@ -1,0 +1,183 @@
+module io.github.edadma.funl
+
+// A buffer as a deque -- `push`, `pop`, `get`, `pull`, `put` -- and the builtins that take elements out
+// of or copy a mutable collection: `delete`, `copy`, `same`.
+
+install_deques(v: *Vm)
+    val push = register(v, "push", Variadic, do_push)
+    val put = register(v, "put", Variadic, do_put)
+
+    optional_past(v, push, 1)
+    optional_past(v, put, 1)
+    register_generator(v, "pop", 1, do_pop)
+    register_generator(v, "get", 1, do_pop)
+    register_generator(v, "pull", 1, do_pull)
+    register(v, "delete", 2, do_delete)
+    register(v, "copy", 1, do_copy)
+    register_generator(v, "same", 2, do_same)
+
+// The buffer `x` is, for the deque builtin `what`: an array has a fixed size and is refused.
+private buffer_of(x: Value, what: string) -> Result[*ArrayObj, Fault]
+    val b = deref(x)
+
+    b match
+        Buffer(p) -> Ok(p)
+        Array(_) -> Err(type_error("buffer", b, s"$what wants a buffer, and was given an array, which cannot grow or shrink"))
+        _ -> Err(kind_error(b, "buffer", s"$what wants a buffer, and was given ${described(b)}"))
+
+// `push(b, x, ...)`: each argument put on the front of buffer `b` in turn, so the last is first.
+// Answers `b`.
+private do_push(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc == 0 then return Err(wrong_count("push", argc, "'push' takes a buffer and the values to put on its front"))
+
+    val b = buffer_of(arg(base, 0), "'push'")?
+
+    for i in 1..<argc
+        b.items.insert(0, arg(base, i))
+
+    current().allocated += (argc - 1) * sizeof(Value)
+    Ok(deref(arg(base, 0)))
+
+// `put(b, x, ...)`: each argument added at the end of buffer `b`, as `b += x` does. Answers `b`.
+private do_put(base: usize, argc: usize) -> Result[Value, Fault]
+    if argc == 0 then return Err(wrong_count("put", argc, "'put' takes a buffer and the values to add at its end"))
+
+    val b = buffer_of(arg(base, 0), "'put'")?
+
+    for i in 1..<argc
+        b.items.push(arg(base, i))
+
+    current().allocated += (argc - 1) * sizeof(Value)
+    Ok(deref(arg(base, 0)))
+
+// `pop(b)` and `get(b)`: the front element of buffer `b`, taken out of it; failure where `b` is empty.
+private do_pop(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val b = buffer_of(arg(base, 0), "'pop'")?
+
+    if b.items.len() == 0 then return Ok(Refuses)
+
+    Ok(Gives(b.items.remove(0)))
+
+// `pull(b)`: the last element of buffer `b`, taken out of it; failure where `b` is empty.
+private do_pull(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val b = buffer_of(arg(base, 0), "'pull'")?
+
+    b.items.pop() match
+        Some(x) -> Ok(Gives(x))
+        None -> Ok(Refuses)
+
+// Take key `k` out of mutable map `m`, where it is: a key it does not hold changes nothing.
+delete_key(m: *MapObj, k: Value) -> Result[unit, Fault]
+    map_find(m, k)? match
+        Some(i) ->
+            m.keys.remove(i)
+            m.vals.remove(i)
+        None -> ()
+
+    Ok(())
+
+// Take the one element `x` out of mutable set `s`, where it is.
+private delete_element(s: *SetObj, x: Value) -> Result[unit, Fault]
+    for i in 0..<s.items.len()
+        if equal_values(x, s.items.at(i), "delete")?
+            s.items.remove(i)
+            return Ok(())
+
+    Ok(())
+
+// `delete(c, k)`: key `k` taken out of mutable map `c`, or element `k` out of mutable set `c`, where it
+// is. Answers `c`; a key or element it does not hold changes nothing.
+private do_delete(base: usize, argc: usize) -> Result[Value, Fault]
+    val c = deref(arg(base, 0))
+
+    c match
+        MutMap(m) -> delete_key(m, arg(base, 1))?
+        MutSet(s) -> delete_element(s, arg(base, 1))?
+        Map(_) ->
+            return Err(permission_error("modify", "immutable_map", c, s"${described(c)} is an immutable map, and nothing can be deleted from it: `map(m)` makes a mutable copy"))
+        Set(_) ->
+            return Err(permission_error("modify", "immutable_set", c, s"${described(c)} is an immutable set, and nothing can be deleted from it: `set(s)` makes a mutable copy"))
+        _ -> return Err(kind_error(c, "mutable_collection", s"'delete' takes a mutable map or a mutable set, and was given ${described(c)}"))
+
+    Ok(c)
+
+// `copy(x)`: a new array, buffer, mutable map or mutable set holding the elements `x` holds now -- the
+// elements themselves, not copies of them -- and any other value as it is.
+private do_copy(base: usize, argc: usize) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+
+    x match
+        Array(a) ->
+            val o = new_array(0)?
+
+            o.items.extend(a.items.view())
+            current().allocated += a.items.len() * sizeof(Value)
+            Ok(Array(o))
+        Buffer(a) ->
+            val o = new_array(0)?
+
+            o.items.extend(a.items.view())
+            current().allocated += a.items.len() * sizeof(Value)
+            Ok(Buffer(o))
+        MutMap(m) ->
+            val o = new_map()?
+
+            copy_entries(o, m)?
+            o.defaulted = m.defaulted
+            o.fallback = m.fallback
+            Ok(MutMap(o))
+        MutSet(s) ->
+            val o = new_set()?
+
+            o.items.extend(s.items.view())
+            current().allocated += s.items.len() * sizeof(Value)
+            Ok(MutSet(o))
+        _ -> Ok(x)
+
+// `same(x, y)`: `y` where `x` and `y` are one object -- or, for a number, a string or an atom, one
+// value of one kind -- and failure otherwise.
+private do_same(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+    val y = deref(arg(base, 1))
+
+    Ok(if same_value(x, y)? then Gives(y) else Refuses)
+
+private same_value(x: Value, y: Value) -> Result[bool, Fault]
+    x match
+        Undefined -> y match
+            Undefined -> Ok(true)
+            _ -> Ok(false)
+        Unit -> y match
+            Unit -> Ok(true)
+            _ -> Ok(false)
+        Nil -> y match
+            Nil -> Ok(true)
+            _ -> Ok(false)
+        Int(a) -> y match
+            Int(b) -> Ok(a == b)
+            _ -> Ok(false)
+        Real(a) -> y match
+            Real(b) -> Ok(a == b)
+            _ -> Ok(false)
+        Big(_) -> y match
+            Big(_) -> equal_values(x, y, "same")
+            _ -> Ok(false)
+        Rat(_) -> y match
+            Rat(_) -> equal_values(x, y, "same")
+            _ -> Ok(false)
+        Atom(a) -> y match
+            Atom(b) -> Ok(a == b)
+            _ -> Ok(false)
+        Str(p) -> y match
+            Str(q) -> Ok(p.s == q.s)
+            _ -> Ok(false)
+        Range(p) -> y match
+            Range(q) -> Ok(p == q)
+            _ -> Ok(false)
+        Set(p) -> y match
+            Set(q) -> Ok(p == q)
+            _ -> Ok(false)
+        CSet(p) -> y match
+            CSet(q) -> Ok(p == q)
+            _ -> Ok(false)
+        _ -> Ok(identical(x, y))

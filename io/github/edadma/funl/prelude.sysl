@@ -275,11 +275,18 @@ private do_reverse(base: usize, argc: usize) -> Result[Value, Fault]
 
 // `sort(xs)`: the elements of `xs` in ascending order by `<`, equal elements in the order they came
 // in. A merge sort: each run of the bottom-up passes is merged into the other buffer.
+//
+// **`sort(m)` of a map**, immutable or mutable, is the list of its entries `(key, value)` ordered by key.
 private do_sort(base: usize, argc: usize) -> Result[Value, Fault]
     var a: Buf[Value] = buf()
+    var by_key = false
 
-    list_guard(arg(base, 0), "'sort'")?
-    elements(arg(base, 0), "'sort'", &a)?
+    deref(arg(base, 0)) match
+        Map(p) -> by_key = entries_of(p, &a)?
+        MutMap(p) -> by_key = entries_of(p, &a)?
+        _ ->
+            list_guard(arg(base, 0), "'sort'")?
+            elements(arg(base, 0), "'sort'", &a)?
 
     val n = a.len()
     var b: Buf[Value] = buf()
@@ -301,7 +308,7 @@ private do_sort(base: usize, argc: usize) -> Result[Value, Fault]
 
             while k < hi
                 // The right run's element goes first only when it is strictly less: stable.
-                if j < hi && (i >= mid || arith(Lt, a.at(j), a.at(i))?.is_some())
+                if j < hi && (i >= mid || arith(Lt, sort_key(a.at(j), by_key), sort_key(a.at(i), by_key))?.is_some())
                     b.set(k, a.at(j))
                     j += 1
                 else
@@ -319,6 +326,27 @@ private do_sort(base: usize, argc: usize) -> Result[Value, Fault]
         width = width * 2
 
     Ok(list_of(&a, Nil)?)
+
+// The entries of map `m` as pairs `(key, value)`, pushed onto `out`; true, for `sort` to order by the
+// first of each pair.
+private entries_of(m: *MapObj, out: *Buf[Value]) -> Result[bool, Fault]
+    for i in 0..<m.keys.len()
+        val t = new_tuple(2)?
+
+        t.items.set(0, m.keys.at(i))
+        t.items.set(1, m.vals.at(i))
+        out.push(Tuple(t))
+
+    Ok(true)
+
+// What `sort` orders `x` by: `x`, or the key of the entry `x` when sorting a map.
+private sort_key(x: Value, by_key: bool) -> Value
+    if by_key
+        deref(x) match
+            Tuple(t) -> return t.items.at(0)
+            _ -> ()
+
+    x
 
 // `concat(xss)`: what each element of `xss` draws, one after another.
 private do_concat(base: usize, argc: usize) -> Result[Value, Fault]
@@ -706,7 +734,9 @@ private prelude_text() -> string = raw"""
       partition( p, xs ) | _nonlist( "partition", xs ) = xs
       partition( p, xs ) = (filter(p, xs), filter(x -> not p(x), xs))
 
-      concatMap( f, xs ) = [y | x <- _list( "concatMap", xs ), y <- f(x)]
+      sortOn( f, xs ) = [snd(p) | p <- sortBy( (a, b) -> a(0) < b(0), [(f(x), x) | x <- _list( "sortOn", xs )] )]
+
+      concatMap( f, xs ) =[y | x <- _list( "concatMap", xs ), y <- f(x)]
 
       unzip( ps ) = ([a | (a, _) <- _list( "unzip", ps )], [b | (_, b) <- _list( "unzip", ps )])
 

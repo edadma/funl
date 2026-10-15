@@ -398,6 +398,11 @@ changes_in_place(o: BinOp, held: Value, x: Value) -> Result[bool, Fault]
                 _ -> return Ok(false)
 
             Ok(true)
+        MutMap(m) ->
+            if o != Sub then return Ok(false)
+
+            delete_key(m, x)?
+            Ok(true)
         _ -> Ok(false)
 
 // `InPlace`: `b += x`, `s -= x` or `s **= t` where the name is a `val`, which nothing can assign -- so it has to
@@ -410,9 +415,9 @@ in_place(o: BinOp, held: Value, x: Value) -> Result[Value, Fault]
 
         return Err(type_error("mutable_collection", held, msg))
 
-    val does = if o == Inter then "keeps only part of" else "takes out of"
+    val does = if o == Inter then "keeps only part of the mutable set" else "takes out of the mutable set or map"
 
-    Err(type_error("mutable_set", held, s"`${op_text(o)}=` on a `val` $does the mutable set it holds, and this one holds ${described(held)}"))
+    Err(type_error("mutable_set", held, s"`${op_text(o)}=` on a `val` $does it holds, and this one holds ${described(held)}"))
 
 // `UpdateElem`: `c(key) op= x`, the element read, combined with `x`, and written back; `None` when
 // the operation fails. An element holding a buffer or a mutable set is changed in place.

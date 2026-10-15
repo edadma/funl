@@ -527,21 +527,8 @@ The cset algebra is built (`+`, `-`, `**`, `complement`, `ascii`, `cset_all`; se
 
 | Icon | FunL | |
 |---|---|---|
-| `push(L, x…)`, `pop(L)`, `get(L)`, `pull(L)`, `put(L, x…)` | the same names over a buffer; `pop`, `get` and `pull` fail on an empty one | new; `put` is `b += x` |
-| `delete(S, x)`, `delete(T, k)` | `delete(c, k)` on a mutable set or map, and `m -= k`, `s -= x` | new; `m -= k` faults today |
-| `list(n, x)` | `array(n, x)` | new arity |
-| `sort(T, i)` | `sort(m)` is the list of `(k, v)` sorted by key; by value with `sortOn` | new |
-| `sortf(L, i)` | `sortOn(f, xs)`: sorted by the key `f` gives, stable — the prelude's Haskell spelling | new |
-| `copy(x)` | `copy(x)`: a one-level copy of a mutable collection; any other value itself | new |
-| `x === y`, `x ~=== y` | `same(x, y)`: `y` when they are one object (one value, for numbers, strings, atoms); fails otherwise | new |
+| `S1 ** S2` | `**` | new |
 | `serial(x)` | not adopted: `image` does not print serial numbers | |
-
-`push` puts each argument on the front in turn, so the last is first, and answers the buffer, as
-Icon's does; `pop` and `get` take from the front, `pull` from the back. A buffer is a deque already:
-taking from the front is constant time on its ring.
-
-`same` is a function, not `===`: in JavaScript, whose spelling FunL follows elsewhere, `===` means
-something else (equality without conversion), and FunL's `==` already converts nothing.
 
 ### Records
 
