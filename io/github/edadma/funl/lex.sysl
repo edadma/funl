@@ -2,6 +2,7 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.*
 import sysl.buf.{Buf, buf}
+import sysl.math.bigint as big
 import sysl.text.from_utf8_unchecked
 
 // FunL's tokens, over `sh.sysl.parsing`'s byte cursor and its layout pass.
@@ -348,11 +349,42 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
 
         return true
 
+    // **`&` touching a letter begins a keyword, `&pos`**; conjunction is `&` with space after it. Where
+    // the token before ends an operand, `a &b` was meant as a conjunction and is refused, then read as
+    // one so the rest of the expression is not refused as well.
+    if c == u8('&') && s.peek_at(1).map((d) -> is_ident_start(d)).unwrap_or(false)
+        s.bump()
+
+        val sp = s.read_ident(is_ident_start, is_ident_cont).unwrap()
+        val word = from_utf8_unchecked(src.text(sp))
+
+        if out.len() > 0 && ends_operand(out.items.at(out.len() - 1).value)
+            val left = out.items.at(out.len() - 1).value match
+                Name(n) -> n
+                _ -> "a"
+
+            report.add(error(Span(start, s.at), s"`&$word` touching its name is the keyword `&$word`, and a keyword cannot follow an operand")
+                .with_note(s"a conjunction is written with a space after `&`: `$left & $word`"))
+            out.push(Amp, Span(start, start + 1))
+            out.push(Name(word), sp)
+        else
+            out.push(AmpName(word), Span(start, s.at))
+
+        return true
+
     if is_digit(c)
+        val radix_number = radix_form(s.src[s.at..<s.src.len]) >= 0
+
         read_number_literal(s) match
             Ok(Small(n)) -> out.push(IntLit(n), Span(start, s.at))
             Ok(Text(t)) -> out.push(NumLit(t), Span(start, s.at))
-            Err(e) -> report.add(error(where(e), s"this number is $e"))
+            Err(e) ->
+                val d = error(where(e), s"this number is $e")
+
+                if radix_number
+                    report.add(d.with_note("a radix number is a base from 2 to 36, an `r`, then digits of that base: `16rFF`, `2r1010`"))
+                else
+                    report.add(d)
 
         return true
 
@@ -561,9 +593,18 @@ enum LitNumber
     Small(n: long)
     Text(t: string)
 
+//
+// **Icon's `NrDDD` is one number**: a base, an `r`, and digits of that base in either case --
+// `16rFF`, `2r1010`, `36rZZ` -- for any base from 2 to 36 and any size, `_` between digits as in the
+// other forms. A base outside that range, a digit the base does not have, or no digits at all is an
+// error, and the identifier characters after the `r` are consumed so that one mistake is one report.
 read_number_literal(s: *Scanner) -> Result[LitNumber, LitError]
+    val base = radix_form(s.src[s.at..<s.src.len])
+
+    if base >= 0 then return read_radix_literal(s, base)
+
     val start = s.at
-    val radix = s.peek() == Some(u8('0')) && s.peek_at(1).map((p) -> is_radix_letter(p)).unwrap_or(false)
+    val radix =s.peek() == Some(u8('0')) && s.peek_at(1).map((p) -> is_radix_letter(p)).unwrap_or(false)
 
     read_integer(s) match
         Ok(n) ->
@@ -580,6 +621,58 @@ read_number_literal(s: *Scanner) -> Result[LitNumber, LitError]
 
                 Ok(Text(plain_digits(s.src[start..<s.at])))
             _ -> Err(e)
+
+// The base of Icon's `NrDDD`, where `bs` begins with up to three decimal digits and an `r` or `R`;
+// -1 where it does not. A base outside 2 to 36 is answered as written, for the reader to refuse.
+radix_form(bs: []const u8) -> int
+    var k: usize = 0
+
+    while k < bs.len && k < 4 && is_digit(bs[k]) do k += 1
+
+    if k == 0 || k > 3 || k >= bs.len || (bs[k] != u8('r') && bs[k] != u8('R')) then return -1
+
+    var n = 0
+
+    for i in 0..<k
+        n = n * 10 + int(bs[i] - u8('0'))
+
+    n
+
+// A radix number, `s` at the first digit of its base. The mistakes are reported at the base or at the
+// first byte that is not a digit of it.
+private read_radix_literal(s: *Scanner, base: int) -> Result[LitNumber, LitError]
+    val start = s.at
+
+    s.accept_while(is_digit)
+
+    val base_span = Span(start, s.at)
+
+    s.bump()
+
+    if base < 2 || base > 36
+        s.accept_while(is_ident_cont)
+        return Err(BadDigit(base_span))
+
+    val first = s.at
+
+    read_digits(s, base) match
+        Ok(_) -> ()
+        Err(Overflow(_)) -> ()
+        Err(e) ->
+            s.accept_while(is_ident_cont)
+            return Err(e)
+
+    if s.peek().map((c) -> is_ident_cont(c)).unwrap_or(false)
+        val bad = Span(s.at, s.at + 1)
+
+        s.accept_while(is_ident_cont)
+        return Err(BadDigit(bad))
+
+    big.parse_radix(plain_digits(s.src[first..<s.at]), base) match
+        Some(v) -> v.to_long() match
+            Some(k) -> Ok(Small(k))
+            None -> Ok(Text(big.to_string(v)))
+        None -> Err(NoDigits(Span(first, s.at)))
 
 // The second letter of a radix prefix, `0x`, `0o` or `0b`.
 private is_radix_letter(b: u8) -> bool =

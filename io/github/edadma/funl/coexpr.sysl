@@ -1,0 +1,246 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// Co-expressions: `create e`, an expression set aside with a control stack of its own, run one result
+// at a time by `@`.
+//
+// **A co-expression is a machine set aside, exactly as a task is** (`task.sysl`): its operands, control
+// stack and saved cells, trail, frame, scan state and captures, moved out whole by `take_machine` and
+// back by `put_machine`. Switching is a swap of buffer handles, never a copy of a stack. Every
+// co-expression but the running one keeps its machine in its object, where the collector walks it.
+//
+// - **`Create`** copies the running frame twice -- its slots shallowly, its static link kept -- so the
+//   creator's locals are the co-expression's own copy and everything further out is shared: one copy
+//   to run in, one for `^c` to start again from. Its expression is a chunk of its own, compiled in the
+//   creator's scope and ending in `CoYield`.
+// - **`Activate`** sets the running machine aside in `&current`'s object and takes up the target's. A
+//   fresh target starts at its chunk, the transmitted value dropped; one waiting at an `@` of its own
+//   gets the value as that `@`'s; one suspended at `CoYield` **fails into its own control stack**,
+//   which resumes its expression for the next result. A target that is over fails the `@` at once.
+// - **`CoYield`** counts the result and hands it to the activator, whose `@` produces it.
+// - When the expression's failure empties the co-expression's control stack it is over, and its
+//   activator's `@` fails (`co_over`, from the instruction loop); a fault nothing inside it catches
+//   ends it too, and is raised again at that `@`.
+//
+// **It runs as part of the task that activates it**: the task's own fields -- its promise, the machine
+// it gives way to, its number, its `&main` -- go with the running machine across every switch. A
+// task's `&main` is made the first time the task needs one, numbered before any co-expression it makes.
+
+// A co-expression's states (`CoExprObj.state`).
+const CoFresh: u8 = 0
+const CoRunning: u8 = 1
+const CoAtActivate: u8 = 2
+const CoAtYield: u8 = 3
+const CoDone: u8 = 4
+
+install_coexprs(v: *Vm)
+    register(v, "&current", 0, (b, n) -> Ok(CoExpr(running_co(current())?)))
+    register(v, "&source", 0, (b, n) -> source())
+    register(v, "&main", 0, (b, n) -> main_co())
+    register(v, "&size", 1, (b, n) -> size_of(arg(b, 0)))
+    register(v, "&refresh", 1, (b, n) -> refresh(arg(b, 0)))
+
+// The running co-expression, the task's `&main` made first if it has none yet.
+running_co(v: *Vm) -> Result[*CoExprObj, string]
+    if v.co != null then return Ok(v.co)
+
+    val m = new_coexpr(NoMachine, null, null, v.task, CoRunning)?
+
+    v.co_main = m
+    v.co = m
+    Ok(m)
+
+// Whether the running machine is a co-expression's, rather than a task's `&main`.
+in_co(v: *Vm) -> bool = v.co != null && v.co.start != NoMachine
+
+// `&source`: the co-expression that last activated the running one; `&main`'s, until something
+// activates it, is `&main` itself.
+private source() -> Result[Value, Fault]
+    val v = current()
+    val me = running_co(v)?
+
+    Ok(CoExpr(if me.activator != null then me.activator else v.co_main))
+
+// `&main`: the co-expression the running task started in.
+private main_co() -> Result[Value, Fault]
+    val v = current()
+
+    running_co(v)?
+    Ok(CoExpr(v.co_main))
+
+// -- making ----------------------------------------------------------------------------------------------
+
+// A copy of frame `f` for chunk `chunk` to run in: its arguments and slots copied, its static link
+// kept, and nothing to return to -- a co-expression's expression ends in `CoYield`, never a return.
+private copy_frame(v: *Vm, f: *FrameObj, chunk: usize) -> Result[*FrameObj, string]
+    val g = new_frame(chunk)?
+
+    var args: Buf[Value] = buf()
+    var slots: Buf[Value] = buf()
+
+    for x in f.args.view()
+        args.push(x)
+
+    for x in f.slots.view()
+        slots.push(x)
+
+    v.allocated += (args.len() + slots.len()) * sizeof(Value)
+    g.args = args
+    g.slots = slots
+    g.up = f.up
+    g.caller_mark = NoMark
+    Ok(g)
+
+// `Create`: a fresh co-expression over chunk `chunk` and copies of the running frame. **The task's
+// `&main` is made first**, so it is numbered before the co-expressions the task makes.
+create_co(v: *Vm, chunk: usize) -> Result[unit, string]
+    running_co(v)?
+
+    if v.frame == null then return Err("`Create` with no frame running")
+
+    val run_in = copy_frame(v, v.frame, chunk)?
+    val pristine = copy_frame(v, v.frame, chunk)?
+    val o = new_coexpr(chunk, run_in, pristine, v.task, CoFresh)?
+
+    v.stack.push(CoExpr(o))
+    Ok(())
+
+// The co-expression `x` is, or the fault naming what `op` was given instead.
+private coexpr_of(x: Value, op: string) -> Result[*CoExprObj, Fault]
+    deref(x) match
+        CoExpr(p) -> Ok(p)
+        Var(_) -> Err(instantiation_error(s"instantiation error: $op was given an unbound variable"))
+        y -> Err(type_error("coexpression", y, s"$op wants a co-expression, and was given ${described(y)}"))
+
+// `^c`: a new co-expression with `c`'s expression and the creator's locals as they were when `c` was
+// made, never yet activated. `c` itself is unchanged; `&main` has no expression to start again.
+private refresh(x: Value) -> Result[Value, Fault]
+    val c = coexpr_of(x, "`^`")?
+
+    if c.start == NoMachine
+        return Err(permission_error("refresh", "coexpression", x, "`&main` cannot be refreshed: it has no expression to start again"))
+
+    val v = current()
+    val o = new_coexpr(c.start, copy_frame(v, c.pristine, c.start)?, c.pristine, v.task, CoFresh)?
+
+    Ok(CoExpr(o))
+
+// `*x`: how many results a co-expression has produced; the length of anything else.
+private size_of(x: Value) -> Result[Value, Fault]
+    deref(x) match
+        CoExpr(p) -> Ok(Int(long(p.results)))
+        _ -> Ok(Int(length_of(x)?))
+
+// -- switching -------------------------------------------------------------------------------------------
+
+// Set the running machine aside in `from`, which waits at an `@`, and run `to`'s in its place. The
+// running task's own fields stay with the running machine.
+private switch_co(v: *Vm, from: *CoExprObj, to: *CoExprObj)
+    val promise = v.promise
+    val back_to = v.back_to
+    val task = v.task
+    val task_fn = v.task_fn
+    val co_main = v.co_main
+
+    from.machine = take_machine(v)
+    from.state = CoAtActivate
+    put_machine(v, to.machine)
+    to.machine = empty_machine()
+    to.state = CoRunning
+    v.promise = promise
+    v.back_to = back_to
+    v.task = task
+    v.task_fn = task_fn
+    v.co_main = co_main
+    v.co = to
+
+// `Activate`: the co-expression on top, activated with the value under it.
+activate(v: *Vm) -> Result[bool, Fault]
+    val top = v.stack.len()
+
+    if top < 2 then return Err(Broken("`Activate` wants a value and a co-expression, and the operand stack holds fewer"))
+
+    val o = coexpr_of(v.stack.at(top - 1), "`@`")?
+    val x = v.stack.at(top - 2)
+
+    v.stack.truncate(top - 2)
+    activate_co(v, o, x)
+
+// Activate `o`, transmitting `x`: true when the running machine carries on -- `o` started, or given
+// `x` at its `@`, or the running one already -- and false when the instruction fails, either because
+// `o` is over or because `o` resumes by failing into its own control stack.
+activate_co(v: *Vm, o: *CoExprObj, x: Value) -> Result[bool, Fault]
+    val me = running_co(v)?
+
+    // Activating the running co-expression hands it its own value.
+    if o == me
+        v.stack.push(x)
+        return Ok(true)
+
+    if o.state == CoDone then return Ok(false)
+
+    val was = o.state
+
+    switch_co(v, me, o)
+    o.activator = me
+
+    if was == CoFresh
+        v.frame = o.frame
+        v.code = o.start
+        v.ip = 0
+        return Ok(true)
+
+    if was == CoAtYield then return Ok(false)
+
+    v.stack.push(x)
+    Ok(true)
+
+// Where the running co-expression's result or failure goes: the co-expression that activated it, or
+// -- that one having ended since, or being suspended at a result of its own -- the task's `&main`,
+// which is always waiting at an `@` while anything else runs.
+private handed_to(v: *Vm, me: *CoExprObj) -> *CoExprObj
+    val a = me.activator
+
+    if a != null && a.state == CoAtActivate then a else v.co_main
+
+// `CoYield`: the running co-expression's result goes to its activator, and it is suspended where it
+// stands, its expression's choice points kept for the next activation to fail into.
+co_yield(v: *Vm) -> Result[unit, Fault]
+    if !in_co(v) then return Err(Broken("`CoYield` outside a co-expression"))
+
+    val x = v.stack.pop() match
+        Some(x) -> x
+        None -> return Err(Broken("`CoYield` with nothing on the operand stack"))
+
+    val me = v.co
+
+    me.results += 1
+    switch_co(v, me, handed_to(v, me))
+    me.state = CoAtYield
+    v.stack.push(x)
+    Ok(())
+
+// The running co-expression is over -- its expression has no more results, or a fault left it -- and
+// its activator runs again, for the instruction loop to fail or raise the fault at its `@`. False when
+// no co-expression is running.
+co_over(v: *Vm) -> bool
+    if !in_co(v) then return false
+
+    val me = v.co
+
+    switch_co(v, me, handed_to(v, me))
+    me.state = CoDone
+    me.machine = empty_machine()
+    true
+
+// `GenNext` over a co-expression: activate it, and leave a choice point that activates it again when
+// failure comes back, so `!c` generates its results until it has no more.
+gen_coexpr(v: *Vm, o: *CoExprObj, top: usize) -> Result[bool, Fault]
+    if o.state == CoDone
+        v.stack.truncate(top - 2)
+        return Ok(false)
+
+    push_choice(v, v.ip - 1)
+    v.stack.truncate(top - 2)
+    activate_co(v, o, Undefined)

@@ -80,6 +80,7 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
     v.input = line
     v.put = say
     v.eput = complain
+    v.program_name = file
 
     for a in args
         v.program_args.push(a)
