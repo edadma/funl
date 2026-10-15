@@ -85,11 +85,15 @@ private struct Win
     at: usize
     ctx: usize
 
-// process-wide: every open canvas by place, `None` once closed, and the generation of each place.
+// process-wide: every open canvas by place, `None` once closed. A handle is collected storage, which
+// cannot hold the counted references a surface and a plutovg canvas are, so they wait here; places are
+// never shared, so every VM in the process can keep its canvases in the one table.
 private var canvases: Buf[Option[WinCanvas]] = buf()
+
+// process-wide: the generation of each place in `canvases`, for the reason that table is.
 private var generations: Buf[long] = buf()
 
-// process-wide: every context in use, by place.
+// process-wide: every context in use, by place, beside the canvases.
 private var contexts: Buf[Option[WinContext]] = buf()
 
 // Every attribute, in the order `attributes()` gives them.
