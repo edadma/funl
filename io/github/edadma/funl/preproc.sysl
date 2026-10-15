@@ -40,7 +40,7 @@ import sysl.text.{Search, from_utf8_unchecked, str_builder}
 
 // A `$line` directive: from offset `at` of its file on, the line that is really line `line` is shown
 // as line `shown` of `name`.
-struct LineMark
+struct LineDirective
     at: usize
     line: usize
     shown: usize
@@ -52,7 +52,7 @@ struct MapFile
     doc: Source
     prog: Source
     text: string
-    marks: Buf[LineMark]
+    marks: Buf[LineDirective]
 
 // Offsets `from` to `to` of the program are file `file`'s, from its offset `local` on: the file's own
 // text, or -- `copy` -- a definition's text, copied there where the definition was used.
@@ -114,8 +114,8 @@ private to_combined(m: SourceMap, file: usize, local: usize) -> usize
         None -> if file == 0 && m.pieces.is_empty() then local else 0
 
 // The `$line` directive in force at offset `at` of a file, if any is.
-private mark_at(marks: Buf[LineMark], at: usize) -> Option[LineMark]
-    var found: Option[LineMark] = None
+private mark_at(marks: Buf[LineDirective], at: usize) -> Option[LineDirective]
+    var found: Option[LineDirective] = None
 
     for m in marks.view()
         if m.at <= at then found = Some(m)
@@ -134,7 +134,7 @@ placed(m: SourceMap, at: usize) -> string
         Some(mk) -> s"${mk.name}:${shown_line(mk, loc.line)}:$col"
         None -> s"${f.prog.name}:${loc.line}:$col"
 
-private shown_line(mk: LineMark, line: usize) -> usize = if line >= mk.line then mk.shown + (line - mk.line) else mk.shown
+private shown_line(mk: LineDirective, line: usize) -> usize = if line >= mk.line then mk.shown + (line - mk.line) else mk.shown
 
 // -- drawing a report ----------------------------------------------------------------------------
 
@@ -191,7 +191,7 @@ end render_placed
 
 // `d`, drawn as `$line` numbers its line: against a source holding only that line, at the line number
 // and under the name the directive gives.
-private renumbered(d: Diagnostic, src: Source, mk: LineMark) -> string
+private renumbered(d: Diagnostic, src: Source, mk: LineDirective) -> string
     val loc = src.locate(d.span.start)
     val shown = shown_line(mk, loc.line)
     val ls = src.line_span(loc.line)
@@ -599,7 +599,7 @@ private line_line(s: *Scanner, src: Source, pre: *Pre, file: usize, at: Span, re
             Some(mk) -> mk.name
             None -> f.prog.name
 
-    f.marks.push(LineMark(here, src.locate(here).line + 1, usize(n), named))
+    f.marks.push(LineDirective(here, src.locate(here).line + 1, usize(n), named))
 end line_line
 
 // A file an `$include` names, read and ready to lex, and where the directive is in the including file.
