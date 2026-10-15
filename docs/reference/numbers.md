@@ -40,6 +40,23 @@ write( 2e-1 )
 0.2
 ```
 
+Any other base from 2 to 36 is written Icon's way, `NrDDD`: the base in decimal, an `r` (or `R`) and
+the digits, which past 9 are letters in either case. It is one number of any size, with `_` between
+digits as in the other forms, so `16rFF` is 255 and not `16` times a name `rFF`. A base outside 2 to 36,
+a digit the base does not have, or no digits at all is an error.
+
+```funl
+write( 16rFF, 16rff, 2r1010, 36rZZ, 8R777 )
+write( 16r1_0000_0000_0000_0000 )
+write( 36rZZZZZZZZZZZZZZZZZZZZ )
+```
+
+```output
+255, 255, 10, 1295, 511
+18446744073709551616
+13367494538843734067838845976575
+```
+
 ## Integers grow without bound
 
 An integer result too large for 64 bits is carried as a big integer, and one that comes back into
@@ -742,10 +759,9 @@ write( numeric('7'), numeric('0.5'), numeric(7/2) )
 7, 0.5, 7/2
 ```
 
-Three things a literal does not have are taken from a string, since a string being converted is data
-rather than program: a sign, spaces around the number, and a radix written `NrDDD`, the base in
-decimal from 2 to 36 and then `r` (in a program, `16rFF` is `16` times the name `rFF`). The digits of
-a base past 10 are letters, in either case.
+Two things a literal does not have are taken from a string, since a string being converted is data
+rather than program: a sign, and spaces around the number. A radix written `NrDDD` is a literal too (see
+*Writing numbers*), so a program's `16rFF` and the string `'16rFF'` are the same number.
 
 ```funl
 write( integer(' -17 '), integer('+5') )

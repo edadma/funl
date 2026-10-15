@@ -1,0 +1,156 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, str_builder}
+
+// Calling by name: `proc(name)` and `proc(name, n)` give the function value a name stands for, and
+// `builtins()` generates the names of the builtins.
+//
+// **Only names a program can write are reached**: the program's own top-level functions first, then
+// the builtins and the prelude. A local has no name at run time, and a string followed by `(...)` is
+// still an index, so there is no string invocation: `proc("write")(1)` is the way.
+
+// A top-level function of the program: what `proc` finds by name.
+struct TopFn
+    name: string
+    arity: usize
+    chunk: usize
+
+// Record the program's top-level function `name` of `arity` parameters, compiled into `chunk`, for
+// `proc` to find. A later definition of the same name and count (the program compiled again) replaces it.
+note_top_fn(name: string, arity: usize, chunk: usize)
+    val v = current()
+
+    for i in 0..<v.top_fns.len()
+        val f = v.top_fns.at(i)
+
+        if f.name == name && f.arity == arity
+            v.top_fns.set(i, TopFn(name, arity, chunk))
+            return
+
+    v.top_fns.push(TopFn(name, arity, chunk))
+
+install_proc(v: *Vm)
+    optional_past(v, register_generator(v, "proc", 2, do_proc), 1)
+    register_generator(v, "builtins", 0, do_builtins)
+
+// Whether builtin `n` has a name a program writes: Prolog's `name/arity` builtins and a native
+// module's dotted ones are not.
+private plain_name(n: Native) -> bool
+    !n.name.starts_with("_") && !n.name.contains("/") && !n.name.contains(".") && !n.name.contains(":")
+
+// `proc(name)`, `proc(name, n)`: the function `name` is, taking `n` arguments if `n` is given.
+// Fails when nothing is called `name` -- or nothing of that count.
+private do_proc(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val v = current()
+    val nm = deref(arg(base, 0))
+
+    var name = ""
+
+    nm match
+        Str(p) -> name = p.s
+        Var(_) -> return Err(instantiation_error("instantiation error: 'proc' was given an unbound variable"))
+        _ -> return Err(kind_error(nm, "string", s"'proc' wants the name as a string and was given ${described(nm)}"))
+
+    var want: Option[usize] = None
+
+    if argc == 2
+        val k = deref(arg(base, 1))
+
+        k match
+            Int(n) ->
+                if n < 0 then return Ok(Refuses)
+
+                want = Some(usize(n))
+            Var(_) -> return Err(instantiation_error("instantiation error: 'proc' was given an unbound variable"))
+            _ -> return Err(kind_error(k, "integer", s"'proc' wants the number of arguments as an integer and was given ${described(k)}"))
+
+    var members: Buf[Member] = buf()
+
+    for i in 0..<v.top_fns.len()
+        val f = v.top_fns.at(i)
+
+        if f.name == name && counted_as(want, f.arity) then members.push(FnMember(f.chunk, f.arity, TopUp))
+
+    // The program's own definition hides a builtin or the prelude's of the same name.
+    if members.len() == 0
+        for id in 0..<v.natives.len()
+            val n = v.natives.at(id)
+
+            if n.name == name && plain_name(n) && is_function_value(id) && (want.is_none() || takes_count(n, want.unwrap()))
+                members.push(NativeMember(id))
+
+        prelude_index() match
+            Some(index) ->
+                val md = v.modules.at(index)
+
+                for x in md.exports.view()
+                    if x.name != name then continue
+
+                    x.kind match
+                        ExFunction(chunk, arity) -> if counted_as(want, arity) then members.push(FnMember(chunk, arity, md.up))
+                        _ -> ()
+            None -> ()
+
+    if members.len() == 0 then return Ok(Refuses)
+
+    Ok(Gives(member_value(v, name, members)?))
+
+// Whether a function of `arity` parameters is one `want` asks for.
+private counted_as(want: Option[usize], arity: usize) -> bool = want match
+    Some(k) -> k == arity
+    None -> true
+
+// The function value of `members`: a single member's own, or the family of them that picks one by the
+// count of each call, as a family named without a call does. Made once for each set of members.
+private member_value(v: *Vm, name: string, members: Buf[Member]) -> Result[Value, Fault]
+    if members.len() == 1
+        members.at(0) match
+            FnMember(chunk, _, up) -> return Ok(new_closure(chunk, link(v, up)?)?)
+            NativeMember(id) -> return Ok(new_closure(value_chunk(id)?, v.globals)?)
+            CtorMember(_) -> ()
+
+    var key = str_builder()
+
+    key.push(name)
+
+    for m in members.view()
+        m match
+            FnMember(chunk, arity, up) -> key.push(s"|f$chunk,$arity,$up")
+            NativeMember(id) -> key.push(s"|n$id")
+            CtorMember(id) -> key.push(s"|c$id")
+
+    val k = key.finish()
+
+    val chunk = v.proc_chunks.get(k) match
+        Some(c) -> c
+        None ->
+            val made = family_chunk(name, members)?
+
+            v.proc_chunks.put(k, made)
+            made
+
+    Ok(new_closure(chunk, v.globals)?)
+
+// `builtins()`: the name of each builtin, one at a time. The cursor is the index of the next builtin
+// to consider; a name registered for several counts is answered once.
+private do_builtins(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val v = current()
+    var i = usize(cursor)
+
+    while i < v.natives.len()
+        val n = v.natives.at(i)
+        var first = true
+
+        if plain_name(n)
+            for j in 0..<i
+                if v.natives.at(j).name == n.name
+                    first = false
+                    break
+
+            if first
+                return Ok(GivesMore(new_str(n.name)?, long(i + 1)))
+
+        i += 1
+
+    Ok(Refuses)

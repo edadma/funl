@@ -227,31 +227,6 @@ log(..args)
 > defined. **Recommendation: (a).** It keeps "the nearer, more specific definition wins", which
 > Option C already uses, and lets a fixed arity be the fast case of a variadic one.
 
-### Calling by name
-
-**Icon:** `proc(s)` is the procedure, builtin or operator named by the string `s` (`proc("+", 2)`);
-**string invocation** `"write"(x)` and `"+"(1, 2)` calls it directly; `function()` generates the
-names of the builtins; `name(v)` and `variable(s)` go between a variable and its name; `invocable`
-tells the linker what string invocation may reach.
-
-**FunL today:** a function or builtin named without a call is a value, and `import * as m` gives a
-module as a map of its names, so `m(name)` is calling by name *within a module*. A string followed
-by `(…)` is indexing it — `"write"(1)` is the character `r`, by the [one way to
-index](language.md#data) — so string invocation is closed to FunL.
-
-**Proposed:** `proc(name)` and `proc(name, n)` — the function value the program's top level, then
-the builtins and the prelude, give that name, optionally that arity; an operator's spelling, `"+"`,
-gives its section `(+)`; it fails for a name nothing defines. `builtins()` generates the builtins'
-names. `invocable` is not needed: nothing is linked away. **`name(v)` and `variable(s)` are not
-adopted**: a local is a numbered slot, resolved when compiled, and has no name at run time.
-
-> **Open question I6 — reflection by name.** (a) `proc` over top-level names and builtins only, no
-> `variable`/`name`, no string invocation; (b) also `variable(s)` for top-level variables, keeping
-> a name table for the top-level frame. **Recommendation: (a).** Top-level names are already in a
-> table the compiler builds; locals by name would need a name per slot at run time for a feature
-> almost no Icon program uses. String invocation would reopen indexing and buys nothing over
-> `proc(s)(…)`.
-
 ## Co-expressions
 
 **Icon:** `create e` makes a co-expression: `e`, with a copy of the current procedure's locals,
@@ -472,14 +447,11 @@ cannot be assigned.
 | Icon | FunL | |
 |---|---|---|
 | `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
-| `16rFF` literal | see I16 | |
+| `16rFF` literal | the same (I16) | done |
 
-> **Open question I16 — radix literals.** Icon writes `16rFF` and `36rZZ`. FunL decided that a
-> number literal touching a name multiplies, so `2r1` today is `2 * r1`. (a) **no `NrDDD` literal**:
-> `0x`, `0o`, `0b` unlimited in size, and `integer("16rFF")` for the others; (b) `NrDDD` as a
-> literal for `N` from 2 to 36, taking it away from juxtaposition. **Recommendation: (a).** `2r`
-> meaning "twice r" is exactly the case juxtaposition was decided for; other bases are rare enough
-> for a conversion.
+> **Decided (user, 2026-10-15) — I16, radix literals.** `NrDDD` is a literal, `N` from 2 to 36 and
+> the digits in either case, any size, `_` between digits; it takes `N r name` away from juxtaposition.
+> `integer("16rFF")` reads the same form, by the same reader.
 
 ## Input and output
 
@@ -610,7 +582,7 @@ own book, rather than part of the language.
 | I13 | Icon's string comparison operators | none; polymorphic comparison covers them |
 | I14 | implicit conversion | none; conversion functions |
 | I15 | mutable records | keep immutable; add `with(r, {f: x})` |
-| I16 | radix literals | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` |
+| I16 | radix literals | the `NrDDD` literal, decided (user, 2026-10-15) |
 | I17 | writing to a file | handle methods, `f.write(x)` |
 | I18 | how keywords are spelled | `&name`, one token |
 | I19 | `&error` and `runerr` | nothing more; `catch` and `throw` cover them |
