@@ -160,6 +160,23 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
 
             expr(AwaitE(e), t.span.to(e.span))
         AsyncW -> async_lambda(p, t.span)
+        CreateW ->
+            // As loose as `not`, so `create !xs | !ys` makes one co-expression of the alternation.
+            val e = parse_expr(p, NotPower)
+
+            expr(CreateE(e), t.span.to(e.span))
+        At ->
+            val e = parse_expr(p, BangPower)
+
+            expr(ActivateE(expr(UndefE, t.span), e), t.span.to(e.span))
+        Caret ->
+            val e = parse_expr(p, BangPower)
+
+            expr(RefreshE(e), t.span.to(e.span))
+        Star ->
+            val e = parse_expr(p, BangPower)
+
+            expr(SizeE(e), t.span.to(e.span))
         LBracket -> list(p, t.span)
         LBrace -> braces(p, t.span)
         Backslash ->
@@ -717,6 +734,7 @@ private infix(op: Tok, a: &Expr, b: &Expr) -> ExprKind
         Colon -> ConsE(a, b)
         In -> InE(a, b, false)
         NotIn -> InE(a, b, true)
+        At -> ActivateE(a, b)
         _ ->
             binop_of(op) match
                 Some(o) -> BinE(o, a, b)

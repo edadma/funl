@@ -43,6 +43,10 @@ struct Walk
     // head may.
     ball: bool
 
+    // Whether the code being read is the expression of a `create`, which runs on a control stack of
+    // its own: nothing in it can return, yield, await or leave a loop outside it.
+    creating: bool
+
     // What `name` means written at offset `pos`: the blocks being read first, then the complete
     // scopes above.
     meaning(self, name: string, pos: usize) -> Meaning
@@ -69,7 +73,7 @@ struct LoopSeen
 // A walk over scope `sid`, from its root block, inside no loop.
 walker(res: *Resolved, report: *Report, pending: *Buf[usize], sc: *Scope, sid: usize, relation: bool, function: bool,
        waits: bool) -> Walk =
-    Walk(res, report, pending, sc, sid, relation, function, waits, 0, buf(), relation, false)
+    Walk(res, report, pending, sc, sid, relation, function, waits, 0, buf(), relation, false, false)
 
 // Whether a call of `n`, which means `m`, is one of the all-solutions forms: the name, where nothing
 // the program declares takes it.
@@ -509,7 +513,9 @@ walk(w: *Walk, e: &Expr)
         BlockE(id, stmts) -> walk_block(w, id, stmts)
         LambdaE(id, clauses) -> queue_lambda(w, id, clauses, e.span)
         ReturnE(x) ->
-            if !w.function
+            if w.creating
+                w.report.add(outside_create(e.span, "return"))
+            elif !w.function
                 w.report.add(error(e.span, "`return` is written inside a function")
                     .with_note("it leaves the function it is in, and the top level and a relation are not one"))
 
@@ -518,9 +524,10 @@ walk(w: *Walk, e: &Expr)
             x match
                 Some(v) -> walk(w, v)
                 None -> ()
-        AsE(_, _) ->
-            w.report.add(error(e.span, "`name@pattern` is a pattern, and this is not where one is matched")
-                .with_note("it belongs in a parameter or on the left of a `val`"))
+        AsE(n, x) ->
+            // Where an expression is read, `name @ c` is transmission.
+            walk(w, expr(Ref(n), Span(e.span.start, e.span.start + n.bytes.len)))
+            walk(w, x)
         SectionL(_, _) ->
             w.report.add(error(e.span, "this operator has no right operand")
                 .with_note("a section that fixes the left operand is written in parentheses: `(2 *)`"))
@@ -571,14 +578,19 @@ walk(w: *Walk, e: &Expr)
             walk(w, x)
             assigned(w, n, e.span, e.span.end)
         YieldE(x) ->
-            if !w.function
+            if w.creating
+                w.report.add(outside_create(e.span, "yield"))
+            elif !w.function
                 w.report.add(error(e.span, "`yield` is written inside a function")
                     .with_note("it hands a value to the function's caller, and the top level and a relation have none"))
 
             w.sc.yields = true
             walk(w, x)
         AwaitE(x) ->
-            if !w.waits
+            if w.creating
+                w.report.add(error(e.span, "`await` cannot be written inside `create`")
+                    .with_note("a co-expression runs when `@` activates it; await the value before `create`, or after the `@`"))
+            elif !w.waits
                 w.report.add(error(e.span, "`await` is written in an `async` function or at the top level")
                     .with_note("it belongs to the function it is written in: make that one `async def`, or `async` before a lambda"))
 
@@ -600,8 +612,29 @@ walk(w: *Walk, e: &Expr)
 
             for t in targets.view()
                 assigned(w, t.value, t.span, e.span.end)
+        CreateE(x) -> walk_create(w, x)
+        ActivateE(x, c) -> walk_two(w, x, c)
+        RefreshE(x) -> walk(w, x)
+        SizeE(x) -> walk(w, x)
         _ -> ()
 end walk
+
+// `create e`: `e` is read in the scope around it, but inside no loop of that scope, and with nothing
+// to return to, yield to or await in.
+private walk_create(w: *Walk, x: &Expr)
+    val loops = w.loops
+    val creating = w.creating
+
+    w.loops = buf()
+    w.creating = true
+    walk(w, x)
+    w.loops = loops
+    w.creating = creating
+
+// The refusal of `word` inside `create`.
+private outside_create(at: Span, word: string) -> Diagnostic =
+    error(at, s"`$word` cannot be written inside `create`")
+        .with_note("a co-expression's results are its expression's values, handed to the `@` that activates it; it ends when the expression fails")
 
 private walk_two(w: *Walk, a: &Expr, b: &Expr)
     walk(w, a)
@@ -887,6 +920,11 @@ hoist_expr(w: *Walk, e: &Expr)
         LimitE(_, x, n) -> hoist_two(w, n, x)
         YieldE(x) -> hoist_expr(w, x)
         AwaitE(x) -> hoist_expr(w, x)
+        CreateE(x) -> hoist_expr(w, x)
+        ActivateE(x, c) -> hoist_two(w, x, c)
+        RefreshE(x) -> hoist_expr(w, x)
+        SizeE(x) -> hoist_expr(w, x)
+        AsE(_, x) -> hoist_expr(w, x)
         AssignE(_, x) -> hoist_expr(w, x)
         RangeE(a, b, by, _) ->
             hoist_two(w, a, b)

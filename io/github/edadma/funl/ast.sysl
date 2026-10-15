@@ -170,6 +170,20 @@ enum ExprKind
     // settled -- the running `async` function or top level set aside until then.
     AwaitE(e: &Expr)
 
+    // `create e`: a co-expression over `e`, with a copy of the running frame's locals, not yet run.
+    CreateE(e: &Expr)
+
+    // `x @ c`, transmitting `x` to the co-expression `c` and producing its next result; `@c` transmits
+    // `undefined`. `name @ c` is read as a named pattern (`AsE`) and becomes this where it is an
+    // expression.
+    ActivateE(x: &Expr, c: &Expr)
+
+    // `^c`: a fresh co-expression over `c`'s expression and locals as they were when `c` was made.
+    RefreshE(e: &Expr)
+
+    // `*x`: how many results a co-expression has produced, or the length of anything else.
+    SizeE(e: &Expr)
+
     // `name = e`, as a statement or where an expression is delimited -- inside parentheses, at the
     // head of `every` -- storing each of `e`'s values in the variable `name` and producing it. The
     // variable is the nearest `name` in scope, or a new one of the block when there is none.

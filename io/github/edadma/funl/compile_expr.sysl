@@ -1,5 +1,6 @@
 module io.github.edadma.funl
 
+import sh.sysl.parsing.Span
 import sysl.buf.{Buf, buf}
 
 // Expressions and statements, compiled to the machine.
@@ -25,6 +26,8 @@ import sysl.buf.{Buf, buf}
 //     return e               e; [ScanLeave(n)]; ReturnCommit
 //     s ? e                  s; ScanBegin; e; ScanEnd
 //     e catch p -> r         SaveHeight(h); PushTrap(r); e; ExitTrap(h); ...   -- `catch.sysl`
+//     create e               Create(k)                 -- chunk k: e; CoYield    -- `coexpr.sysl`
+//     x @ c                  x; c; Activate
 //
 // `[ScanLeave(n)]` is there when the jump leaves `n` scans of the function's body that are open
 // around it, and puts back the scan state the outermost of them replaced.
@@ -386,7 +389,30 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             e.op(ScanEnd)
         CatchE(id, s, pat, guard, r) -> compile_catch(e, c, id, s, pat, guard, r)?
         RegexE(p, groups) -> compile_pattern_value(e, c, p, groups)?
-        AsE(_, _) -> return Err("a pattern the resolver refused reached the compiler")
+        AsE(n, a) ->
+            // `name @ c` where an expression is read: transmission.
+            compile_value(e, c, expr(Ref(n), Span(x.span.start, x.span.start + n.bytes.len)))?
+            compile_value(e, c, a)?
+            e.op(Activate)
+        CreateE(a) ->
+            // The expression is a chunk of its own, compiled in this scope -- it runs in a copy of
+            // this frame -- inside no loop and no scan of it.
+            var loops: Buf[Looping] = buf()
+            var inner = emit("create")
+
+            compile_value(&inner, Ctx(c.res, c.sc, c.blk, &loops, 0), a)?
+            inner.op(CoYield)
+            e.op(Create(finish(inner)?))
+        ActivateE(a, co) ->
+            compile_value(e, c, a)?
+            compile_value(e, c, co)?
+            e.op(Activate)
+        RefreshE(a) ->
+            compile_value(e, c, a)?
+            e.op(Native(native_id("&refresh").unwrap(), 1))
+        SizeE(a) ->
+            compile_value(e, c, a)?
+            e.op(Native(native_id("&size").unwrap(), 1))
         SectionL(_, _) -> return Err("a section the resolver refused reached the compiler")
         BadE -> return Err("a tree with a parse error in it reached the compiler")
 

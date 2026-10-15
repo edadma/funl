@@ -42,6 +42,8 @@ run(v: *Vm, chunk: usize) -> Outcome
     forget_events(v)
     v.quit = None
     v.refused = null
+    v.co = null
+    v.co_main = null
 
     run_loop(v, chunk)
 
@@ -104,6 +106,12 @@ private drive(v: *Vm) -> Outcome
             Ok(Next) -> ()
             Ok(Fails) ->
                 if !fail(v)
+                    // A co-expression whose expression has no more results is over, and the `@`
+                    // that activated it fails.
+                    if co_over(v)
+                        injected = Some(Ok(Fails))
+                        continue
+
                     if !in_task(v) then return Failed
 
                     if !task_ends(v, PromiseFailed, Undefined, "") then injected = Some(Ok(Idle))
@@ -124,6 +132,12 @@ private drive(v: *Vm) -> Outcome
             Err(Broken(e)) ->
                 val said = s"${v.chunks.at(v.code).name}@$at: $e"
 
+                // A fault inside a co-expression ends it and is raised again at the `@` that
+                // activated it.
+                if co_over(v)
+                    injected = Some(Err(Broken(said)))
+                    continue
+
                 if !in_task(v) then return Faulted(said)
 
                 if !task_ends(v, PromiseFaulted, Undefined, said) then injected = Some(Ok(Idle))
@@ -132,17 +146,22 @@ private drive(v: *Vm) -> Outcome
                 // Read before unwinding, which undoes the bindings the ball was made with.
                 val said = s"${v.chunks.at(v.code).name}@$at: ${uncaught_text(ball)}"
 
-                // What a task's promise is faulted with, should nothing catch the ball.
-                val kept = if in_task(v) then copy_term(ball) else Ok(Undefined)
+                // What a task's promise is faulted with, or the `@` that activated a co-expression
+                // raises, should nothing catch the ball.
+                val kept = if in_task(v) || in_co(v) then copy_term(ball) else Ok(Undefined)
 
                 throw_ball(v, ball) match
                     Ok(true) -> ()
                     Ok(false) ->
-                        if !in_task(v) then return Faulted(said)
-
                         val x = kept match
                             Ok(k) -> k
                             Err(e) -> return Faulted(e)
+
+                        if co_over(v)
+                            injected = Some(Err(Thrown(x)))
+                            continue
+
+                        if !in_task(v) then return Faulted(said)
 
                         if !task_ends(v, PromiseFaulted, x, said) then injected = Some(Ok(Idle))
                     Err(e) -> return Faulted(e)
@@ -635,6 +654,13 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Await -> Ok(if await_top(v)? then Next else Idle)
         Settle -> Ok(if settle_top(v)? then Next else Idle)
         Orphan -> Ok(if orphan_top(v) then Next else Quits)
+        Create(chunk) ->
+            create_co(v, chunk)?
+            Ok(Next)
+        Activate -> Ok(fails_if(activate(v)?))
+        CoYield ->
+            co_yield(v)?
+            Ok(Next)
         ArgsIn(least, most, to) ->
             val n = v.frame.args.len()
 

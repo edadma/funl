@@ -232,6 +232,7 @@ tag(t: Tok) -> u8
         AwaitW -> 88
         StarStar -> 89
         AmpName(_) -> 90
+        CreateW -> 91
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.

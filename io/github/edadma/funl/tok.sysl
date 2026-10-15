@@ -71,6 +71,9 @@ enum Tok
     AsyncW
     AwaitW
 
+    // `create e`, a co-expression.
+    CreateW
+
     LParen
     RParen
     LBracket
@@ -200,6 +203,7 @@ private spelling(t: Tok) -> string
         CatchW -> "catch"
         AsyncW -> "async"
         AwaitW -> "await"
+        CreateW -> "create"
         Semi -> ";"
         Colon -> ":"
         LeftArrow -> "<-"
@@ -291,6 +295,7 @@ keyword(s: string) -> Option[Tok]
     if s == "catch" then return Some(CatchW)
     if s == "async" then return Some(AsyncW)
     if s == "await" then return Some(AwaitW)
+    if s == "create" then return Some(CreateW)
 
     None
 end keyword
@@ -316,6 +321,7 @@ power(t: Tok) -> Power
         In -> left_assoc(40)
         NotIn -> left_assoc(40)
         Is -> left_assoc(40)
+        At -> left_assoc(TransmitPower)
         Name(s) -> left_assoc(if s == LimitWord then LimitPower else 0)
         Colon -> right_assoc(ConsPower)
         To -> left_assoc(RangePower)
@@ -417,6 +423,9 @@ const NegPower: u16 = 65
 // tighter, so `2f(x)` is `2 * f(x)`.
 const JuxtPower: u16 = 85
 
+// `x @ c`, transmission: as tight as juxtaposition, which is what the right of `name@` is read at.
+const TransmitPower: u16 = 85
+
 // Application, `f(x)` on any expression: tighter than every operator.
 const ApplyPower: u16 = 90
 
@@ -478,6 +487,10 @@ starts_expr(t: Tok) -> bool
         YieldW -> true
         AsyncW -> true
         AwaitW -> true
+        CreateW -> true
+        At -> true
+        Caret -> true
+        Star -> true
         LBracket -> true
         LBrace -> true
         Backslash -> true

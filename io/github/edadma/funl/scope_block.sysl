@@ -151,6 +151,11 @@ loop_target(w: *Walk, label: Option[string], at: Span, word: string)
             w.report.add(error(at, s"no loop around this `$word` is labelled `$name`")
                 .with_note(s"a label is written before its loop: `$name: while ...`"))
         None ->
+            if w.creating
+                w.report.add(error(at, s"`$word` cannot leave `create`")
+                    .with_note("a co-expression's expression runs on its own, so the loops around `create` are not around it"))
+                return
+
             w.report.add(error(at, s"`$word` is written inside a loop")
                 .with_note("it leaves the `while`, `repeat`, `for` or `every` around it, in the same function"))
 end loop_target

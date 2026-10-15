@@ -140,6 +140,8 @@ Each is argued where it arises; this is the list.
 | I3 Limitation, `\` being integer division | the infix word `e limit n`, Icon's semantics (a generating `n` re-limits); `\` stays division (user, 2026-10-15) | [icon](icon.md#limitation) |
 | I21 Are Icon's graphics facilities in scope? | yes, as the native module `funl:graphics`, designed in its own chapter; its questions are G1–G12 (user, 2026-10-15) | [graphics](graphics.md) |
 | I18 How keywords are spelled | `&name`, one token when `&` touches a letter; `a &b` refused naming `a & b` (user, 2026-10-15) | [icon](icon.md#keywords) |
+| I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` (user, 2026-10-15) | [icon](icon.md#co-expressions) |
+| I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it (user, 2026-10-15) | [icon](icon.md#co-expressions) |
 
 ## Open questions
 
@@ -152,8 +154,6 @@ Each has a recommendation in its chapter; the user decides them before the miles
 | I4 Whose is a `static`: the definition's or each closure's? | each closure value's | [icon](icon.md#static-and-initial) |
 | I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family | [icon](icon.md#variadic-procedures-and-list-invocation) |
 | I6 Reflection by name | `proc(name)` over top-level names and builtins; no `variable`/`name`, no string invocation | [icon](icon.md#calling-by-name) |
-| I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` | [icon](icon.md#co-expressions) |
-| I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it | [icon](icon.md#co-expressions) |
 | I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
 | I10 Icon's positions in indexing (decided: one way, 0-based) | keep the decision; add assignment to a section of a string variable | [icon](icon.md#sections-and-indexing) |
 | I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#map-and-reverse) |

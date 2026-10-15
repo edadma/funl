@@ -525,6 +525,19 @@ enum Op
     // marked as one nothing can await, and one already faulted ends the run (`task.sysl`).
     Orphan
 
+    // `create e`: push a co-expression over chunk `chunk`, `e` compiled on its own ending in
+    // `CoYield`, with a copy of the running frame to run in (`coexpr.sysl`).
+    Create(chunk: usize)
+
+    // `x @ c`: pop the co-expression `c` and the value `x` under it, and run `c` until it produces a
+    // result, which is pushed here, or fails, which fails here. `x` is the value of the `@` inside
+    // `c` at which it last gave up control.
+    Activate
+
+    // The end of a co-expression's expression: pop its result, count it, and hand it to the
+    // co-expression that activated this one, this one suspended until it is activated again.
+    CoYield
+
     // The first instruction of each member of a family value (`family.sysl`): unless the running
     // frame was called with between `least` and `most` arguments (`most` being `AnyArity` for no
     // limit), go on at `to`, where the next member's begins.

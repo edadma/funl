@@ -254,126 +254,43 @@ adopted**: a local is a numbered slot, resolved when compiled, and has no name a
 
 ## Co-expressions
 
-**Icon:** `create e` makes a co-expression: `e`, with a copy of the current procedure's locals,
-ready to run on a control stack of its own. Nothing runs yet.
+> **Decided (user, 2026-10-15) — I7: Icon's spelling**, `create e`, `@c`, `v @ c`, `^c`, `*c`,
+> `!c`; **I8: `create` copies the innermost frame and shares the frames outside it.** Built
+> (`coexpr.sysl`) as this section drafted it: a co-expression is a `Machine` set aside in a
+> `CoExprObj` -- its chunk ending in `CoYield`, two copies of the creating frame, its activator, its
+> count -- switched by `Activate` and `CoYield` with buffer handles, never a stack copy; a fault
+> nothing inside catches ends it and is raised again at the `@`; `&current`, `&source` and `&main`
+> are keywords, and `&features` generates `"co-expressions"`. See
+> [co-expressions](../reference/coexpressions.md). Where the draft was silent or did not fit:
+>
+> - `1..` is a range value in FunL, not a generator, so the draft's `create 1..` is `create !(1..)`.
+> - Prefix `*x`, listed above as covered, did not exist: it is built here, the length of anything
+>   that is not a co-expression. `(*c)` and `(^c)` stay operator sections; `@^c` needs none.
+> - `create` reads its operand as loosely as `not` does, so `create !xs | !ys` is one co-expression.
+> - `x <- c`, as a binding, generates by activation as `!c` does.
+> - Activating the running co-expression produces the transmitted value at once.
+> - A result or a failure goes to the activator, or -- that one having ended, or being suspended at
+>   a result of its own, which symmetric activation can bring about -- to `&main`, which is always
+>   waiting at an `@` while anything else runs.
+> - `return`, `yield`, and `break` or `continue` leaving `create` are refused when compiled, as is
+>   `await` inside `create` until item 18.
+> - At the top level the innermost frame is the top level's, so a co-expression made there copies
+>   the top-level names; a top-level function it calls still reads the originals.
 
-- **`@C` activates it**: `e` runs until it produces a result, which becomes the value of `@C`, and
-  `C` is suspended. The next `@C` resumes `e` for its next result. When `e` runs out, `@C` fails,
-  and every later `@C` fails too. `@C` itself produces at most one value: it is not resumed by
-  backtracking in the activator.
-- **`x @ C` transmits `x`**: `x` becomes the value of the `@` inside `C` at which `C` last gave up
-  control. On the first activation there is no such `@`, and `x` is discarded; likewise when `C` is
-  resumed because its expression produced a result (it is resumed by backtracking, and the value has
-  nowhere to go). A co-expression can activate any other, `&main` included, so co-expressions are
-  symmetric coroutines: `@&source` gives control back to the activator and waits for its next value.
-- **`^C` refreshes**: a new co-expression with `C`'s expression and the locals as they were when
-  `C` was *created*, never yet activated. `C` itself is unchanged.
-- **`*C`** is the number of results `C` has produced. `!C` generates the results of activating `C`
-  until it fails; `|@C` does the same.
-- **`&current`** is the running co-expression, **`&source`** the one that activated it, and
-  **`&main`** the one the program started in.
-- A local the co-expression assigns is its own copy; a global it assigns is everyone's.
+**With `async` tasks** (milestone 11 item 18). A co-expression is not a task: the loop never
+schedules it, and it runs only when activated. It **runs as part of the task that activates it**
+(built: the task's promise, number and `&main` go with the running machine across every switch). An
+`await` inside a co-expression parks the running machine — the co-expression's — and the task waits;
+its activator chain stays suspended in its objects, and when the promise settles, the task resumes
+inside the co-expression. A co-expression belongs to the task that created it: activating it from
+another task is the fault `permission_error(activate, coexpression, C)`, as binding another task's
+variable is refused. Each task has its own `&main`, the machine it started on (built).
 
-**FunL today:** generators are resumed only by backtracking inside their own bounded expression,
-so two generators cannot be stepped in lockstep, and a generator cannot be handed to some other part
-of the program to be pulled from later. `async` tasks have a control stack of their own, but the
-event loop decides when they run. The [modules chapter](modules.md#what-the-machine-needs-a-task-is-a-machine-set-aside)
-names co-expressions as the nearest relative of a task, and the machinery is the same.
-
-**Proposed: Icon's spelling.** `create` is a new word; `@`, `^` and `*` as prefix operators and
-`@` infix are free in expressions:
-
-```
-val words = create !split(text)
-val nums = create 1..
-
-while w = @words
-  write(@nums, ' ', w)
-
-def consumer()
-  repeat
-    val line = @&source
-    write('got ' + line)
-
-val c = create consumer()
-@c
-'first' @ c
-'second' @ c
-```
-
-- `@` already marks a named pattern, `p@(a, b)`, which is a name touching `@` inside a pattern.
-  In an expression, `v @ c` is transmission; in a parameter or a `for` binding it is still the
-  named pattern. The compiler decides when it knows which side of `->` or `<-` the text is on, as
-  it already does for a lambda's parameters.
-- `^c` is refresh and `*c` the count of results, matching `*x` as length (a co-expression's
-  "length" is how far it has gone). `!c` generates by activation.
-- **A fault inside a co-expression** ends it (later activations fail) and is raised again at the
-  `@` that activated it, where a `catch` can take it — the rule `await` already follows for a
-  task's fault. Icon stops the program; FunL lets the activator decide.
-- `x is coexpression` tests for one; it prints as `<co-expression 3 (2 results)>`.
-
-**Machine.** A co-expression is a **`Machine` set aside**, exactly as a task is: an operand stack,
-control stack with its saved cells, trail, frame chain, scan state and regex captures, moved out
-whole by `park` and back by `unpark`.
-
-```
-struct CoExprObj
-    machine: Machine        // its state while it is not running
-    start: *Chunk           // e, compiled as a lambda body is
-    frame: *FrameObj        // the copy of the creating frame it runs in
-    pristine: *FrameObj     // a second copy, for ^C
-    activator: *CoExprObj   // &source
-    results: usize          // *C
-    task: u32               // the task that created it
-    state: Fresh | Suspended | Done
-```
-
-- **`Create`** compiles `e` into its own chunk, as a lambda body is, ending in `CoYield`. At run
-  time it copies the current frame — its slots, shallowly, keeping its static link, so locals are
-  copied and anything further out is shared, which is Icon's rule — and keeps a second copy for
-  refresh. Copying one frame is the whole cost of `create`.
-- **`Activate`** parks the running machine into `&current`'s object, unparks the target's, and
-  records `&current` as its activator. A fresh target starts at its chunk with the transmitted value
-  dropped; one suspended at an `@` of its own gets the transmitted value written over that `@`'s
-  operand slot — the slot an `await`'s promise occupies when a task resumes. A target that is
-  `Done` makes `@` fail without switching.
-- **`CoYield`** is the end of `e`: like `yield`, it pushes a `Choice` back into `e` first, then
-  counts the result, parks the co-expression and unparks its activator with the result where the
-  activator's `@` left its value. The next activation of a co-expression suspended here **fails into
-  its own control stack**, which resumes `e` for its next value; the transmitted value is dropped,
-  as Icon drops it. When `e`'s failure reaches the bottom of its control stack, the co-expression is
-  `Done` and the activator's `@` fails.
-- **`@` leaves nothing resumable in the activator**: it is one value or failure, a bounded call.
-- **Refresh** makes a new object from `start` and a fresh copy of `pristine`.
-- Switching is a swap of buffer handles, never a copy of a stack, so a co-expression costs one
-  frame copy to make and nothing per value beyond a `yield`'s.
-
-**With `async` tasks.** A co-expression is not a task: the loop never schedules it, and it runs
-only when activated. It **runs as part of the task that activates it**. An `await` inside a
-co-expression parks the running machine — the co-expression's — and the task waits; its activator
-chain stays suspended in its objects, and when the promise settles, the task resumes inside the
-co-expression. A co-expression belongs to the task that created it: activating it from another
-task is the fault `permission_error(activate, coexpression, C)`, as binding another task's variable
-is refused. Each task has its own `&main`, the machine it started on.
-
-**What the collector sees.** A `CoExprObj` is a collected object whose tracer walks its parked
-machine as the running one is walked, both frame copies, and its activator. The running chain is
-reached from the VM's `&current` and the activator links; a co-expression parked inside a waiting
-task is reached through the task's parked machine. A co-expression nothing refers to is collected,
-its finalizer releasing its machine's buffers — a generator abandoned half way costs nothing more.
-
-> **Open question I7 — co-expression spelling.** (a) Icon's `create`, `@c`, `v @ c`, `^c`, `*c`,
-> `!c`; (b) JavaScript's generator objects: `create e` and methods `c.next()`, `c.next(v)`,
-> `c.refresh()`, `c.count`. **Recommendation: (a).** The operators are free, short, and are what
-> an Icon reader looks for; `@` keeps its named-pattern reading wherever a pattern is parsed. (b)
-> fits FunL's handles but makes the symmetric `@&source` hand-off read as a method on a keyword.
-
-> **Open question I8 — does `create` copy the locals?** Icon copies the creating procedure's
-> locals, so a co-expression and its creator do not see each other's later assignments. A FunL
-> lambda shares its frame. (a) **copy the innermost frame, share the frames outside it** (Icon's
-> rule, and what `^c` needs to have something to go back to); (b) share, as a lambda does, and
-> refresh restarts the expression only. **Recommendation: (a).** Sharing would make
-> `create !xs` in a loop see the loop's later `xs`, and refresh would have nothing to restore.
+**What the collector sees.** A `CoExprObj`'s tracer walks its parked machine as the running one is
+walked, both frame copies, and its activator; the running chain is reached from the VM's `&current`
+and `&main` (built). A co-expression nothing refers to is collected, its finalizer releasing its
+machine's buffers — a generator abandoned half way costs nothing more; item 18 proves it under the
+stress heap.
 
 > **Open question I9 — logic variables inside a co-expression.** A binding a co-expression makes
 > is trailed on its own trail, so only its own backtracking undoes it; the activator's backtracking
@@ -528,12 +445,11 @@ with a newline; no standard input, no standard error, no open file.
 > **Decided (user, 2026-10-15) — I18: `&name` as Icon has it**, one token when `&` touches a letter;
 > `a &b` is refused with a note naming `a & b`. Built: the token and its refusal, `&subject` and
 > `&pos` (`&pos <- i` reversible), the csets, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the
-> clocks, `&version`, `&host`, `&progname`, `&features` (without `"co-expressions"` until they
-> exist), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). What remains:
+> clocks, `&version`, `&host`, `&progname`, `&features` (`"co-expressions"` among
+> them), `&file`, `&line` and `&level` — see [keywords](../reference/keywords.md). What remains:
 
 | keyword | FunL |
 |---|---|
-| `&current`, `&source`, `&main` | adopted ([co-expressions](#co-expressions)); `&features` then generates `"co-expressions"` too |
 | `&input`, `&output`, `&errout` | adopted ([I/O](#input-and-output)): the three standard streams as the file handles item 9 makes |
 | `&trace` | adopted, assignable: while it is not zero, calls, returns, `yield`s, failures and resumptions are written to standard error, one line each, and it counts down per line as Icon's does; the check is a test on the call and return instructions only |
 | `&collections`, `&allocated`, `&storage`, `&regions` | `&collections` and `&allocated` from sysl's collector; the region keywords are not adopted (sysl's heap has no regions); `collect()` asks for a collection |
