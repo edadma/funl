@@ -156,6 +156,8 @@ op_label(op: Op) -> string = op match
     Op.Branch(_) -> "Branch"
     Op.SaveMark(_) -> "SaveMark"
     Op.UnmarkTo(_) -> "UnmarkTo"
+    Op.LimitSet(_) -> "LimitSet"
+    Op.LimitCount(_, _) -> "LimitCount"
     Op.Pop -> "Pop"
     Op.PushConst(_) -> "PushConst"
     Op.PushNil -> "PushNil"

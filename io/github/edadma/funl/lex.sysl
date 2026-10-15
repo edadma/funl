@@ -210,6 +210,29 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
 
         return true
 
+    // **`&` touching a letter begins a keyword, `&pos`**; conjunction is `&` with space after it. Where
+    // the token before ends an operand, `a &b` was meant as a conjunction and is refused, then read as
+    // one so the rest of the expression is not refused as well.
+    if c == u8('&') && s.peek_at(1).map((d) -> is_ident_start(d)).unwrap_or(false)
+        s.bump()
+
+        val sp = s.read_ident(is_ident_start, is_ident_cont).unwrap()
+        val word = from_utf8_unchecked(src.text(sp))
+
+        if out.len() > 0 && ends_operand(out.items.at(out.len() - 1).value)
+            val left = out.items.at(out.len() - 1).value match
+                Name(n) -> n
+                _ -> "a"
+
+            report.add(error(Span(start, s.at), s"`&$word` touching its name is the keyword `&$word`, and a keyword cannot follow an operand")
+                .with_note(s"a conjunction is written with a space after `&`: `$left & $word`"))
+            out.push(Amp, Span(start, start + 1))
+            out.push(Name(word), sp)
+        else
+            out.push(AmpName(word), Span(start, s.at))
+
+        return true
+
     if is_digit(c)
         read_number_literal(s) match
             Ok(Small(n)) -> out.push(IntLit(n), Span(start, s.at))

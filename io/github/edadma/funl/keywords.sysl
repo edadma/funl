@@ -1,0 +1,276 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.*
+import sysl.posix.time.local_offset
+import sysl.slices.as_mut_ptr
+import sysl.text.from_utf8
+import sysl.time.{at_offset, day_of, hour_of, minute_of, month_of, now, second_of, year_of}
+
+// Keywords: `&name`, Icon's names for what the machine and the host know -- the scan's subject and
+// position, the named csets, the constants, the seed, the clocks, the program and the platform.
+//
+// **`&name` is one token, `&` touching the name** (`lex.sysl`), so keywords are a namespace of their
+// own that a program's names cannot shadow. Each is one of three things:
+//
+// - **fixed when parsed**: `&null` is `undefined`, `&fail` is `fail`, and `&file` and `&line` are the
+//   source file and line where the keyword is written;
+// - **a value named once, when compiled**: the csets, `&pi`, `&e`, `&phi`, `&version` -- the builtin
+//   constant the keyword stands for;
+// - **a builtin called each time it is evaluated**, registered under the keyword's own spelling,
+//   `&pos`, which no FunL name can be, so no program reaches it but through the keyword.
+//
+// **`&subject`, `&pos` and `&random` can be assigned**, `&random = n` restarting the generator from
+// seed `n`. A store is the builtin `&name=`, or `&name<-` for the reversible `&pos <- i`, which only
+// the scan keywords have: failure passing back over it puts the scan state back (`scan.sysl`).
+
+// The keywords a program can write, and beside each the builtin that answers it.
+private val KeywordNames: [21]string = ["subject", "pos", "lcase", "ucase", "letters", "digits", "ascii", "cset", "pi",
+    "e", "phi", "random", "time", "clock", "date", "dateline", "version", "host", "progname", "features", "level"]
+
+private val KeywordBuiltins: [21]string = ["&subject", "&pos", "lowercase", "uppercase", "letters", "digits", "ascii",
+    "cset_all", "pi", "e", "phi", "&random", "&time", "&clock", "&date", "&dateline", "&version", "&host", "&progname",
+    "&features", "&level"]
+
+private val DayNames: [7]string = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+private val MonthNames: [12]string = ["January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December"]
+
+install_keywords(v: *Vm)
+    register(v, "&random", 0, (b, n) -> random_now())
+    register(v, "&random=", 1, (b, n) -> store_random(b))
+    register(v, "&time", 0, (b, n) -> Ok(Int(cpu_millis())))
+    register(v, "&clock", 0, (b, n) -> Ok(new_str(clock_text())?))
+    register(v, "&date", 0, (b, n) -> Ok(new_str(date_text())?))
+    register(v, "&dateline", 0, (b, n) -> Ok(new_str(dateline_text())?))
+    register_constant(v, "&version", (b, n) -> Ok(new_str(s"FunL version $FunlVersion")?))
+    register(v, "&host", 0, (b, n) -> Ok(new_str(host_name())?))
+    register(v, "&progname", 0, (b, n) -> Ok(new_str(current().program_name)?))
+    register_generator(v, "&features", 0, (b, n, c) -> feature(c))
+    register(v, "&level", 0, (b, n) -> Ok(Int(level())))
+
+// -- compiling -------------------------------------------------------------------------------------
+
+// The builtin keyword `name` stands for, `None` when `&name` is no keyword.
+keyword_builtin(name: string) -> Option[string]
+    for i in 0..<KeywordNames.len
+        if KeywordNames[i] == name then return Some(KeywordBuiltins[i])
+
+    None
+
+// Whether keyword `name` can be assigned with `=`, and whether with `<-` as well.
+private assignable(name: string) -> bool = name == "subject" || name == "pos" || name == "random"
+
+private reversible(name: string) -> bool = name == "subject" || name == "pos"
+
+// `&name`, the token read at `at`: what it means. The keywords fixed when parsed are made into what
+// they stand for here; a name that is no keyword is refused.
+keyword_expr(p: *Parser, name: string, at: Span) -> &Expr
+    if name == "null" then return expr(UndefE, at)
+    if name == "fail" then return expr(FailE, at)
+    if name == "file" then return expr(StrE(p.src.name), at)
+    if name == "line" then return expr(IntE(long(p.src.locate(at.start).line)), at)
+
+    if keyword_builtin(name).is_none()
+        p.report.add(error(at, s"`&$name` is not a keyword")
+            .with_note(s"a name touching `&` is a keyword, as in `&pos`; a conjunction is written with a space after `&`: `a & $name`"))
+        return expr(BadE, at)
+
+    expr(KeywordE(name), at)
+
+// Refuse `&name = e` where keyword `name` cannot be assigned -- or, `back`, cannot be assigned
+// reversibly.
+keyword_assigned(report: *Report, name: string, back: bool, at: Span)
+    if !assignable(name)
+        report.add(error(at, s"`&$name` cannot be assigned")
+            .with_note("the keywords that can be are `&subject`, `&pos` and `&random`"))
+    elif back && !reversible(name)
+        report.add(error(at, s"`&$name` cannot be assigned with `<-`")
+            .with_note("only the scan keywords `&subject` and `&pos` are put back by backtracking; `&$name = e` assigns it"))
+
+// Push keyword `name`'s value: the constant it names, or a call of its builtin.
+keyword_value(e: *Emit, name: string) -> Result[unit, string]
+    val b = keyword_builtin(name) match
+        Some(s) -> s
+        None -> return Err(s"'&$name' is not a keyword")
+
+    val id = native_id(b) match
+        Some(i) -> i
+        None -> return Err(s"keyword '&$name' has no builtin '$b'")
+
+    if is_constant(id) then return push_builtin(e, id, b)
+
+    if is_generator(id)
+        e.op(PushInt(0))
+        e.op(NativeGen(id, 0))
+    else
+        e.op(Native(id, 0))
+
+    Ok(())
+
+// Store the value on top of the stack in keyword `name`, plainly or, `back`, reversibly, and produce
+// it; a store that fails -- `&pos` outside the subject -- fails.
+keyword_store(e: *Emit, name: string, back: bool) -> Result[unit, string]
+    val b = s"&$name${if back then "<-" else "="}"
+
+    val id = native_id(b) match
+        Some(i) -> i
+        None -> return Err(s"keyword '&$name' cannot be assigned")
+
+    if is_generator(id)
+        e.op(PushInt(0))
+        e.op(NativeGen(id, 1))
+    else
+        e.op(Native(id, 1))
+
+    Ok(())
+
+// -- the seed ----------------------------------------------------------------------------------------
+
+// `&random`: the seed the generator started from, as `random_seed()` answers it.
+private random_now() -> Result[Value, Fault]
+    seed_if_needed()
+
+    Ok(Int(current().rng_seed))
+
+// `&random = n`: restart the generator from seed `n`, as `random_seed(n)` does.
+private store_random(base: usize) -> Result[Value, Fault]
+    val x = deref(arg(base, 0))
+
+    x match
+        Int(n) ->
+            reseed(n)
+            Ok(x)
+        Var(_) -> Err(instantiation_error("instantiation error: '&random' was given an unbound variable"))
+        _ -> Err(type_error("integer", x, s"'&random' wants a 64-bit integer and was given ${described(x)}"))
+
+// -- the clocks --------------------------------------------------------------------------------------
+
+private extern clock() -> long
+
+private const ClocksPerSecond: long = 1000000
+
+// `&time`: the processor time the program has used, in milliseconds.
+private cpu_millis() -> long = clock() / (ClocksPerSecond / 1000)
+
+// The host's local reading of now: its date and its time of day.
+private struct Reading
+    year: long
+    month: long
+    day: long
+    weekday: long
+    hour: long
+    minute: long
+    second: long
+
+private local_now() -> Reading
+    val t = now()
+    val l = at_offset(t, local_offset(t))
+    val wd = (l.date.day % 7 + 7 + 3) % 7
+
+    Reading(long(year_of(l.date)), long(month_of(l.date)), long(day_of(l.date)), long(wd), long(hour_of(l.time)),
+        long(minute_of(l.time)), long(second_of(l.time)))
+
+private two(n: long) -> string = if n < 10 then s"0$n" else s"$n"
+
+// `&clock`: the time of day, `14:05:09`.
+private clock_text() -> string
+    val r = local_now()
+
+    s"${two(r.hour)}:${two(r.minute)}:${two(r.second)}"
+
+// `&date`: the date, `2026/10/15`.
+private date_text() -> string
+    val r = local_now()
+
+    s"${r.year}/${two(r.month)}/${two(r.day)}"
+
+// `&dateline`: the date and time as a person writes them, `Thursday, October 15, 2026  2:05 pm`.
+private dateline_text() -> string
+    val r = local_now()
+    val half = if r.hour < 12 then "am" else "pm"
+    val h = if r.hour % 12 == 0 then 12 else r.hour % 12
+
+    s"${DayNames[usize(r.weekday)]}, ${MonthNames[usize(r.month - 1)]} ${r.day}, ${r.year}  $h:${two(r.minute)} $half"
+
+// -- the program and the platform -------------------------------------------------------------------
+
+private extern gethostname(into: *u8, room: usize) -> int
+
+// `&host`: the name of the machine the program runs on.
+private host_name() -> string
+    var into: []u8 = [0; 256]
+
+    if gethostname(as_mut_ptr(into), into.len) != 0 then return ""
+
+    var n: usize = 0
+
+    while n < into.len && into[n] != 0
+        n += 1
+
+    from_utf8(into[0..<n]).unwrap_or("")
+
+// The platform as `&features` names it.
+private platform_name() -> string
+    os() match
+        MacOS -> "macOS"
+        Linux -> "Linux"
+        Windows -> "Windows"
+        Android -> "Android"
+        Wasi -> "WASI"
+        Freestanding -> "freestanding"
+
+// The `i`th thing `&features` generates: the language's, the platform, then each feature this build
+// of FunL has on; `None` past the last.
+private feature_at(i: long) -> Option[string]
+    var k: long = 0
+
+    if i == k then return Some("large integers")
+
+    k += 1
+
+    if i == k then return Some(platform_name())
+
+    k += 1
+#if feature_http
+
+    if i == k then return Some("http")
+
+    k += 1
+#endif
+#if feature_async
+
+    if i == k then return Some("async")
+
+    k += 1
+#endif
+#if feature_profile
+
+    if i == k then return Some("profile")
+
+    k += 1
+#endif
+
+    None
+
+// `&features`: the feature at `cursor`, and a resumption for the next.
+private feature(cursor: long) -> Result[Answer, Fault]
+    val name = feature_at(cursor) match
+        Some(s) -> s
+        None -> return Ok(Refuses)
+
+    val x = new_str(name)?
+
+    if feature_at(cursor + 1).is_some() then Ok(GivesMore(x, cursor + 1)) else Ok(Gives(x))
+
+// `&level`: how deep the running code is in calls -- 1 at the top level, one more in each call --
+// counted along the chain of frames that will be returned to.
+private level() -> long
+    var f = current().frame
+    var n: long = 0
+
+    while f != null
+        n += 1
+        f = f.caller
+
+    n
