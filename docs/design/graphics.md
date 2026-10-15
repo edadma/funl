@@ -169,7 +169,8 @@ loop and kairos run on; macOS refuses them from any other. FunL starts no thread
   *programs*, in the IPL, not built-in facilities. Any of them can be written in FunL over this
   module and published as a package.
 - **X11 specifics**: `WDefault` (X resources), `display`, `gamma`, icon attributes, colour maps
-  (`new_color` fails, as on any true-colour display).
+  (`new_color` fails, as on any true-colour display, and `free_color` and `color` find no mutable
+  colour).
 - **Writing GIF or JPEG** (F3); reading every frame of an animated GIF.
 - **Unicon's additions** (3D graphics, `WSection`, textures, alpha in colours): FunL aims at Icon
   9.5, not Unicon.

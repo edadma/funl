@@ -98,8 +98,8 @@ struct ModuleProvider
     source: string
 
 // The modules of FunL's own, by name: each a list of natives registered under prefixed names
-// (`fs.read_file`) and exported under the short ones, and for `funl:graphics` the functions written in
-// FunL beside them (`modules.md` § "Built-in modules": only what FunL cannot do is native).
+// (`fs.read_file`) and exported under the short ones, and for a module with a part written in FunL,
+// that source beside them (`modules.md` § "Built-in modules").
 builtin_modules() -> Buf[ModuleProvider]
     var out: Buf[ModuleProvider] = buf()
 
@@ -107,7 +107,7 @@ builtin_modules() -> Buf[ModuleProvider]
     out.push(ModuleProvider("process", process_exports, ""))
     out.push(ModuleProvider("json", json_exports, ""))
     out.push(ModuleProvider("sqlite", sqlite_exports, ""))
-    out.push(ModuleProvider("graphics", graphics_exports, graphics_source()))
+    out.push(ModuleProvider("graphics", graphics_exports, ""))
     out.push(ModuleProvider("time", time_exports, ""))
     out.push(ModuleProvider("async", async_exports, ""))
 #if feature_http

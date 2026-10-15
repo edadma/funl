@@ -259,8 +259,9 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
 3. **`drawop: #reverse`**: the coverage mask and the exclusive-or; drawing twice restores. Waits on
    item 2 and G7. Done.
 4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`
-   attribute, `draw_image` with Icon's image strings, the palette functions in FunL source,
-   `new_color` failing; `image_bytes`. Waits on item 1 and G8. Done.
+   attribute, `draw_image` with Icon's image strings, the palette functions (natives over the one
+   palette table, names read as Icon's `sscanf` reads them), `new_color` failing, `free_color` and
+   `color` as Icon's with no mutable colours; `image_bytes`. Waits on item 1 and G8. Done.
 5. **Fonts and text**: the `"fixed"` face carried in the binary, family lookup through the font-face
    cache, `font` and its failure, the metric attributes, `text_width`, `draw_string`; the text cursor
    with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1. Done.

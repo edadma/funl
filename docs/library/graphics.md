@@ -709,7 +709,10 @@ to `"g256"` are that many greys from black to white.
 | `palette_grays(p)` | the keys of `p`'s greys, from black to white |
 
 Each fails on a string that names no palette, and faults on a palette that is not a string or a key
-that is not one character. The keys and colours are Icon's, number for number.
+that is not one character. The keys and colours are Icon's, number for number. **A palette's name is
+read as Icon reads it**, with C's `sscanf(s, "%c%d%c")`: the letter, then a number that may follow
+white space and carry a sign, and nothing after it, so `"c+2"` and `"c 2"` name `c2` and `"c2 "`
+names nothing.
 
 ```funl
 import { palette_chars, palette_color, palette_key, palette_grays } from funl:graphics
@@ -736,15 +739,24 @@ image strings are built with `char` rather than typed.
 **`w.new_color(…)` fails**, as Icon's `NewColor` does on a true-colour display: there is no colour
 map to take an entry of, and every colour is already a specification.
 
+**`w.free_color(c, …)` and `w.color(i, …)` are Icon's with no mutable colours.** `free_color`
+takes colour specifications and mutable colours' indexes, has nothing to free, and answers `w`;
+`color(i)`, which reads mutable colour `i`, and `color(i, c, …)`, which sets it, fail. Each faults
+where Icon's gives a run-time error: `free_color` given no colour or something that is neither a
+string nor an integer, and `color` given no index, an odd number of arguments past one, or a first
+index that is not an integer.
+
 ```funl
 import { open } from funl:graphics
 
 w = open( "map", {canvas: #hidden, size: (1, 1)} )
 write( w.new_color("red") | "no colour map" )
+write( w.free_color("red", -1) == w, w.color(-1) | "no mutable colour" )
 ```
 
 ```output
 no colour map
+true, no mutable colour
 ```
 
 ## Clones, couples and closing

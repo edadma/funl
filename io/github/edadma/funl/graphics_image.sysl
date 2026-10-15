@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 
 import sysl.buf.{Buf, buf}
-import sysl.text.chars_of
+import sysl.text.{chars_of, str_builder}
 import sh.sysl.plutovg as pv
 
 // `funl:graphics`'s images (`docs/library/graphics.md`): reading an image file onto a canvas, writing
@@ -17,21 +17,23 @@ import sh.sysl.plutovg as pv
 // no drawing operation and no anti-aliasing: an image string's colours are exact, and a read image's
 // transparent pixels are laid over what was there.
 //
-// **The palettes are here twice.** `palette_chars`, `palette_color`, `palette_key` and
-// `palette_grays` are FunL, carried as `graphics_source()`; `draw_image` decodes an image string here,
-// and needs the same table of colours in sysl. The two are computed the same way, and a test draws
-// every key of every palette and reads it back against `palette_color`.
+// **The palettes are here once**, Icon's arithmetic for their keys and colours: `draw_image` decodes
+// an image string with them, and `palette_chars`, `palette_color`, `palette_key` and `palette_grays`
+// are natives over them.
 
-// Every image method `w` has, and the helpers the module's FunL calls.
+// Every image method `w` has, and the palette functions.
 install_images(v: *Vm, w: u32)
     register_method(v, w, "read_image", Variadic, do_read_image)
     register_method(v, w, "write_image", Variadic, do_write_image)
     register_method(v, w, "image_bytes", Variadic, do_image_bytes)
     register_method(v, w, "draw_image", Variadic, do_draw_image)
     register_method(v, w, "new_color", Variadic, do_new_color)
-    register_generator(v, "_palette", 2, do_palette)
-    register(v, "_palette_char", 2, do_palette_char)
-    register_generator(v, "_color_rgb", 2, do_color_rgb)
+    register_method(v, w, "free_color", Variadic, do_free_color)
+    register_method(v, w, "color", Variadic, do_color)
+    register_generator(v, "graphics.palette_chars", 1, do_palette_chars)
+    register_generator(v, "graphics.palette_color", 2, do_palette_color)
+    register_generator(v, "graphics.palette_key", 2, do_palette_key)
+    register_generator(v, "graphics.palette_grays", 1, do_palette_grays)
 
 // The extensions of the image formats other than PNG, which `write_image` refuses to write PNG under.
 private val OtherFormats: [17]string = ["jpg", "jpeg", "jpe", "jfif", "gif", "bmp", "tga", "psd", "hdr", "pic", "pnm", "ppm",
@@ -252,6 +254,39 @@ private do_new_color(base: usize, argc: usize) -> Result[Option[Value], Fault]
     window_arg(base, 0, "new_color")?
     Ok(None)
 
+// `w.free_color(c, …)`: frees colours, answering `w`. As Icon's `FreeColor` does where no colour is
+// mutable, it does nothing for an integer, which would name an entry `new_color` made, and nothing for
+// a specification, whose colour was never taken from a colour map; anything else faults.
+private do_free_color(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "free_color")?
+
+    if argc < 2 then return Err(wrong_count("free_color", argc - 1, "'free_color' takes one or more colours and was given none"))
+
+    for i in 1..<argc
+        val x = deref(arg(base, i))
+
+        x match
+            Int(_) -> ()
+            Str(_) -> ()
+            _ -> return Err(kind_error(x, "string", s"'free_color' wants a colour, a string or an integer, and was given ${described(x)}"))
+
+    Ok(Some(Handle(w.h)))
+
+// `w.color(i)` and `w.color(i, c, …)`: reads or sets the mutable colour `i` that `new_color` made.
+// There are none, so it fails, as Icon's `Color` does on the first index it finds no such colour
+// for; a first index that is not an integer, or an odd number of arguments past one, faults first.
+private do_color(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    window_arg(base, 0, "color")?
+
+    if argc < 2 || (argc > 2 && (argc - 1) % 2 != 0)
+        return Err(wrong_count("color", argc - 1, s"'color' takes an index, or pairs of an index and a colour, and was given ${argc - 1} arguments"))
+
+    val x = deref(arg(base, 1))
+
+    x match
+        Int(_) -> Ok(None)
+        _ -> Err(kind_error(x, "integer", s"'color' wants a mutable colour's index, an integer, and was given ${described(x)}"))
+
 // -- image strings ---------------------------------------------------------------------------------
 
 // The space and the comma, which an image string's data may hold anywhere, standing for nothing,
@@ -462,26 +497,48 @@ private val C1Levels: [270]long = [
     32, 32, 48, 18, 18, 30, 8, 0, 16, 16, 0, 32, 24, 0, 48, 32, 16, 48, 40, 32, 48, 24, 18, 30, 16, 0, 16, 32, 0, 32,
     48, 0, 48, 48, 16, 48, 48, 32, 48, 30, 18, 30, 16, 0, 8, 32, 0, 16, 48, 0, 24, 48, 16, 32, 48, 32, 40, 30, 18, 24]
 
-// The number of palette name `s`, as Icon's `palnum` reads it: 1 to 6 for `"c1"` to `"c6"`, -2 to
-// -256 for `"g2"` to `"g256"`, and `None` for any other string.
+// The number of palette name `s`, as Icon's `palnum` reads it with `sscanf(s, "%c%d%c")`: 1 to 6
+// for `"c1"` to `"c6"`, -2 to -256 for `"g2"` to `"g256"`, and `None` for any other string. As `%d`
+// reads it, the number may follow white space and carry a sign, and nothing may come after it; a C
+// string ends at its first NUL, so whatever follows one is never read. A number too large for C's
+// `int`, whose reading C leaves undefined, names no palette.
 palette_number(s: string) -> Option[long]
-    if s.len < 2 then return None
+    var end: usize = 0
+
+    while end < s.len && s.bytes[end] != 0
+        end += 1
+
+    var i: usize = 1
+
+    while i < end && is_c_space(s.bytes[i])
+        i += 1
+
+    var negative = false
+
+    if i < end && (s.bytes[i] == u8('+') || s.bytes[i] == u8('-'))
+        negative = s.bytes[i] == u8('-')
+        i += 1
+
+    if i >= end || s.bytes[i] < u8('0') || s.bytes[i] > u8('9') then return None
 
     var n: long = 0
 
-    for i in 1..<s.len
-        val b = s.bytes[i]
+    while i < end && s.bytes[i] >= u8('0') && s.bytes[i] <= u8('9')
+        if n <= 1000 then n = 10 * n + long(s.bytes[i] - u8('0'))
 
-        if b < u8('0') || b > u8('9') then return None
+        i += 1
 
-        n = 10 * n + long(b - u8('0'))
+    if i < end then return None
 
-        if n > 1000 then return None
+    if negative then n = -n
 
     if s.bytes[0] == u8('c') && n >= 1 && n <= 6 then return Some(n)
     if s.bytes[0] == u8('g') && n >= 2 && n <= 256 then return Some(-n)
 
     None
+
+// The white space C's `isspace` sees in the C locale, which `%d` skips.
+private is_c_space(b: u8) -> bool = b == u8(' ') || (b >= 9 && b <= 13)
 
 // The code points of palette `p`'s keys, in palette order.
 private palette_keys(p: long) -> Buf[u32]
@@ -549,56 +606,166 @@ private palette_table(p: long) -> Buf[Option[Rgb]]
     keys.release()
     out
 
-// -- the helpers the module's FunL calls ---------------------------------------------------------------
+// Whether palette `p`'s keys are the characters from code 0 up: `c5`, `c6` and the greys past `g64`.
+private is_run(p: long) -> bool = p == 5 || p == 6 || p < -64
 
-// The function of `funl:graphics` a helper is working for, named in what it reports.
-private helped(base: usize) -> string = deref(arg(base, 0)) match
-    Str(p) -> p.s
-    _ -> "funl:graphics"
+// The number of keys of palette `p` whose keys are a run.
+private run_length(p: long) -> long = if p == 5 then 141 else if p == 6 then 241 else -p
 
-// `_palette(name, p)`: the number of palette `p` (`palette_number`); fails for a string that names no
+// Icon's choice of a `c1` key for each point of a 10 by 10 by 10 cube of colours, red slowest, which
+// `palette_key` answers for a colour that is not grey.
+private const C1Cube: string = "00wwwWWWJJ00vvvWWWJJsttvvVVVVJsttuuVVVVIsttuuVVVIISSTTTUUUIISSTTTUUUUISSTTTUUUUHFFTTGGUUHHFFFGGGGHHH00xxxWWWJJ!11vvWWWJJr11vvVVVjjrrtuuVVVjjrrtuuVVVIISSTTTUUUIISSTTTUUUiiSSTTTUUUiiFFffGGggHHFFffGGggHHnzxxxXXXXJ!11xxXXXjjp1122)Vjjjrr222)Vjjjrr222>>>jjRR--//>>iiRRRT//'iiiRRff//ggiiRffffggghhFffffggghhnzzyyXXXXKoozyyXXXjjpp222)Xjjjqq222))jjjqq222>>>jjRR--//>>iiRRR-//''iiRRff//'giiRffffggghhEffffggghhnzzyyXXXKKoozyyXXXKK???22]]]jjqq222]]]jjqq2233>>jjRR::33>>iiRR:::/''iiRR:::/''iiEEfffggghhEEfffggghhNNZZZYYYKKOOZZZYYYKK???@=]]]kkPP@@=]]]kkPP%%%3]]kkQQ||3344((QQ:::444((QQ:::444<<EEeee++**<EEeee++**`NNZZZYYYYKOOZZZYYYkkOOOZ==}kkkPPP@==}}kkPP%%%=}}kkQQ|||444((QQ...444((QQe..444<<Qeeee++**<Eeeee++**`NNZZZYYYYLOOZZZYYYkkOOOa==mkkkPPaa==}kkkPP%%%=}888QQ|||44888QQc..444[[QQcc99455<Qeeee;;55<Deeee;;;*`AAZZMMYYLLAAaaMMmmLLBBaaammmllBBaaammmllCCbbb77788CCbbb77^[[Qcccc##^[[Qccc99$55[DDdd9&&556DDddd;;;66AAAMMMMLLLAAaaMMmmLLBBaaammmllBBaaammmllCCbbb777llCCbbb77^^{Ccccc##^^{Dccc99$$^{DDdd9&&&66DDddd,,,66"
+
+// The key of entry `i` of palette `p`.
+private palette_char(p: long, i: long) -> u32
+    if is_run(p) then return u32(i)
+
+    var keys = palette_keys(p)
+    val k = keys.at(usize(i))
+
+    keys.release()
+    k
+
+// The entry of palette `p` whose key is code point `k`, if it has one.
+private palette_index(p: long, k: u32) -> Option[long]
+    if is_run(p) then return if long(k) < run_length(p) then Some(long(k)) else None
+
+    var keys = palette_keys(p)
+    var found: Option[long] = None
+
+    for i in 0..<keys.len()
+        if keys.at(i) == k
+            found = Some(long(i))
+            break
+
+    keys.release()
+    found
+
+// The keys of palette `p`'s greys, from black to white, as Icon's library's `PaletteGrays` lists
+// them: a grey palette's every key, `c1`'s seven, and a cube's own greys merged in order with the
+// ones added after it.
+private palette_gray_keys(p: long) -> Buf[u32]
+    if p < 0 then return palette_keys(p)
+
+    var out: Buf[u32] = buf()
+
+    if p == 1
+        for c in chars_of("0123456".bytes)
+            out.push(u32(c))
+
+        return out
+
+    for k in 0..(p * (p - 1))
+        out.push(palette_char(p, if k % p == 0 then k / p * (p * p + p + 1) else p * p * p + k - k / p - 1))
+
+    out
+
+// Which of `side` levels component `c` is nearest, as Icon rounds it.
+private cube_step(side: long, c: long) -> long = long(0.501 + real(side - 1) * (real(c) / 65535.0))
+
+// The point of a cube with `side` levels a component nearest `c`.
+private cube_point(side: long, c: Rgb) -> long = (cube_step(side, c.r) * side + cube_step(side, c.g)) * side + cube_step(side, c.b)
+
+// The key of the colour of palette `p` nearest `c`, as Icon's `PaletteKey` chooses it: a grey's
+// nearest grey, a colour's nearest corner of the cube (for `c1`, of its ten-level `C1Cube`), and in a
+// grey palette the grey of `c`'s luminance.
+private nearest_key(p: long, c: Rgb) -> u32
+    if p > 0 && c.r == c.g && c.g == c.b
+        var grays = palette_gray_keys(p)
+        val steps = if p == 1 then 6 else p * (p - 1)
+        val k = grays.at(usize(long(0.501 + real(steps) * (real(c.g) / 65535.0))))
+
+        grays.release()
+        return k
+
+    if p == 1 then return u32(C1Cube.bytes[usize(cube_point(10, c))])
+    if p > 0 then return palette_char(p, cube_point(p, c))
+
+    val y = 0.299 * (real(c.r) / 65535.0) + 0.587 * (real(c.g) / 65535.0) + 0.114 * (real(c.b) / 65535.0)
+
+    palette_char(p, long(0.5 + y * real(-p - 1)))
+
+// -- the palette functions -------------------------------------------------------------------------
+
+// Argument `i`, a palette's name, as its number; `None` for a string that names no palette.
+private palette_arg(base: usize, i: usize, who: string) -> Result[Option[long], Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Str(p) -> Ok(palette_number(p.s))
+        _ -> Err(kind_error(x, "string", s"'$who' wants a palette, a string, and was given ${described(x)}"))
+
+// A string of the characters `codes`.
+private keys_text(codes: Buf[u32]) -> Result[Value, Fault]
+    var out = str_builder()
+
+    for i in 0..<codes.len()
+        out.push_char(char(codes.at(i)))
+
+    Ok(new_str(out.finish())?)
+
+// `palette_chars(p)`: the keys of palette `p`, in palette order; fails for a string that names no
 // palette.
-private do_palette(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
-    val who = helped(base)
-    val x = deref(arg(base, 1))
+private do_palette_chars(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val p = palette_arg(base, 0, "palette_chars")? match
+        Some(p) -> p
+        None -> return Ok(Refuses)
 
-    val s = x match
-        Str(p) -> p.s
-        _ -> return Err(kind_error(x, "string", s"'$who' wants a palette, a string, and was given ${described(x)}"))
+    var keys = palette_keys(p)
+    val s = keys_text(keys)
 
-    Ok(palette_number(s) match
-        Some(n) -> Gives(Int(n))
-        None -> Refuses)
+    keys.release()
+    Ok(Gives(s?))
 
-// `_palette_char(name, k)`: the code point of key `k`, a string of one character.
-private do_palette_char(base: usize, argc: usize) -> Result[Value, Fault]
-    val who = helped(base)
-    val k = str_arg(base, 1, who)?
+// `palette_color(p, k)`: the colour of key `k` of palette `p`, as `"r,g,b"`; fails where `p` names no
+// palette or has no key `k`.
+private do_palette_color(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val p = palette_arg(base, 0, "palette_color")? match
+        Some(p) -> p
+        None -> return Ok(Refuses)
+
+    val k = str_arg(base, 1, "palette_color")?
 
     if k.chars != 1
-        return Err(domain_error("one_character_string", arg(base, 1), s"'$who' wants a key of one character, and was given one of ${k.chars}"))
+        return Err(domain_error("one_character_string", arg(base, 1), s"'palette_color' wants a key of one character, and was given one of ${k.chars}"))
 
-    Ok(Int(long(u32(char_at(k, 0)))))
+    Ok(palette_index(p, u32(char_at(k, 0))) match
+        Some(i) -> Gives(new_str(color_text(palette_entry(p, i)))?)
+        None -> Refuses)
 
-// `_color_rgb(name, c)`: colour specification `c` as a tuple `(r, g, b)`, each 0 to 65535. Fails for a
-// string that names no colour, and for an integer, which would name a colour-map entry `new_color` made,
-// and there are none.
-private do_color_rgb(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
-    val who = helped(base)
+// `palette_key(p, c)`: the key of the colour of palette `p` nearest colour `c`. Fails where `p` names
+// no palette or `c` no colour, and for an integer, which would name a colour-map entry `new_color`
+// made, and there are none.
+private do_palette_key(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val p = palette_arg(base, 0, "palette_key")? match
+        Some(p) -> p
+        None -> return Ok(Refuses)
+
     val x = deref(arg(base, 1))
 
     val spec = x match
-        Str(p) -> p.s
+        Str(s) -> s.s
         Int(_) -> return Ok(Refuses)
-        _ -> return Err(kind_error(x, "string", s"'$who' wants a colour, a string, and was given ${described(x)}"))
+        _ -> return Err(kind_error(x, "string", s"'palette_key' wants a colour, a string, and was given ${described(x)}"))
 
     val c = parse_color(spec) match
         Some(c) -> c
         None -> return Ok(Refuses)
 
-    val t = new_tuple(3)?
+    var out = str_builder()
 
-    t.items.set(0, Int(c.r))
-    t.items.set(1, Int(c.g))
-    t.items.set(2, Int(c.b))
-    Ok(Gives(Tuple(t)))
+    out.push_char(char(nearest_key(p, c)))
+    Ok(Gives(new_str(out.finish())?))
+
+// `palette_grays(p)`: the keys of palette `p`'s greys, from black to white; fails for a string that
+// names no palette.
+private do_palette_grays(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val p = palette_arg(base, 0, "palette_grays")? match
+        Some(p) -> p
+        None -> return Ok(Refuses)
+
+    var keys = palette_gray_keys(p)
+    val s = keys_text(keys)
+
+    keys.release()
+    Ok(Gives(s?))
