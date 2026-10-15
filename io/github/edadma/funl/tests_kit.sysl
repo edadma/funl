@@ -4,7 +4,7 @@ module io.github.edadma.funl
 import sh.sysl.parsing.{full_report, source_of}
 import sysl.buf.{Buf, buf}
 import sysl.fs.{make_temp_dir, remove_dir_all, write_text}
-import sysl.text.{Search, split, str_builder}
+import sysl.text.{Search, chars_of, split, str_builder}
 
 // The harness: assemble a program into a fresh VM, run it, and answer what it said.
 //
@@ -44,6 +44,62 @@ outcome_text(o: Outcome) -> string = o match
     Faulted(m) -> s"fault: $m"
     Halted(n) -> s"halted: $n"
 
+// What a machine under test wrote, in the order it wrote it: standard output's text exactly, and
+// standard error's with each of its lines marked `stderr: `. `lines` and `open` are standard output
+// alone, split into the lines it has ended and the one it has begun.
+struct Capture
+    pieces: Buf[string]
+    fresh: bool
+    lines: Buf[string]
+    open: string
+
+new_capture() -> &Capture = Capture(buf(), true, buf(), "")
+
+// Send `v`'s standard output and standard error into a capture rather than the suite's own streams.
+capture_streams(v: *Vm) -> &Capture
+    val c = new_capture()
+
+    v.put = (t) -> captured(c, t)
+    v.eput = (t) -> captured_err(c, t)
+    c
+
+// `t` written to standard output, and to standard error.
+captured(c: &Capture, t: string)
+    if t.bytes.len == 0 then return
+
+    c.pieces.push(t)
+    c.fresh = t.ends_with("\n")
+
+    val parts = split(c.open + t, "\n")
+
+    for i in 0..<parts.len - 1
+        c.lines.push(parts[i])
+
+    c.open = parts[parts.len - 1]
+
+captured_err(c: &Capture, t: string)
+    var b = str_builder()
+
+    for ch in chars_of(t.bytes)
+        if c.fresh
+            b.push("stderr: ")
+            c.fresh = false
+
+        b.push_char(ch)
+
+        if ch == '\n' then c.fresh = true
+
+    c.pieces.push(b.finish())
+
+// Everything the capture holds, as one text.
+transcript(c: &Capture) -> string
+    var b = str_builder()
+
+    for p in c.pieces.view()
+        b.push(p)
+
+    b.finish()
+
 // Run what `build` makes on a VM with this heap and schedule.
 run_on(heap: usize, floor: usize, growth: usize, build: () -> Result[usize, string]) -> Said =
     run_compiled(heap, floor, growth, () -> build() match
@@ -60,6 +116,8 @@ run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled) ->
     // A program under test reads an input that has ended, never the terminal the suite runs from.
     v.input = (prompt) -> None
 
+    val c = capture_streams(&v)
+
     val outcome = build() match
         Ready(chunk, said) ->
             warned = said
@@ -67,14 +125,12 @@ run_compiled(heap: usize, floor: usize, growth: usize, build: () -> Compiled) ->
         Compiled.Refused(e) -> s"assembly: $e"
         CannotRead(why) -> s"assembly: $why"
 
-    for line in v.output.view()
-        out.push(line)
-        out.push("\n")
+    val wrote = transcript(c)
 
-    for line in v.errput.view()
-        out.push("stderr: ")
-        out.push(line)
-        out.push("\n")
+    out.push(wrote)
+
+    // The outcome is a line of its own, after a line the program left unfinished.
+    if wrote.bytes.len > 0 && !wrote.ends_with("\n") then out.push("\n")
 
     out.push(outcome)
 

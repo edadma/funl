@@ -103,7 +103,7 @@ private joined(parts: Buf[string]) -> string
 // What the program `file` printed, or what it was refused with, and its status.
 private ran_program(file: string) -> string
     var out: Buf[string] = buf()
-    val status = run_file(file, (_) -> None, (t) -> out.push(t + "\n"), (t) -> out.push(t))
+    val status = run_file(file, (_) -> None, (t) -> out.push(t), (t) -> out.push(t))
 
     s"${joined(out)}status $status"
 

@@ -1,6 +1,6 @@
 module io.github.edadma.funl
 
-import sysl.text.{chars_of, str_builder}
+import sysl.text.{Search, str_builder}
 
 // Output builtins.
 
@@ -14,21 +14,44 @@ install_io(v: *Vm)
     register_generator(v, "reads", 1, do_reads)
 
 // `write(a, b, ...)`: print the arguments as one line, separated by `, `, answering `()`. A line
-// Prolog's `write/1` has begun is its start.
+// `writes` or Prolog's `write/1` has begun is its start.
 private do_write(base: usize, argc: usize) -> Result[Value, Fault]
-    val v = current()
-    var out = str_builder()
-
-    out.push(v.line)
-    v.line = ""
-
-    for i in 0..<argc
-        if i > 0 then out.push(", ")
-
-        out.push(render(arg(base, i)))
-
-    v.output.push(out.finish())
+    put_out(current(), joined_args(base, argc) + "\n")
     Ok(Unit)
+
+// `t` onto standard output, now: what a program writes is written as it runs, never held for the end
+// of the run, and a line it leaves unfinished stays unfinished. `v.line` keeps what the current line
+// holds so far.
+put_out(v: *Vm, t: string)
+    if t.bytes.len == 0 then return
+
+    v.put(t)
+    v.line = unfinished(v.line, t)
+
+// What a line holding `line` holds once `t` is written after it: what follows the last newline of
+// `t`, or `line` and all of `t` where `t` has none.
+unfinished(line: string, t: string) -> string = t.last_index_of_byte(u8('\n')) match
+    Some(i) -> t.slice(i + 1, t.bytes.len)
+    None -> line + t
+
+// `t` onto standard error, now.
+put_err(v: *Vm, t: string)
+    if t.bytes.len > 0 then v.eput(t)
+
+// The process's standard output: the default of `Vm.put`. C buffers it, as it buffers any program's,
+// so `to_stderr`, a read of standard input (`stdin_line`, the drivers' line editor) and the exit push
+// it out first.
+to_stdout(t: string) = prints(t)
+
+// The process's standard error, with what standard output holds pushed out ahead of it, so a terminal
+// showing both shows them in the order the program wrote them.
+to_stderr(t: string)
+    flush()
+    eprints(t)
+
+// End the line standard output has begun, if it has: what the top level does before it answers.
+end_line(v: *Vm)
+    if v.line.bytes.len > 0 then put_out(v, "\n")
 
 // The arguments of a call as text, separated by `, ` as `write` separates them.
 private joined_args(base: usize, argc: usize) -> string
@@ -47,30 +70,16 @@ private joined_args(base: usize, argc: usize) -> string
 private put_to(err: bool, base: usize, argc: usize, ended: bool = false) -> Result[Value, Fault]
     val text = joined_args(base, argc)
 
-    if err then put_err_text(if ended then text + "\n" else text) else put_text(text)
+    val v = current()
+
+    if err then put_err(v, if ended then text + "\n" else text) else put_out(v, text)
 
     Ok(Unit)
-
-// `t` onto the line standard error has begun, each newline in it ending the line.
-private put_err_text(t: string)
-    val v = current()
-    var line = str_builder()
-
-    line.push(v.err_line)
-
-    for c in chars_of(t.bytes)
-        if c == '\n'
-            v.errput.push(line.finish())
-            line = str_builder()
-        else
-            line.push_char(c)
-
-    v.err_line = line.finish()
 
 // `stop(a, ...)`: the arguments and a newline written to standard error, then the program ends with
 // status 1. Nothing catches it, as nothing catches `halt`.
 private do_stop(base: usize, argc: usize) -> Result[Value, Fault]
-    put_err_text(joined_args(base, argc) + "\n")
+    put_err(current(), joined_args(base, argc) + "\n")
     Err(Exits(1))
 
 // `read()`: the next line of standard input without its newline; fails at the end of the input.
@@ -94,13 +103,3 @@ private do_reads(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault
     input_chars(usize(n), "reads")? match
         Some(t) -> Ok(Gives(new_str(t)?))
         None -> Ok(Refuses)
-
-// End the line Prolog's `write/1` or `writes` has begun, if it has, and the one `ewrites` has.
-end_line(v: *Vm)
-    if v.line.bytes.len > 0
-        v.output.push(v.line)
-        v.line = ""
-
-    if v.err_line.bytes.len > 0
-        v.errput.push(v.err_line)
-        v.err_line = ""

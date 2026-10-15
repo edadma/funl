@@ -1,0 +1,105 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Random numbers and bits: prefix `?` on a count, a string and every collection, `?c` as an
+// assignment target, `random()` and the seed, the bit operations, the angle conversions and the
+// constants. Random draws are checked by their range, and a seeded run by repeating it.
+
+private faults_with(text: string, want: string)
+    val said = ran_funl(text)
+
+    assert(said.contains("fault: "), said)
+    assert(said.contains(want), said)
+
+@test
+A_COUNT_DRAWS_FROM_ONE_TO_THE_COUNT_AND_ZERO_DRAWS_A_REAL()
+    assert_eq(ran_funl("bad = 0\nseen = set()\nevery 1 to 400 do\n    n = ?6\n    seen += n\n    if n < 1 or n > 6 then bad += 1\nwrite(bad, seen.length)\n"), "0, 6\nsucceeded")
+    assert_eq(ran_funl("bad = 0\nevery 1 to 200 do\n    r = ?0\n    if r < 0 or r >= 1 or not (r is real) then bad += 1\nwrite(bad)\n"), "0\nsucceeded")
+    assert_eq(ran_funl("write(?1)\n"), "1\nsucceeded")
+
+@test
+A_STRING_AND_EVERY_COLLECTION_DRAW_AN_ELEMENT()
+    assert_eq(ran_funl("write(?\"a\", ?[7], ?(8, 8), ?{9}, ?array([4]), ?(7..7))\n"), "a, 7, 8, 9, 4, 7\nsucceeded")
+    assert_eq(ran_funl("s = set()\nevery 1 to 300 do s += ?\"abc\"\nwrite(s.length)\n"), "3\nsucceeded")
+    assert_eq(ran_funl("b = buffer()\nb += 5\nm = map()\nm.k = 6\nwrite(?b, ?m)\n"), "5, 6\nsucceeded")
+
+@test
+AN_EMPTY_STRING_OR_COLLECTION_HAS_NO_ELEMENT_TO_DRAW()
+    assert_eq(ran_funl("write( if ?\"\" then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("write( if ?[] then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("write( if ?buffer() then 'got' else 'none' )\n"), "none\nsucceeded")
+    assert_eq(ran_funl("write( if ?map() then 'got' else 'none' )\n"), "none\nsucceeded")
+
+@test
+A_DRAW_OF_A_NEGATIVE_COUNT_OR_A_NON_COLLECTION_FAULTS()
+    faults_with("write(?(-1))\n", "'?' wants a count of zero or more and was given -1")
+    faults_with("write(?1.5)\n", "'?' wants a number, a string or a collection and was given")
+    faults_with("write(?(2^70))\n", "'?' counts up to a 64-bit integer")
+    faults_with("write(?#a)\n", "'?' wants a number, a string or a collection and was given the atom a")
+
+@test
+A_DRAW_IS_ASSIGNABLE_ON_AN_ARRAY_BUFFER_AND_MUTABLE_MAP()
+    assert_eq(ran_funl("a = array([0, 0, 0])\n?a = 1\nwrite(sum(a))\n"), "1\nsucceeded")
+    assert_eq(ran_funl("a = array([0, 0, 0])\nevery 1 to 5 do ?a += 2\nwrite(sum(a))\n"), "10\nsucceeded")
+    assert_eq(ran_funl("b = buffer()\nb += 1\n?b = 9\nwrite(b)\n"), "Buffer(9)\nsucceeded")
+    assert_eq(ran_funl("m = map()\nm.k = 1\n?m = 2\nwrite(m)\n"), "MutableMap(\"k\": 2)\nsucceeded")
+    assert_eq(ran_funl("a = array([0, 0, 0])\nwrite( if (?a <- 4) then sum(a) else 'no' )\n"), "4\nsucceeded")
+
+@test
+A_DRAW_AS_A_TARGET_CHOOSES_ITS_COLLECTION_ONCE()
+    assert_eq(ran_funl("calls = buffer()\nitems = array([0, 0, 0])\ndef f()\n  calls += 1\n  items\n?f() = 1\nwrite(calls.length, sum(items))\n"), "1, 1\nsucceeded")
+
+@test
+A_DRAW_AS_A_TARGET_FAILS_ON_AN_EMPTY_COLLECTION_AND_FAULTS_ON_AN_IMMUTABLE_ONE()
+    assert_eq(ran_funl("b = buffer()\nwrite( if (?b = 1) then 'set' else 'none' )\n"), "none\nsucceeded")
+    faults_with("l = [1, 2]\n?l = 3\n", "the list [1, 2] cannot be changed")
+
+@test
+PREFIX_QUESTION_MARK_LEAVES_SCANNING_ALONE()
+    assert_eq(ran_funl("write( \"abc\" ? tab(2) )\n"), "a\nsucceeded")
+    assert_eq(ran_funl("write( \"abc\" ? ?\"a\" )\n"), "a\nsucceeded")
+    assert_eq(ran_funl("s = \"abc\"\ns ?= tab(3)\nwrite(s)\n"), "ab\nsucceeded")
+    assert_eq(ran_funl("x = 5\nwrite(x)\nwrite(?1)\n"), "5\n1\nsucceeded")
+
+@test
+RANDOM_IS_A_REAL_BELOW_ONE_AND_A_SEEDED_RUN_REPEATS()
+    assert_eq(ran_funl("bad = 0\nevery 1 to 200 do\n    r = random()\n    if r < 0 or r >= 1 then bad += 1\nwrite(bad)\n"), "0\nsucceeded")
+    assert_eq(ran_funl("random_seed(7)\na = [random(), ?100, ?\"abcdef\"]\nrandom_seed(7)\nb = [random(), ?100, ?\"abcdef\"]\nwrite(if a == b then 'same' else 'differ')\n"), "same\nsucceeded")
+    assert_eq(ran_funl("write(random_seed(99), random_seed())\n"), "99, 99\nsucceeded")
+
+@test
+THE_SEED_REFUSES_A_NON_INTEGER()
+    faults_with("random_seed(1.5)\n", "'random_seed' wants a 64-bit integer and was given")
+    assert(ran_funl("random_seed(1, 2)\n").contains("`random_seed` takes 0 or 1 arguments, and this call gives 2"))
+
+@test
+THE_BIT_OPERATIONS_WORK_ON_TWO_COMPLEMENT_INTEGERS()
+    assert_eq(ran_funl("write( iand(12, 10), ior(12, 10), ixor(12, 10), icom(5), icom(-1) )\n"), "8, 14, 6, -6, 0\nsucceeded")
+    assert_eq(ran_funl("write( iand(-1, 255), ior(-8, 3), ixor(-1, 5) )\n"), "255, -5, -6\nsucceeded")
+    assert_eq(ran_funl("write( ishift(1, 4), ishift(256, -4), ishift(-8, -1), ishift(-1, -100), ishift(5, 0) )\n"), "16, 16, -4, -1, 5\nsucceeded")
+
+@test
+THE_BIT_OPERATIONS_GROW_PAST_64_BITS()
+    assert_eq(ran_funl("write( ishift(1, 70), iand(-1, 2^70), ior(2^70, 1), ixor(2^70, 2^70), icom(2^70) )\n"), "1180591620717411303424, 1180591620717411303424, 1180591620717411303425, 0, -1180591620717411303425\nsucceeded")
+    assert_eq(ran_funl("write( ishift(ishift(1, 70), -70), ishift(-(2^70), -69) )\n"), "1, -2\nsucceeded")
+
+@test
+THE_BIT_OPERATIONS_REFUSE_A_NON_INTEGER()
+    faults_with("write( iand(1.5, 1) )\n", "'iand' wants an integer and was given")
+    faults_with("write( ior(1, 'a') )\n", "'ior' wants an integer and was given")
+    faults_with("write( icom(1/2) )\n", "'icom' wants an integer and was given")
+    faults_with("write( ishift(1, 0.5) )\n", "'ishift' wants an integer and was given")
+    assert(ran_funl("write( ixor(1) )\n").contains("`ixor` takes 2 arguments, and this call gives 1"))
+
+@test
+DEGREES_AND_RADIANS_CONVERT_AND_THE_CONSTANTS_ARE_VALUES()
+    assert_eq(ran_funl("write( dtor(180), rtod(pi), dtor(0), rtod(0) )\n"), "3.141592653589793, 180, 0, 0\nsucceeded")
+    assert_eq(ran_funl("write( pi, e, phi )\n"), "3.141592653589793, 2.718281828459045, 1.618033988749895\nsucceeded")
+    assert_eq(ran_funl("write( if phi * phi - phi - 1 < 0.0000000001 then 'phi' else 'no' )\n"), "phi\nsucceeded")
+    faults_with("write( dtor('a') )\n", "'dtor' wants a number and was given")
+
+@test
+A_PROGRAM_CAN_STILL_NAME_A_VARIABLE_E()
+    assert_eq(ran_funl("val e = 10\nwrite( e )\n"), "10\nsucceeded")

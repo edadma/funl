@@ -33,7 +33,10 @@ private session(files: []string, lines: []string) -> string
     val status = toplevel(files, (prompt) -> next_line(s, prompt), (text) -> s.said.push(text))
 
     s.said.push(s"status: $status")
-    join(s.said.view(), "\n")
+    transcript_of(s.said)
+
+// The pieces of a transcript, which are its text as it was written: a newline only where one was.
+private transcript_of(said: Buf[string]) -> string = join(said.view(), "")
 
 private next_line(s: &Session, prompt: string) -> Option[string]
     if s.at >= s.script.len() then return None
@@ -41,7 +44,7 @@ private next_line(s: &Session, prompt: string) -> Option[string]
     val l = s.script.at(s.at)
 
     s.at += 1
-    s.said.push(prompt + l)
+    s.said.push(prompt + l + "\n")
 
     // A script line of `<non-utf8>` arrives as the bytes `f`, 0xff, `.`.
     if l == "<non-utf8>" then return Some(decoded_line([u8('f'), 255, u8('.')]))
@@ -337,10 +340,10 @@ private driven(file: string, text: string, lines: []string) -> string
 
     val status = run_source(file, text, (prompt) -> next_line(s, prompt), (t) -> s.said.push(t), (t) -> if !t.is_empty() then c.said.push(t.trim()))
 
-    if c.said.len() > 0 then s.said.push(s"complained: ${join(c.said.view(), "\n")}")
+    if c.said.len() > 0 then s.said.push(s"complained: ${join(c.said.view(), "\n")}\n")
 
     s.said.push(s"status: $status")
-    join(s.said.view(), "\n")
+    transcript_of(s.said)
 
 @test
 FUNL_RUNNING_A_PROLOG_FILE_STARTS_THE_TOP_LEVEL_ONCE_IT_IS_LOADED()

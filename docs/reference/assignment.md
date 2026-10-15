@@ -46,9 +46,10 @@ this assigns 2 variables and gives 1 value
 
 ## Compound assignment, `++` and `--`
 
-`x op= e` is `x = x op e`, and produces the new value; `+=`, `-=`, `*=`, `/=`, `^=`, `\=` and `%=`
-are the forms. `x++` and `x--` produce the old value and then change it; `++x` and `--x` change it
-and produce the new one.
+`x op= e` is `x = x op e`, and produces the new value. **Every symbolic arithmetic or set operator
+has the form**: `+=`, `-=`, `*=`, `/=`, `//=`, `\=`, `%=`, `^=` and `**=`. A word operator has none
+(there is no `mod=`). `x++` and `x--` produce the old value and then change it; `++x` and `--x`
+change it and produce the new one.
 
 ```funl
 var x = 10
@@ -62,6 +63,60 @@ write( x++, x, ++x, x--, --x )
 ```output
 24
 24, 25, 26, 26, 24
+```
+
+The form changes an element as well as a variable, and the place is worked out once: below, `at()`
+runs a single time. `**=` keeps the part of a set that is also in another.
+
+```funl
+var calls = 0
+def at()
+  calls += 1
+  1
+
+a = array([17, 9])
+a(0) //= 5
+a(at()) //= 2
+write( a, calls )
+
+var s = {1, 2, 3}
+s **= {2, 3, 4}
+write( s )
+```
+
+```output
+Array(3, 4), 1
+{2, 3}
+```
+
+Two comparisons have the form too, the ones with a use: `x <:= e` stores `e` when `x < e`, keeping a
+running maximum, and `x >:= e` stores `e` when `x > e`, keeping a running minimum. When the
+comparison fails, `x` keeps its value.
+
+```funl
+var lo = 9
+var hi = 0
+
+for k <- [4, 6, 2, 8] do
+  lo >:= k
+  hi <:= k
+
+write( lo, hi )
+```
+
+```output
+2, 8
+```
+
+An assigning operator faults as its operator does:
+
+```funl
+var q = 7
+q //= 0
+```
+
+```error
+7 // 0 divides by zero
 ```
 
 Each of these changes a variable that is already in scope, so it cannot be the first thing said
@@ -305,6 +360,38 @@ write( used )
 ```output
 9
 9
+```
+
+Several names take several values with `<-` as they do with `=`: every value is made before any is
+stored, and backtracking puts every one of them back. Inside an expression the names and the values
+are each written as a tuple, `(a, b) <- (b, a)`, since a bare comma there separates the elements of a
+tuple.
+
+```funl
+a, b <- 1, 2
+a, b <- b, a
+write( a, b )
+
+write( ((a, b) <- (b, a)) & a > 5 | (a, b) )
+write( a, b )
+```
+
+```output
+2, 1
+(2, 1)
+2, 1
+```
+
+The values are a tuple written out, one for each name:
+
+```funl
+a = 1
+b = 2
+(a, b) <- (1, 2, 3)
+```
+
+```error
+this assigns 2 variables and gives 3 values
 ```
 
 ## `in` and `not in`
