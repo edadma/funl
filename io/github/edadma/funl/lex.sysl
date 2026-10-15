@@ -363,7 +363,10 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         else
             out.push(operator_or_assign(s, Plus, Add), Span(start, s.at))
     elif c == u8('*')
-        out.push(operator_or_assign(s, Star, Mul), Span(start, s.at))
+        if s.accept(u8('*'))
+            out.push(operator_or_assign(s, StarStar, Inter), Span(start, s.at))
+        else
+            out.push(operator_or_assign(s, Star, Mul), Span(start, s.at))
     elif c == u8('/')
         if s.accept(u8('/'))
             out.push(operator_or_assign(s, SlashSlash, FloorQuo), Span(start, s.at))

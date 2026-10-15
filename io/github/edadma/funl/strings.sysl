@@ -84,12 +84,20 @@ bytes_at(hay: []const u8, at: usize, needle: []const u8) -> bool
     true
 
 // A set of characters: a bit for each ASCII character, and the others listed in ascending order.
+//
+// **A complement is the same set with `inverted` set**: "every character but these". FunL's
+// characters are Unicode, so a complement cannot be listed; membership and the algebra below read
+// the flag, and only what has to enumerate the characters -- a size, `!c` -- has no answer for one.
 struct CharSet
     lo: u64
     hi: u64
     wide: Buf[u32]
+    inverted: bool
 
-    has(self, c: char) -> bool
+    has(self, c: char) -> bool = self.listed(c) != self.inverted
+
+    // Whether `c` is one of the characters the set lists, whatever its flag.
+    private listed(self, c: char) -> bool
         val u = u32(c)
 
         if u < 64 then return ((self.lo >> u64(u)) & 1) != 0
@@ -102,6 +110,67 @@ struct CharSet
             if w > u then return false
 
         false
+
+    // How many characters the set lists.
+    size(self) -> usize
+        var n = self.wide.len()
+
+        for u in 0..<64
+            if ((self.lo >> u64(u)) & 1) != 0 then n += 1
+
+            if ((self.hi >> u64(u)) & 1) != 0 then n += 1
+
+        n
+
+    // The `k`-th character the set lists, counted from 0 in ascending order; `k` is below `size`.
+    nth(self, k: usize) -> char
+        var left = k
+
+        for u in 0..<128
+            val c = char(u32(u))
+
+            if self.listed(c)
+                if left == 0 then return c
+
+                left -= 1
+
+        char(self.wide.at(left))
+
+    // The characters not in this set.
+    complemented(self) -> CharSet = CharSet(self.lo, self.hi, wide_copy(self.wide), !self.inverted)
+
+    // The characters in either set.
+    union(self, o: CharSet) -> CharSet
+        if !self.inverted && !o.inverted then return regions(self, o, true, true, true, false)
+
+        // ¬A ∪ ¬B is ¬(A ∩ B); ¬A ∪ B is ¬(A - B); A ∪ ¬B is ¬(B - A).
+        if self.inverted && o.inverted then return regions(self, o, false, true, false, true)
+
+        if self.inverted then return regions(self, o, true, false, false, true)
+
+        regions(self, o, false, false, true, true)
+
+    // The characters in both sets.
+    intersection(self, o: CharSet) -> CharSet
+        if !self.inverted && !o.inverted then return regions(self, o, false, true, false, false)
+
+        // ¬A ∩ ¬B is ¬(A ∪ B); ¬A ∩ B is B - A; A ∩ ¬B is A - B.
+        if self.inverted && o.inverted then return regions(self, o, true, true, true, true)
+
+        if self.inverted then return regions(self, o, false, false, true, false)
+
+        regions(self, o, true, false, false, false)
+
+    // The characters in this set and not in `o`: this set's intersection with `o`'s complement.
+    minus(self, o: CharSet) -> CharSet
+        if !self.inverted && !o.inverted then return regions(self, o, true, false, false, false)
+
+        // ¬A - ¬B is B - A; ¬A - B is ¬(A ∪ B); A - ¬B is A ∩ B.
+        if self.inverted && o.inverted then return regions(self, o, false, false, true, false)
+
+        if self.inverted then return regions(self, o, true, true, true, true)
+
+        regions(self, o, false, true, false, false)
 
     add(*self, c: char)
         val u = u32(c)
@@ -123,14 +192,14 @@ struct CharSet
 
         self.wide.insert(i, u)
 
-    // The characters, in ascending order.
+    // The characters the set lists, in ascending order: of a complement, those it leaves out.
     text(self) -> string
         var out = str_builder()
 
         for u in 0..<128
             val c = char(u32(u))
 
-            if self.has(c) then out.push_char(c)
+            if self.listed(c) then out.push_char(c)
 
         for w in self.wide.view()
             out.push_char(char(w))
@@ -138,6 +207,8 @@ struct CharSet
         out.finish()
 
     same(self, other: CharSet) -> bool
+        if self.inverted != other.inverted then return false
+
         if self.lo != other.lo || self.hi != other.hi || self.wide.len() != other.wide.len() then return false
 
         for i in 0..<self.wide.len()
@@ -146,9 +217,58 @@ struct CharSet
         true
 end CharSet
 
+// A set with no characters.
+empty_chars() -> CharSet = CharSet(0, 0, buf(), false)
+
+// A copy of a set's list of non-ASCII characters, for a new set to own.
+private wide_copy(w: Buf[u32]) -> Buf[u32]
+    var out: Buf[u32] = buf()
+
+    out.extend(w.view())
+    out
+
+// The set made of the regions of `a` and `b`'s listed characters that are kept -- those only `a`
+// lists, those both list, those only `b` lists -- with flag `inverted`. Every operation of the
+// algebra is one choice of regions over the two lists, once the flags have been read.
+private regions(a: CharSet, b: CharSet, only_a: bool, both: bool, only_b: bool, inverted: bool) -> CharSet
+    val lo = kept_bits(a.lo, b.lo, only_a, both, only_b)
+    val hi = kept_bits(a.hi, b.hi, only_a, both, only_b)
+    var wide: Buf[u32] = buf()
+    var i: usize = 0
+    var j: usize = 0
+
+    while i < a.wide.len() || j < b.wide.len()
+        if j == b.wide.len() || (i < a.wide.len() && a.wide.at(i) < b.wide.at(j))
+            if only_a then wide.push(a.wide.at(i))
+
+            i += 1
+        elif i == a.wide.len() || b.wide.at(j) < a.wide.at(i)
+            if only_b then wide.push(b.wide.at(j))
+
+            j += 1
+        else
+            if both then wide.push(a.wide.at(i))
+
+            i += 1
+            j += 1
+
+    CharSet(lo, hi, wide, inverted)
+
+private kept_bits(a: u64, b: u64, only_a: bool, both: bool, only_b: bool) -> u64
+    val common = a & b
+    var out: u64 = 0
+
+    if only_a then out = out | (a ^ common)
+
+    if both then out = out | common
+
+    if only_b then out = out | (b ^ common)
+
+    out
+
 // The characters of `s` as a set.
 char_set(s: string) -> CharSet
-    var set = CharSet(0, 0, buf())
+    var set = empty_chars()
 
     for c in s.chars
         set.add(c)

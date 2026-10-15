@@ -422,6 +422,137 @@ m.b = 2
 is an immutable map, and nothing can be stored in it
 ```
 
+### A buffer is a deque
+
+`put(b, x, ...)` adds each argument at the end of buffer `b`, as `b += x` does, and `push(b, x, ...)`
+puts each on the front in turn, so the last argument ends up first. Both answer the buffer. `get(b)`
+and `pop(b)` take the front element out, and `pull(b)` takes the last; each fails when the buffer is
+empty, so `while x = pop(b)` drains one. Taking from the front moves the other elements down, so a
+very long buffer drained from the front costs a pass over it each time.
+
+```funl
+b = buffer()
+put(b, 1, 2, 3)
+push(b, 8, 9)
+write( b )
+write( pop(b), get(b), pull(b), b )
+
+while x = pop(b) do write( x )
+write( pop(b) | "empty", pull(b) | "empty" )
+```
+
+```output
+Buffer(9, 8, 1, 2, 3)
+9, 8, 3, Buffer(1, 2)
+1
+2
+empty, empty
+```
+
+An array has a fixed size, so these refuse one:
+
+```funl
+push(array(2), 1)
+```
+
+```error
+'push' wants a buffer, and was given an array, which cannot grow or shrink
+```
+
+### Taking out
+
+`delete(c, k)` takes key `k` out of mutable map `c`, or element `k` out of mutable set `c`, and answers
+`c`; a key or element that is not there changes nothing. `m -= k` and `s -= x` do the same, on a `val`
+too, since they change the collection in place. A map written with braces, and a set, cannot be
+changed, and `m -= k` on a variable holding one makes a new map as `-` does.
+
+```funl
+m = map({a: 1, b: 2, c: 3})
+m -= "a"
+write( delete(m, "b"), delete(m, "zz") )
+
+s = set({1, 2, 3})
+s -= 2
+delete(s, 9)
+write( s )
+```
+
+```output
+MutableMap("c": 3), MutableMap("c": 3)
+MutableSet(1, 3)
+```
+
+```funl
+write( delete({a: 1}, "a") )
+```
+
+```error
+is an immutable map, and nothing can be deleted from it
+```
+
+### `array(n, x)`, `copy` and `same`
+
+`array(n, x)` is an array of `n` places each holding `x` itself, so a buffer given as `x` is one buffer
+in every place. `copy(c)` is a new array, buffer, mutable map or mutable set holding the same
+elements, which are not themselves copied; any other value is its own copy. `same(x, y)` answers `y`
+when `x` and `y` are one object, and fails otherwise. Numbers of one kind, strings and atoms are
+the same when equal, so `same(1, 1.0)` fails. Two collections that hold equal elements are not the same
+object.
+
+```funl
+a = array(2, buffer())
+put(a(0), 1)
+write( a )
+
+b = buffer([1, 2])
+c = copy(b)
+put(c, 3)
+write( b, c, copy(5) )
+write( same(b, b), same(b, c) | "no", same(b, copy(b)) | "no" )
+write( same(1, 1), same(1, 1.0) | "no", same("a", "a"), same(#a, #b) | "no" )
+```
+
+```output
+Array(Buffer(1), Buffer(1))
+Buffer(1, 2), Buffer(1, 2, 3), 5
+Buffer(1, 2), no, no
+1, no, a, no
+```
+
+### Union, difference and intersection
+
+On sets, `+` is union, `-` difference and `**` intersection. `+` and `-` take a set or a single
+element on the right, and answer a new set. `**` takes two sets, mutable or not, and answers the
+elements of the left that the right holds too, in the left's order, as a set of the left's kind.
+`**` binds as `*` does. On a mutable set, `+=`, `-=` and `**=` change it in place, even where the
+name is a `val`; on a variable holding an immutable set they assign a new one.
+
+```funl
+a = {1, 2, 3}
+write( a + {4}, a + 5, a - {1, 2}, a - 3 )
+write( a ** {3, 2, 9}, a ** {7} )
+
+val s = set( [1, 2, 3, 4] )
+s **= {2, 4, 6}
+write( s )
+```
+
+```output
+{1, 2, 3, 4}, {1, 2, 3, 5}, {3}, {1, 2}
+{2, 3}, {}
+MutableSet(2, 4)
+```
+
+```funl
+write( {1, 2} ** [2] )
+```
+
+```error
+'**' intersects a set with another set, and was given the list [2]
+```
+
+The same three operators work on csets, the [sets of characters](scanning.md#character-sets).
+
 ## Maps with a default
 
 `map(c, d)` is a mutable copy of `c` whose missing keys read as `d` instead of failing. Counting
@@ -569,7 +700,7 @@ Text and bytes never turn into each other by themselves: `bytes(s)` encodes a st
 In Prolog a byte string is an **atomic, opaque value**: `atomic/1` is true of it, and `atom/1`,
 `number/1`, `compound/1` and `callable/1` are false. It unifies only with a byte string holding the
 same bytes, and `compare/3` puts it after every number, atom and string and orders two byte strings
-byte by byte. [`data/bytes.pl`](data/bytes.pl) holds `kinds/2`, `same/2`, `order/3` and `sorted/2`.
+byte by byte. [`data/bytes.pl`](data/bytes.pl) holds `kinds/2`, `twin/2`, `order/3` and `sorted/2`.
 
 ```funl
 import "data/bytes.pl"
@@ -581,9 +712,9 @@ order( b, bytes([1, 3]), o )
 sorted( [bytes([2]), b, 3, bytes([1])], s )
 write( k, o )
 write( s )
-write( if same(b, bytes([1, 2])) then 'same' else 'differ' )
-write( if same(b, bytes([1])) then 'same' else 'differ' )
-write( if same(b, 'bytes') then 'same' else 'differ' )
+write( if twin(b, bytes([1, 2])) then 'same' else 'differ' )
+write( if twin(b, bytes([1])) then 'same' else 'differ' )
+write( if twin(b, 'bytes') then 'same' else 'differ' )
 ```
 
 ```output

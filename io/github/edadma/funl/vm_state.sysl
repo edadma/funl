@@ -265,6 +265,13 @@ struct Vm
     // The packages the program's project reaches, worked out at the first import of one and kept
     // for the rest of the run.
     graph: Option[PackageGraph]
+
+    // -- standard error (`io.sysl`) ----------------------------------------------------------------
+
+    // What `ewrite`, `ewrites` and `stop` wrote, a line each as `output` holds standard output's, and
+    // the line `ewrites` has begun; the driver prints them to standard error when the run ends.
+    errput: Buf[string]
+    err_line: string
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -296,7 +303,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         block, gc.heap(block, heap_bytes), 0, floor, floor, growth, 0, 0, true, false,
         rng(0, 0), false, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
-        buf(), buf(), buf(), None)
+        buf(), buf(), buf(), None, buf(), "")
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

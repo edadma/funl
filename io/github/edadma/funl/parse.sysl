@@ -230,6 +230,7 @@ tag(t: Tok) -> u8
         CatchW -> 86
         AsyncW -> 87
         AwaitW -> 88
+        StarStar -> 89
 end tag
 
 // The program in `src`, with every complaint about its syntax added to `report`.

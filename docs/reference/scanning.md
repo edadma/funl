@@ -177,6 +177,63 @@ f(a,b)
 6
 ```
 
+## Character sets
+
+A **cset** is a set of characters: `cset(s)` makes one of the characters of string `s`, and five are
+named.
+
+| name | holds |
+|---|---|
+| `letters` | `A`–`Z` and `a`–`z` |
+| `digits` | `0`–`9` |
+| `alphanum` | the letters and the digits |
+| `ascii` | the 128 ASCII characters |
+| `cset_all` | every character |
+
+`+` is union, `-` difference and `**` intersection, as they are on [sets](data.md#union-difference-and-intersection),
+with a cset or a string on the right. `x in c` holds when `x` is a one-character string in `c`.
+`c.length` is how many characters `c` holds, and `!c` generates them in ascending order, each a
+one-character string.
+
+```funl
+vowels = cset('aeiou')
+write( vowels + 'y', letters ** 'a1b2', digits - '0123' )
+write( cset('banana').length, [c | c <- cset('banana')] )
+if 'e' in vowels then write( 'a vowel' )
+```
+
+```output
+cset("aeiouy"), cset("ab"), cset("456789")
+3, ["a", "b", "n"]
+a vowel
+```
+
+`complement(c)` is every character not in `c`. A character is any Unicode one, so a complement is
+kept as "every character but these", written `complement(cset(…))`, and the operators, `in` and
+the scanning builtins all read it as that. It has no length and cannot be listed: `c.length` and
+`!c` on one fault with `domain_error(finite, c)`.
+
+```funl
+others = complement(letters)
+'hello, wörld' ? write( tab(upto(others)) )
+write( 'é' in others, others ** '1a', others + 'a' - 'é' )
+write( complement(others) == letters, cset_all == complement('') )
+```
+
+```output
+hello
+é, cset("1"), complement(cset("ABCDEFGHIJKLMNOPQRSTUVWXYZbcdefghijklmnopqrstuvwxyzé"))
+cset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"), complement(cset(""))
+```
+
+```funl
+write( complement('a').length )
+```
+
+```error
+the complement complement(cset("a")) has no length: it holds every character but the ones it names
+```
+
 ## Backtracking puts the position back
 
 When an expression fails and the program backtracks past a `tab` or a `move`, the position goes
