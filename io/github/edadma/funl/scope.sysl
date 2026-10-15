@@ -490,21 +490,44 @@ struct Resolved
     // prelude: an imported name shadows a builtin, as a definition does, and each of them shadows the
     // prelude.
     //
-    // **The program's own definitions are merged with the rest per arity**, as Prolog keeps a
-    // program's `p/1` apart from a library's `p/2`: a builtin, the prelude's functions and the
-    // Prolog predicates the program loaded keep every arity the program does not define, so a
-    // program's `def any( x )` leaves `any(p, xs)` to the prelude.
+    // **The program's own definitions and its imported names are merged with the rest per arity**,
+    // as Prolog keeps a program's `p/1` apart from a library's `p/2`: a builtin and the prelude's
+    // functions keep every arity the program neither defines nor imports, so a program's
+    // `def any( x )` leaves `any(p, xs)` to the prelude, and an imported `left/2` leaves `left/3` to
+    // the builtin. A Prolog predicate the program imported comes before the builtin at its arity.
+    // An imported value, or constructor, is one value, and hides the name at every arity.
     global(self, name: string) -> Meaning
         self.by_name.get(name) match
-            Some(rs) -> return self.merged(name, rs)
+            Some(rs) ->
+                var own: Buf[Meaning] = buf()
+
+                for i in rs.view()
+                    own.push(if self.rels.at(i).function then Function(i, self.top_up) else Relation(i))
+
+                return self.merged(name, own)
             None -> ()
 
         self.imported.get(name) match
-            Some(m) -> return m
+            Some(m) ->
+                var own: Buf[Meaning] = buf()
+
+                m match
+                    Function(_, _) -> own.push(m)
+                    Relation(_) -> own.push(m)
+                    Builtin(id) -> if is_constant(id) then return m else own.push(m)
+                    Family(_, ms) ->
+                        for x in ms.view()
+                            own.push(x)
+                    _ -> return m
+
+                return self.merged(name, own)
             None -> ()
 
         native_id(name) match
-            Some(id) -> return Builtin(id)
+            Some(id) ->
+                if !is_constant(id) && pred_name_known(name) then return self.merged(name, buf())
+
+                return Builtin(id)
             None -> ()
 
         self.prelude.get(name) match
@@ -518,8 +541,9 @@ struct Resolved
     // does not take `argc` arguments leaves the call to the prelude's function of that name and
     // arity, so `any(c)` scans and `any(p, xs)` asks.
     //
-    // **A Prolog predicate the program loaded shadows the prelude too**, at the arity it is defined
-    // with: `all(ls)` calls an imported `all/1`. The Prolog library's predicates do not.
+    // **A Prolog predicate the program loaded shadows a builtin and the prelude**, at the arity it
+    // is defined with: `all(ls)` calls an imported `all/1`, and `same(x, y)` an imported `same/2`.
+    // The Prolog library's predicates do not.
     //
     // **A name of several arities is resolved here, by the call's count**: the first member that
     // takes it, or -- in a goal -- the function of one parameter fewer, called as a relation. A call
@@ -527,8 +551,8 @@ struct Resolved
     called(self, name: string, m: Meaning, argc: usize) -> Meaning = self.called_in(name, m, argc, false)
 
     // `called`, for a call written in a goal when `goal`: there the program's own function of
-    // `argc - 1` parameters is the relation of `argc` -- the Prolog key it has -- and comes before
-    // a builtin or the prelude of `argc`.
+    // `argc - 1` parameters, or an imported one, is the relation of `argc` -- the Prolog key it
+    // has -- and comes before a builtin or the prelude of `argc`.
     called_in(self, name: string, m: Meaning, argc: usize, goal: bool) -> Meaning
         m match
             Family(_, ms) ->
@@ -537,12 +561,12 @@ struct Resolved
                 val own = self.own_key(ms, argc)
 
                 for x in ms.view()
-                    if self.is_own(x) && self.takes(name, x, argc) then return x
+                    if self.is_top(name, x) && self.takes(name, x, argc) then return x
 
                 if goal
                     for x in ms.view()
                         x match
-                            Function(r, _) -> if self.is_own(x) && self.rels.at(r).arity + 1 == argc then return x
+                            Function(r, _) -> if self.is_top(name, x) && self.rels.at(r).arity + 1 == argc then return x
                             _ -> ()
 
                 for x in ms.view()
@@ -604,13 +628,16 @@ struct Resolved
             pred_defined(key) && !is_library(key)
         _ -> false
 
-    // The program's own top-level definitions `rs` of `name`, with each arity they leave to a
-    // builtin, the prelude or a Prolog predicate: one meaning, or the family of them.
-    merged(self, name: string, rs: Buf[usize]) -> Meaning
+    // The program's top-level definitions `own` of `name` -- its own, or those an import declares
+    // -- with each arity they leave to a Prolog predicate the program imported, a builtin or the
+    // prelude, in that order: one meaning, or the family of them.
+    merged(self, name: string, own: Buf[Meaning]) -> Meaning
         var ms: Buf[Meaning] = buf()
 
-        for i in rs.view()
-            ms.push(if self.rels.at(i).function then Function(i, self.top_up) else Relation(i))
+        for x in own.view()
+            ms.push(x)
+
+        if pred_name_known(name) then ms.push(Predicate(name))
 
         native_id(name) match
             Some(id) ->
@@ -621,20 +648,18 @@ struct Resolved
 
                 if !left
                     for k in nat.least..nat.arity
-                        if !self.defines(rs, k) then left = true
+                        if !self.defines(own, k) then left = true
 
                 if left && !is_constant(id) then ms.push(Builtin(id))
             None -> ()
 
-        if pred_name_known(name) then ms.push(Predicate(name))
-
         self.prelude.get(name) match
             Some(p) -> p match
-                Function(r, _) -> if !self.defines(rs, self.rels.at(r).arity) then ms.push(p)
+                Function(r, _) -> if !self.defines(own, self.rels.at(r).arity) then ms.push(p)
                 Family(_, ps) ->
                     for x in ps.view()
                         x match
-                            Function(r, _) -> if !self.defines(rs, self.rels.at(r).arity) then ms.push(x)
+                            Function(r, _) -> if !self.defines(own, self.rels.at(r).arity) then ms.push(x)
                             _ -> ()
                 _ -> ()
             None -> ()
@@ -647,6 +672,31 @@ struct Resolved
         Function(r, _) -> self.rels.at(r).clauses.len() > 0
         Relation(r) -> self.rels.at(r).clauses.len() > 0
         _ -> false
+
+    // Whether `x` is one of the file's top-level definitions of `name`: its own, or one an import
+    // declares, which a call reaches before a builtin or the prelude.
+    is_top(self, name: string, x: Meaning) -> bool
+        if self.is_own(x) then return true
+
+        val r = x match
+            Function(r, _) -> r
+            Relation(r) -> r
+            _ -> return false
+
+        self.imported.get(name) match
+            Some(m) -> m match
+                Function(q, _) -> q == r
+                Relation(q) -> q == r
+                Family(_, ms) ->
+                    for y in ms.view()
+                        y match
+                            Function(q, _) -> if q == r then return true
+                            Relation(q) -> if q == r then return true
+                            _ -> ()
+
+                    false
+                _ -> false
+            None -> false
 
     // The call written at offset `pos`, of `name` meaning `m` there with `argc` arguments: what the
     // resolver decided it reaches (`picks`), or `called`'s answer when it decided nothing.
@@ -665,10 +715,14 @@ struct Resolved
 
         false
 
-    // Whether one of the definitions `rs` has `arity` arguments.
-    defines(self, rs: Buf[usize], arity: usize) -> bool
-        for i in rs.view()
-            if self.rels.at(i).arity == arity then return true
+    // Whether one of the definitions `own` takes `arity` arguments.
+    defines(self, own: Buf[Meaning], arity: usize) -> bool
+        for x in own.view()
+            x match
+                Function(r, _) -> if self.rels.at(r).arity == arity then return true
+                Relation(r) -> if self.rels.at(r).arity == arity then return true
+                Builtin(id) -> if takes_count(current().natives.at(id), arity) then return true
+                _ -> ()
 
         false
 

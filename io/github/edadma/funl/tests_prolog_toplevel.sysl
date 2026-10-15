@@ -368,9 +368,9 @@ A_FUNL_PROGRAM_CALLING_A_PREDICATE_THAT_HALTS_ENDS_WITH_ITS_STATUS()
     val d = scratch()
     defer scrap(d)
 
-    val pl = put(d, "stop.pl", "finish(N) :- write(stopping), nl, halt(N).\n")
+    val pl = put(d, "stop.pl", "stop(N) :- write(stopping), nl, halt(N).\n")
 
-    assert_eq(driven("main.funl", s"import \"$pl\"\nwrite( 1 )\nfinish( 9 )\nwrite( 2 )\n", ["X = 1."]), "1\nstopping\nstatus: 9")
+    assert_eq(driven("main.funl", s"import \"$pl\"\nwrite( 1 )\nstop( 9 )\nwrite( 2 )\n", ["X = 1."]), "1\nstopping\nstatus: 9")
 
 @test
 A_FUNL_FILE_STARTS_NO_TOP_LEVEL()

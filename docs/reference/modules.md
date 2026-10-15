@@ -459,7 +459,9 @@ write( bump(), count, counter.count )
 ## Imported names
 
 An imported name is a top-level name of the importing file. **It shadows a builtin of the same
-name**, as a top-level `def` does. **The file cannot define the same name**, or use it for a
+name**, as a top-level `def` does: at the arities it has, so an imported `left( a, b )` leaves
+`left(s, n, pad)` to the builtin. A Prolog predicate an `import "file.pl"` loads shadows a builtin
+the same way, at its arity. **The file cannot define the same name**, or use it for a
 top-level variable:
 
 ```funl
