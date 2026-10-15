@@ -21,15 +21,16 @@ struct Pattern
 private const MaxPatternSide: long = 32
 
 // The named patterns, each as the bit pattern it stands for: Icon's names, from solid through the
-// grays to empty, then its textures.
+// grays to empty, then its textures. The bits are Icon 9.5's own, eight rows of eight, a row's low
+// bit its leftmost pixel.
 private val PatternNames: [16]string = ["black", "verydark", "darkgray", "gray", "lightgray", "verylight", "white",
     "vertical", "diagonal", "horizontal", "grid", "trellis", "checkers", "grains", "scales", "waves"]
 
-private val PatternBits: [16]string = ["8,#ffffffffffffffff", "8,#77ffddff77ffddff", "8,#77dd77dd77dd77dd",
-    "8,#55aa55aa55aa55aa", "8,#8822882288228822", "8,#8800220088002200", "8,#0000000000000000",
-    "8,#1111111111111111", "8,#0102040810204080", "8,#ff000000ff000000", "8,#ff111111ff111111",
-    "8,#8142241818244281", "8,#0f0f0f0ff0f0f0f0", "8,#0240001080000804", "8,#8080412214080808",
-    "8,#0000314a84000000"]
+private val PatternBits: [16]string = ["8,#ffffffffffffffff", "8,#feffeffffeffefff", "8,#77dd77dd77dd77dd",
+    "8,#55aa55aa55aa55aa", "8,#1144114411441144", "8,#0100100001001000", "8,#0000000000000000",
+    "8,#1010101010101010", "8,#8040201008040201", "8,#000000ff00000000", "8,#101010ff10101010",
+    "8,#8244281028448201", "8,#0f0f0f0ff0f0f0f0", "8,#1b1881b136066063", "8,#020205f82020508f",
+    "8,#0384483003844830"]
 
 // The pattern specification `spec` names, or `None` when it names none.
 parse_pattern(spec: string) -> Option[Pattern]

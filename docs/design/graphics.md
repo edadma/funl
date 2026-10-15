@@ -87,11 +87,8 @@ for the later items:
 | `Raise()`, `Lower()` | `w.raise()`, `w.lower()` |
 | `WDefault(prog, opt)` | not adopted: X resources ([out of scope](#out-of-scope)) |
 
-**`drawop: #reverse`** is Icon's rubber-band operation: drawing the same thing twice restores what
-was there. plutovg's `Xor` operator is Porter-Duff's, not a bitwise one, so the module draws the
-shape into a scratch coverage mask and exclusive-ors `fg ^ bg` into the pixels the mask covers
-([G7](#the-questions-collected)). A shape drawn under `#reverse` is not anti-aliased, since a
-partial pixel cannot be undone by a second exclusive-or.
+**`drawop: #reverse` is built** ([G7](#the-questions-collected)) — see [the library
+page](../library/graphics.md#drawing-in-reverse).
 
 ### Coordinates
 
@@ -227,7 +224,7 @@ able to test every facility with no window on screen, and it can:
 | G4 | the default font | **Decided (user, 2026-10-15)**: a permissively licensed monospaced face carried in the binary as `"fixed"` — JetBrains Mono Regular, OFL 1.1, at 10 points — so text is the same everywhere and in tests |
 | G5 | anti-aliasing | **Decided (user, 2026-10-15)**: accept plutovg's; integer coordinates stroked through pixel centres (filled shapes on the grid) so points, axis lines and rectangles are pixel-exact |
 | G6 | coordinates on a high-density screen | **Decided (user, 2026-10-15)**: points, with the surface at `density` times the pixels; a hidden canvas always density 1 |
-| G7 | `drawop: #reverse` | built, as a coverage mask exclusive-ored into the pixels, not anti-aliased |
+| G7 | `drawop: #reverse` | **Decided (user, 2026-10-15)**: a coverage mask exclusive-ored into the pixels, not anti-aliased |
 | G8 | image formats | **Decided (user, 2026-10-15)**: read what stb_image reads; write PNG only, refusing another image format's extension with `domain_error(image_format, Ext)` |
 | G9 | key releases | **Decided (user, 2026-10-15)**: reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
 | G10 | whose are `&x`, `&y`, `&control`, … | **Decided (user, 2026-10-15)**: the running machine's (each task its own), set by `event()` |
