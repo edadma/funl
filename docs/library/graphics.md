@@ -751,12 +751,12 @@ import { open } from funl:graphics
 
 w = open( "map", {canvas: #hidden, size: (1, 1)} )
 write( w.new_color("red") | "no colour map" )
-write( w.free_color("red", -1) == w, w.color(-1) | "no mutable colour" )
+write( w.free_color("red", -1), w.color(-1) | "no mutable colour" )
 ```
 
 ```output
 no colour map
-true, no mutable colour
+<window handle>, no mutable colour
 ```
 
 ## Clones, couples and closing
