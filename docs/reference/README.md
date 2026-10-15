@@ -14,13 +14,14 @@ the language cannot disagree for long.
 |---|---|
 | [Success and failure](success-and-failure.md) | expressions that succeed or fail, conditions and `false`, `if`, `not`, `and`, `or`, loops that run out, catching faults |
 | [Generators](generators.md) | expressions with many values, backtracking, `!`, `\|`, `to`, ranges, `&`, searches, bounded expressions, `every`, `for`, `break`/`continue` and labels |
+| [Co-expressions](coexpressions.md) | `create`, `@` and `!` over a co-expression, transmission `x @ c`, the creator's locals copied, refresh `^c`, the count `*c`, `&current`, `&source` and `&main`, faults raised at the `@` |
 | [Assignment and scope](assignment.md) | `=`, compound assignment, `++`/`--`, multiple assignment, `val` and `var`, block scope, reversible assignment `<-`, `in` and `not in` |
 | [Data](data.md) | tuples, lists, maps, sets, comprehensions, slices, arrays, buffers, maps with a default, byte strings, handles, records, `undefined`, types and `is` |
-| [Functions](functions.md) | `def`, lambdas, operator sections, builtins as values, clauses and guards, one name at several arities, patterns, `where`, `end` markers, generator functions, `yield` and `return`, partial function literals |
+| [Functions](functions.md) | `def`, lambdas, operator sections, builtins as values, clauses and guards, one name at several arities, patterns, `where`, `static` and `initial`, `end` markers, generator functions, `yield` and `return`, partial function literals |
 | [Numbers](numbers.md) | integers, rationals and reals; `/`, `\` (floor), `//`, `mod`, `%`, `^`, `div`; comparison across kinds; `abs`, `min`, `max`; `sqrt`, `exp`, `log`, trigonometry, roundings, `pi`, `e`, `phi`; the bit operations `iand`, `ior`, `ixor`, `icom`, `ishift`; prefix `?`, `random()` and the seed |
 | [Relations](relations.md) | logic variables, unification `~`, atoms, facts and rules, two-way head unification, calling between functions and relations, negation, `findall`/`bagof`/`setof` |
 | [String scanning](scanning.md) | `s ? e`, positions, `tab`, `move`, `pos`, `upto`, `many`, `any`, `match`, `find`, backtracking the position, `&subject` and `&pos`, `?=`, patterns and combinators inside a scan |
-| [Keywords](keywords.md) | `&name`, and `&` against conjunction; `&subject` and `&pos`, the cset keywords, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the clocks `&time`, `&clock`, `&date`, `&dateline`, `&version`, `&host`, `&progname`, `&features`, `&file`, `&line`, `&level` |
+| [Keywords](keywords.md) | `&name`, and `&` against conjunction; `&subject` and `&pos`, the cset keywords, `&null`, `&fail`, `&pi`, `&e`, `&phi`, `&random`, the clocks `&time`, `&clock`, `&date`, `&dateline`, `&version`, `&host`, `&progname`, `&features`, `&file`, `&line`, `&level`, and the co-expression keywords |
 | [String functions](strings.md) | slices, `split`, `join`, `trim`, `trim_start`, `trim_end`, `upper`, `lower`, `replace`, the tests `starts_with`, `ends_with` and `contains`, `find` outside a scan, and `bytes` and `decode` |
 | [Standard streams](streams.md) | `write` and `writes`, `read` and `reads` from standard input, `ewrite`, `ewrites` and `stop` to standard error |
 | [Source files](source-files.md) | `.funl` files, literate FunL (`.lfunl`), running `funl`, importing a literate file into Prolog |

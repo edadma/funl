@@ -186,8 +186,8 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
    `detab`, the cset argument of `trim`/`trim_start`/`trim_end`, `image`, `type`, `str`. Waits on
    nothing.
 2. **Conversions and literals**: `integer`, `real`, `numeric` from strings (`16rFF` included);
-   `0x`/`0o`/`0b` literals past 64 bits. Waits on nothing (the `NrDDD` literal waits on I16, and
-   is not built under the recommendation).
+   `0x`/`0o`/`0b` literals past 64 bits. The `NrDDD` literal is built (I16, decided
+   user, 2026-10-15).
 3. **Set and cset algebra**: `+`, `-` on csets, `**` on sets and csets, `complement`, the
    complement flag, `lower`/`upper`/`ascii`/`cset_all`. Waits on nothing.
 4. **Buffers as deques, and deletion**: `push`, `pop`, `get`, `pull`, `put`; `delete`, `m -= k`,
@@ -221,12 +221,13 @@ section of `icon.md` removed, and fast-forwarded onto `dev`. In dependency order
     activation fault, bindings on a co-expression's own trail, and collection of abandoned
     co-expressions under the stress heap. Waits on item 17 and I9.
 19. **Tracing and introspection**: `&trace`, `display()`, `&dump`, `collect()`, `&collections`,
-    `&allocated`, the per-chunk name table. Waits on item 10.
+    `&allocated`, `&storage`, `&regions`, the per-chunk name table, and the per-chunk line table
+    that places a trace line at the call site and a fault at its line. Waits on item 10.
 20. **Answers that reopen a decision**: `translate` (I11), `reverse` of a string (I12), `with`
     (I15), assignment to a string section (I10). Waits on those four; each answered "no" drops its
     part.
 21. **The preprocessor**: the directives the answer to I20 keeps, over the token stream, with
-    positions through `$include`. Waits on I20.
+    positions through `$include`. I20 decided: Icon's whole preprocessor.
 
 **Done when:** an Icon program of each kind in the chapter — a co-expression pipeline, a scanner
 with `bal` and `&pos`, a `static` memo, a variadic logger, a file filter reading standard input —

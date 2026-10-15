@@ -524,7 +524,8 @@ today); and neither Scala 3 nor sysl has it.
 > - **E2.** The constructs are the table above: a `def` clause by its name (`async def`, `export def`,
 >   a rule body and a `where` included), a bare `def` group by `end def`, a block-bodied `val x =` by
 >   `end x` or `end val` (`end val` only, after a pattern), a block-bodied `var x =` by `end x`, an `if`
->   chain by `end if`, and the loops by `end while`, `end for`, `end repeat`, `end every`. A lambda,
+>   chain by `end if`, the loops by `end while`, `end for`, `end repeat`, `end every`, and an
+>   `e match` and its clauses by `end match` (I2, user, 2026-10-15). A lambda,
 >   a partial function, a `?` scan, a `catch` arm, a lone `where`, a `( ; )` sequence and `data` take
 >   none.
 > - **E3.** A labelled loop is closed by its word, `end for`, never by its label.
@@ -878,6 +879,32 @@ What follows for each neighbour:
 >    the family of `pt/0` and `pt/1`.** `write( pt, pt(1) )` prints `pt, pt(1)`, and `pt is atom`
 >    succeeds — the same reading `pt` has in a pattern, so a name means one thing on both sides of
 >    `=`. Test: `A_CONSTRUCTOR_NAME_OVER_SEVERAL_FIELD_COUNTS_IS_THE_FAMILY_OF_THEM_AS_A_VALUE`.
+
+> **Decided (user, 2026-10-15) — I5, a variadic `def` beside name/arity** (Icon's `procedure
+> p(a, b[])`, `p ! L` and `args(p)`; reference: [functions](../reference/functions.md#variadic-functions)).
+>
+> 10. **`def f(a, ..rest)` is the member of `f`'s family for every count no fixed arity of `f`
+>     takes**: a call of two arguments reaches `f/2` when the file defines one, else the variadic.
+>     At the top level the file's own fixed arities come first, then its variadic, then the
+>     builtins and the prelude, so a program's variadic takes over every count it covers, as a
+>     program's `f/n` takes over `n`. A name has one variadic definition (a second, of another
+>     fixed count, is refused naming both); a relation cannot be variadic. `..rest` is a parameter,
+>     not a pattern: last, once, and a name or `_`; it binds an ordinary list.
+> 11. **A variadic function has no Prolog key.** A predicate has one arity, so the variadic is
+>     FunL's only: Prolog sees the fixed arities beside it as `f/(n+1)` and nothing for it, and the
+>     key clash of question 5 cannot involve it. In a goal it is called as the function it is,
+>     never as the relation of one more argument.
+> 12. **It is compiled as a function of its fixed parameters and the list**, so clause indexing,
+>     `clean_head` and the settled analysis treat `rest` as one more variable parameter. Its chunk
+>     takes any count and begins with `PackRest`, so a direct call, a call through its value and a
+>     family member all pass the arguments as written.
+> 13. **`f(..e)` spreads a list, tuple, array, buffer or range** anywhere among a call's arguments,
+>     any number of times; the call is through `f`'s value, its count found when it runs. A count no
+>     member takes faults, `existence_error(procedure, f/n)`. `..e` anywhere else is refused.
+> 14. **`arity(f)` generates the counts a function value takes, in increasing order**; a variadic
+>     member's is its number of parameters, `..rest` counted, negated — Icon's `args` convention
+>     (`args(p)` is `-2` for `procedure p(a, b[])`), so `arity(write)` is `-1` and a variadic of no
+>     fixed parameters is `-1`, never `0`.
 
 The questions as they were put:
 

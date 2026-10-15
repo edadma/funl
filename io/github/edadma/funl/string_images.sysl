@@ -55,3 +55,4 @@ type_name_of(x: Value) -> string
         Bytes(_) -> "bytes"
         Handle(_) -> "handle"
         Promise(_) -> "promise"
+        CoExpr(_) -> "coexpression"

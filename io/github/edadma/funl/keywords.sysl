@@ -19,17 +19,22 @@ import sysl.time.{at_offset, day_of, hour_of, minute_of, month_of, now, second_o
 // - **a builtin called each time it is evaluated**, registered under the keyword's own spelling,
 //   `&pos`, which no FunL name can be, so no program reaches it but through the keyword.
 //
-// **`&subject`, `&pos` and `&random` can be assigned**, `&random = n` restarting the generator from
-// seed `n`. A store is the builtin `&name=`, or `&name<-` for the reversible `&pos <- i`, which only
-// the scan keywords have: failure passing back over it puts the scan state back (`scan.sysl`).
+// **`&subject`, `&pos`, `&random`, `&trace` and `&dump` can be assigned**, `&random = n` restarting
+// the generator from seed `n`; the last two, and `&collections`, `&allocated`, `&storage` and
+// `&regions`, are `trace.sysl`'s. A store is the builtin `&name=`, or `&name<-` for the reversible
+// `&pos <- i`, which only the scan keywords have: failure passing back over it puts the scan state
+// back (`scan.sysl`).
 
 // The keywords a program can write, and beside each the builtin that answers it.
-private val KeywordNames: [21]string = ["subject", "pos", "lcase", "ucase", "letters", "digits", "ascii", "cset", "pi",
-    "e", "phi", "random", "time", "clock", "date", "dateline", "version", "host", "progname", "features", "level"]
+private val KeywordNames: [30]string = ["subject", "pos", "lcase", "ucase", "letters", "digits", "ascii", "cset", "pi",
+    "e", "phi", "random", "time", "clock", "date", "dateline", "version", "host", "progname", "features", "level",
+    "trace", "dump", "collections", "allocated", "storage", "regions", "current", "source", "main"]
 
-private val KeywordBuiltins: [21]string = ["&subject", "&pos", "lowercase", "uppercase", "letters", "digits", "ascii",
+// The co-expression keywords' builtins are registered in `coexpr.sysl`.
+private val KeywordBuiltins: [30]string = ["&subject", "&pos", "lowercase", "uppercase", "letters", "digits", "ascii",
     "cset_all", "pi", "e", "phi", "&random", "&time", "&clock", "&date", "&dateline", "&version", "&host", "&progname",
-    "&features", "&level"]
+    "&features", "&level", "&trace", "&dump", "&collections", "&allocated", "&storage", "&regions", "&current",
+    "&source", "&main"]
 
 private val DayNames: [7]string = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -59,7 +64,8 @@ keyword_builtin(name: string) -> Option[string]
     None
 
 // Whether keyword `name` can be assigned with `=`, and whether with `<-` as well.
-private assignable(name: string) -> bool = name == "subject" || name == "pos" || name == "random"
+private assignable(name: string) -> bool =
+    name == "subject" || name == "pos" || name == "random" || name == "trace" || name == "dump"
 
 private reversible(name: string) -> bool = name == "subject" || name == "pos"
 
@@ -83,7 +89,7 @@ keyword_expr(p: *Parser, name: string, at: Span) -> &Expr
 keyword_assigned(report: *Report, name: string, back: bool, at: Span)
     if !assignable(name)
         report.add(error(at, s"`&$name` cannot be assigned")
-            .with_note("the keywords that can be are `&subject`, `&pos` and `&random`"))
+            .with_note("the keywords that can be are `&subject`, `&pos`, `&random`, `&trace` and `&dump`"))
     elif back && !reversible(name)
         report.add(error(at, s"`&$name` cannot be assigned with `<-`")
             .with_note("only the scan keywords `&subject` and `&pos` are put back by backtracking; `&$name = e` assigns it"))
@@ -220,12 +226,16 @@ private platform_name() -> string
         Wasi -> "WASI"
         Freestanding -> "freestanding"
 
-// The `i`th thing `&features` generates: the language's, the platform, then each feature this build
+// The `i`th thing `&features` generates: the language's own, the platform, then each feature this build
 // of FunL has on; `None` past the last.
 private feature_at(i: long) -> Option[string]
     var k: long = 0
 
     if i == k then return Some("large integers")
+
+    k += 1
+
+    if i == k then return Some("co-expressions")
 
     k += 1
 
@@ -265,12 +275,4 @@ private feature(cursor: long) -> Result[Answer, Fault]
 
 // `&level`: how deep the running code is in calls -- 1 at the top level, one more in each call --
 // counted along the chain of frames that will be returned to.
-private level() -> long
-    var f = current().frame
-    var n: long = 0
-
-    while f != null
-        n += 1
-        f = f.caller
-
-    n
+private level() -> long = frame_level(current().frame)

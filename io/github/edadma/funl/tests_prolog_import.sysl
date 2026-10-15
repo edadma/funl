@@ -84,6 +84,38 @@ AN_IMPORTED_FUNL_DEFINITION_ON_A_KEY_A_PROLOG_FILE_HOLDS_IS_REFUSED()
     assert_eq(ran_prolog(text), "permission_error(modify,static_procedure,scaled/2)\nsucceeded")
 
 @test
+AN_IMPORTED_FUNL_EXPORT_ON_A_BUILTINS_KEY_IS_REFUSED_AS_A_PERMISSION_ERROR_PROLOG_CATCHES()
+    val d = scratch()
+    defer scrap(d)
+
+    // `atom_length(a)` is a FunL function of one parameter, `atom_length/2` to Prolog.
+    val clashing = put(d, "clashing.funl", "export def atom_length(a) = 7\nwrite(#loaded)\n")
+    val importer = put(d, "importer.pl", ":- import(\"clashing.funl\").\n")
+
+    // Directly, the directive is reported as an error naming the builtin.
+    val want = s"error 1:11 `atom_length/2` is a builtin predicate, and the FunL function `atom_length` at $clashing:1:12, which is `atom_length/2` to Prolog cannot define it\n"
+
+    assert_eq(prolog_complaints(s":- import(\"$clashing\").\n"), want)
+
+    // Through consult it is the permission error ISO names, which Prolog catches, and the builtin
+    // is still the builtin.
+    val text = Try + s":- try(\"$importer\").\n:- atom_length(abc, N), write(N), nl.\n"
+
+    assert_eq(ran_prolog(text), "permission_error(modify,static_procedure,atom_length/2)\n3\nsucceeded")
+
+@test
+A_FUNL_FILE_EXPORTING_A_BUILTINS_KEY_ALONGSIDE_FREE_NAMES_DEFINES_NONE_OF_THEM()
+    val d = scratch()
+    defer scrap(d)
+
+    val mixed = put(d, "mixed.funl", "export def fresh_name(n) = n\nexport def atom_length(a, b, c) = 1\nexport def length(a) = 2\n")
+    val importer = put(d, "importer.pl", ":- import(\"mixed.funl\").\n")
+    val text = Try + s":- try(\"$importer\").\n"
+
+    // `atom_length/4` is free; `length/2` is a builtin's.
+    assert_eq(ran_prolog(text), "permission_error(modify,static_procedure,length/2)\nsucceeded")
+
+@test
 AN_IMPORT_OF_A_MISSING_OR_UNREADABLE_FUNL_FILE_IS_AN_ERROR_PROLOG_CATCHES()
     val d = scratch()
     defer scrap(d)

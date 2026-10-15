@@ -297,3 +297,24 @@ BAL_FAILS_WHERE_NOTHING_IS_BALANCED_AND_OUTSIDE_A_SCAN()
 BAL_REFUSES_A_BAD_ARGUMENT()
     faults_with("bal(3, undefined, undefined, 'abc')\n", "cset")
     faults_with("bal(',', undefined, undefined, 5)\n", "string")
+
+// -- word operators and `=` ------------------------------------------------------------------------------
+
+// A word operator touching an `=` is an assigning form that does not exist, and is refused at compile
+// time rather than read as the operator applied to the scan `=s`.
+@test
+A_WORD_OPERATOR_TOUCHING_AN_EQUALS_HAS_NO_ASSIGNING_FORM()
+    val words = ["mod", "div", "and", "or", "in", "is", "to", "until"]
+
+    for w in words
+        val said = complaints(s"var x = 7\nx $w= 3\n")
+
+        assert(said.starts_with(s"error 2:3 `$w` has no assigning form\n"), said)
+
+// With a space before the `=` it is the operator applied to the scan `=s`, which stays legal.
+@test
+A_WORD_OPERATOR_BEFORE_A_SPACED_SCAN_IS_STILL_ACCEPTED()
+    val words = ["mod", "div", "and", "or", "in", "to", "until"]
+
+    for w in words
+        assert_eq(complaints(s"def f(x, s) = x $w =s\n"), "")

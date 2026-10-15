@@ -10,8 +10,8 @@ import sysl.text.Search
 // `counter(n)` makes one; its methods are `next()` (the next count, failing past the limit),
 // `limit()`, `skip(k)` and `upto(k)`, which generates 0 to k-1, or to the limit if that is lower,
 // from a fresh counter per call. `count_up(n)` generates 0 to n-1 from a fresh counter per call.
-// `released()` answers how many counters have been released, and `collect()` runs the collector
-// now. Every program runs on both heaps.
+// `released()` answers how many counters have been released, and the builtin `collect()` runs the
+// collector now. Every program runs on both heaps.
 
 // process-wide for these tests: the counter kind's id on the VM being run, and how many counters
 // have been made and released since `with_counter` last installed it.
@@ -29,7 +29,6 @@ private with_counter(text: string) -> Result[usize, string]
     register(v, "counter", 1, make_counter)
     register_stepping(v, "count_up", 1, start_count, step_count)
     register(v, "released", 0, released_count)
-    register(v, "collect", 0, collect_here)
     register_method(v, counter_kind, "next", 0, counter_next)
     register_method(v, counter_kind, "limit", 0, counter_limit)
     register_method(v, counter_kind, "skip", 1, counter_skip)
@@ -123,10 +122,6 @@ private step_count(h: *HandleObj) -> Result[Option[Value], Fault]
     Ok(Some(Int(h.n - 1)))
 
 private released_count(base: usize, argc: usize) -> Result[Value, Fault] = Ok(Int(counters_released))
-
-private collect_here(base: usize, argc: usize) -> Result[Value, Fault]
-    collect_now(current())
-    Ok(Unit)
 
 private faults_with(text: string, want: string)
     val said = counted(text)
