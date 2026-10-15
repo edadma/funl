@@ -454,17 +454,6 @@ an ordinary assignment and `&pos <- i` the reversible one**, which Icon cannot s
 position's existing trail entry is what `<-` pushes. An assignment outside a scan sets the outer
 scan environment, which a scan saves on entry and puts back on leaving.
 
-### `=s` and `bal`
-
-**Icon:** `=s` is `tab(match(s))`: it moves past `s` if the subject continues with it and produces
-`s`, reversibly. `bal(c1, c2, c3, s, i, j)` generates each position in `s[i:j]` at which a character
-of `c1` occurs with the text before it balanced in `c2` (openers) and `c3` (closers); the defaults
-are every character, `'('` and `')'`, and in a scan the subject and the position.
-
-**Proposed:** both as Icon has them. `=s` is a prefix operator compiled as `tab(match(s))`; prefix
-`=` begins nothing else in FunL. `bal` is a builtin generator beside `upto`, positions Icon's
-([decided](language.md#string-scanning)).
-
 ### Sections and indexing
 
 **Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the

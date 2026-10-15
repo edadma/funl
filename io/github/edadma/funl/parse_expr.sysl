@@ -125,6 +125,17 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             val e = parse_expr(p, BangPower)
 
             expr(BangE(e), t.span.to(e.span))
+        Equals ->
+            // `=s` is `tab(match(s))`: move past `s` if the subject goes on with it.
+            val e = parse_expr(p, BangPower)
+            val at = t.span.to(e.span)
+            var inner: Buf[&Expr] = buf()
+            var outer: Buf[&Expr] = buf()
+
+            inner.push(e)
+            outer.push(expr(CallE("match", e.span, inner), at))
+
+            expr(CallE("tab", t.span, outer), at)
         Bar ->
             val e = parse_expr(p, RepeatPower)
 
@@ -135,6 +146,11 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
             expr(YieldE(e), t.span.to(e.span))
         AwaitW ->
             // One operand, as tight as a prefix minus: `await f() + 1` adds to what `f` answered.
+            // `await = 1` is a variable named `await`, which the word forbids, not `await (=1)`.
+            if p.at_tok(Equals)
+                p.fail_here("an expression")
+                return expr(BadE, t.span)
+
             val e = parse_expr(p, NegPower)
 
             expr(AwaitE(e), t.span.to(e.span))
