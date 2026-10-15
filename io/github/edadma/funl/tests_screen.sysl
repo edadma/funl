@@ -1,10 +1,10 @@
 module io.github.edadma.funl
 @tests
 
+import sh.sysl.plutovg as pv
 #if feature_graphics
 import sysl.buf.{Buf, buf}
 import sysl.text.str_builder
-import sh.sysl.plutovg as pv
 import sh.sysl.sdl3 as sdl
 import sh.sysl.sdl3.c as sc
 #endif
@@ -149,7 +149,7 @@ WHAT_IS_SHOWN_IS_THE_CANVAS_COPIED_INTO_THE_WINDOW()
     val s = pv.surface(4, 3).expect("a surface")
 
     s.clear(1.0, 0.0, 0.0)
-    screen_show(at, s)
+    screen_show(at, s, None)
 
     val r = screens.at(at).unwrap().renderer.expect("the window has its renderer")
     val shot = r.read_pixels().expect("the renderer can be read back")
@@ -321,6 +321,140 @@ READ_WAITS_ON_A_WINDOW_ON_SCREEN_FOR_THE_KEYS_ITS_USER_TYPES()
     leave(was)
 end READ_WAITS_ON_A_WINDOW_ON_SCREEN_FOR_THE_KEYS_ITS_USER_TYPES
 
+// The colour of the window at `at` at device pixel `x`, `y`, as eight-bit `"r,g,b"`.
+private window_rgb(at: usize, x: i32, y: i32) -> string
+    val r = screens.at(at).unwrap().renderer.expect("the window has its renderer")
+    val shot = r.read_pixels().expect("the renderer can be read back")
+    val px = shot.read_pixel(x, y).expect("a pixel inside the window")
+
+    s"${px.r},${px.g},${px.b}"
+
+// The bytes of canvas surface `s`, copied.
+private bytes_of(s: &pv.Surface) -> Buf[u8]
+    val d = s.data()
+    var out: Buf[u8] = buf()
+
+    for i in 0..<usize(s.stride()) * usize(s.height())
+        out.push(d[i])
+
+    out
+
+// The window of program `text`'s canvas labelled `label` waited on as `event` and `read` wait, with
+// nothing on its queue until the wait has looked once: what the window showed at the caret's cell --
+// its top-left device pixel, the pixel above the baseline beside it, and the pixel just past it --
+// while the wait was on, and after it, and whether the canvas came out of the wait unchanged.
+private caret_seen(text: string, label: string) -> string
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+
+    assert_eq(outcome_text(run(&v, compiled_text(text).unwrap())), "succeeded", transcript(streams))
+
+    val at = shown_canvas(label).expect("the program's window is still open")
+    val c = canvas_at(at)
+    val sat = usize(c.screen)
+    val id = screen_id(sat)
+    val h = c.wins.at(0)
+    val ctx = h.vals.at(1) match
+        Int(k) -> usize(k)
+        _ -> panic("a window handle holds its context's place")
+    val w = Win(h, usize(h.n), ctx)
+    val f = face_at(context_at(w.ctx).face)
+    val x = i32(c.x)
+    val y = i32(c.y)
+    var before = bytes_of(c.surface)
+    var seen: Buf[string] = buf()
+
+    // The first look finds the queue empty; at the second the caret is up, and a key is typed.
+    waited_with_caret(w, () ->
+        seen.push(s"look ${seen.len()}")
+
+        if seen.len() == 1 then return false
+
+        seen.push(s"waiting ${window_rgb(sat, x, y)} ${window_rgb(sat, x, y - 2)} ${window_rgb(sat, x + i32(f.fwidth), y)}")
+        assert(sdl.push_event(key_event(id, 4, 0, true, 1)), "a")
+        true)
+
+    var after = bytes_of(canvas_at(at).surface)
+    var same = after.len() == before.len()
+
+    for i in 0..<before.len()
+        if same && before.at(i) != after.at(i) then same = false
+
+    seen.push(s"after ${window_rgb(sat, x, y)} ${window_rgb(sat, x, y - 2)}, canvas ${if same then "unchanged" else "changed"}")
+
+    var b = str_builder()
+
+    for i in 0..<seen.len()
+        if seen.at(i).starts_with("waiting") || seen.at(i).starts_with("after")
+            b.push(seen.at(i))
+            b.push("\n")
+
+    before.release()
+    after.release()
+    seen.release()
+    free_canvas(at)
+    dispose_vm(&v)
+    leave(was)
+    b.finish()
+end caret_seen
+
+// Icon's caret: a block at the text cursor, a character cell wide and the font's descent high under
+// the baseline, in the foreground colour, in the window only while the wait is on.
+@test
+WHILE_A_WINDOW_IS_WAITED_ON_ITS_CARET_IS_SHOWN_AND_THE_CANVAS_NEVER_HOLDS_IT()
+    assert_eq(caret_seen("import { open } from funl:graphics\nw = open( \"caret\", {size: (40, 30), fg: \"red\", bg: \"white\", cursor: true} )\nw.writes( \"ab\" )\nw.flush()\n", "caret"),
+        "waiting 255,0,0 255,255,255 255,255,255\nafter 255,255,255 255,255,255, canvas unchanged\n")
+
+@test
+WITH_CURSOR_OFF_A_WAIT_SHOWS_NO_CARET()
+    assert_eq(caret_seen("import { open } from funl:graphics\nw = open( \"plain\", {size: (40, 30), fg: \"red\", bg: \"white\"} )\nw.writes( \"ab\" )\nw.flush()\n", "plain"),
+        "waiting 255,255,255 255,255,255 255,255,255\nafter 255,255,255 255,255,255, canvas unchanged\n")
+
+// A read waiting on a window with `cursor` on reads as before, and leaves the caret neither in the
+// window nor in the canvas: the key echoed where the caret was is the only thing drawn.
+@test
+A_READ_WITH_CURSOR_ON_READS_AND_LEAVES_NO_CARET_BEHIND()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val opened = compiled_text("import { open } from funl:graphics\nw = open( \"careted\", {size: (40, 30), fg: \"red\", bg: \"white\", cursor: true, echo: false} )\nw.flush()\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, opened)), "succeeded", transcript(streams))
+
+    val at = shown_canvas("careted").expect("the program's window is still open")
+    val sat = usize(canvas_at(at).screen)
+    val id = screen_id(sat)
+    var before = bytes_of(canvas_at(at).surface)
+
+    assert(sdl.push_event(key_event(id, 11, 0, true, 1)), "h")
+    assert(sdl.push_event(key_event(id, 40, 0, true, 2)), "Return")
+
+    val reading = compiled_text("w = &window\nwrite( w.read() )\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, reading)), "succeeded", transcript(streams))
+    assert_eq(transcript(streams), "h\n")
+
+    var after = bytes_of(canvas_at(at).surface)
+    var same = true
+
+    for i in 0..<before.len()
+        if before.at(i) != after.at(i) then same = false
+
+    assert(same, "with echo off, the canvas is as it was")
+    assert_eq(window_rgb(sat, 0, 10), "255,255,255", "and the window shows no caret at the cursor")
+
+    before.release()
+    after.release()
+    free_canvas(at)
+    dispose_vm(&v)
+    leave(was)
+end A_READ_WITH_CURSOR_ON_READS_AND_LEAVES_NO_CARET_BEHIND
+
 @test
 EVENT_READS_WHAT_THE_SCREEN_QUEUED_AND_MOTION_IS_QUEUED_ONLY_UNDER_INPUTMASK_M()
     // Moving the pointer with `pointer` makes SDL report the motion, as a user's would be.
@@ -362,3 +496,57 @@ LOWER_ON_A_HIDDEN_CANVAS_ANSWERS_IT_AND_FAULTS_ONCE_CLOSED()
     assert_eq(ran_funl("import { open } from funl:graphics\nh = open( \"hid\", {canvas: #hidden} )\nwrite( h.lower(), h.lower().get(\"canvas\") )\nh.close()\nwrite( h.lower() catch e -> e )\n"),
         "<window handle>, hidden\n" +
         "error(existence_error(handle, <closed window handle>), context(_G2, \"'lower' was called on the handle <closed window handle>\"))\nsucceeded")
+
+// In every build: a canvas at 2 device pixels to the point -- as showing it in a window on a retina
+// display makes it -- still draws in points, each drawing's pen keeping the canvas's scale, so a
+// rectangle 2 points square covers 4 device pixels square. SDL's dummy driver puts every window at 1
+// pixel to the point (its one display mode has the density SDL defaults to, and it reports no window
+// size in pixels of its own), so the canvas is given the density here as a window there would give it.
+@test
+A_CANVAS_AT_DENSITY_2_DRAWS_IN_POINTS()
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val opened = compiled_text("import { open } from funl:graphics\nw = open( \"dense\", {canvas: #hidden, size: (8, 6), fg: \"black\", bg: \"white\"} )\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, opened)), "succeeded", transcript(streams))
+
+    val at = labelled("dense").expect("the program's canvas is still open")
+    var c = canvas_at(at)
+    val s = pv.surface(16, 12).expect("a surface")
+    val d = pv.canvas(s).expect("a canvas on it")
+
+    d.scale(2.0, 2.0)
+    s.clear(1.0, 1.0, 1.0)
+    c.surface = s
+    c.drawn = d
+    c.density = 2
+    canvases.set(at, Some(c))
+
+    val drawing = compiled_text("w = &window\nw.fill_rectangle( 1, 1, 2, 2 )\nwrite( w.get(\"density\"), w.get(\"size\") )\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, drawing)), "succeeded", transcript(streams))
+    assert_eq(transcript(streams), "2, (8, 6)\n")
+    assert_eq(s"${device_rgb(s, 1, 1)} ${device_rgb(s, 2, 2)} ${device_rgb(s, 5, 5)} ${device_rgb(s, 6, 6)}",
+        "255,255,255 0,0,0 0,0,0 255,255,255", "device pixels 2 to 5 are the rectangle's, 1 and 6 are not")
+
+    free_canvas(at)
+    dispose_vm(&v)
+    leave(was)
+end A_CANVAS_AT_DENSITY_2_DRAWS_IN_POINTS
+
+// The place of the open canvas labelled `label`.
+private labelled(label: string) -> Option[usize]
+    for i in 0..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.label == label then return Some(i)
+            None -> ()
+
+    None
+
+// The colour of device pixel `x`, `y` of surface `s`, as eight-bit `"r,g,b"`.
+private device_rgb(s: &pv.Surface, x: usize, y: usize) -> string
+    val d = s.data()
+    val o = y * usize(s.stride()) + 4 * x
+
+    s"${d[o + 2]},${d[o + 1]},${d[o]}"

@@ -51,6 +51,18 @@ enum ScreenNews
     // `Screen...` bits), and the milliseconds since the window's event before it.
     Input(id: u32, key: string, sym: string, x: long, y: long, mods: u8, interval: long)
 
+// The text caret a window shows while the program waits on its keys, as Icon's does: a block at `x`,
+// `y`, `w` by `h`, in the canvas's device pixels, in colour `r`, `g`, `b`. It is drawn in the window
+// only, over the canvas copied there, so the canvas itself never holds it.
+struct ScreenCaret
+    x: long
+    y: long
+    w: long
+    h: long
+    r: u8
+    g: u8
+    b: u8
+
 // The modifier bits of an `Input`.
 const ScreenControl: u8 = 1
 const ScreenMeta: u8 = 2
@@ -146,8 +158,9 @@ screen_density(at: usize) -> long
 
     if d < 1 then 1 else d
 
-// The canvas `surface` shown in the window at `at`: copied into its texture, and presented.
-screen_show(at: usize, surface: &pv.Surface)
+// The canvas `surface` shown in the window at `at`: copied into its texture, `caret` drawn over it
+// when there is one, and presented.
+screen_show(at: usize, surface: &pv.Surface, caret: Option[ScreenCaret])
     var s = screen_at(at)
 
     val r = s.renderer match
@@ -175,6 +188,19 @@ screen_show(at: usize, surface: &pv.Surface)
 
     t.update(as_ptr(surface.data()), surface.stride())
     r.copy(t)
+
+    // The texture is stretched over the whole window, so a device pixel of the canvas is
+    // `out / w` of the window's.
+    caret match
+        Some(k) ->
+            val (ow, oh) = r.output_size()
+            val sx = f32(ow) / f32(w)
+            val sy = f32(oh) / f32(h)
+
+            r.set_draw_color(sdl.Color(k.r, k.g, k.b, 255))
+            r.fill_rect(f32(k.x) * sx, f32(k.y) * sy, f32(k.w) * sx, f32(k.h) * sy)
+        None -> ()
+
     r.present()
 end screen_show
 
@@ -449,7 +475,7 @@ screen_close(at: usize) = ()
 
 screen_density(at: usize) -> long = 1
 
-screen_show(at: usize, surface: &pv.Surface) = ()
+screen_show(at: usize, surface: &pv.Surface, caret: Option[ScreenCaret]) = ()
 
 screen_title(at: usize, title: string) = ()
 

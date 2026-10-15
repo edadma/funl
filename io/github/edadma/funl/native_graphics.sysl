@@ -1274,7 +1274,7 @@ private do_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     show_screens()
 
-    if canvas_at(w.at).queue.is_empty() && on_screen(w.at) then wait_on_screens(() -> !canvas_at(w.at).queue.is_empty())
+    if canvas_at(w.at).queue.is_empty() && on_screen(w.at) then waited_with_caret(w, () -> !canvas_at(w.at).queue.is_empty())
 
     if canvas_at(w.at).queue.is_empty() then return Err(system_error(s"'event': $NothingComes"))
 

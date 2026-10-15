@@ -559,7 +559,7 @@ private read_keys(base: usize, n: long, name: string) -> Result[Option[Value], F
     show_screens()
 
     loop
-        if canvas_at(w.at).queue.is_empty() then wait_on_screens(() -> !canvas_at(w.at).queue.is_empty())
+        if canvas_at(w.at).queue.is_empty() then waited_with_caret(w, () -> !canvas_at(w.at).queue.is_empty())
 
         val ev = taken(w)
 

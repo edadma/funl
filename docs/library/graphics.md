@@ -86,7 +86,7 @@ red, 3, dashed
 | `resize` | whether the user may resize the window | `false` |
 | `pos`, `posx`, `posy` | where the window is on its display, `(x, y)`; a hidden canvas keeps it for when it is shown | `undefined` until set or shown |
 | `pointer`, `pointerx`, `pointery` | where the pointer is over the window, `(x, y)`; setting it moves the pointer; a hidden canvas has none, and setting it fails | `undefined` until known |
-| `cursor` | whether the text cursor is shown | `false` |
+| `cursor` | whether a window on screen shows a [caret](graphics-screen.md#events-from-the-screen) at the text cursor while the program waits on its keys | `false` |
 | `echo` | whether keys read as text are drawn as they are typed | `true` |
 | `inputmask` | the events reported beyond the usual: `"m"` motion with no button held, `"k"` a key's release ([events](#events)) | `""` |
 | `fg`, `bg` | a colour; `fg` may also be [transparent](#painting-styles) | `"black"`, `"white"` |

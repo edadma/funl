@@ -63,7 +63,7 @@ private take_news(ms: long)
                     None -> ()
             Exposed(id) ->
                 canvas_of_screen(id) match
-                    Some(at) -> screen_show(usize(canvas_at(at).screen), canvas_at(at).surface)
+                    Some(at) -> screen_show(usize(canvas_at(at).screen), canvas_at(at).surface, None)
                     None -> ()
             Pointed(id, x, y) ->
                 canvas_of_screen(id) match
@@ -90,10 +90,20 @@ end take_news
 // in a window is copied there and presented. Not `private`: the event loop calls it before it blocks.
 show_screens()
     take_news(0)
+    shown_with(None)
 
+// Every canvas shown in a window copied there and presented, the canvas at `caret`'s place with its
+// caret drawn over it.
+private shown_with(caret: Option[(usize, ScreenCaret)])
     for i in 0..<canvases.len()
         canvases.at(i) match
-            Some(c) -> if c.screen >= 0 && c.state != "hidden" then screen_show(usize(c.screen), c.surface)
+            Some(c) ->
+                if c.screen >= 0 && c.state != "hidden"
+                    val k = caret match
+                        Some((at, k)) -> if at == i then Some(k) else None
+                        None -> None
+
+                    screen_show(usize(c.screen), c.surface, k)
             None -> ()
 
 // Whether the canvas at `at` is shown in a window, so that its user can still put an event on its
@@ -111,6 +121,36 @@ wait_on_screens(ready: () -> bool)
     while !ready()
         take_news(100)
         show_screens()
+
+// Waited as `wait_on_screens` waits, for `ready`, by a program taking events off `w`'s queue -- `event`,
+// `read`, `reads` -- with the text caret shown in `w`'s window while it waits, when `w`'s `cursor` is
+// on, as Icon's is: a block at the text cursor, a character cell (`fwidth`) wide and the font's
+// `descent` high under the baseline, in the foreground colour. It is drawn in the window only, over
+// the canvas copied there, and put up again each time the wait looks -- a resize or an expose shows
+// the canvas afresh -- and the window is shown without it once the wait is over, so the canvas never
+// holds it and no wait that ends at once shows it at all.
+waited_with_caret(w: Win, ready: () -> bool)
+    show_screens()
+
+    if ready() then return
+
+    loop
+        val c = canvas_at(w.at)
+
+        shown_with(if c.cursor then Some((w.at, caret_of(c, context_at(w.ctx)))) else None)
+        take_news(100)
+
+        if ready() then break
+
+    show_screens()
+
+// The caret of canvas `c` under context `ctx`, in the canvas's device pixels.
+private caret_of(c: WinCanvas, ctx: WinContext) -> ScreenCaret
+    val f = face_at(ctx.face)
+    val d = c.density
+    val fg = ctx.fg_rgb
+
+    ScreenCaret(c.x * d, c.y * d, f.fwidth * d, f.descent * d, eight_bit(fg.r), eight_bit(fg.g), eight_bit(fg.b))
 
 // Whether a window on screen is still waiting to be closed by its user.
 private screens_left() -> bool

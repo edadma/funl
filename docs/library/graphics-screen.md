@@ -205,6 +205,13 @@ has come before it counts. **`read()` and `reads(n)` wait for keys the same way*
 canvases each time the queue runs dry, so each key's [echo](graphics.md#reading-from-a-window)
 appears as it is typed.
 
+**While `event()`, `read()` or `reads(n)` waits on a window whose `cursor` is on, the window shows a
+caret**, as Icon's does: a block at the [text cursor](graphics.md#the-window-as-a-terminal), a
+character cell (`fwidth`) wide and the font's `descent` high, just under the baseline, in the
+foreground colour. It is drawn in the window only, over the canvas shown there, and is gone as soon
+as the wait ends — the canvas never holds it, so `pixel` never sees it, and a wait the queue answers
+at once shows none. `cursor` is off by default.
+
 ## Density
 
 **A window is measured in points.** On a high-density display -- a retina screen -- its canvas has
