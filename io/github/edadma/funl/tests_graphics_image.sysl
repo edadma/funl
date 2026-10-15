@@ -243,10 +243,11 @@ THE_IMAGE_ATTRIBUTE_SIZES_THE_CANVAS_TO_ITS_IMAGE()
             "write( w.get('image') )\n" +
             "v = open( 'v', {canvas: #hidden, bg: 'blue', image: d + '/i.png'} )\nwrite( v.get('size'), v.get('image'), [p | p <- v.pixel(0, 0, 3, 1)] )\n" +
             "u = open( 'u', {canvas: #hidden, image: d + '/i.png', size: (4, 1)} )\nwrite( [p | p <- u.pixel()] )\n" +
-            "write( w.set({image: d + '/i.png'}).get('size'), [p | p <- w.pixel(0, 1)] )\n"),
+            "write( w.set({image: d + '/i.png'}).get('size'), [p | p <- w.pixel(0, 1)] )\n" +
+            "f = open( 'f', {canvas: #hidden, font: 'fixed,20', image: d + '/i.png'} )\nwrite( f.get('size'), f.pixel(2, 0, 1, 1) )\n"),
         "undefined\n(3, 2), " + d + "/i.png, [\"65535,0,0\", \"0,0,65535\", \"0,65535,0\"]\n" +
         "[\"65535,0,0\", \"0,0,65535\", \"0,65535,0\", \"65535,65535,65535\"]\n" +
-        "(3, 2), [\"0,0,0\", \"0,0,0\", \"0,0,0\"]\nsucceeded")
+        "(3, 2), [\"0,0,0\", \"0,0,0\", \"0,0,0\"]\n(3, 2), 0,65535,0\nsucceeded")
 
 @test
 AN_IMAGE_THAT_CANNOT_BE_READ_FAILS_OPEN_AND_SET_APPLYING_NOTHING()
