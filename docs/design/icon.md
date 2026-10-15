@@ -432,42 +432,7 @@ an ordinary assignment and `&pos <- i` the reversible one**, which Icon cannot s
 position's existing trail entry is what `<-` pushes. An assignment outside a scan sets the outer
 scan environment, which a scan saves on entry and puts back on leaving.
 
-### Sections and indexing
-
-**Icon:** `s[i]`, `s[i:j]`, `s[i+:n]` and `s[i-:n]` take characters by position, 1 before the
-first, 0 the end, negative counting back, and every one of them is assignable on a string variable.
-
-**FunL:** an element is `c(i)` counting from 0 and a slice is `c(r)` for a range — decided, one way
-to index. Every section is **covered** by a range: `s[i+:n]` is `s(i ..+ n)`, `s[i-:n]` is
-`s(i - n ..+ n)`, a tail is `s(i..)`. Position arithmetic belongs to scanning, where positions stay
-Icon's. What is not covered is **assigning to a section of a string variable**, `s[2:4] := "xy"`,
-which builds a new string and stores it.
-
-> **Open question I10 — Icon's positions in indexing.** (a) keep the decision: 0-based `c(i)`,
-> ranges for sections, no negative indexes, and add `s(r) = t` on a string variable as "store a new
-> string with that section replaced"; (b) reopen it for Icon's positions. **Recommendation: (a).**
-> Every section has a range spelling, and the 0-based rule is shared with lists, arrays, tuples and
-> Prolog's view of them. The assignable section is the one capability missing, and it fits the
-> existing `c(i) = e` on a mutable collection.
-
 ## Strings and csets
-
-### `map` and `reverse`
-
-> **Open question I11 — `map(s1, s2, s3)`.** Icon's character mapping replaces each character of
-> `s1` that occurs in `s2` with the one at the same place in `s3`, the last occurrence in `s2`
-> winning; `s2` and `s3` must be the same length. FunL's `map` already has three meanings (the
-> prelude's `map(f, xs)`, `map(c)`, `map(c, default)`), and `map` with three arguments is decided to
-> be an `existence_error`. (a) a new name, **`translate(s, from, to)`**; (b) `map/3` over strings,
-> reopening the decision. **Recommendation: (a).** A fourth meaning for `map` is one too many, and
-> `translate` is what the operation is called elsewhere.
-
-> **Open question I12 — `reverse` of a string.** P3.5 decided that the prelude's list functions
-> refuse a string "as `reverse` refuses it". (a) **`reverse(s)` is the string reversed**, by
-> characters, and P3.5's refusal stays for every other list function; (b) a separate
-> `reverse_string`. **Recommendation: (a).** P3.5 refused answering a string *as one element*;
-> a reversed string is a different, well-defined answer of the same kind, and `reverse` is the
-> name anyone reaches for.
 
 ### String comparison
 
@@ -507,19 +472,6 @@ The cset algebra is built (`+`, `-`, `**`, `complement`, `ascii`, `cset_all`; se
 |---|---|---|
 | `S1 ** S2` | `**` | new |
 | `serial(x)` | not adopted: `image` does not print serial numbers | |
-
-### Records
-
-**Icon:** `r.f := x` changes a record in place.
-
-**FunL:** a record is a compound term — the value Prolog sees and unifies — and immutable. A field
-cannot be assigned.
-
-> **Open question I15 — mutable records.** (a) keep records immutable, and add **`with(r, {f: x})`**,
-> a copy of `r` with the named fields replaced; a record whose fields change in place is a mutable
-> map, or a record holding an array; (b) mutable records, breaking the identity of a record with a
-> Prolog term. **Recommendation: (a).** A term that changes under a unification that has already
-> succeeded is the failure the logic chapter's design exists to rule out.
 
 ## Numbers
 

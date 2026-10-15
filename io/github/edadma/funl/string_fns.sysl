@@ -21,6 +21,7 @@ install_strings(v: *Vm)
     register(v, "upper", 1, (b, n) -> case_mapped(b, "upper", true))
     register(v, "lower", 1, (b, n) -> case_mapped(b, "lower", false))
     register(v, "replace", 3, do_replace)
+    register(v, "translate", 3, do_translate)
     register_generator(v, "starts_with", 2, (b, n, c) -> tested(b, "starts_with", Begins))
     register_generator(v, "ends_with", 2, (b, n, c) -> tested(b, "ends_with", Ends))
     register_generator(v, "contains", 2, (b, n, c) -> tested(b, "contains", Holds))
@@ -63,7 +64,7 @@ private skip_back(cs: *Buf[char], t: CharTest, lo: usize, hi: usize) -> usize
     k
 
 // The characters `cs[from ..< to]`.
-private spelled(cs: *Buf[char], from: usize, to: usize) -> string
+spelled(cs: *Buf[char], from: usize, to: usize) -> string
     var out = str_builder()
 
     for i in from..<to
@@ -220,6 +221,46 @@ private do_replace(base: usize, argc: usize) -> Result[Value, Fault]
     var pieces = split_at(s, old)
 
     Ok(new_str(joined(&pieces, by))?)
+
+// `s` with its characters in the other order.
+reversed_text(s: string) -> string
+    val cs = chars_in(s)
+    var out = str_builder()
+    var k = cs.len()
+
+    while k > 0
+        k -= 1
+        out.push_char(cs.at(k))
+
+    out.finish()
+
+// `translate(s, from, to)`: `s` with each character that stands in `from` made the character at the
+// same place in `to`; where `from` names a character twice, the later place wins. `from` and `to`
+// must hold the same number of characters.
+private do_translate(base: usize, argc: usize) -> Result[Value, Fault]
+    val s = text_arg(base, 0, "translate")?
+    val from = chars_in(text_arg(base, 1, "translate")?)
+    val to = chars_in(text_arg(base, 2, "translate")?)
+
+    if from.len() != to.len()
+        return Err(domain_error("equal_length_strings", arg(base, 2), "'translate' was given strings of different lengths"))
+
+    var out = str_builder()
+
+    for c in chars_of(s.bytes)
+        var mapped = c
+        var k = from.len()
+
+        while k > 0
+            k -= 1
+
+            if from.at(k) == c
+                mapped = to.at(k)
+                k = 0
+
+        out.push_char(mapped)
+
+    Ok(new_str(out.finish())?)
 
 // What a test asks of its two strings.
 private enum Test

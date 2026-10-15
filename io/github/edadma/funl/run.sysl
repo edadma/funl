@@ -490,6 +490,20 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             element_set(c, key, x, back)?
             v.stack.push(x)
             Ok(Next)
+        StoreSection(back) ->
+            val x = pop(v)?
+            val key = pop(v)?
+            val c = pop(v)?
+
+            v.stack.push(x)
+
+            section_set(c, key, x)? match
+                Some(s) -> v.stack.push(s)
+                None ->
+                    element_set(c, key, x, back)?
+                    v.stack.push(c)
+
+            Ok(Next)
         UpdateElem(o) ->
             val x = pop(v)?
             val key = pop(v)?

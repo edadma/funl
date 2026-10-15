@@ -222,6 +222,7 @@ op_label(op: Op) -> string = op match
     Op.MakeSet(_) -> "MakeSet"
     Op.MakeRecord(_, _) -> "MakeRecord"
     Op.StoreElem(_) -> "StoreElem"
+    Op.StoreSection(_) -> "StoreSection"
     Op.UpdateElem(_) -> "UpdateElem"
     Op.InPlace(_, _, _) -> "InPlace"
     Op.SwapElems -> "SwapElems"

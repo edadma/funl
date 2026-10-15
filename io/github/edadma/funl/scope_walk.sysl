@@ -444,6 +444,12 @@ walk(w: *Walk, e: &Expr)
         SetElemE(c, k, x, _) ->
             walk_two(w, c, k)
             walk(w, x)
+
+            // `s(i..j) = t` stores a new string in the variable `s`.
+            if is_section_key(k)
+                c.kind match
+                    Ref(n) -> updated(w, n, e.span)
+                    _ -> ()
         InterpE(parts) ->
             for x in parts.view()
                 walk(w, x)

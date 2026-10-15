@@ -183,6 +183,43 @@ HÉLLO WÖRLD
 STRAßE, ЖУК
 ```
 
+### Assigning to a section
+
+A string variable's section can be assigned: `s(i..j) = t` stores in `s` a new string, `s` with the
+characters the range names replaced by the string `t`, of any length. The range runs forwards one
+character at a time, and lies inside the string or starts at its end, so `s(n..<n) = t` inserts at `n`.
+`s(i..j) <- t` is the same store, put back when the expression is backtracked over. The string itself
+is never changed: another name holding it still sees the old text.
+
+```funl
+var s = 'hello world'
+t = s
+s(0..4) = 'HOWDY'
+write( s, t )
+s(5..<5) = ','
+s(7..) = 'there'
+write( s )
+write( ((s(0..0) <- 'J') & false) | s )
+```
+
+```output
+HOWDY world, hello world
+HOWDY, there
+HOWDY, there
+```
+
+A section outside the string, one that steps, a replacement that is not a string, and a `val` are
+refused:
+
+```funl
+var s = 'abc'
+s(1..5) = 'x'
+```
+
+```error
+the section is outside the string 'abc', which has 3 characters
+```
+
 ## `replace`
 
 `replace(s, old, new)` is `s` with every place `old` stands in it made `new`. The places are found
@@ -210,6 +247,49 @@ write( replace('abc', '', '-') )
 
 ```error
 'replace' was given an empty string to replace
+```
+
+## `translate`
+
+`translate(s, from, to)` is `s` with each character that stands in `from` made the character at the
+same place in `to`: Icon's `map(s1, s2, s3)`. `from` and `to` hold as many characters as each other. Where
+`from` names a character twice, the later place wins.
+
+```funl
+write( translate('hello', 'el', 'ip') )
+write( translate('abc', 'aa', 'xy') )
+write( translate('hello world', 'abcdefghijklmnopqrstuvwxyz', 'nopqrstuvwxyzabcdefghijklm') )
+```
+
+```output
+hippo
+ybc
+uryyb jbeyq
+```
+
+Strings of different lengths are refused:
+
+```funl
+write( translate('abc', 'ab', 'x') )
+```
+
+```error
+'translate' was given strings of different lengths
+```
+
+## `reverse` of a string
+
+`reverse(s)` of a string is the string with its characters in the other order. It is the one list
+function that answers a string; the others still refuse it.
+
+```funl
+write( reverse('naïve') )
+write( reverse([1, 2, 3]) )
+```
+
+```output
+evïan
+[3, 2, 1]
 ```
 
 ## `starts_with`, `ends_with` and `contains`
