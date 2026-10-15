@@ -90,6 +90,11 @@ private nud(t: Spanned[Tok], p: *Parser) -> &Expr
                 NumE(text) -> expr(NumE(s"-$text"), t.span.to(e.span))
                 _ -> expr(MinusE(e), t.span.to(e.span))
         LParen -> paren(p, t.span)
+        DotDot ->
+            // The operand is everything binding tighter than a comparison: `..1..3`, `..xs + ys`.
+            val e = parse_expr(p, 40)
+
+            expr(SpreadE(e), t.span.to(e.span))
         Not ->
             val e = parse_expr(p, NotPower)
 

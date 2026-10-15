@@ -281,3 +281,7 @@ op_label(op: Op) -> string = op match
     Op.Orphan -> "Orphan"
     Op.ArgsIn(_, _, _) -> "ArgsIn"
     Op.NoArity -> "NoArity"
+    Op.PackRest(_) -> "PackRest"
+    Op.ArgsAdd(_) -> "ArgsAdd"
+    Op.ArgsSpread -> "ArgsSpread"
+    Op.CallSpread(_) -> "CallSpread"

@@ -523,6 +523,23 @@ enum Op
     // The end of a family value: no member takes the count it was called with, a fault naming the
     // counts the family's `ArgsIn`s do take.
     NoArity
+
+    // -- variadic functions and spread calls (`variadic.sysl`) -------------------------------------
+
+    // The first instruction of a variadic function: the running frame's arguments after the first
+    // `fixed` become one list, its last argument. Fewer than `fixed` is a fault.
+    PackRest(fixed: usize)
+
+    // Pop `n` values, and add them to the end of the argument list then on top.
+    ArgsAdd(n: usize)
+
+    // Pop a list, tuple, array, buffer or range, and add its elements to the end of the argument list
+    // then on top.
+    ArgsSpread
+
+    // Pop an argument list, and call the function value beneath it with its elements, as `CallValue`
+    // does (`tail` as `TailCallValue`, and then followed by `Return`).
+    CallSpread(tail: bool)
 end Op
 
 // What an argument is keyed by in a relation's or a function's index. A head argument of any other

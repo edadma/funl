@@ -53,7 +53,8 @@ These Icon constructs have a FunL spelling now, and this chapter asks nothing ab
 | `getenv`, `system`, `exit`, `remove`, `rename`, `delay` | `funl:process`'s `env`, `run`, `exit`; `funl:fs`'s `remove`, `rename`; `funl:time`'s `sleep` | [modules](modules.md#the-first-batch) |
 | `&clock`, `&date`, `&dateline` as data | `funl:time`'s `now`, `format`, `fields` | |
 | `loadfunc`, `callout` | native modules | [modules](modules.md#built-in-modules-funlname) |
-| a call with too few arguments gets `&null`, extra ones are dropped | not adopted: a call is resolved by its count, decided; two arities or a variadic `def` (below) say it | [language](language.md#one-name-several-arities) |
+| a call with too few arguments gets `&null`, extra ones are dropped | not adopted: a call is resolved by its count, decided; two arities or a variadic `def` say it | [language](language.md#one-name-several-arities) |
+| `procedure p(a, b[])`, `p ! L`, `args(p)` | `def p(a, ..b)`, `p(..L)` anywhere among the arguments, `arity(p)` generating each count (I5, decided) | [functions](../reference/functions.md#variadic-functions) |
 | `&fail`, `&null` as values | `fail`, `undefined` | |
 
 ## Control
@@ -220,45 +221,6 @@ like any captured frame.
 > value is a closure, and its static is part of that value, so the memo table a nested helper keeps
 > is that helper's; (b) would make two closures that capture different frames share mutable state,
 > which nothing else in FunL does.
-
-### Variadic procedures and list invocation
-
-**Icon:** `procedure p(a, b[])` collects the arguments after `a` into a list `b`, empty when there
-are none. `p ! L` calls `p` with the elements of `L` as its arguments. `args(p)` is the number of
-parameters, negative for a variadic procedure.
-
-**FunL today:** a call is resolved by its count, and a builtin named as a value passes on however
-many arguments it is given — but a program can neither declare a variadic function nor call one
-with a list of arguments.
-
-**Proposed: `..rest`, the spelling FunL already has for the rest of a map pattern** (JavaScript's
-`...rest` without the third dot):
-
-```
-def log(level, ..parts) = write(level + ': ' + join(parts, ' '))
-
-log('info', 'started', 'ok')
-args = ['warn', 'disk', 'low']
-log(..args)
-```
-
-- **`..rest` as a function's last parameter** binds an immutable list of the remaining
-  arguments, as `..rest` in a map pattern binds an immutable map. It is a parameter, not a pattern
-  inside a list, so it appears only last and only once.
-- **`..e` as a call argument** spreads a list, tuple, array, buffer or range into the arguments,
-  anywhere in the argument list and any number of times. The call's count is then known only when it
-  runs, so it is resolved at run time through the family value, as a bare multi-arity name's call
-  is ([one name, several arities](language.md#one-name-several-arities)).
-- **`arity(f)`** generates the arities a function value takes, in increasing order; a variadic one's
-  is its fixed count negated, as Icon's `args` reports it (`arity(log)` is `-1`).
-
-> **Open question I5 — a variadic `def` beside name/arity.** Option C made `f/1` and `f/2` two
-> functions. (a) **`def f(a, ..rest)` is the member of `f`'s family for every count of one or more
-> that no fixed arity of `f` takes**: a call of two arguments goes to `f/2` if there is one, else to
-> the variadic; two variadic clauses with different fixed counts in one family are refused; a
-> relation cannot be variadic. (b) a variadic function is alone: no other arity of its name may be
-> defined. **Recommendation: (a).** It keeps "the nearer, more specific definition wins", which
-> Option C already uses, and lets a fixed arity be the fast case of a variadic one.
 
 ### Calling by name
 
@@ -671,7 +633,7 @@ own book, rather than part of the language.
 | I2 | a `case` expression | postfix `e match` with a clause block; no match fails; `(e)` pattern compares |
 | I3 | limitation, `\` being integer division | the infix word `e limit n` |
 | I4 | whose is a static | each closure value's |
-| I5 | a variadic `def` beside name/arity | the family member for every count no fixed arity takes |
+| I5 | a variadic `def` beside name/arity | **decided** (user, 2026-10-15): the family member for every count no fixed arity takes; built |
 | I6 | reflection by name | `proc` over top-level names and builtins; no `variable`, no string invocation |
 | I7 | co-expression spelling | Icon's `create`, `@`, `^`, `*`, `!` |
 | I8 | does `create` copy the locals | copy the innermost frame, share the rest |

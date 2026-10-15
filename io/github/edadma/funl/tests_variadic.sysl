@@ -1,0 +1,197 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.text.Search
+
+// Variadic functions, spread calls and `arity` (`variadic.sysl`, `docs/reference/functions.md`
+// § "Variadic functions"): `def f(a, ..rest)` takes every count no fixed arity of `f` takes, `f(..xs)`
+// is resolved when it runs, and `arity(f)` generates the counts a function value takes.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// Each instruction of the chunk named `name` that `wanted` names, once `text` is compiled: the names
+// in order, joined by spaces.
+private ops_in(text: string, name: string, wanted: Op -> string) -> string
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    var out = ""
+
+    compiled_text(text) match
+        Ok(_) ->
+            for ch in v.chunks.view()
+                if ch.name == name
+                    for o in ch.code.view()
+                        val w = wanted(o)
+
+                        if w != "" then out = if out == "" then w else out + " " + w
+        Err(e) -> out = s"assembly: $e"
+
+    dispose_vm(&v)
+    leave(was)
+    out
+
+private const Logger: string = "def log( level, ..parts ) = write( level + ': ' + join(parts, ' ') )\n"
+
+@test
+A_VARIADIC_FUNCTION_GATHERS_THE_ARGUMENTS_PAST_ITS_FIXED_ONES_INTO_A_LIST()
+    assert_eq(ran_funl(Logger + "log( 'info', 'started', 'ok' )\nlog( 'note' )\n"), "info: started ok\nnote: \nsucceeded")
+
+    // With no fixed parameters every count is taken, none included; the list is an ordinary list.
+    assert_eq(ran_funl("def all( ..xs ) = xs\nwrite( all(), all(1), all(1, [2], 3) )\nwrite( all(4, 5) is list, all(6).length )\n"),
+        "[], [1], [1, [2], 3]\n[4, 5], 1\nsucceeded")
+
+    // `.._` takes any count and binds nothing.
+    assert_eq(ran_funl("def first( x, .._ ) = x\nwrite( first(1), first(2, 3, 4) )\n"), "1, 2\nsucceeded")
+
+@test
+A_FIXED_ARITY_COMES_BEFORE_THE_VARIADIC_OF_ITS_NAME()
+    val text = "def f( a ) = 'one'\ndef f( a, ..rest ) = 'rest ' + rest\ndef f( a, b ) = 'two'\n" +
+        "write( f(1), f(1, 2), f(1, 2, 3), f(1, 2, 3, 4) )\n" +
+        "g = f\nwrite( g(1), g(1, 2), g(1, 2, 3) )\nwrite( map(f, [7]) )\n"
+
+    assert_eq(ran_funl(text), "one, two, rest [2, 3], rest [2, 3, 4]\none, two, rest [2, 3]\n[\"one\"]\nsucceeded")
+
+@test
+A_VARIADIC_CALL_WITH_TOO_FEW_ARGUMENTS_IS_REFUSED_OR_FAULTS()
+    val two = "def two( a, b, ..r ) = [a, b, r]\n"
+
+    assert_eq(complaints(two + "two( 1 )\n"), "error 2:1 `two` takes 2 or more arguments, and this call gives 1\n")
+    assert_eq(complaints("def f( a ) = 1\ndef f( a, b, c, ..r ) = 3\nf( 1, 2 )\n"),
+        "error 3:1 `f` takes 1 or 3 or more arguments, and this call gives 2\n")
+    assert_eq(unplaced(ran_funl(two + "t = two\nwrite( t(1) )\n")), "fault: two: 'two' takes 2 or more arguments and was given 1")
+    assert_eq(unplaced(ran_funl("def f( a ) = 1\ndef f( a, b, c, ..r ) = 3\ng = f\nwrite( g(1, 2) )\n")),
+        "fault: f: 'f' takes 1 or 3 or more arguments and was given 2")
+
+@test
+A_NAME_HAS_ONE_VARIADIC_DEFINITION()
+    assert_eq(complaints("def f( a, ..r ) = r\ndef f( a, b, ..r ) = r\n"),
+        "error 2:5 `f` is variadic here from 2 arguments and already from 1 argument\nnote 1:5 `f` is first variadic here\n")
+
+    // Clauses of one variadic definition join it, as clauses of one arity do.
+    assert_eq(ran_funl("def f( 0, ..r ) = 'zero'\ndef f( n, ..r ) = r\nwrite( f(0, 1), f(5, 1) )\n"), "zero, [1]\nsucceeded")
+
+@test
+A_REST_PARAMETER_IS_A_FUNCTION_S_LAST_AND_A_NAME()
+    assert_eq(complaints("def g( ..r, a ) = r\n"), "error 1:8 `..rest` is a function's last parameter\n")
+    assert_eq(complaints("def k( a, ..[x] ) = x\n"), "error 1:11 `..` gathers the last arguments into a name, `..rest`, and this is not a name\n")
+    assert(has(complaints("def h( [..r] ) = 1\n"), "this cannot be matched against anything"), "inside a pattern")
+    assert_eq(complaints("def rel( x, ..r ) :- x ~ 1\n"), "error 1:13 `rel` is a relation, and a relation cannot be variadic\n")
+    assert_eq(complaints("x = [..[1]]\n"),
+        "error 1:6 `..` spreads a call's arguments, `f(..xs)`, or gathers a function's last ones, `def f(a, ..rest)`\n")
+
+@test
+A_SPREAD_CALL_IS_RESOLVED_BY_THE_COUNT_IT_HAS_WHEN_IT_RUNS()
+    val text = "def f( a ) = 'one'\ndef f( a, b ) = 'two'\ndef f( a, ..rest ) = 'rest ' + rest\n" +
+        "args = [1, 2]\nwrite( f(..[1]), f(..args), f(..(1, 2, 3)), f(0, ..1..3) )\n" +
+        "write( f(..[], ..[1], 2, ..array([3])) )\n" +
+        "def sum3( x, y, z ) = x + y + z\nwrite( sum3(..[1, 2], 3), max(..[3, 9, 2]), (x -> x * 2)(..[4]) )\n" +
+        "write( [10, 20, 30](..[1]) )\n"
+
+    assert_eq(ran_funl(text), "one, two, rest [2, 3], rest [1, 2, 3]\nrest [2, 3]\n6, 9, 8\n20\nsucceeded")
+
+    // A spread argument that generates calls once for each of its values.
+    assert_eq(ran_funl("def two( a, b, ..r ) = [a, b, r]\nevery write( two(1, ..([2] | [3, 4]), 9) )\n"),
+        "[1, 2, [9]]\n[1, 3, [4, 9]]\nsucceeded")
+
+@test
+A_SPREAD_CALL_FAULTS_ON_A_COUNT_NONE_TAKES_AND_ON_WHAT_IS_NOT_A_SEQUENCE()
+    val two = "def two( a, b, ..r ) = [a, b, r]\n"
+
+    assert_eq(ran_funl(two + "write( two(..[1]) catch error(e, _) -> e )\n"), "existence_error(procedure, /(two, 1))\nsucceeded")
+    assert_eq(ran_funl("def f( a ) = a\nwrite( f(..[1, 2]) catch error(e, _) -> e )\n"), "existence_error(procedure, /(f, 2))\nsucceeded")
+    assert_eq(ran_funl(two + "write( two(..5) catch error(e, _) -> e )\nwrite( two(..{1, 2}) catch error(e, _) -> e )\n"),
+        "type_error(list, 5)\ntype_error(list, {1, 2})\nsucceeded")
+    assert_eq(ran_funl(two + "write( two(..(1..)) catch error(e, _) -> e )\nfree u\nwrite( two(..u) catch error(e, _) -> e )\n"),
+        "domain_error(finite, 1..)\ninstantiation_error\nsucceeded")
+    assert(has(unplaced(ran_funl(two + "write( two(..5) )\n")), "`..` spreads a list, a tuple, an array, a buffer or a range into a call's arguments, and was given the integer 5"), "message")
+
+@test
+A_SPREAD_CALL_OF_A_RELATION_IS_REFUSED_AS_ITS_VALUE_IS()
+    assert(has(complaints("def r( x ) :- x ~ 1\nfree y\nr( ..[y] )\n"), "`r`"), "relation")
+
+@test
+ARITY_GENERATES_THE_COUNTS_A_FUNCTION_VALUE_TAKES()
+    val text = Logger + "def f( a ) = 1\ndef f( a, b ) = 2\ndef f( a, ..r ) = 3\ndata point = pt( x ) | pt( x, y )\n" +
+        "every write( arity(f) )\nwrite( arity(log), arity(write), arity(x -> x), arity(max), arity(abs) )\n" +
+        "every write( arity(pt) )\nwrite( arity(5) catch error(e, _) -> e )\n"
+
+    assert_eq(ran_funl(text), "-2\n1\n2\n-2, -1, 1, -1, 1\n1\n2\ntype_error(callable, 5)\nsucceeded")
+
+@test
+A_NESTED_DEF_AND_A_LAMBDA_MAY_BE_VARIADIC()
+    val text = "def outer( n ) =\n    def inner( a, ..r ) = a + r.length\n    def inner( a ) = a * 100\n    [inner(n), inner(n, 0, 0), map(inner, [1])]\n" +
+        "write( outer(5) )\nh = (a, ..r) -> [a, r]\nwrite( h(1), h(1, 2, 3) )\n"
+
+    assert_eq(ran_funl(text), "[500, 7, [100]]\n[1, []], [1, [2, 3]]\nsucceeded")
+    assert_eq(unplaced(ran_funl("h = (a, ..r) -> a\nwrite( h() )\n")), "fault: lambda: 'lambda' takes 1 or more arguments and was given 0")
+
+@test
+A_VARIADIC_FUNCTION_IS_INDEXED_AND_RECURSES_THROUGH_SPREAD()
+    val text = "def kind( 0, ..r ) = 'zero'\ndef kind( 1, ..r ) = 'one'\ndef kind( n, ..r ) = 'many ' + r\n" +
+        "write( kind(0), kind(1, 2), kind(7, 8, 9) )\n" +
+        "def total( ..xs ) = if xs == [] then 0 else head(xs) + total(..tail(xs))\nwrite( total(1, 2, 3, 4) )\n"
+
+    assert_eq(ran_funl(text), "zero, one, many [8, 9]\n10\nsucceeded")
+
+    // The rest is packed before any clause looks, and the clauses are switched on the first argument.
+    val shown = ops_in(text, "kind", o -> o match
+        PackRest(_) -> "PackRest"
+        SwitchClause(_, _, _, _) -> "SwitchClause"
+        _ -> "")
+
+    assert_eq(shown, "PackRest SwitchClause")
+
+@test
+A_PROGRAM_S_VARIADIC_TAKES_THE_COUNTS_IT_COVERS_FROM_A_BUILTIN()
+    // `abs/1` is the builtin's, until the program's variadic covers the count.
+    assert_eq(ran_funl("def abs( x, y, ..r ) = 'mine'\nwrite( abs(-3), abs(1, 2), abs(1, 2, 3) )\n"), "3, mine, mine\nsucceeded")
+    assert_eq(ran_funl("def abs( ..r ) = 'mine'\nwrite( abs(-3) )\n"), "mine\nsucceeded")
+
+    // A builtin that takes any count stays for the counts the program leaves it, through a value too.
+    assert_eq(ran_funl("def max( a, b, c, d, e, f, g ) = 0\nm = max\nwrite( max(1, 7), m(1, 7), m(1, 2, 3, 4, 5, 6, 7) )\n"), "7, 7, 0\nsucceeded")
+
+@test
+IN_A_GOAL_A_VARIADIC_FUNCTION_IS_CALLED_AS_A_FUNCTION()
+    // A variadic function has no Prolog key, so a goal's call of it is never the relation of one
+    // more argument: `pick(y, 2)` passes both to `pick`, which gives each, where the relation reading
+    // would unify `y` with `pick(2)` once.
+    val text = "def pick( ..xs ) = !xs\ndef r( x ) :- x ~ pick( 7, 8 )\ndef q( y ) :- y ~ 1 & pick( y, 2 )\nfree y\n" +
+        "every r( y ) do write( y )\nwrite( findall(y, q(y)) )\n"
+
+    assert_eq(ran_funl(text), "7\n8\n[1, 1]\nsucceeded")
+
+@test
+A_VARIADIC_FUNCTION_IS_EXPORTED_AND_IMPORTED_AND_PROLOG_DOES_NOT_SEE_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    val m = put(d, "say.funl", "export def say( x ) = 'one ' + x\nexport def say( x, ..r ) = 'more ' + r\n")
+
+    val text = s"import { say } from \"$m\"\nimport * as s from \"$m\"\n" +
+        "write( say(1), say(1, 2), s.say(1, 2, 3), s.say(..[4, 5]) )\nv = say\nwrite( v(1), v(1, 2) )\nevery write( arity(say) )\n"
+
+    assert_eq(ran_funl(text), "one 1, more [2], more [2, 3], more [5]\none 1, more [2]\n-2\n1\nsucceeded")
+
+    // Prolog sees `say/2`, the fixed arity's key, and no predicate for the variadic.
+    assert_eq(ran_prolog(s":- import(\"$m\").\n:- say(1, X), write(X), nl.\n:- catch(say(1, 2, X), error(E, _), (write(E), nl)).\n"),
+        "one 1\nexistence_error(procedure,say/3)\nsucceeded")
+
+@test
+A_SETTLED_VARIADIC_IS_CALLED_WITHOUT_A_MARK_AND_A_SPREAD_CALL_KEEPS_ONE()
+    val text = "def count( a, ..xs ) = a * 2\ndef run()\n  count( 1, 2 )\n  count( ..[3] )\n  write( count(4, 5, 6) )\n\nrun()\n"
+
+    assert_eq(ran_funl(text), "8\nsucceeded")
+
+    val marks = ops_in(text, "run", o -> o match
+        Mark(_) -> "Mark"
+        _ -> "")
+
+    assert_eq(marks, "Mark")
+
+// The variadic logger of Icon's `procedure log(level, parts[])`, called with a list as `log ! L`.
+@test
+AN_ICON_VARIADIC_LOGGER_TRANSLATES_AND_PRINTS_WHAT_ICON_PRINTS()
+    val text = "def log( level, ..parts )\n  var line = level + ':'\n  for p <- parts do line += ' ' + p\n  write( line )\n" +
+        "log( 'info', 'started' )\nlog( 'warn' )\nl = ['error', 'disk', 'full']\nlog( ..l )\nwrite( arity(log) )\n"
+
+    assert_eq(ran_funl(text), "info: started\nwarn:\nerror: disk full\n-2\nsucceeded")

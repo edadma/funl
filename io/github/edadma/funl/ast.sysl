@@ -223,6 +223,10 @@ enum ExprKind
     // matches at the scan position, and its value is the text it matched.
     RegexE(pat: &Pat, groups: usize)
 
+    // `..e`: as a call's argument, the elements of `e` spread into the arguments; as a function's last
+    // parameter, `..rest`, the list of every argument after the others. Nowhere else.
+    SpreadE(e: &Expr)
+
     // What a parse error leaves in the tree, so the tree keeps its shape and parsing goes on.
     BadE
 end ExprKind

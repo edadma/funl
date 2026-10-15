@@ -32,6 +32,10 @@ enum ExportKind
     ExFunction(chunk: usize, arity: usize)
     ExRelation(chunk: usize, arity: usize)
 
+    // A variadic function, `arity` counting its `..rest`: FunL's only, since Prolog has no key for
+    // it (`variadic.sysl`).
+    ExVariadic(chunk: usize, arity: usize)
+
     // A `val` or a `var`: the slot of the module's frame its snapshot is kept in.
     ExValue(slot: usize)
 
@@ -525,16 +529,17 @@ private free_to_import(res: *Resolved, n: string, at: Span, file: string, report
 // one of the file's own. A type's name is no value; `bind_imports` records it for `is`.
 private export_meaning(res: *Resolved, md: FunlModule, x: ModExport) -> Option[Meaning]
     x.kind match
-        ExFunction(chunk, arity) -> Some(Function(foreign_rel(res, x.name, arity, chunk, true), md.up))
-        ExRelation(chunk, arity) -> Some(Relation(foreign_rel(res, x.name, arity, chunk, false)))
+        ExFunction(chunk, arity) -> Some(Function(foreign_rel(res, x.name, arity, chunk, true, false), md.up))
+        ExVariadic(chunk, arity) -> Some(Function(foreign_rel(res, x.name, arity, chunk, true, true), md.up))
+        ExRelation(chunk, arity) -> Some(Relation(foreign_rel(res, x.name, arity, chunk, false, false)))
         ExValue(slot) -> Some(Local(md.up, slot, true))
         ExCtor(id, _) -> Some(Constructor(id))
         ExNative(id) -> Some(Builtin(id))
         ExType(_) -> None
 
 // A definition another file compiled: no clauses, so nothing resolves or compiles it again.
-private foreign_rel(res: *Resolved, name: string, arity: usize, chunk: usize, function: bool) -> usize
-    res.rels.push(Rel(name, arity, buf(), chunk, function, NoScope, 0, buf()))
+private foreign_rel(res: *Resolved, name: string, arity: usize, chunk: usize, function: bool, variadic: bool) -> usize
+    res.rels.push(Rel(name, arity, buf(), chunk, function, NoScope, 0, buf(), variadic))
     res.rels.len() - 1
 
 // When `g.name` is a qualified name -- `g` a module `import * as` brought in, `gm` what `g` means
@@ -643,7 +648,9 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
                     val r = res.rels.at(i)
                     val at = located(res.src, r.clauses.at(0).head.start)
 
-                    if r.function
+                    if r.variadic
+                        out.exports.push(ModExport(n, ExVariadic(r.chunk, r.arity), s"the variadic FunL function `$n` at $at"))
+                    elif r.function
                         out.exports.push(ModExport(n, ExFunction(r.chunk, r.arity), s"the FunL function `$n` at $at, which is `${pred_key(n, r.arity + 1)}` to Prolog"))
                     else
                         out.exports.push(ModExport(n, ExRelation(r.chunk, r.arity), s"the FunL relation `$n` at $at"))

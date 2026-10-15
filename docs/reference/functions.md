@@ -363,6 +363,141 @@ pt(3), pt(3, 4)
 [pt(1), pt(2)]
 ```
 
+## Variadic functions
+
+A function whose last parameter is written `..rest` takes any number of arguments from its other
+parameters' count up; `rest` is the list of the ones past them, empty when there are none:
+
+```funl
+def log( level, ..parts ) = write( level + ': ' + join(parts, ' ') )
+
+log( 'info', 'started', 'ok' )
+log( 'warn', 'disk' )
+```
+
+```output
+info: started ok
+warn: disk
+```
+
+`..rest` is a parameter, not a pattern: it comes last, once, and is a name (or `_`). The list it
+binds is taken apart in the body.
+
+```funl
+def g( ..xs, last ) = last
+```
+
+```error
+`..rest` is a function's last parameter
+```
+
+A variadic function is one more member of its name's family, **for every count no fixed arity of
+the name takes**: a call of two arguments reaches `f/2` when there is one, and the variadic
+otherwise. A fixed arity is the fast case of a variadic one.
+
+```funl
+def f( a )          = 'one'
+def f( a, b )       = 'two'
+def f( a, ..rest )  = 'rest ' + rest
+
+write( f(1), f(1, 2), f(1, 2, 3) )
+
+g = f
+write( g(1), g(1, 2, 3, 4) )
+```
+
+```output
+one, two, rest [2, 3]
+one, rest [2, 3, 4]
+```
+
+A name has one variadic definition, and a relation has none: a relation takes a list argument.
+
+```funl
+def f( a, ..r )    = r
+def f( a, b, ..r ) = r
+```
+
+```error
+`f` is variadic here from 2 arguments and already from 1 argument
+```
+
+A call with fewer arguments than the fixed ones is refused, or, through a value, faults:
+
+```funl
+def two( a, b, ..rest ) = [a, b, rest]
+
+write( two(1) )
+```
+
+```error
+`two` takes 2 or more arguments, and this call gives 1
+```
+
+A variadic function is FunL's only. Prolog's predicates have one arity each, so it has no Prolog
+key: a function `f` of `n` parameters beside it is still `f/(n+1)` to Prolog, and the variadic is
+not seen there. In a goal it is called as the function it is, never as the relation of one more
+argument.
+
+### Spreading arguments: `f(..xs)`
+
+`..e` among a call's arguments spreads the elements of a list, a tuple, an array, a buffer or a range
+into them — anywhere in the arguments, and any number of times. The call's count is then known only
+when it runs, so it is made through the function's value, which picks the arity then:
+
+```funl
+def f( a )          = 'one'
+def f( a, b )       = 'two'
+def f( a, ..rest )  = 'rest ' + rest
+
+args = [1, 2]
+write( f(..args), f(..[1]), f(0, ..1..3) )
+write( max(..[3, 9, 2]), (x -> x * 2)(..[4]) )
+```
+
+```output
+two, one, rest [1, 2, 3]
+9, 8
+```
+
+A count no arity takes is a fault when the call is made, and so is spreading anything that is not a
+sequence:
+
+```funl
+def f( a ) = a
+
+write( f(..[1, 2]) catch error(e, _) -> e )
+write( f(..5) catch error(e, _) -> e )
+```
+
+```output
+existence_error(procedure, /(f, 2))
+type_error(list, 5)
+```
+
+`..` is nowhere else: `[..xs]` is refused; `xs + ys` joins two lists.
+
+### `arity`
+
+`arity(f)` generates the counts a function value takes, in increasing order. A variadic member's is
+its number of parameters, `..rest` counted, negated — as Icon's `args` reports it:
+
+```funl
+def f( a )          = 'one'
+def f( a, b )       = 'two'
+def f( a, ..rest )  = 'rest ' + rest
+
+every write( arity(f) )
+write( arity(x -> x), arity(write) )
+```
+
+```output
+-2
+1
+2
+1, -1
+```
+
 ## Patterns
 
 Every parameter is a pattern. A pattern may be a literal, a variable, `_` (which matches anything

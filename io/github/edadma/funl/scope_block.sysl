@@ -211,7 +211,7 @@ written_in_block(w: *Walk, clauses: Buf[Clause])
                 for i in rs.view()
                     var r = w.res.rels.at(i)
 
-                    if r.arity == c.params.len()
+                    if joins(r, c)
                         r.outer_block = w.blk
                         w.res.rels.set(i, r)
             None -> ()

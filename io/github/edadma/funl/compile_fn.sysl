@@ -40,10 +40,14 @@ import sysl.buf.{Buf, buf}
 // so the others are never attempted. Clause `i` begins at `starts.at(i)`; its head, after its
 // `FrameHead` or `Mark; Frame`, at `afters.at(i)`; `starts.at(n)` is the `NoMatch`.
 compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
-    var e = emit_function(r.name, r.arity)
+    var e = emit_function(r.name, if r.variadic then AnyArity else r.arity)
     var heads: Buf[ClauseHead] = buf()
 
     e.is_async = is_async_rel(r)
+
+    // A variadic function takes any count, and its last parameter is the list of the arguments past
+    // its fixed ones, made before any clause looks (`variadic.sysl`).
+    if r.variadic then e.op(PackRest(r.arity - 1))
 
     for i in 0..<r.clauses.len()
         val cl = r.clauses.at(i)

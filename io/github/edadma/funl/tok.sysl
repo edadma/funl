@@ -442,6 +442,7 @@ starts_expr(t: Tok) -> bool
         If -> true
         Not -> true
         LParen -> true
+        DotDot -> true
         ReturnW -> true
         FailW -> true
         TrueW -> true

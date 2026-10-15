@@ -359,6 +359,7 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         UndefE -> e.op(PushConst(e.constant(Undefined)))
         MapE(keys, vals) -> compile_map(e, c, keys, vals)?
         MapRestE(_, _, _) -> return Err("a map pattern's `..` the resolver refused reached the compiler")
+        SpreadE(_) -> return Err("a `..` outside a call's arguments, which the resolver refused, reached the compiler")
         SetE(items) -> compile_set(e, c, items)?
         SetElemE(coll, k, a, back) -> compile_store(e, c, coll, k, a, back)?
         UpdateElemE(coll, k, o, a) -> compile_update(e, c, coll, k, o, a)?
@@ -382,6 +383,10 @@ end compile_value
 // after, so a handle's method is found by name when it is called, and any other `x` has its field
 // read before the arguments are made, as `Field` then `CallValue` would.
 apply(e: *Emit, c: Ctx, f: &Expr, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    if has_spread(args)
+        compile_value(e, c, f)?
+        return spread_call(e, c, args, tail)
+
     // `m.f(args)`, `m` a module: a call of what the module exports as `f`, made directly.
     qualified_callee(c, f) match
         Some(m) -> return call_meaning(e, c, c.res.picked(f.span.start, callee_name(f), m, args.len()), callee_name(f), args, tail)
@@ -483,8 +488,24 @@ private store_to(c: Ctx, n: string, pos: usize) -> Result[Op, string]
 
 // `name(args)`, the name written at offset `pos`: a call of whatever the name means. In tail
 // position (`tail`) a call that can reuse the frame is a tail call, and every path ends in `Return`.
-call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string] =
+//
+// **A spread call, `f(..xs)`, is a call of `f`'s value** with the arguments counted when it runs
+// (`variadic.sysl`).
+call_named(e: *Emit, c: Ctx, n: string, pos: usize, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    if has_spread(args)
+        push_meaning(e, c, c.meaning(n, pos), n)?
+        return spread_call(e, c, args, tail)
+
     call_meaning(e, c, c.res.picked(pos, n, c.meaning(n, pos), args.len()), n, args, tail)
+
+// The arguments of a spread call and the call, its callee's value already pushed.
+private spread_call(e: *Emit, c: Ctx, args: Buf[&Expr], tail: bool) -> Result[unit, string]
+    spread_args(e, c, args)?
+    e.op(CallSpread(tail))
+
+    if tail then e.op(Return)
+
+    Ok(())
 
 // The same, of a name `n` that means `m`: a name of the file's own, or one a module exports.
 call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bool) -> Result[unit, string]
@@ -515,7 +536,7 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
         Function(r, up) ->
             val rel = c.res.rels.at(r)
 
-            if args.len() == rel.arity + 1
+            if !rel.variadic && args.len() == rel.arity + 1
                 function_as_relation(e, c, rel.chunk, up, args)?
 
                 if tail then e.op(Return)

@@ -340,7 +340,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             call_fn(v, target, argc, up)?
             Ok(Next)
         TailCallFn(target, argc, up) ->
-            tail_call_fn(v, target, argc, up)?
+            tail_call_fn(v, target, passed(v, argc), up)?
             Ok(Next)
         CallValue(argc) ->
             Ok(fails_if(call_value(v, argc, false)?))
@@ -638,6 +638,16 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             Ok(Next)
         NoArity -> Err(no_arity(v))
+        PackRest(fixed) ->
+            pack_rest(v, fixed)?
+            Ok(Next)
+        ArgsAdd(n) ->
+            args_add(v, n)?
+            Ok(Next)
+        ArgsSpread ->
+            args_spread(v)?
+            Ok(Next)
+        CallSpread(tail) -> Ok(fails_if(call_spread(v, tail)?))
 end execute
 
 // The error a call of a predicate never defined raises, or `None` when the `unknown` flag says it
