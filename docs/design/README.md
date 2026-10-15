@@ -38,6 +38,7 @@ Read them in order; each leans on the one before it.
 | [The sysl implementation](implementation.md) | the repository and module layout, the parser, the collector and its roots, what is reused and what is written fresh, and how it is tested |
 | [Modules and native modules](modules.md) | modules and `import` as slate has them, `funl:` modules over sysl packages, features, values that cross, the first batch, and `async`/`await` |
 | [Packages](packages.md) | the manifest, specifiers and what they resolve to, exact versions and `funl.sum`, the cache and `vendor/`, offline use, `funl add`, and what a package can and cannot bring |
+| [Icon parity](icon.md) | everything Icon 9.5 has that FunL lacks — `until`, `case`, limitation, `static`, variadic calls, co-expressions, scanning keywords, the string, cset, structure, number and I/O functions, keywords, the preprocessor — what is covered already, and how each new piece runs on the machine |
 | [Milestones](milestones.md) | the order the work is done in, and what proves each step |
 
 ## Conventions on these pages
@@ -134,9 +135,32 @@ Each is argued where it arises; this is the list.
 | M5 Does `~` unify two immutable maps by content? | yes, same keys then values unified; an unbound key fails, never raises; a mutable map stays opaque (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M6 Braces: block lambdas, sets, maps, map patterns | no block lambda; `{x:xs -> x}` stays the map reading and gains a note; a lambda over a map pattern needs nothing new; no set patterns, no key punning (user, 2026-10-09) | [language](language.md#map-patterns) |
 | M7 `..m` spread in an expression? | not now: refused in expressions, naming the pattern form (user, 2026-10-09) | [language](language.md#map-patterns) |
+| Does FunL aim at everything Icon 9.5 has? | yes, parity of capability, not of spelling; what reopens a decision is asked as I1–I21 (user, 2026-10-14) | [icon](icon.md) |
 
 ## Open questions
 
 Each has a recommendation in its chapter; the user decides them before the milestone that needs them.
 
-None is open.
+| question | recommendation | where |
+|---|---|---|
+| I1 The loop `until` beside the range `until` | both, by position: prefix is the loop, infix the range | [icon](icon.md#until) |
+| I2 A `case` expression | postfix `e match` over a clause block; no match fails; `(e)` in a pattern compares with `e`'s value | [icon](icon.md#case) |
+| I3 Limitation, `\` being integer division (decided) | the infix word `e limit n`; `\` stays division | [icon](icon.md#limitation) |
+| I4 Whose is a `static`: the definition's or each closure's? | each closure value's | [icon](icon.md#static-and-initial) |
+| I5 A variadic `def f(a, ..rest)` beside name/arity | the family member for every count no fixed arity takes; one variadic per family | [icon](icon.md#variadic-procedures-and-list-invocation) |
+| I6 Reflection by name | `proc(name)` over top-level names and builtins; no `variable`/`name`, no string invocation | [icon](icon.md#calling-by-name) |
+| I7 Co-expression spelling | Icon's `create`, `@c`, `v @ c`, `^c`, `*c`, `!c` | [icon](icon.md#co-expressions) |
+| I8 Does `create` copy the locals? | copy the innermost frame, share the frames outside it | [icon](icon.md#co-expressions) |
+| I9 Logic variables inside a co-expression | bind as its task may, trailed on the co-expression's own trail | [icon](icon.md#co-expressions) |
+| I10 Icon's positions in indexing (decided: one way, 0-based) | keep the decision; add assignment to a section of a string variable | [icon](icon.md#sections-and-indexing) |
+| I11 `map(s1, s2, s3)` (decided: `map/3` is an existence error) | `translate(s, from, to)` | [icon](icon.md#the-functions) |
+| I12 `reverse` of a string (P3.5) | `reverse(s)` reverses it; P3.5 stands for the rest | [icon](icon.md#the-functions) |
+| I13 Icon's string comparison operators | none; polymorphic comparison covers them | [icon](icon.md#string-comparison) |
+| I14 Icon's implicit conversion | none; a function per conversion | [icon](icon.md#string-comparison) |
+| I15 Mutable records (decided: a record is a term) | keep immutable; add `with(r, {f: x})` | [icon](icon.md#records) |
+| I16 Radix literals `16rFF` (decided: juxtaposition) | none; `0x`/`0o`/`0b` unlimited, `integer("16rFF")` | [icon](icon.md#bits-radix-and-conversion) |
+| I17 Writing to a file | handle methods, `f.write(x)`; `write` stays "print these" | [icon](icon.md#input-and-output) |
+| I18 How keywords are spelled | `&name`, one token when `&` touches a letter | [icon](icon.md#keywords) |
+| I19 `&error` and `runerr` (decided: `catch`) | nothing more; `catch` and `throw` cover them | [icon](icon.md#errors) |
+| I20 A preprocessor | conditional compilation on platform and features only | [icon](icon.md#the-preprocessor) |
+| I21 Icon's graphics facilities | out of parity's scope; a later native module | [icon](icon.md#graphics) |
