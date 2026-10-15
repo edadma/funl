@@ -44,7 +44,7 @@ compile_interp(e: *Emit, c: Ctx, parts: Buf[&Expr]) -> Result[unit, string]
 // An element written: the collection, the key, the value, and the store.
 compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, x: &Expr, back: bool) -> Result[unit, string]
     compile_value(e, c, coll)?
-    compile_value(e, c, key)?
+    compile_key(e, c, key)?
     compile_value(e, c, x)?
     e.op(StoreElem(back))
     Ok(())
@@ -52,10 +52,21 @@ compile_store(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, x: &Expr, back: bool) -
 // An element updated through an operator: the collection, the key, the operand, and the update.
 compile_update(e: *Emit, c: Ctx, coll: &Expr, key: &Expr, o: BinOp, x: &Expr) -> Result[unit, string]
     compile_value(e, c, coll)?
-    compile_value(e, c, key)?
+    compile_key(e, c, key)?
     compile_value(e, c, x)?
     e.op(UpdateElem(o))
     Ok(())
+
+// The key of an element, the collection already pushed. A random one (`?c`) is chosen from the
+// collection under it, which stays for the store.
+private compile_key(e: *Emit, c: Ctx, key: &Expr) -> Result[unit, string]
+    key.kind match
+        RandKeyE ->
+            e.op(Dup)
+            e.op(PushInt(0))
+            e.op(NativeGen(native_id("$random_key").unwrap(), 1))
+            Ok(())
+        _ -> compile_value(e, c, key)
 
 // `swap(a, b)`: both elements' collections and keys, then the exchange.
 compile_swap(e: *Emit, c: Ctx, args: Buf[&Expr]) -> Result[unit, string]

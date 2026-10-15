@@ -119,10 +119,10 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
                 out.extend(s.items.view())
                 return Ok(())
             Array(a) ->
-                out.extend(a.items.view())
+                out.extend(a.view())
                 return Ok(())
             Buffer(a) ->
-                out.extend(a.items.view())
+                out.extend(a.view())
                 return Ok(())
             Bytes(p) ->
                 for b in p.b.view()
@@ -137,13 +137,16 @@ elements(x: Value, what: string, out: *Buf[Value]) -> Result[unit, Fault]
 endless(r: Value, msg: string) -> Fault = domain_error("finite", r, msg)
 
 // The list of `items` in order, ending in `tail`.
-list_of(items: *Buf[Value], tail: Value) -> Result[Value, string]
+list_of(items: *Buf[Value], tail: Value) -> Result[Value, string] = list_of_values(items.view(), tail)
+
+// The list of the values `items` in order, ending in `tail`.
+list_of_values(items: []const Value, tail: Value) -> Result[Value, string]
     var out = tail
-    var i = items.len()
+    var i = items.len
 
     while i > 0
         i -= 1
-        out = new_cons(items.at(i), out)?
+        out = new_cons(items[i], out)?
 
     Ok(out)
 
@@ -225,12 +228,12 @@ member(x: Value, c: Value) -> Result[bool, Fault]
                 if r.step < 0 && n > r.from then return Ok(false)
 
                 return Ok((n - r.from) % r.step == 0)
-            Tuple(t) -> return within(x, t.items)
+            Tuple(t) -> return within(x, t.items.view())
             Unit -> return Ok(false)
-            Set(s) -> return within(x, s.items)
-            MutSet(s) -> return within(x, s.items)
-            Array(a) -> return within(x, a.items)
-            Buffer(a) -> return within(x, a.items)
+            Set(s) -> return within(x, s.items.view())
+            MutSet(s) -> return within(x, s.items.view())
+            Array(a) -> return within(x, a.view())
+            Buffer(a) -> return within(x, a.view())
             Map(m) -> return Ok(map_find(m, x)?.is_some())
             CSet(p) -> return cset_member(x, p.set)
             MutMap(m) -> return Ok(map_find(m, x)?.is_some())
@@ -250,8 +253,8 @@ member(x: Value, c: Value) -> Result[bool, Fault]
 
                 return Err(type_error("collection", y, msg))
 
-private within(x: Value, items: Buf[Value]) -> Result[bool, Fault]
-    for y in items.view()
+private within(x: Value, items: []const Value) -> Result[bool, Fault]
+    for y in items
         if equal_values(x, y, "in")? then return Ok(true)
 
     Ok(false)
@@ -387,8 +390,8 @@ private sliced(x: Value, first: long, count: long, step: long) -> Result[Value, 
 
             Ok(Tuple(o))
         Unit -> Ok(Unit)
-        Array(a) -> Ok(Array(picked(&a.items, first, count, step)?))
-        Buffer(a) -> Ok(Buffer(picked(&a.items, first, count, step)?))
+        Array(a) -> Ok(Array(picked(a, first, count, step)?))
+        Buffer(a) -> Ok(Buffer(picked(a, first, count, step)?))
         _ ->
             var items: Buf[Value] = buf()
 
@@ -402,12 +405,12 @@ private sliced(x: Value, first: long, count: long, step: long) -> Result[Value, 
             Ok(list_of(&out, Nil)?)
 end sliced
 
-// A new array of the `count` elements of `items` from index `first`, `step` apart.
-private picked(items: *Buf[Value], first: long, count: long, step: long) -> Result[*ArrayObj, string]
+// A new array of the `count` elements of `a` from index `first`, `step` apart.
+private picked(a: *ArrayObj, first: long, count: long, step: long) -> Result[*ArrayObj, string]
     val o = new_array(usize(count))?
 
     for k in 0..<count
-        o.items.set(usize(k), items.at(usize(first + k * step)))
+        o.set(usize(k), a.at(usize(first + k * step)))
 
     Ok(o)
 
@@ -481,8 +484,8 @@ length_of(x: Value) -> Result[long, Fault]
         Unit -> Ok(0)
         Set(s) -> Ok(long(s.items.len()))
         MutSet(s) -> Ok(long(s.items.len()))
-        Array(a) -> Ok(long(a.items.len()))
-        Buffer(a) -> Ok(long(a.items.len()))
+        Array(a) -> Ok(long(a.len()))
+        Buffer(a) -> Ok(long(a.len()))
         Map(m) -> Ok(long(m.keys.len()))
         MutMap(m) -> Ok(long(m.keys.len()))
         Compound(p) -> Ok(long(p.args.len()))
@@ -569,7 +572,7 @@ collected(v: *Vm, slot: usize, set: bool) -> Result[unit, Fault]
 
 // Add `x` to set `s` unless it holds an equal value already.
 set_add(s: *SetObj, x: Value) -> Result[unit, Fault]
-    if within(x, s.items)? then return Ok(())
+    if within(x, s.items.view())? then return Ok(())
 
     s.items.push(x)
     current().allocated += sizeof(Value)
@@ -580,7 +583,7 @@ same_set(p: *SetObj, q: *SetObj) -> Result[bool, Fault]
     if p.items.len() != q.items.len() then return Ok(false)
 
     for x in p.items.view()
-        if !within(x, q.items)? then return Ok(false)
+        if !within(x, q.items.view())? then return Ok(false)
 
     Ok(true)
 

@@ -53,8 +53,7 @@ private pl_directive_raised(base: usize, argc: usize) -> Result[Value, Fault]
     val v = current()
 
     // A line `write/1` has begun is the warning's start, as it is the failed directive's.
-    v.output.push(v.line + s"Warning: $what raised $said: $text")
-    v.line = ""
+    put_out(v, s"Warning: $what raised $said: $text\n")
     Ok(Unit)
 
 // `op(P, T, Name)` run as a goal: the table changes for whatever is read after it.

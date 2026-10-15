@@ -427,8 +427,9 @@ is an immutable map, and nothing can be stored in it
 `put(b, x, ...)` adds each argument at the end of buffer `b`, as `b += x` does, and `push(b, x, ...)`
 puts each on the front in turn, so the last argument ends up first. Both answer the buffer. `get(b)`
 and `pop(b)` take the front element out, and `pull(b)` takes the last; each fails when the buffer is
-empty, so `while x = pop(b)` drains one. Taking from the front moves the other elements down, so a
-very long buffer drained from the front costs a pass over it each time.
+empty, so `while x = pop(b)` drains one. All five take amortised constant time, at the front as at
+the back: a buffer keeps a gap before its first element, so neither end moves the others, and a
+buffer used as a queue — `put` at the back, `get` from the front — is as cheap as a stack.
 
 ```funl
 b = buffer()

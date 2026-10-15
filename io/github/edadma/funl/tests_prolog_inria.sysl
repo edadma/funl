@@ -215,6 +215,7 @@ private inria_run(name: string, heap: usize, floor: usize, growth: usize) -> str
     val was = enter(&v)
     var out = str_builder()
     var seen: usize = 0
+    val c = capture_streams(&v)
 
     val driver = source_of("inria runner", runner_text())
     var dr = full_report()
@@ -226,7 +227,7 @@ private inria_run(name: string, heap: usize, floor: usize, growth: usize) -> str
                 o -> panic(s"the INRIA runner did not load: ${outcome_text(o)}")
         None -> panic(s"the INRIA runner was refused:\n${dr.render(driver)}")
 
-    seen = v.output.len()
+    seen = c.lines.len()
 
     for e in entries(inria_data(name)).view()
         val src = source_of(s"$name:${e.line}", s":- inria_case(${e.line}, ${name_list(e.names)}, ${e.text}).\n")
@@ -237,8 +238,8 @@ private inria_run(name: string, heap: usize, floor: usize, growth: usize) -> str
                 val o = run(&v, chunk)
                 var reported = false
 
-                while seen < v.output.len()
-                    val l = v.output.at(seen)
+                while seen < c.lines.len()
+                    val l = c.lines.at(seen)
 
                     seen += 1
 

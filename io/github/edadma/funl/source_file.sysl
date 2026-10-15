@@ -60,8 +60,9 @@ run_file(file: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> 
             complain(s"funl: cannot read $file: $e\n")
             2
 
-// Run `text` as the contents of `file`, as `funl file` does: what the program writes goes to `say` a
-// line at a time, and diagnostics to `complain`.
+// Run `text` as the contents of `file`, as `funl file` does: what the program writes to standard
+// output goes to `say`, and what it writes to standard error to `complain` with the diagnostics, each
+// as it is written -- the text exactly, newlines included and none added. `line` is standard input.
 //
 // **A Prolog file is loaded, which runs its directives and `initialization/1` goals; a file with no
 // such goal then starts the top level** (`prolog.md` § "Loading Prolog") on the same machine, reading
@@ -76,6 +77,8 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
     var status = 0
 
     v.input = line
+    v.put = say
+    v.eput = complain
 
     for a in args
         v.program_args.push(a)
@@ -90,24 +93,12 @@ run_source(file: string, text: string, line: &Fn(string) -> Option[string], say:
         Ready(at, said) ->
             complain(said)
 
-            val outcome = run(&v, at)
-
-            for l in v.output.view()
-                say(l)
-
-            v.output.truncate(0)
-
-            for l in v.errput.view()
-                complain(l + "\n")
-
-            v.errput.truncate(0)
-
-            outcome match
+            run(&v, at) match
                 Faulted(m) ->
                     complain(s"funl: $m\n")
                     status = 1
                 Halted(n) -> status = n
-                _ -> if file.ends_with(".pl") && !v.has_initialization then status = answer_queries(&v, line, say)
+                _ -> if file.ends_with(".pl") && !v.has_initialization then status = answer_queries(&v, line)
 
     dispose_vm(&v)
     leave(was)

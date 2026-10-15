@@ -25,7 +25,7 @@ THE_ROUNDINGS_ANSWER_EXACT_INTEGERS_AND_KEEP_INTEGERS()
     assert_eq(ran_funl("write( sign(-3), sign(2.5), sign(0), float(1/4), float(3) )\n"), "-1, 1, 0, 0.25, 3\nsucceeded")
 
 @test
-PI_AND_EPSILON_ARE_VALUES_AND_E_IS_LEFT_AS_A_NAME()
+PI_E_PHI_AND_EPSILON_ARE_VALUES_THAT_A_PROGRAMS_OWN_NAME_HIDES()
     assert_eq(ran_funl("write( pi, epsilon, exp(1) )\n"), "3.141592653589793, 0.0000000000000002220446049250313, 2.718281828459045\nsucceeded")
     assert_eq(ran_funl("val e = 10\nwrite( e )\n"), "10\nsucceeded")
     assert_eq(ran_funl("val f = pi -> pi + 1\nwrite( f(1) )\n"), "2\nsucceeded")

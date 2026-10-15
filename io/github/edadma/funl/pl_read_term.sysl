@@ -260,10 +260,15 @@ extern read(fd: int, into: *u8, n: usize) -> long
 
 // A line of standard input, without its newline; `None` at the end of the input. Read a byte at a
 // time, so nothing past the line is taken from the descriptor for another reader to miss.
+//
+// What standard output holds is pushed out first, so a prompt the program wrote is showing before the
+// read waits.
 stdin_line() -> Option[string]
     var bytes: Buf[u8] = buf()
     var c: u8 = 0
     var any = false
+
+    flush()
 
     loop
         if read(0, &c, 1) <= 0 then break

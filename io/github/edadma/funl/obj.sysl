@@ -100,8 +100,87 @@ struct MapObj
     fallback: Value
 
 // An array's or a buffer's elements.
+//
+// **The elements are `cells[head..]`**: the cells before `head` are a gap at the front, every one
+// `Undefined`, so a buffer takes from and adds to its front in amortised constant time, as it does at
+// its back. An array never moves its front and keeps `head` at 0. Only the collector reads `cells`
+// directly (the gap is `Undefined`, so marking it is harmless, and the finalizer releases it); every
+// other reader goes through `len`, `at`, `set` and `view`, which see the logical order.
 struct ArrayObj
-    items: Buf[Value]
+    cells: Buf[Value]
+    head: usize
+
+    // How many elements there are.
+    len(self) -> usize = self.cells.len() - self.head
+
+    // Element `i`, counting from the front.
+    at(self, i: usize) -> Value = self.cells.at(self.head + i)
+
+    // Store `x` as element `i`, counting from the front.
+    set(self, i: usize, x: Value) = self.cells.set(self.head + i, x)
+
+    // The elements, front to back.
+    view(self) -> []Value = self.cells.view()[self.head..]
+
+    // Add `x` at the back.
+    push(self, x: Value) = self.cells.push(x)
+
+    // Add each of `xs` at the back, in order.
+    extend(self, xs: []const Value) = self.cells.extend(xs)
+
+    // Put `x` on the front. Where there is no gap left, one as long as the elements (at least 16
+    // cells) is opened, so a run of `n` of these moves O(n) elements in all.
+    push_front(*self, x: Value)
+        if self.head == 0 then self.regap(self.spare())
+
+        self.head -= 1
+        self.cells.set(self.head, x)
+
+    // The front element taken out, where there is one. The gap it leaves is closed once it is more
+    // than twice the elements (and 16 cells), so a queue's storage stays proportional to what it holds.
+    pop_front(*self) -> Option[Value]
+        if self.len() == 0 then return None
+
+        val x = self.cells.at(self.head)
+
+        self.cells.set(self.head, Undefined)
+        self.head += 1
+
+        if self.head == self.cells.len()
+            self.cells.clear()
+            self.head = 0
+        else if self.head > 2 * self.len() + 16
+            self.regap(self.spare())
+
+        Some(x)
+
+    // The back element taken out, where there is one.
+    pop_back(*self) -> Option[Value]
+        if self.len() == 0 then return None
+
+        val x = self.cells.pop()
+
+        if self.head == self.cells.len()
+            self.cells.clear()
+            self.head = 0
+
+        x
+
+    // The gap a re-laid storage leaves at the front: as long as the elements, and at least 16 cells.
+    private spare(self) -> usize = if self.len() > 16 then self.len() else 16
+
+    // The storage laid out afresh as a gap of `gap` cells and then the elements.
+    private regap(*self, gap: usize)
+        val fresh: Buf[Value] = buf()
+
+        for _ in 0..<gap
+            fresh.push(Undefined)
+
+        fresh.extend(self.view())
+        self.cells.release()
+        self.cells = fresh
+        self.head = gap
+        current().allocated += gap * sizeof(Value)
 
 // A logic variable.
 //
@@ -313,10 +392,11 @@ new_array(n: usize) -> Result[*ArrayObj, string]
     val v = current()
     val o: *ArrayObj = ptr_cast(take(v, sizeof(ArrayObj), &array_kind)?)
 
-    o.items = buf()
+    o.cells = buf()
+    o.head = 0
 
     for _ in 0..<n
-        o.items.push(Undefined)
+        o.cells.push(Undefined)
 
     v.allocated += n * sizeof(Value)
     Ok(o)

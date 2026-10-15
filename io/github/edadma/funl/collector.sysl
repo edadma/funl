@@ -153,12 +153,12 @@ finalize_map(p: *u8)
 trace_array(p: *u8, h: *gc.Heap)
     val o: *ArrayObj = ptr_cast(p)
 
-    mark_values(h, o.items)
+    mark_values(h, o.cells)
 
 finalize_array(p: *u8)
     val o: *ArrayObj = ptr_cast(p)
 
-    o.items.release()
+    o.cells.release()
 
 trace_var(p: *u8, h: *gc.Heap)
     val o: *VarObj = ptr_cast(p)

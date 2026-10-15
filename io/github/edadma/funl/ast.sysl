@@ -144,6 +144,14 @@ enum ExprKind
     // `!c`: each element of `c`, one per resumption.
     BangE(e: &Expr)
 
+    // `?e`: a random integer from 1 to `e`, a real in [0, 1) for 0, or a random element of a string
+    // or collection. As the target of `=`, `<-` or an operator assignment it names a random element.
+    RandE(e: &Expr)
+
+    // The key `?c` chose in the collection `c` that a store through it writes: only ever the key of a
+    // `SetElemE` or `UpdateElemE`, whose collection it is chosen from.
+    RandKeyE
+
     // `|e`: `e`'s values, then `e`'s values again, for as long as each round produces one.
     RepAltE(e: &Expr)
 
@@ -171,8 +179,9 @@ enum ExprKind
     // variable moves by `delta`.
     StepE(name: string, delta: long, prefix: bool)
 
-    // `a, b = e1, e2`: every value made first, then every variable stored; produces `()`.
-    MultiAssignE(targets: Buf[Spanned[string]], values: Buf[&Expr])
+    // `a, b = e1, e2`: every value made first, then every variable stored; produces `()`. With `back`
+    // it is `a, b <- e1, e2`, each store undone when the expression it is part of is backtracked into.
+    MultiAssignE(targets: Buf[Spanned[string]], values: Buf[&Expr], back: bool)
 
     // `undefined`: the value of a variable never assigned.
     UndefE

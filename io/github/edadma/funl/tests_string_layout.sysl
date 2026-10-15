@@ -60,8 +60,8 @@ DETAB_REPLACES_TABS_WITH_SPACES_TO_THE_NEXT_STOP()
 
 @test
 ENTAB_REPLACES_SPACES_THAT_REACH_A_STOP_WITH_A_TAB()
-    assert_eq(ran_funl("write(image(entab('a       b       c')))\nwrite(image(entab('abcdefg b')))\nwrite(image(entab('a   b', 3)))\nwrite(image(entab('ab c')))\nwrite(image(entab('x\\n        y')))\nwrite(image(entab('a\\t   b')))\n"),
-        "\"a\\tb\\tc\"\n\"abcdefg\\tb\"\n\"a\\t\\tb\"\n\"ab c\"\n\"x\\n\\ty\"\n\"a\\t   b\"\nsucceeded")
+    assert_eq(ran_funl("write(image(entab('a       b       c')))\nwrite(image(entab('abcdefg b')))\nwrite(image(entab('a   b', 3)))\nwrite(image(entab('ab c')))\nwrite(image(entab('x\\n        y')))\nwrite(image(entab('a\\t   b')))\nwrite(image(entab('abcdef  b')))\nwrite(image(entab('a    b', 3)))\n"),
+        "\"a\\tb\\tc\"\n\"abcdefg b\"\n\"a \\tb\"\n\"ab c\"\n\"x\\n\\ty\"\n\"a\\t   b\"\n\"abcdef\\tb\"\n\"a \\t b\"\nsucceeded")
     assert_eq(ran_funl("s = 'a\\tbc\\td'\nwrite(image(entab(detab(s))))\n"), "\"a\\tbc\\td\"\nsucceeded")
     faults_with("write(entab([]))\n", "'entab' wants a string")
     faults_with("write(entab('a', 0))\n", "'entab' wants tab stops in increasing order")
