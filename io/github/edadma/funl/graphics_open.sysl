@@ -1,0 +1,313 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sh.sysl.plutovg as pv
+import sysl.text.chars_of
+
+// `funl:graphics`'s window lifecycle and the methods on a window handle: `open` and `couple`, and
+// `w.set`, `w.get`, `w.attributes`, `w.clone` and `w.uncouple`, with `w.pixel`, which reads a
+// rectangle of the canvas back as colours. The tables and handle plumbing are `native_graphics.sysl`;
+// the attributes these apply and read are `graphics_attrs.sysl`; events are `graphics_events.sysl`.
+
+// -- opening ---------------------------------------------------------------------------------------
+
+private default_context() -> WinContext =
+    WinContext(1, "black", Rgb(0, 0, 0), 1.0, "white", Rgb(65535, 65535, 65535), false, 1, intern("solid"), intern("solid"),
+        "black", intern("copy"), 0, 0, -1, -1, 0, 0, "fixed", fixed_face(), face_at(fixed_face()).height())
+
+// Whether attribute map `m` asks for a canvas this build can open: a fault for a window on screen in
+// a build without one, and `None` for a `canvas` value that is no canvas state at all.
+private state_asked(m: Option[*MapObj]) -> Result[Option[unit], Fault]
+    m match
+        Some(p) ->
+            for i in 0..<p.keys.len()
+                if key_text(p.keys.at(i)).unwrap_or("") == "canvas"
+                    val id = one_of(deref(p.vals.at(i)), ["normal", "hidden", "maximal", "iconic"]) match
+                        Some(id) -> id
+                        None -> return Ok(None)
+
+                    if atom_name(id) == "hidden" then return Ok(Some(()))
+        None -> ()
+
+    if !HasScreen then return Err(system_error(s"'open': $NoScreen"))
+
+    Ok(Some(()))
+
+// The attributes of `m`, when there is a map, applied as `applied` applies them; with none, the canvas
+// only carried onto the screen.
+private applied_or_none(at: usize, ctx: WinContext, m: Option[*MapObj]) -> Result[Option[WinContext], Fault] = m match
+    Some(p) -> applied(at, ctx, p, "open", true)
+    None ->
+        canvases.set(at, Some(onto_screen(canvas_at(at), canvas_at(at), "open")?))
+        Ok(Some(ctx))
+
+// Whether attribute map `m` sets any of `names`.
+private mentions(m: *MapObj, names: []const string) -> bool
+    for i in 0..<m.keys.len()
+        val k = key_text(m.keys.at(i)).unwrap_or("")
+
+        for n in names
+            if k == n then return true
+
+    false
+
+// Whether `open` was given an attribute map that sets any of `names`.
+private mentioned(m: Option[*MapObj], names: []const string) -> bool = m match
+    Some(p) -> mentions(p, names)
+    None -> false
+
+// `open(title, attrs)`: a window titled `title` with `attrs` applied. Fails where a value in `attrs`
+// is one Icon would refuse.
+do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+
+    val title = x match
+        Str(p) -> p.s
+        Atom(id) -> atom_name(id)
+        _ -> return Err(kind_error(x, "string", s"'open' wants a title, a string, and was given ${described(x)}"))
+
+    val attrs = if argc > 1 then Some(map_arg(base, 1, "open")?) else None
+
+    if state_asked(attrs)?.is_none() then return Ok(Refuses)
+
+    val h = new_handle(kind_named(WindowKind))?
+    val start = default_context()
+    val (wd, ht) = text_area(start.face)
+
+    val (s, drawn) = blank(wd, ht, 1, start.bg_rgb) match
+        Some(made) -> made
+        None ->
+            h.closed = true
+            return Ok(Refuses)
+
+    val wins: Buf[*HandleObj] = buf()
+
+    wins.push(h)
+
+    // A canvas is shown unless `canvas: #hidden` says otherwise; its window is made once every
+    // attribute is in, so it opens at the size and place they ask for.
+    val at = keep_canvas(WinCanvas(s, drawn, 1, title, "", wd, ht, false, "normal", -1, 1, None, None, start.bg_rgb, 0,
+        face_at(start.face).ascent, false, true, "", buf(), wins, current()))
+    val k = keep_context(start)
+
+    h.n = long(at)
+    h.vals.push(Int(generations.at(at)))
+    h.vals.push(Int(long(k)))
+
+    val ctx = applied_or_none(at, start, attrs) match
+        Ok(Some(c)) -> c
+        Ok(None) ->
+            close_handle(h)
+            return Ok(Refuses)
+        Err(f) ->
+            close_handle(h)
+            return Err(f)
+
+    // With no size given, the canvas is 80 columns by 12 lines of the font it was opened with, and
+    // with no place given, the text cursor is at row 1, column 1 of that font, as Icon's `wopen` has.
+    // An `image` gives the canvas its size, and is not painted over: `applied` painted the canvas in
+    // its background before laying the image on it.
+    if !mentioned(attrs, ["size", "width", "height", "image"]) && ctx.face != start.face
+        val (fw, fh) = text_area(ctx.face)
+
+        resized(canvas_at(at), fw, fh, ctx.bg_rgb) match
+            Some(r) ->
+                canvases.set(at, Some(r))
+
+                // A window already made for the canvas is made the same size.
+                if r.screen >= 0 then screen_size(usize(r.screen), fw, fh)
+            None ->
+                close_handle(h)
+                return Ok(Refuses)
+
+    if !mentioned(attrs, ["x", "y", "row", "col"])
+        var c = canvas_at(at)
+
+        c.x = ctx.dx
+        c.y = face_at(ctx.face).ascent + ctx.dy
+        canvases.set(at, Some(c))
+
+    contexts.set(k, Some(ctx))
+    current().window = Handle(h)
+    Ok(Gives(Handle(h)))
+
+// `couple(w1, w2)`: a new window on `w1`'s canvas sharing `w2`'s context.
+do_couple(base: usize, argc: usize) -> Result[Value, Fault]
+    window_arg(base, 0, "couple")?
+    window_arg(base, 1, "couple")?
+
+    val h = new_handle(kind_named(WindowKind))?
+    val canvas = window_arg(base, 0, "couple")?
+    val context = window_arg(base, 1, "couple")?
+    var c = canvas_at(canvas.at)
+    var ctx = context_at(context.ctx)
+
+    c.handles += 1
+    c.wins.push(h)
+    ctx.refs += 1
+    canvases.set(canvas.at, Some(c))
+    contexts.set(context.ctx, Some(ctx))
+    h.n = long(canvas.at)
+    h.vals.push(Int(generations.at(canvas.at)))
+    h.vals.push(Int(long(context.ctx)))
+    Ok(Handle(h))
+
+// -- the methods -----------------------------------------------------------------------------------
+
+// `w.set(m)`: every attribute of `m` applied, in order; answers `w`, or fails with nothing applied.
+do_set(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "set")?
+    val m = map_arg(base, 1, "set")?
+
+    applied(w.at, context_at(w.ctx), m, "set", false)? match
+        Some(c) ->
+            contexts.set(w.ctx, Some(c))
+            Ok(Some(Handle(w.h)))
+        None -> Ok(None)
+
+// `w.get(name)`: one attribute's value.
+do_get(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "get")?
+    val x = deref(arg(base, 1))
+
+    val k = key_text(x) match
+        Some(k) -> k
+        None -> return Err(kind_error(x, "string", s"'get' wants an attribute's name, a string, and was given ${described(x)}"))
+
+    if !is_attribute(k) then return Err(domain_error("window_attribute", atom(k), s"'get': `$k` is no window attribute"))
+
+    Ok(Some(attribute(canvas_at(w.at), context_at(w.ctx), k)?))
+
+// `w.attributes()`: an immutable map of every attribute to its value.
+do_attributes(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "attributes")?
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    val out = new_map()?
+
+    for k in Attributes
+        map_put(out, new_str(k)?, attribute(c, ctx, k)?)?
+
+    Ok(Some(Map(out)))
+
+// `w.clone()`, `w.clone(attrs)`: a new window on `w`'s canvas with a copy of its context, `attrs`
+// applied to the copy; fails, making nothing, where `set` would.
+do_clone(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc > 2 then return Err(wrong_count("clone", argc - 1, s"'clone' takes a map of attributes, or nothing, and was given ${argc - 1} arguments"))
+
+    window_arg(base, 0, "clone")?
+
+    val attrs = if argc > 1 then Some(map_arg(base, 1, "clone")?) else None
+    val h = new_handle(kind_named(WindowKind))?
+    val w = window_arg(base, 0, "clone")?
+    var copy = context_at(w.ctx)
+
+    copy.refs = 1
+
+    attrs match
+        Some(m) ->
+            copy = applied(w.at, copy, m, "clone", false)? match
+                Some(c) -> c
+                None ->
+                    h.closed = true
+                    return Ok(None)
+        None -> ()
+
+    var c = canvas_at(w.at)
+
+    c.handles += 1
+    c.wins.push(h)
+    canvases.set(w.at, Some(c))
+    h.n = long(w.at)
+    h.vals.push(Int(generations.at(w.at)))
+    h.vals.push(Int(long(keep_context(copy))))
+    Ok(Some(Handle(h)))
+
+// `w.uncouple()`: this handle closed, and the canvas with it when it was the last.
+do_uncouple(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "uncouple")?
+
+    retire_handle(w.h, detach_window)
+    Ok(Some(Unit))
+
+// -- pixels ----------------------------------------------------------------------------------------
+
+// Argument `i` of `argc`, an integer, or `fallback` where it is not given or `undefined`.
+int_or(base: usize, argc: usize, i: usize, fallback: long, name: string) -> Result[long, Fault]
+    if i >= argc then return Ok(fallback)
+
+    val x = deref(arg(base, i))
+
+    x match
+        Int(n) -> Ok(n)
+        Undefined -> Ok(fallback)
+        _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
+
+// The colour of the pixel at byte `o` of `data`, eight bits a component, packed `0xrrggbb`, with the
+// surface's premultiplication undone.
+private pixel_at(data: []u8, o: usize) -> long
+    val a = long(data[o + 3])
+
+    if a == 0 then return 0
+
+    val b = long(data[o]) * 255 / a
+    val g = long(data[o + 1]) * 255 / a
+    val r = long(data[o + 2]) * 255 / a
+
+    (r << 16) | (g << 8) | b
+
+// `w.pixel(x, y, wd, ht)`: the rectangle's colours, row by row, taken when the call starts. The
+// rectangle is Icon's: `x` and `y` default to the origin and are moved by `dx` and `dy`, `wd` and `ht`
+// default to the canvas's edge, and a negative extent reaches left or up. A pixel off the canvas is
+// the background colour.
+start_pixel(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc > 5 then return Err(wrong_count("pixel", argc - 1, s"'pixel' takes at most 4 arguments and was given ${argc - 1}"))
+
+    window_arg(base, 0, "pixel")?
+
+    val st = new_handle(kind_named(PixelsKind))?
+    val w = window_arg(base, 0, "pixel")?
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    var x = int_or(base, argc, 1, -ctx.dx, "pixel")? + ctx.dx
+    var y = int_or(base, argc, 2, -ctx.dy, "pixel")? + ctx.dy
+    var wd = int_or(base, argc, 3, c.width - x, "pixel")?
+    var ht = int_or(base, argc, 4, c.height - y, "pixel")?
+
+    if wd < 0
+        wd = -wd
+        x -= wd
+
+    if ht < 0
+        ht = -ht
+        y -= ht
+
+    val off = (device(ctx.bg_rgb.r) << 16) | (device(ctx.bg_rgb.g) << 8) | device(ctx.bg_rgb.b)
+    val data = c.surface.data()
+    val stride = long(c.surface.stride())
+
+    for j in y..<y + ht
+        for i in x..<x + wd
+            val inside = i >= 0 && j >= 0 && i < c.width && j < c.height
+
+            // A point's colour is its top-left device pixel's.
+            st.vals.push(Int(if inside then pixel_at(data, usize(j * c.density * stride + 4 * i * c.density)) else off))
+
+    current().allocated += st.vals.len() * sizeof(Value)
+    st.n = 0
+    Ok(Some(Handle(st)))
+
+// The next colour of a `pixel` call, as `"r,g,b"`.
+step_pixel(h: *HandleObj) -> Result[Option[Value], Fault]
+    val at = usize(h.n)
+
+    if at >= h.vals.len() then return Ok(None)
+
+    val p = small(h.vals.at(at))
+
+    h.n += 1
+
+    val c = Rgb(((p >> 16) & 255) * 257, ((p >> 8) & 255) * 257, (p & 255) * 257)
+
+    Ok(Some(new_str(color_text(c))?))
+

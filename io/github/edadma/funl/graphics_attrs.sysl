@@ -1,0 +1,450 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sh.sysl.plutovg as pv
+import sysl.text.chars_of
+
+// `funl:graphics`'s attributes: how an attribute map is checked and applied to a canvas and its
+// context (`applied`, which keeps nothing when a value is one Icon's `WAttrib` would refuse), how
+// each attribute's value is parsed and set (`assigned`, `clipped`, the pairs), how a canvas is carried
+// onto the screen when its window attributes change, and how each attribute is read back
+// (`attribute`). The canvas and context tables, the handles and the module's registration are
+// `native_graphics.sysl`; `open` and the methods that call this are `graphics_open.sysl`.
+
+// -- attributes ------------------------------------------------------------------------------------
+
+// The canvas and context an attribute map is applied to, before anything is kept, and the image the
+// map's `image` loaded, laid on the canvas once it has the image's size.
+private struct Pending
+    cv: WinCanvas
+    ctx: WinContext
+    img: Option[&pv.Surface]
+
+// Every key of `m` an attribute that may be set: a fault for the first that is not.
+private settable(m: *MapObj, name: string) -> Result[unit, Fault]
+    for i in 0..<m.keys.len()
+        val key = m.keys.at(i)
+
+        val k = key_text(key) match
+            Some(k) -> k
+            None -> return Err(domain_error("window_attribute", key, s"'$name': ${described(key)} is no window attribute"))
+
+        if is_read_only(k)
+            return Err(permission_error("modify", "window_attribute", atom(k), s"'$name': `$k` is read-only"))
+
+        if !is_attribute(k)
+            return Err(domain_error("window_attribute", atom(k), s"'$name': `$k` is no window attribute"))
+
+    Ok(())
+
+// The attributes of `m` applied, in order, to the canvas at `at` and to context `ctx`: the context
+// as it is afterwards, the canvas's changes kept, or `None` -- and nothing kept -- when a value is one
+// Icon's `WAttrib` would refuse. A `fresh` canvas, one being opened, is painted in the background
+// colour the map leaves before an `image` is laid on it.
+applied(at: usize, ctx: WinContext, m: *MapObj, name: string, fresh: bool) -> Result[Option[WinContext], Fault]
+    settable(m, name)?
+
+    canvases.set(at, Some(live_state(canvas_at(at))))
+
+    var p = Pending(canvas_at(at), ctx, None)
+
+    for i in 0..<m.keys.len()
+        p = assigned(p, key_text(m.keys.at(i)).unwrap(), deref(m.vals.at(i)), name)? match
+            Some(q) -> q
+            None -> return Ok(None)
+
+    val now = canvas_at(at)
+    var kept = p.cv
+
+    if kept.width != now.width || kept.height != now.height
+        kept = resized(now, kept.width, kept.height, p.ctx.bg_rgb) match
+            Some(r) ->
+                var out = p.cv
+
+                out.surface = r.surface
+                out.drawn = r.drawn
+                out
+            None -> return Ok(None)
+
+    kept.fill = p.ctx.bg_rgb
+
+    if fresh then kept.surface.clear(channel(p.ctx.bg_rgb.r), channel(p.ctx.bg_rgb.g), channel(p.ctx.bg_rgb.b))
+
+    p.img match
+        Some(img) -> lay_image(kept, img, 0, 0, Area(0, 0, kept.width, kept.height))
+        None -> ()
+
+    canvases.set(at, Some(kept))
+    canvases.set(at, Some(onto_screen(kept, now, name)?))
+    Ok(Some(p.ctx))
+
+// The window at `at` asked to be in `state`, and the state it is in afterwards.
+private screen_arranged(at: usize, state: string) -> string
+    screen_arrange(at, state)
+    screen_state(at)
+
+// Canvas `c` with its `state` as its window is: a window maximized or minimized by its user, or
+// refused a request, is what it now is, not what was last asked. A hidden canvas has no window.
+private live_state(c: WinCanvas) -> WinCanvas
+    if c.screen < 0 || c.state == "hidden" then return c
+
+    var out = c
+
+    out.state = screen_state(usize(c.screen))
+    out
+
+// Canvas `c`, which was `was`, carried onto the screen: a window made for it when it is first shown,
+// at the display's density, and every change to its title, size, resizing, visibility, position and
+// pointer handed to the window it has.
+onto_screen(c: WinCanvas, was: WinCanvas, name: string) -> Result[WinCanvas, Fault]
+    var out = c
+
+    if out.screen < 0
+        if out.state == "hidden" then return Ok(out)
+
+        val at = screen_open(out.label, out.width, out.height, out.resize, true) match
+            Ok(at) -> at
+            Err(why) -> return Err(system_error(s"'$name': $why"))
+
+        out.screen = long(at)
+
+        if out.state != "normal" then out.state = screen_arranged(at, out.state)
+
+        out.pos match
+            Some((x, y)) -> screen_place(at, x, y)
+            None -> ()
+
+        val d = screen_density(at)
+
+        if d != out.density
+            out = resized_at(out, out.width, out.height, d, out.fill) match
+                Some(r) -> r
+                None -> return Err(system_error(s"'$name': the canvas could not be had at $d pixels to the point"))
+    else
+        val at = usize(out.screen)
+
+        if out.label != was.label then screen_title(at, out.label)
+        if out.width != was.width || out.height != was.height then screen_size(at, out.width, out.height)
+        if out.resize != was.resize then screen_resizable(at, out.resize)
+        if out.state != was.state
+            screen_visible(at, out.state != "hidden")
+
+            if out.state != "hidden" && (out.state != "normal" || was.state != "hidden")
+                out.state = screen_arranged(at, out.state)
+
+        if out.pos != was.pos
+            out.pos match
+                Some((x, y)) -> screen_place(at, x, y)
+                None -> ()
+
+    if out.pointer != was.pointer
+        out.pointer match
+            Some((x, y)) -> screen_warp(usize(out.screen), x, y)
+            None -> ()
+
+    Ok(out)
+end onto_screen
+
+// Pair attribute `k` -- `base` itself, a tuple of two integers, or `base` with `x` or `y` after it,
+// one integer -- set to `x` over the pair `was`; `None` when `x` is no value it takes.
+private paired(k: string, base: string, was: (long, long), x: Value) -> Option[(long, long)]
+    val (px, py) = was
+
+    if k == base
+        val items = x match
+            Tuple(t) -> t.items
+            _ -> return None
+
+        if items.len() != 2 then return None
+
+        return Some((whole(deref(items.at(0)))?, whole(deref(items.at(1)))?))
+
+    val n = whole(x)?
+
+    if k == base + "x" then Some((n, py)) else Some((px, n))
+
+whole(x: Value) -> Option[long] = x match
+    Int(n) -> Some(n)
+    _ -> None
+
+private side(x: Value) -> Option[long] = x match
+    Int(n) -> if n >= 1 && n <= MaxSide then Some(n) else None
+    _ -> None
+
+private truth(x: Value) -> Option[bool] = x match
+    Atom(id) -> if id == TrueAtom then Some(true) else if id == FalseAtom then Some(false) else None
+    _ -> None
+
+// The symbol `x` is, when it is one of `names`.
+one_of(x: Value, names: []const string) -> Option[u32] = x match
+    Atom(id) ->
+        for n in names
+            if atom_name(id) == n then return Some(id)
+
+        None
+    _ -> None
+
+private colour(x: Value) -> Option[(string, Rgb)] = x match
+    Str(p) ->
+        parse_color(p.s) match
+            Some(c) -> Some((p.s, c))
+            None -> None
+    _ -> None
+
+private is_undefined(x: Value) -> bool = x match
+    Undefined -> true
+    _ -> false
+
+// `p` with attribute `k` given value `x`, or `None` when `x` is no value `k` can take.
+private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option[Pending], Fault]
+    var q = p
+
+    if k == "size"
+        val items = x match
+            Tuple(t) -> t.items
+            _ -> return Ok(None)
+
+        if items.len() != 2 then return Ok(None)
+
+        q.cv.width = side(deref(items.at(0))) match
+            Some(n) -> n
+            None -> return Ok(None)
+        q.cv.height = side(deref(items.at(1))) match
+            Some(n) -> n
+            None -> return Ok(None)
+    else if k == "width"
+        q.cv.width = side(x) match
+            Some(n) -> n
+            None -> return Ok(None)
+    else if k == "height"
+        q.cv.height = side(x) match
+            Some(n) -> n
+            None -> return Ok(None)
+    else if k == "label"
+        q.cv.label = x match
+            Str(s) -> s.s
+            _ -> return Ok(None)
+    else if k == "image"
+        // The canvas takes the image's size, and the image is laid on it once the map is applied.
+        val file = x match
+            Str(s) -> s.s
+            _ -> return Ok(None)
+
+        val img = pv.load_image(file) match
+            Some(s) -> s
+            None -> return Ok(None)
+
+        q.cv.width = long(img.width())
+        q.cv.height = long(img.height())
+        q.cv.image = file
+        q.img = Some(img)
+    else if k == "canvas"
+        val mode = one_of(x, ["normal", "hidden", "maximal", "iconic"]) match
+            Some(id) -> atom_name(id)
+            None -> return Ok(None)
+
+        if mode != "hidden" && !HasScreen then return Err(system_error(s"'$name': $NoScreen"))
+
+        q.cv.state = mode
+    else if k == "pos" || k == "posx" || k == "posy"
+        q.cv.pos = paired(k, "pos", q.cv.pos.unwrap_or((0, 0)), x) match
+            Some(at) -> Some(at)
+            None -> return Ok(None)
+    else if k == "pointer" || k == "pointerx" || k == "pointery"
+        if q.cv.state == "hidden" then return Ok(None)
+
+        q.cv.pointer = paired(k, "pointer", q.cv.pointer.unwrap_or((0, 0)), x) match
+            Some(at) -> Some(at)
+            None -> return Ok(None)
+    else if k == "resize"
+        q.cv.resize = truth(x) match
+            Some(b) -> b
+            None -> return Ok(None)
+    else if k == "cursor"
+        q.cv.cursor = truth(x) match
+            Some(b) -> b
+            None -> return Ok(None)
+    else if k == "echo"
+        q.cv.echo = truth(x) match
+            Some(b) -> b
+            None -> return Ok(None)
+    else if k == "inputmask"
+        q.cv.inputmask = x match
+            Str(s) -> if is_mask(s.s) then s.s else return Ok(None)
+            _ -> return Ok(None)
+    else if k == "fg"
+        val spec = x match
+            Str(s) -> s.s
+            _ -> return Ok(None)
+
+        val (c, alpha) = parse_fg_color(spec) match
+            Some(found) -> found
+            None -> return Ok(None)
+
+        q.ctx.fg = spec
+        q.ctx.fg_rgb = c
+        q.ctx.fg_alpha = alpha
+    else if k == "bg"
+        val (spec, c) = colour(x) match
+            Some(found) -> found
+            None -> return Ok(None)
+
+        q.ctx.bg = spec
+        q.ctx.bg_rgb = c
+    else if k == "reverse"
+        val on = truth(x) match
+            Some(b) -> b
+            None -> return Ok(None)
+
+        // The background has no alpha, so a `"transparent"` or `"opaque"` foreground goes over to it
+        // as the colour its modifier qualifies.
+        if on != q.ctx.reverse
+            q.ctx.fg = p.ctx.bg
+            q.ctx.fg_rgb = p.ctx.bg_rgb
+            q.ctx.fg_alpha = 1.0
+            q.ctx.bg = unmodified_color(p.ctx.fg)
+            q.ctx.bg_rgb = p.ctx.fg_rgb
+            q.ctx.reverse = on
+    else if k == "linewidth"
+        q.ctx.linewidth = whole(x) match
+            Some(n) -> if n >= 0 then n else return Ok(None)
+            None -> return Ok(None)
+    else if k == "linestyle"
+        q.ctx.linestyle = one_of(x, ["solid", "dashed", "striped"]) match
+            Some(id) -> id
+            None -> return Ok(None)
+    else if k == "fillstyle"
+        q.ctx.fillstyle = one_of(x, ["solid", "textured", "masked"]) match
+            Some(id) -> id
+            None -> return Ok(None)
+    else if k == "pattern"
+        q.ctx.pattern = x match
+            Str(s) -> if parse_pattern(s.s).is_some() then s.s else return Ok(None)
+            _ -> return Ok(None)
+    else if k == "drawop"
+        q.ctx.drawop = one_of(x, ["copy", "reverse"]) match
+            Some(id) -> id
+            None -> return Ok(None)
+    else if k == "clipx" || k == "clipy" || k == "clipw" || k == "cliph"
+        return Ok(clipped(q, k, x))
+    else if k == "dx"
+        q.ctx.dx = whole(x) match
+            Some(n) -> n
+            None -> return Ok(None)
+    else if k == "dy"
+        q.ctx.dy = whole(x) match
+            Some(n) -> n
+            None -> return Ok(None)
+    else if is_text_attribute(k)
+        text_assigned(q.cv, q.ctx, k, x) match
+            Some((cv, ctx)) ->
+                q.cv = cv
+                q.ctx = ctx
+            None -> return Ok(None)
+    else
+        return Err(Broken(s"'$name' has no way to set `$k`"))
+
+    Ok(Some(q))
+end assigned
+
+// `p` with clip attribute `k` set to `x`, as Icon sets it: `undefined` takes the clip rectangle away,
+// and a number given while there is none starts from the whole canvas.
+private clipped(p: Pending, k: string, x: Value) -> Option[Pending]
+    var q = p
+
+    if is_undefined(x)
+        q.ctx.clipx = 0
+        q.ctx.clipy = 0
+        q.ctx.clipw = -1
+        q.ctx.cliph = -1
+        return Some(q)
+
+    val n = whole(x)?
+
+    if q.ctx.clipw < 0
+        q.ctx.clipx = 0
+        q.ctx.clipy = 0
+        q.ctx.clipw = q.cv.width
+        q.ctx.cliph = q.cv.height
+
+    if k == "clipx"
+        q.ctx.clipx = n
+    else if k == "clipy"
+        q.ctx.clipy = n
+    else if k == "clipw"
+        q.ctx.clipw = n
+    else
+        q.ctx.cliph = n
+
+    Some(q)
+
+// The value of attribute `k` of canvas `c` and context `ctx`.
+attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fault]
+    if k == "size"
+        val t = new_tuple(2)?
+
+        t.items.set(0, Int(c.width))
+        t.items.set(1, Int(c.height))
+        return Ok(Tuple(t))
+
+    if is_text_attribute(k) then return text_attribute(c, ctx, k)
+
+    val pos = if c.screen >= 0 then Some(screen_position(usize(c.screen))) else c.pos
+    val shown = if c.screen >= 0 then screen_display(usize(c.screen)) else None
+
+    if k == "pos" then return pair_value(pos)
+    if k == "pointer" then return pair_value(c.pointer)
+
+    val clip = ctx.clipw >= 0
+
+    Ok(k match
+        "width" -> Int(c.width)
+        "height" -> Int(c.height)
+        "label" -> new_str(c.label)?
+        "image" -> if c.image == "" then Undefined else new_str(c.image)?
+        "canvas" -> atom(live_state(c).state)
+        "resize" -> boolean(c.resize)
+        "posx" -> part(pos, false)
+        "posy" -> part(pos, true)
+        "pointerx" -> part(c.pointer, false)
+        "pointery" -> part(c.pointer, true)
+        "displaywidth" -> part(shown, false)
+        "displayheight" -> part(shown, true)
+        "cursor" -> boolean(c.cursor)
+        "echo" -> boolean(c.echo)
+        "inputmask" -> new_str(c.inputmask)?
+        "fg" -> new_str(ctx.fg)?
+        "bg" -> new_str(ctx.bg)?
+        "reverse" -> boolean(ctx.reverse)
+        "linewidth" -> Int(ctx.linewidth)
+        "linestyle" -> Atom(ctx.linestyle)
+        "fillstyle" -> Atom(ctx.fillstyle)
+        "pattern" -> new_str(ctx.pattern)?
+        "drawop" -> Atom(ctx.drawop)
+        "clipx" -> if clip then Int(ctx.clipx) else Undefined
+        "clipy" -> if clip then Int(ctx.clipy) else Undefined
+        "clipw" -> if clip then Int(ctx.clipw) else Undefined
+        "cliph" -> if clip then Int(ctx.cliph) else Undefined
+        "dx" -> Int(ctx.dx)
+        "dy" -> Int(ctx.dy)
+        "depth" -> Int(24)
+        "density" -> Int(c.density)
+        _ -> return Err(Broken(s"no window attribute `$k` has a value")))
+
+// One number of a pair, the second when `second`, or `undefined` when there is no pair.
+private part(p: Option[(long, long)], second: bool) -> Value = p match
+    Some((x, y)) -> Int(if second then y else x)
+    None -> Undefined
+
+// A pair attribute's value: a tuple of its two numbers, or `undefined` when it has none.
+private pair_value(p: Option[(long, long)]) -> Result[Value, Fault]
+    val (x, y) = p match
+        Some(xy) -> xy
+        None -> return Ok(Undefined)
+
+    val t = new_tuple(2)?
+
+    t.items.set(0, Int(x))
+    t.items.set(1, Int(y))
+    Ok(Tuple(t))
+
