@@ -62,7 +62,7 @@ dependencies {
 
   // `funl:graphics`. Not a feature: plutovg's C is carried in the package and links nothing, so a
   // hidden canvas -- drawing into memory, read back with `pixel` -- is in every build, tests included.
-  plutovg { git = "github.com/sysl-lang/plutovg", version = "0.2.1" }
+  plutovg { git = "github.com/sysl-lang/plutovg", version = "0.2.4" }
 
   // `async`'s loop. Its timers and its host driver need no library, so kairos itself is not behind a
   // feature; its libuv driver is, through `async` below.

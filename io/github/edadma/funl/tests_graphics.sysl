@@ -22,8 +22,9 @@ EVERY_ATTRIBUTE_HAS_ICONS_DEFAULT()
         "{\"size\": (4, 3), \"width\": 4, \"height\": 3, \"label\": \"test\", \"canvas\": hidden, \"resize\": false, " +
         "\"pos\": undefined, \"posx\": undefined, \"posy\": undefined, \"pointer\": undefined, \"pointerx\": undefined, \"pointery\": undefined, " +
         "\"cursor\": false, \"echo\": true, \"inputmask\": \"\", \"fg\": \"black\", \"bg\": \"white\", \"reverse\": false, \"linewidth\": 1, \"linestyle\": solid, \"fillstyle\": solid, " +
-        "\"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
-        "\"depth\": 24, \"density\": 1, \"displaywidth\": undefined, \"displayheight\": undefined}\nsucceeded")
+        "\"pattern\": \"black\", \"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
+        "\"depth\": 24, \"density\": 1, \"displaywidth\": undefined, \"displayheight\": undefined, \"font\": \"fixed\", \"leading\": 13, \"ascent\": 10, \"descent\": 3, \"fheight\": 13, \"fwidth\": 6, " +
+        "\"x\": 0, \"y\": 10, \"row\": 1, \"col\": 1}\nsucceeded")
 
 @test
 A_CANVAS_OPENED_WITH_NO_SIZE_IS_EIGHTY_COLUMNS_BY_TWELVE_LINES()

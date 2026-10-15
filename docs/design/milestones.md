@@ -255,7 +255,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    G5, G6, G12. Done, except `image_bytes`, which waits on finding F4 (plutovg's PNG stream writer).
 2. **Drawing**: `draw_point`, `draw_line`, `draw_segment`, the rectangles, polygons, circles and
    arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
-   `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1.
+   `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1. Done.
 3. **`drawop: #reverse`**: the coverage mask and the exclusive-or; drawing twice restores. Waits on
    item 2 and G7.
 4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`
@@ -263,7 +263,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    `new_color` failing. Waits on item 1 and G8.
 5. **Fonts and text**: the `"fixed"` face carried in the binary, family lookup through the font-face
    cache, `font` and its failure, the metric attributes, `text_width`, `draw_string`; the text cursor
-   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1.
+   with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1. Done.
 6. **Events on a hidden canvas**: the queue, `enqueue`, `event()`, `pending`, `active`, every event
    code, the keywords `&x`, `&y`, `&row`, `&col`, `&interval`, `&control`, `&shift`, `&meta`,
    `&released`, `&window` and the event-code keywords, per machine; `read`/`reads` with `echo`.

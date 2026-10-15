@@ -1,0 +1,604 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.math.Float
+import sh.sysl.plutovg as pv
+
+// `funl:graphics`'s drawing: Icon's drawing functions as methods of a window (`docs/library/graphics.md`).
+//
+// **A function Icon gives a repeated group of arguments takes the same flat list**, so
+// `w.draw_line(x1, y1, x2, y2, x3, y3)` is one polyline and a spread passes a computed list. Every
+// method answers the window, so calls chain.
+//
+// **Coordinates are numbers, measured from the canvas's corner after `dx` and `dy` are added, and an
+// integer coordinate names a pixel.** A stroke -- a point, a line, an outline -- goes through the
+// pixels' centres, so a horizontal or vertical line and a rectangle with integer corners cover whole
+// pixels and no fringe, the pixels Icon's would: a line covers both its end points, and
+// `draw_rectangle(x, y, wd, ht)` covers columns `x` to `x + wd`, as X draws it. A filled shape's
+// edges lie on the pixel grid instead, so `fill_rectangle(x, y, wd, ht)` covers exactly `wd` by `ht`
+// pixels. A line of even width is centred on the grid line, which is where a stroke of even width
+// covers whole pixels. Slanted lines, circles and curves are anti-aliased, plutovg having no aliased
+// mode.
+//
+// **Every drawing is done inside one plutovg save and restore**, with the context's clip rectangle,
+// paint, line width and dash set afresh, so nothing one window's drawing sets is seen by another
+// handle's drawing on the same canvas.
+
+private const Pi: real = 3.141592653589793
+
+// Every drawing method `w` has.
+install_drawing(v: *Vm, w: u32)
+    register_method(v, w, "draw_point", Variadic, (b, n) -> draw_points(b, n))
+    register_method(v, w, "draw_line", Variadic, (b, n) -> draw_path(b, n, "draw_line"))
+    register_method(v, w, "draw_polygon", Variadic, (b, n) -> draw_path(b, n, "draw_polygon"))
+    register_method(v, w, "fill_polygon", Variadic, (b, n) -> draw_path(b, n, "fill_polygon"))
+    register_method(v, w, "draw_curve", Variadic, (b, n) -> draw_path(b, n, "draw_curve"))
+    register_method(v, w, "draw_segment", Variadic, (b, n) -> draw_segments(b, n))
+    register_method(v, w, "draw_rectangle", Variadic, (b, n) -> draw_boxes(b, n, "draw_rectangle"))
+    register_method(v, w, "fill_rectangle", Variadic, (b, n) -> draw_boxes(b, n, "fill_rectangle"))
+    register_method(v, w, "erase_area", Variadic, (b, n) -> draw_boxes(b, n, "erase_area"))
+    register_method(v, w, "draw_arc", Variadic, (b, n) -> draw_boxes(b, n, "draw_arc"))
+    register_method(v, w, "fill_arc", Variadic, (b, n) -> draw_boxes(b, n, "fill_arc"))
+    register_method(v, w, "draw_circle", Variadic, (b, n) -> draw_circles(b, n, "draw_circle"))
+    register_method(v, w, "fill_circle", Variadic, (b, n) -> draw_circles(b, n, "fill_circle"))
+    register_method(v, w, "copy_area", Variadic, do_copy_area)
+    register_method(v, w, "clip", Variadic, do_clip)
+
+// -- arguments -------------------------------------------------------------------------------------
+
+// `n` arguments, in words.
+private counted(n: usize) -> string = if n == 1 then "1 argument" else s"$n arguments"
+
+// Argument `i`, a number, or `None` where it is `undefined` or not given.
+private number_or(base: usize, argc: usize, i: usize, name: string) -> Result[Option[real], Fault]
+    if i >= argc then return Ok(None)
+
+    val x = deref(arg(base, i))
+
+    x match
+        Int(n) -> Ok(Some(real(n)))
+        Real(r) -> Ok(Some(r))
+        Undefined -> Ok(None)
+        _ -> Err(kind_error(x, "number", s"'$name' wants a number and was given ${described(x)}"))
+
+// Argument `i`, a number that must be given.
+private number(base: usize, i: usize, name: string) -> Result[real, Fault]
+    val x = deref(arg(base, i))
+
+    x match
+        Int(n) -> Ok(real(n))
+        Real(r) -> Ok(r)
+        _ -> Err(kind_error(x, "number", s"'$name' wants a number and was given ${described(x)}"))
+
+// Argument `i`, an integer, or `None` where it is `undefined` or not given.
+private integer_or(base: usize, argc: usize, i: usize, name: string) -> Result[Option[long], Fault]
+    if i >= argc then return Ok(None)
+
+    val x = deref(arg(base, i))
+
+    x match
+        Int(n) -> Ok(Some(n))
+        Undefined -> Ok(None)
+        _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
+
+// A rectangle on the canvas: its corner, after `dx` and `dy`, and its extents, never negative.
+private struct Box
+    x: real
+    y: real
+    wd: real
+    ht: real
+
+// The rectangle Icon makes of `x`, `y`, `wd` and `ht` on canvas `c` with origin `(ox, oy)`: a missing
+// corner is the canvas's, a missing extent reaches the canvas's edge, and a negative extent reaches
+// left or up from the corner.
+private boxed(x: Option[real], y: Option[real], wd: Option[real], ht: Option[real], c: WinCanvas, ox: long, oy: long) -> Box
+    var bx = x match
+        Some(n) -> n + real(ox)
+        None -> 0.0
+    var by = y match
+        Some(n) -> n + real(oy)
+        None -> 0.0
+    var bw = wd.unwrap_or(real(c.width) - bx)
+    var bh = ht.unwrap_or(real(c.height) - by)
+
+    if bw < 0.0
+        bx += bw
+        bw = -bw
+
+    if bh < 0.0
+        by += bh
+        bh = -bh
+
+    Box(bx, by, bw, bh)
+
+// The integer rectangle of arguments `from` to `from + 3`, as `boxed` makes it.
+private int_box(base: usize, argc: usize, from: usize, c: WinCanvas, ox: long, oy: long, name: string) -> Result[Box, Fault]
+    val x = integer_or(base, argc, from, name)?
+    val y = integer_or(base, argc, from + 1, name)?
+    val wd = integer_or(base, argc, from + 2, name)?
+    val ht = integer_or(base, argc, from + 3, name)?
+
+    Ok(boxed(x.map((n) -> real(n)), y.map((n) -> real(n)), wd.map((n) -> real(n)), ht.map((n) -> real(n)), c, ox, oy))
+
+// -- painting --------------------------------------------------------------------------------------
+
+// A drawing under way on window `w`: its canvas and context, and the tile a textured or masked fill
+// style paints with, kept alive while the canvas draws with it.
+private struct Pen
+    w: Win
+    c: WinCanvas
+    ctx: WinContext
+    tile: Option[&pv.Surface]
+
+private is_named(id: u32, name: string) -> bool = atom_name(id) == name
+
+// A drawing begun on `w`: the canvas's state saved, the context's clip rectangle applied, and the
+// path empty.
+private began(w: Win) -> Pen
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    val d = c.drawn
+
+    d.save()
+    d.reset_transform()
+    d.operator(pv.Operator.SrcOver)
+    d.fill_rule(pv.FillRule.NonZero)
+
+    if ctx.clipw >= 0 && ctx.cliph >= 0
+        d.begin()
+        d.rect(f32(ctx.clipx), f32(ctx.clipy), f32(ctx.clipw), f32(ctx.cliph))
+        d.clip()
+
+    d.begin()
+    Pen(w, c, ctx, tile_of(ctx))
+
+// The drawing finished: the canvas's state as it was before.
+private finished(pen: Pen) -> Result[Option[Value], Fault]
+    pen.c.drawn.restore()
+    Ok(Some(Handle(pen.w.h)))
+
+// The eight-bit component of `c` at coverage `a`, premultiplied as the surface stores it.
+private premultiplied(c: long, a: f32) -> u8 = u8(long(channel(c) * 255.0 * a + 0.5))
+
+// The tile of context `ctx`'s pattern: its ones in the foreground, its zeros in the background for
+// `#textured` and clear for `#masked`; `None` for `#solid`, which paints the foreground alone.
+private tile_of(ctx: WinContext) -> Option[&pv.Surface]
+    if is_named(ctx.fillstyle, "solid") then return None
+
+    val p = parse_pattern(ctx.pattern)?
+    val tile = pv.surface(int(p.width), int(p.rows.len()))?
+    val data = tile.data()
+    val stride = long(tile.stride())
+    val masked = is_named(ctx.fillstyle, "masked")
+    val fg = ctx.fg_rgb
+    val bg = ctx.bg_rgb
+    val a = ctx.fg_alpha
+
+    for y in 0..<long(p.rows.len())
+        for x in 0..<p.width
+            val o = usize(y * stride + 4 * x)
+
+            if pattern_bit(p, x, y)
+                data[o] = premultiplied(fg.b, a)
+                data[o + 1] = premultiplied(fg.g, a)
+                data[o + 2] = premultiplied(fg.r, a)
+                data[o + 3] = u8(long(255.0 * a + 0.5))
+            else if masked
+                data[o] = 0
+                data[o + 1] = 0
+                data[o + 2] = 0
+                data[o + 3] = 0
+            else
+                data[o] = premultiplied(bg.b, 1.0)
+                data[o + 1] = premultiplied(bg.g, 1.0)
+                data[o + 2] = premultiplied(bg.r, 1.0)
+                data[o + 3] = 255
+
+    Some(tile)
+
+// The pen's paint made current: the foreground at its coverage, or the pattern's tile repeated from
+// the canvas's corner.
+private painted(pen: Pen)
+    val d = pen.c.drawn
+
+    pen.tile match
+        Some(t) -> d.texture(t, pv.TextureType.Tiled, 1.0)
+        None -> d.rgba(channel(pen.ctx.fg_rgb.r), channel(pen.ctx.fg_rgb.g), channel(pen.ctx.fg_rgb.b), pen.ctx.fg_alpha)
+
+// The width a stroke is drawn at: Icon's line width 0 is its thinnest line, one pixel.
+private stroke_width(ctx: WinContext) -> long = if ctx.linewidth < 1 then 1 else ctx.linewidth
+
+// What a stroke's coordinates are moved by: half a pixel, onto the pixels' centres, for a line of odd
+// width, and nothing for one of even width, whose edges then fall on the grid.
+private nudge(ctx: WinContext) -> real = if stroke_width(ctx) % 2 == 1 then 0.5 else 0.0
+
+// The path filled in the pen's paint.
+private filled(pen: Pen)
+    painted(pen)
+    pen.c.drawn.fill()
+
+// The path stroked in the pen's paint, with square caps, so a line covers its end points, and mitred
+// joins. `#dashed` draws dashes and gaps each four line widths long; `#striped` draws the same dashes
+// over a line of the background colour.
+private stroked(pen: Pen)
+    val d = pen.c.drawn
+    val wd = real(stroke_width(pen.ctx))
+    var none: [1]f32
+    var dashes: [2]f32
+
+    d.line_width(f32(wd))
+    d.line_cap(pv.LineCap.Square)
+    d.line_join(pv.LineJoin.Miter)
+    d.dash(none[0..<0])
+
+    if is_named(pen.ctx.linestyle, "solid")
+        painted(pen)
+        d.stroke()
+        return
+
+    if is_named(pen.ctx.linestyle, "striped")
+        d.rgb(channel(pen.ctx.bg_rgb.r), channel(pen.ctx.bg_rgb.g), channel(pen.ctx.bg_rgb.b))
+        d.stroke_preserve()
+
+    // A square cap adds half the width at each end of a dash, so the dash is drawn that much shorter
+    // and its gap that much longer.
+    dashes[0] = f32(3.0 * wd)
+    dashes[1] = f32(5.0 * wd)
+    d.dash(dashes[0..<2])
+    painted(pen)
+    d.stroke()
+
+// -- points, lines, polygons and curves ----------------------------------------------------------
+
+// The coordinates of arguments 1 to `argc - 1`, in pairs, moved by the origin and by `shift`.
+private points(base: usize, argc: usize, ctx: WinContext, shift: real, name: string) -> Result[(Buf[real], Buf[real]), Fault]
+    var xs: Buf[real] = buf()
+    var ys: Buf[real] = buf()
+    var i: usize = 1
+
+    while i + 1 < argc
+        xs.push(number(base, i, name)? + real(ctx.dx) + shift)
+        ys.push(number(base, i + 1, name)? + real(ctx.dy) + shift)
+        i += 2
+
+    Ok((xs, ys))
+
+// `w.draw_point(x1, y1, …)`: a pixel at each point.
+private draw_points(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val n = argc - 1
+
+    if n == 0 || n % 2 != 0
+        return Err(wrong_count("draw_point", n, s"'draw_point' takes coordinates in pairs, x and y, and was given ${counted(n)}"))
+
+    val w = window_arg(base, 0, "draw_point")?
+    val (xs, ys) = points(base, argc, context_at(w.ctx), 0.0, "draw_point")?
+    val pen = began(w)
+
+    for i in 0..<xs.len()
+        pen.c.drawn.rect(f32(xs.at(i)), f32(ys.at(i)), 1.0, 1.0)
+
+    filled(pen)
+    finished(pen)
+
+// `draw_line` (a polyline through every point), `draw_polygon` (the same, closed), `fill_polygon`
+// (its inside, by the even-odd rule, as X fills a polygon) and `draw_curve` (Icon's smooth curve
+// through every point, closed when the first point is the last).
+private draw_path(base: usize, argc: usize, name: string) -> Result[Option[Value], Fault]
+    val n = argc - 1
+
+    if n < 4 || n % 2 != 0
+        return Err(wrong_count(name, n, s"'$name' takes two points or more, each an x and a y, and was given ${counted(n)}"))
+
+    val w = window_arg(base, 0, name)?
+    val ctx = context_at(w.ctx)
+    val fill = name == "fill_polygon"
+    val (xs, ys) = points(base, argc, ctx, if fill then 0.0 else nudge(ctx), name)?
+    val pen = began(w)
+    val d = pen.c.drawn
+
+    if name == "draw_curve"
+        curve(d, xs, ys)
+    else
+        d.move_to(f32(xs.at(0)), f32(ys.at(0)))
+
+        for i in 1..<xs.len()
+            d.line_to(f32(xs.at(i)), f32(ys.at(i)))
+
+        if name != "draw_line" then d.close_path()
+
+    if fill
+        d.fill_rule(pv.FillRule.EvenOdd)
+        filled(pen)
+    else
+        stroked(pen)
+
+    finished(pen)
+
+// Icon's smooth curve through every point of `xs` and `ys`: a Catmull-Rom spline, each piece a cubic
+// Bézier curve. An open curve's first and last points stand in for the points before and after it;
+// a closed one, whose first point is its last, wraps around.
+private curve(d: &pv.Canvas, xs: Buf[real], ys: Buf[real])
+    val n = xs.len()
+    val closed = n > 2 && xs.at(0) == xs.at(n - 1) && ys.at(0) == ys.at(n - 1)
+    val m = long(if closed then n - 1 else n)
+
+    d.move_to(f32(xs.at(0)), f32(ys.at(0)))
+
+    for i in 0..<long(n - 1)
+        val p0 = curve_point(i - 1, m, closed)
+        val p1 = curve_point(i, m, closed)
+        val p2 = curve_point(i + 1, m, closed)
+        val p3 = curve_point(i + 2, m, closed)
+
+        d.cubic_to(f32(xs.at(p1) + (xs.at(p2) - xs.at(p0)) / 6.0), f32(ys.at(p1) + (ys.at(p2) - ys.at(p0)) / 6.0),
+            f32(xs.at(p2) - (xs.at(p3) - xs.at(p1)) / 6.0), f32(ys.at(p2) - (ys.at(p3) - ys.at(p1)) / 6.0),
+            f32(xs.at(p2)), f32(ys.at(p2)))
+
+    if closed then d.close_path()
+
+// The index of the curve's point `i` of `m`: wrapped around a closed curve, held at the ends of an
+// open one.
+private curve_point(i: long, m: long, closed: bool) -> usize
+    if closed then return usize(((i % m) + m) % m)
+    if i < 0 then return 0
+    if i >= m then return usize(m - 1)
+
+    usize(i)
+
+// `w.draw_segment(x1, y1, x2, y2, …)`: a separate line for each four numbers.
+private draw_segments(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val n = argc - 1
+
+    if n == 0 || n % 4 != 0
+        return Err(wrong_count("draw_segment", n, s"'draw_segment' takes segments of four numbers, x1, y1, x2 and y2, and was given ${counted(n)}"))
+
+    val w = window_arg(base, 0, "draw_segment")?
+    val ctx = context_at(w.ctx)
+    val (xs, ys) = points(base, argc, ctx, nudge(ctx), "draw_segment")?
+    val pen = began(w)
+    val d = pen.c.drawn
+    var i: usize = 0
+
+    while i + 1 < xs.len()
+        d.move_to(f32(xs.at(i)), f32(ys.at(i)))
+        d.line_to(f32(xs.at(i + 1)), f32(ys.at(i + 1)))
+        i += 2
+
+    stroked(pen)
+    finished(pen)
+
+// -- rectangles and arcs ---------------------------------------------------------------------------
+
+// `draw_rectangle`, `fill_rectangle` and `erase_area`, each over groups of `x, y, wd, ht`, and
+// `draw_arc` and `fill_arc`, over groups of `x, y, wd, ht, theta, alpha`. Every number may be missing
+// or `undefined`, as Icon's are, so with none the shape is the whole canvas.
+private draw_boxes(base: usize, argc: usize, name: string) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, name)?
+    val c = canvas_at(w.at)
+    val ctx = context_at(w.ctx)
+    val arc = name == "draw_arc" || name == "fill_arc"
+    val group: usize = if arc then 6 else 4
+    var boxes: Buf[Box] = buf()
+    var thetas: Buf[real] = buf()
+    var alphas: Buf[real] = buf()
+    var i: usize = 1
+
+    while i < argc || i == 1
+        val x = number_or(base, argc, i, name)?
+        val y = number_or(base, argc, i + 1, name)?
+        val wd = number_or(base, argc, i + 2, name)?
+        val ht = number_or(base, argc, i + 3, name)?
+
+        boxes.push(boxed(x, y, wd, ht, c, ctx.dx, ctx.dy))
+
+        if arc
+            thetas.push(number_or(base, argc, i + 4, name)?.unwrap_or(0.0))
+            alphas.push(number_or(base, argc, i + 5, name)?.unwrap_or(2.0 * Pi))
+
+        i += group
+
+    val pen = began(w)
+    val d = pen.c.drawn
+    val shift = if name == "draw_rectangle" || name == "draw_arc" then nudge(ctx) else 0.0
+
+    for j in 0..<boxes.len()
+        val b = boxes.at(j)
+
+        if arc
+            ellipse(d, b.x + b.wd / 2.0 + shift, b.y + b.ht / 2.0 + shift, b.wd / 2.0, b.ht / 2.0, thetas.at(j), alphas.at(j), name == "fill_arc")
+        else
+            d.rect(f32(b.x + shift), f32(b.y + shift), f32(b.wd), f32(b.ht))
+
+    if name == "erase_area"
+        d.rgb(channel(ctx.bg_rgb.r), channel(ctx.bg_rgb.g), channel(ctx.bg_rgb.b))
+        d.fill()
+    else if name == "fill_rectangle" || name == "fill_arc"
+        filled(pen)
+    else
+        stroked(pen)
+
+    finished(pen)
+
+// `w.draw_circle(x, y, r, theta, alpha, …)` and `w.fill_circle(…)`: groups of five, the centre and
+// radius given and the angles, in radians, defaulting to the whole circle.
+private draw_circles(base: usize, argc: usize, name: string) -> Result[Option[Value], Fault]
+    val n = argc - 1
+    val tail = n % 5
+
+    if n < 3 || tail == 1 || tail == 2
+        return Err(wrong_count(name, n, s"'$name' takes groups of x, y and a radius, each with a start and an extent if wanted, and was given ${counted(n)}"))
+
+    val w = window_arg(base, 0, name)?
+    val ctx = context_at(w.ctx)
+    val fill = name == "fill_circle"
+    val shift = if fill then 0.0 else nudge(ctx)
+    var circles: Buf[real] = buf()
+    var i: usize = 1
+
+    while i < argc
+        circles.push(number(base, i, name)? + real(ctx.dx) + shift)
+        circles.push(number(base, i + 1, name)? + real(ctx.dy) + shift)
+        circles.push(number(base, i + 2, name)?)
+        circles.push(number_or(base, argc, i + 3, name)?.unwrap_or(0.0))
+        circles.push(number_or(base, argc, i + 4, name)?.unwrap_or(2.0 * Pi))
+        i += 5
+
+    val pen = began(w)
+    var j: usize = 0
+
+    while j < circles.len()
+        val r = circles.at(j + 2)
+
+        ellipse(pen.c.drawn, circles.at(j), circles.at(j + 1), r, r, circles.at(j + 3), circles.at(j + 4), fill)
+        j += 5
+
+    if fill then filled(pen) else stroked(pen)
+
+    finished(pen)
+
+// The arc of the ellipse centred on `(cx, cy)` with radii `rx` and `ry`, from angle `theta` through
+// `alpha` more, added to the path: angles in radians from the positive x axis, a positive one turning
+// clockwise on the screen, as `y` grows downwards. A whole turn or more is the closed ellipse; a
+// `pie` -- a filled arc -- runs from the centre and back to it. Each quarter turn is one cubic Bézier
+// curve.
+private ellipse(d: &pv.Canvas, cx: real, cy: real, rx: real, ry: real, theta: real, alpha: real, pie: bool)
+    val whole = alpha >= 2.0 * Pi || alpha <= -2.0 * Pi
+    val sweep = if whole then 2.0 * Pi else alpha
+    val turn = if sweep < 0.0 then -sweep else sweep
+
+    if turn == 0.0 then return
+
+    var pieces: long = long(turn / (Pi / 2.0))
+
+    if real(pieces) * (Pi / 2.0) < turn then pieces += 1
+
+    val step = sweep / real(pieces)
+    val k = 4.0 / 3.0 * (step / 4.0).tan()
+    var a = theta
+    var x0 = cx + rx * a.cos()
+    var y0 = cy + ry * a.sin()
+
+    if pie && !whole
+        d.move_to(f32(cx), f32(cy))
+        d.line_to(f32(x0), f32(y0))
+    else
+        d.move_to(f32(x0), f32(y0))
+
+    for i in 0..<pieces
+        val b = a + step
+        val x1 = cx + rx * b.cos()
+        val y1 = cy + ry * b.sin()
+
+        d.cubic_to(f32(x0 - k * rx * a.sin()), f32(y0 + k * ry * a.cos()), f32(x1 + k * rx * b.sin()), f32(y1 - k * ry * b.cos()),
+            f32(x1), f32(y1))
+        a = b
+        x0 = x1
+        y0 = y1
+
+    if whole || pie then d.close_path()
+
+// -- copying and clipping --------------------------------------------------------------------------
+
+// `w1.copy_area(w2, x, y, wd, ht, x2, y2)`: the rectangle of `w1` at `(x, y)` copied to `w2` with its
+// corner at `(x2, y2)`. Each window's origin moves its own coordinates, the rectangle is Icon's, and
+// what lies off `w1`'s canvas copies as `w1`'s background. The copy lands only on `w2`'s canvas and
+// inside its clip rectangle. It is read whole before any of it is written, so `w2` may be `w1` and
+// the two rectangles may overlap.
+private do_copy_area(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc < 2 || argc > 8
+        return Err(wrong_count("copy_area", argc - 1, s"'copy_area' takes a window and at most six numbers, and was given ${counted(argc - 1)}"))
+
+    val from = window_arg(base, 0, "copy_area")?
+    val to = window_arg(base, 1, "copy_area")?
+    val src = canvas_at(from.at)
+    val sctx = context_at(from.ctx)
+    val dst = canvas_at(to.at)
+    val dctx = context_at(to.ctx)
+    val b = int_box(base, argc, 2, src, sctx.dx, sctx.dy, "copy_area")?
+    val x2 = integer_or(base, argc, 6, "copy_area")?.unwrap_or(0) + dctx.dx
+    val y2 = integer_or(base, argc, 7, "copy_area")?.unwrap_or(0) + dctx.dy
+    val sx = long(b.x)
+    val sy = long(b.y)
+
+    // The part of the target the copy may write: the rectangle, the canvas, and the clip rectangle.
+    var left = x2
+    var top = y2
+    var right = x2 + long(b.wd)
+    var bottom = y2 + long(b.ht)
+
+    if left < 0 then left = 0
+    if top < 0 then top = 0
+    if right > dst.width then right = dst.width
+    if bottom > dst.height then bottom = dst.height
+
+    if dctx.clipw >= 0 && dctx.cliph >= 0
+        if left < dctx.clipx then left = dctx.clipx
+        if top < dctx.clipy then top = dctx.clipy
+        if right > dctx.clipx + dctx.clipw then right = dctx.clipx + dctx.clipw
+        if bottom > dctx.clipy + dctx.cliph then bottom = dctx.clipy + dctx.cliph
+
+    if left >= right || top >= bottom then return Ok(Some(Handle(from.h)))
+
+    val from_data = src.surface.data()
+    val from_stride = long(src.surface.stride())
+    var scratch: Buf[u8] = buf()
+
+    // The copy is made in device pixels: a window on a high-density display has `density` of them to
+    // the point, and the two canvases' densities may differ.
+    val dd = dst.density
+    val sd = src.density
+
+    for y in top * dd..<bottom * dd
+        for x in left * dd..<right * dd
+            val fx = (sx - x2) * sd + x * sd / dd
+            val fy = (sy - y2) * sd + y * sd / dd
+
+            if fx >= 0 && fy >= 0 && fx < src.width * sd && fy < src.height * sd
+                val o = usize(fy * from_stride + 4 * fx)
+
+                for k in 0..<4
+                    scratch.push(from_data[o + usize(k)])
+            else
+                scratch.push(premultiplied(sctx.bg_rgb.b, 1.0))
+                scratch.push(premultiplied(sctx.bg_rgb.g, 1.0))
+                scratch.push(premultiplied(sctx.bg_rgb.r, 1.0))
+                scratch.push(255)
+
+    val to_data = dst.surface.data()
+    val to_stride = long(dst.surface.stride())
+    var at: usize = 0
+
+    for y in top * dd..<bottom * dd
+        for x in left * dd..<right * dd
+            val o = usize(y * to_stride + 4 * x)
+
+            for k in 0..<4
+                to_data[o + usize(k)] = scratch.at(at)
+                at += 1
+
+    scratch.release()
+    Ok(Some(Handle(from.h)))
+
+// `w.clip(x, y, wd, ht)`: the clip rectangle set, Icon's rectangle moved by the origin; `w.clip()`
+// takes it away. Drawing, erasing and copying then touch only the pixels inside it.
+private do_clip(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    if argc > 5 then return Err(wrong_count("clip", argc - 1, s"'clip' takes at most 4 arguments and was given ${argc - 1}"))
+
+    val w = window_arg(base, 0, "clip")?
+    var ctx = context_at(w.ctx)
+
+    if argc == 1
+        ctx.clipx = 0
+        ctx.clipy = 0
+        ctx.clipw = -1
+        ctx.cliph = -1
+    else
+        val b = int_box(base, argc, 1, canvas_at(w.at), ctx.dx, ctx.dy, "clip")?
+
+        ctx.clipx = long(b.x)
+        ctx.clipy = long(b.y)
+        ctx.clipw = long(b.wd)
+        ctx.cliph = long(b.ht)
+
+    contexts.set(w.ctx, Some(ctx))
+    Ok(Some(Handle(w.h)))
