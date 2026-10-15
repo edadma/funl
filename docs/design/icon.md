@@ -599,26 +599,12 @@ cannot be assigned.
 
 ## Numbers
 
-### Random numbers
-
-**Icon:** `?i` is a random integer from 1 to `i` (`?0` a real in [0, 1)); `?s` a random character
-of `s`; `?L`, `?R` a random element, assignable; `?S`, `?T` a random member or value. `&random` is
-the seed, assignable, so a run can be repeated.
-
-**Proposed:** **prefix `?`** as Icon has it — prefix `?` begins nothing in FunL, and infix `?`
-stays scanning. `?n` counts from 1, Icon's dice-roll, since `n` is a count and not an index; `?c`
-on a collection is a random element and is assignable on an array, buffer or mutable map. `random()`
-is a real in [0, 1). `&random` reads and sets the seed; the generator is a documented one (sysl's),
-not Icon's linear congruential one, so seeded runs repeat within FunL but not across to Icon.
-
 ### Bits, radix and conversion
 
 | Icon | FunL | |
 |---|---|---|
-| `iand`, `ior`, `ixor`, `icom`, `ishift(i, j)` | the same names, over the whole integer tower as if two's complement were infinitely long; `ishift` left for positive `j`, right (flooring) for negative | new; Prolog has `/\`, `\/`, `xor`, `<<`, `>>` |
 | `integer(x)`, `real(x)`, `numeric(x)` | the same; a string is read as a literal is, Icon's `16rFF` included; fail when it is not one | new |
-| `dtor`, `rtod` | the same | new |
-| `&pi`, `&e`, `&phi` | `pi`, `e`, `phi` and the keywords | new |
+| `&pi`, `&e`, `&phi` | the keywords (item 10); the values `pi`, `e` and `phi` exist | new |
 | `16rFF` literal | see I16 | |
 
 The `0x`, `0o` and `0b` literals stop being limited to 64 bits: a long one is a big integer, as a

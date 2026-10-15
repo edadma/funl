@@ -5,8 +5,6 @@ import sh.sysl.dal.{Number, NumberError}
 import sysl.math.bigint.BigInt
 import sysl.math.bigint as big
 import sysl.math.{Float, checked_add, checked_mul, checked_sub}
-import sysl.posix.rand.seed_from_os
-import sysl.rand.rng
 import sysl.text.chars_of
 
 // Prolog arithmetic: `is/2`, the comparisons, `succ/2`, `plus/3` and `between/3`.
@@ -211,13 +209,7 @@ private random_below(a: Value) -> Result[Value, Fault]
 
     if n <= 0 then return Err(domain_error("not_less_than_one", a, s"random/1 wants a positive bound, and was given $n"))
 
-    val v = current()
-
-    if !v.rng_seeded
-        v.rng = rng(seed_from_os().unwrap_or(0), 0)
-        v.rng_seeded = true
-
-    Ok(Int(long(v.rng.below(u64(n)))))
+    Ok(Int(long(draw_below(u64(n)))))
 
 private binary(name: string, a: Value, b: Value) -> Result[Value, Fault]
     // The fast path: two 64-bit integers whose sum, difference or product is one too.

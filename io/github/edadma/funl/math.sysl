@@ -1,8 +1,12 @@
 module io.github.edadma.funl
 
+import sh.sysl.dal
+import sh.sysl.dal.Number
+
 // The math builtins: `sqrt`, `exp`, `log`, the trigonometric functions, the roundings, `sign`,
-// `float`, and the values `pi` and `epsilon`. Each is the Prolog evaluable function of the same
-// name (`pl_arith.sysl`), so a number is rounded, refused and faulted alike in both languages.
+// `float`, the bit operations, `dtor` and `rtod`, and the values `pi`, `e`, `phi` and `epsilon`. Each
+// is the Prolog evaluable function of the same name (`pl_arith.sysl`) where there is one, so a number
+// is rounded, refused and faulted alike in both languages.
 
 install_math(v: *Vm)
     for name in ["sqrt", "exp", "log2", "sin", "cos", "tan", "asin", "acos", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "cot", "acot", "floor", "ceiling", "round", "truncate", "sign", "float", "integer"]
@@ -13,9 +17,50 @@ install_math(v: *Vm)
     register(v, "copysign", 2, (b, n) -> math2("copysign", b))
     register(v, "log", Variadic, (b, n) -> log_of(b, n))
 
-    // `e` is left to programs as a name: it is `exp(1)`.
-    for name in ["pi", "epsilon"]
+    for name in ["pi", "epsilon", "e"]
         register_constant(v, name, (b, n) -> math_constant(name))
+
+    register_constant(v, "phi", (b, n) -> Ok(Real(1.618033988749895)))
+
+    // The bit operations, over the whole integer tower as if two's complement were infinitely long.
+    register(v, "iand", 2, (b, n) -> bits2("iand", "/\\", b))
+    register(v, "ior", 2, (b, n) -> bits2("ior", "\\/", b))
+    register(v, "ixor", 2, (b, n) -> bits2("ixor", "xor", b))
+    register(v, "ishift", 2, (b, n) -> bits2("ishift", "<<", b))
+    register(v, "icom", 1, (b, n) -> bits1(b))
+
+    register(v, "dtor", 1, (b, n) -> angle("dtor", b, 3.141592653589793 / 180.0))
+    register(v, "rtod", 1, (b, n) -> angle("rtod", b, 180.0 / 3.141592653589793))
+
+// `iand`, `ior`, `ixor` and `ishift`: Prolog's `/\`, `\/`, `xor` and `<<` (a negative count shifts
+// right, flooring) on two integers.
+private bits2(name: string, evaluable: string, base: usize) -> Result[Value, Fault]
+    val a = integer_arg(name, base, 0)?
+    val b = integer_arg(name, base, 1)?
+
+    math_binary(evaluable, a, b)
+
+// `icom(i)`: every bit of `i` flipped, which is `-i - 1`.
+private bits1(base: usize) -> Result[Value, Fault]
+    val a = integer_arg("icom", base, 0)?
+
+    math_unary("\\", a)
+
+// `dtor(x)` and `rtod(x)`: degrees as radians and radians as degrees, a real.
+private angle(name: string, base: usize, factor: real) -> Result[Value, Fault]
+    val a = number_arg(name, base, 0)?
+
+    num_result(Ok(Number.Real(dal.to_real(num_of(a).unwrap()) * factor)), name, a)
+
+private integer_arg(name: string, base: usize, i: usize) -> Result[Value, Fault]
+    val x = arg(base, i)
+    val y = deref(x)
+
+    if is_int(y) then return Ok(y)
+
+    y match
+        Var(_) -> Err(instantiation_error(s"instantiation error: '$name' was given an unbound variable"))
+        _ -> Err(type_error("integer", y, s"'$name' wants an integer and was given ${described(x)}"))
 
 // The one-argument function `name` of the number at `base`.
 private math1(name: string, base: usize) -> Result[Value, Fault]

@@ -144,6 +144,14 @@ enum ExprKind
     // `!c`: each element of `c`, one per resumption.
     BangE(e: &Expr)
 
+    // `?e`: a random integer from 1 to `e`, a real in [0, 1) for 0, or a random element of a string
+    // or collection. As the target of `=`, `<-` or an operator assignment it names a random element.
+    RandE(e: &Expr)
+
+    // The key `?c` chose in the collection `c` that a store through it writes: only ever the key of a
+    // `SetElemE` or `UpdateElemE`, whose collection it is chosen from.
+    RandKeyE
+
     // `|e`: `e`'s values, then `e`'s values again, for as long as each round produces one.
     RepAltE(e: &Expr)
 

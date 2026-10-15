@@ -19,6 +19,7 @@ element_target(target: &Expr, value: &Expr, back: bool, at: Span) -> Option[&Exp
 
             Some(expr(SetElemE(f, args.at(0), value, back), at))
         FieldE(c, n) -> Some(expr(SetElemE(c, expr(StrE(n), target.span), value, back), at))
+        RandE(c) -> Some(expr(SetElemE(c, expr(RandKeyE, target.span), value, back), at))
         _ -> None
 
 // The element `target` names updated through `o` with `value`: `name(k) op= e`, `c(k) op= e` or

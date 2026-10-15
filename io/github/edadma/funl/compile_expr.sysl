@@ -239,6 +239,11 @@ compile_value(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             compile_value(e, c, a)?
             e.op(GenStart(false))
             e.op(GenNext)
+        RandE(a) ->
+            compile_value(e, c, a)?
+            e.op(PushInt(0))
+            e.op(NativeGen(native_id("$random_pick").unwrap(), 1))
+        RandKeyE -> return Err("a random key outside a store reached the compiler")
         RangeE(from, upto, by, inclusive) ->
             compile_value(e, c, from)?
             compile_value(e, c, upto)?
