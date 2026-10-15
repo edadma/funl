@@ -1,0 +1,180 @@
+module io.github.edadma.funl
+
+import sysl.buf.Buf
+import sysl.posix.time.sleep
+import sysl.time.micros
+
+// `funl:graphics`'s canvases on screen: what the window's own events do to its canvas, the waits that
+// show the canvases, and the methods that wait (`docs/library/graphics-screen.md`). The window itself
+// -- SDL, behind the `graphics` feature -- is `native_screen.sysl`; the canvas, its queue and its
+// attributes are `native_graphics.sysl`.
+//
+// **The program's waits are where the screen is brought up to date**: `show_screens` takes in what
+// SDL says has happened -- a resize, a close asked for, a key, a click -- onto each canvas and its
+// queue, then copies every shown canvas into its window. `flush`, `sync`, `delay`, `event`, `pending`,
+// `active`, the event loop's wait and the program's end all go through it.
+
+// The place of the canvas whose window SDL calls `id`.
+private canvas_of_screen(id: u32) -> Option[usize]
+    for i in 0..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.screen >= 0 && screen_id(usize(c.screen)) == id then return Some(i)
+            None -> ()
+
+    None
+
+// Event `ev` put on the queue of the canvas at `at`, unless its `inputmask` keeps it off, as
+// `enqueue` would: motion with no button held without `"m"`, a key's release without `"k"`.
+private queued(at: usize, ev: WinEvent)
+    val c = canvas_at(at)
+    val unasked_release = (ev.mods & ScreenReleased) != 0 && !in_mask(c.inputmask, 'k')
+    val unasked_motion = !ev.is_key && atom_name(ev.sym) == "move" && !in_mask(c.inputmask, 'm')
+
+    if !unasked_release && !unasked_motion then c.queue.push(ev)
+
+// A symbol event at the pointer of the canvas at `at`.
+private at_pointer(at: usize, sym: string) -> WinEvent
+    val (x, y) = canvas_at(at).pointer.unwrap_or((0, 0))
+
+    WinEvent(false, "", intern(sym), x, y, 0, 0)
+
+// What has happened to the windows on screen, waiting up to `ms` milliseconds for the first thing,
+// carried into their canvases: a window resized by its user has its canvas resized with it, the
+// picture kept and the new area filled, and `#resize` queued; a close asked for queues `#close`; one
+// exposed is shown again; the pointer seen over one is its `pointer`; a key, a button and the wheel
+// are queued as Icon's events.
+private take_news(ms: long)
+    val news = screen_news(ms)
+
+    for i in 0..<news.len()
+        news.at(i) match
+            Resized(id, w, h) ->
+                canvas_of_screen(id) match
+                    Some(at) ->
+                        val c = canvas_at(at)
+
+                        // A resize to the size the canvas has is the program's own `set` coming back.
+                        if w != c.width || h != c.height
+                            resized(c, w, h, c.fill) match
+                                Some(r) ->
+                                    canvases.set(at, Some(r))
+                                    queued(at, at_pointer(at, "resize"))
+                                None -> ()
+                    None -> ()
+            Exposed(id) ->
+                canvas_of_screen(id) match
+                    Some(at) -> screen_show(usize(canvas_at(at).screen), canvas_at(at).surface)
+                    None -> ()
+            Pointed(id, x, y) ->
+                canvas_of_screen(id) match
+                    Some(at) ->
+                        var c = canvas_at(at)
+
+                        c.pointer = Some((x, y))
+                        canvases.set(at, Some(c))
+                    None -> ()
+            Closing(id) ->
+                canvas_of_screen(id) match
+                    Some(at) -> queued(at, at_pointer(at, "close"))
+                    None -> ()
+            Input(id, key, sym, x, y, mods, interval) ->
+                canvas_of_screen(id) match
+                    Some(at) ->
+                        val ev = if key != "" then WinEvent(true, key, 0, x, y, mods, interval) else WinEvent(false, "", intern(sym), x, y, mods, interval)
+
+                        queued(at, ev)
+                    None -> ()
+end take_news
+
+// The program waits: what has happened to the windows on screen is taken in, and every canvas shown
+// in a window is copied there and presented. Not `private`: the event loop calls it before it blocks.
+show_screens()
+    take_news(0)
+
+    for i in 0..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.screen >= 0 && c.state != "hidden" then screen_show(usize(c.screen), c.surface)
+            None -> ()
+
+// Whether the canvas at `at` is shown in a window, so that its user can still put an event on its
+// queue while the program waits.
+on_screen(at: usize) -> bool
+    val c = canvas_at(at)
+
+    c.screen >= 0 && c.state != "hidden"
+
+// Waited, showing the canvases and taking in their windows' events, until `ready` says so. The
+// caller has made sure an event can come.
+wait_on_screens(ready: () -> bool)
+    show_screens()
+
+    while !ready()
+        take_news(100)
+        show_screens()
+
+// Whether a window on screen is still waiting to be closed by its user.
+private screens_left() -> bool
+    if screens_quit_asked() then return false
+
+    for i in 0..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.screen >= 0 && c.state != "hidden" && !screen_close_asked(usize(c.screen)) then return true
+            None -> ()
+
+    false
+
+// The program has ended with windows still on screen: they are shown, and waited on until each is
+// closed from its title bar or the platform asks the program to quit, as Icon's `WDone` waits; then
+// every window is closed. Not `private`: the driver calls it when a program ends (`source_file.sysl`).
+wait_for_screens()
+    while screens_left()
+        show_screens()
+        take_news(100)
+
+    for i in 0..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.screen >= 0 then free_canvas(i)
+            None -> ()
+
+// `ms` milliseconds waited, in short sleeps, the windows on screen taken in between them so that
+// they keep answering while the program pauses.
+private pause(ms: long)
+    var left = ms
+
+    while left > 0
+        val step = if left < 10 then left else 10
+
+        sleep(micros(step * 1000))
+        take_news(0)
+        left -= step
+
+// `w.flush()` and `w.sync()`: every canvas shown on screen as it now is; answers `w`. A frame is
+// presented by the time SDL's present returns, so `sync` waits for nothing more than `flush` does.
+private[funl] do_flush(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "flush")?
+
+    show_screens()
+    Ok(Some(Handle(w.h)))
+
+// `w.delay(ms)`: the canvases shown, then `ms` milliseconds waited; answers `w`.
+private[funl] do_delay(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "delay")?
+    val x = deref(arg(base, 1))
+
+    val ms = x match
+        Int(n) -> n
+        _ -> return Err(kind_error(x, "integer", s"'delay' wants a number of milliseconds, an integer, and was given ${described(x)}"))
+
+    show_screens()
+    pause(ms)
+    Ok(Some(Handle(w.h)))
+
+// `w.raise()`: `w`'s window brought in front of the others; answers `w`. A hidden canvas has no window
+// to raise.
+private[funl] do_raise(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    val w = window_arg(base, 0, "raise")?
+    val c = canvas_at(w.at)
+
+    if c.screen >= 0 then screen_raise(usize(c.screen))
+
+    Ok(Some(Handle(w.h)))

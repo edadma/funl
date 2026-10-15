@@ -7,12 +7,14 @@ weight: 22
 
 `funl:graphics` gives FunL the graphics facilities of Icon 9.5. A window is a handle, and everything
 done with it is a method on that handle. The module exports `open`, which makes a window; `couple`,
-which joins two; `color_value`, which reads a colour; and `active`, which finds the windows with
-events waiting.
+which joins two; `color_value`, which reads a colour; `active`, which finds the windows with
+events waiting; and the [palette](#palettes) functions.
 
 This page covers windows on a **hidden canvas**: a picture drawn in memory and read back, with no
-window on screen, [drawing](#drawing) on it, its events, put on its queue by the program, and
-[text and fonts](#text-and-fonts). Images come with a later part of the module.
+window on screen, [drawing](#drawing) on it, [text and fonts](#text-and-fonts), [images](#images)
+read, written and drawn, and its events, put on its queue by the program. [Windows on
+screen](graphics-screen.md) has the rest of a window's life: shown, moved, resized and closed by its
+user, whose keys and clicks reach the same queue.
 
 ## Hidden canvases
 
@@ -37,18 +39,11 @@ write( w )
 <closed window handle>
 ```
 
-**A window on screen is not in this build yet.** Opening one, which is what `open` does when
-`canvas` is not `#hidden`, faults and names the feature it needs:
-
-```funl
-import { open } from funl:graphics
-
-w = open( "hello" )
-```
-
-```error
-'open': a window on screen is not in this build -- it is behind the `graphics` feature
-```
+**Without `canvas: #hidden`, `open` shows the window on screen**
+([Windows on screen](graphics-screen.md)). That is behind the `graphics` feature, which a `funl`
+build has unless it was built with `--no-default-features`; in a build without it, opening a window
+on screen faults with a `system_error` saying that a window on screen is not in this build and is
+behind the `graphics` feature.
 
 A canvas opened with no `size` is Icon's default, 80 columns by 12 lines of the font it is opened
 with — 480 by 156 in the default font, `"fixed"` ([Text and fonts](#text-and-fonts)). It starts
@@ -78,7 +73,7 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "canvas": hidden, "resize": false, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "image": undefined, "canvas": hidden, "resize": false, "pos": undefined, "posx": undefined, "posy": undefined, "pointer": undefined, "pointerx": undefined, "pointery": undefined, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "displaywidth": undefined, "displayheight": undefined, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
 ```
 
 | attribute | value | default |
@@ -86,8 +81,11 @@ red, 3, dashed
 | `size` | `(width, height)` | 80 columns by 12 lines of the font: `(480, 156)` |
 | `width`, `height` | an integer from 1 to 32767 | |
 | `label` | the title, a string | `open`'s title |
-| `canvas` | `#hidden` (`#normal`, `#maximal` and `#iconic` are on-screen states) | |
+| `image` | an image file, read onto the canvas, which takes its size ([images](#images)) | `undefined` |
+| `canvas` | `#hidden`, or `#normal` for a window on screen | `#normal` |
 | `resize` | whether the user may resize the window | `false` |
+| `pos`, `posx`, `posy` | where the window is on its display, `(x, y)`; a hidden canvas keeps it for when it is shown | `undefined` until set or shown |
+| `pointer`, `pointerx`, `pointery` | where the pointer is over the window, `(x, y)`; setting it moves the pointer; a hidden canvas has none, and setting it fails | `undefined` until known |
 | `cursor` | whether the text cursor is shown | `false` |
 | `echo` | whether keys read as text are drawn as they are typed | `true` |
 | `inputmask` | the events reported beyond the usual: `"m"` motion with no button held, `"k"` a key's release ([events](#events)) | `""` |
@@ -101,7 +99,8 @@ red, 3, dashed
 | `clipx`, `clipy`, `clipw`, `cliph` | the clip rectangle; setting one when there is none starts from the whole canvas, and `undefined` takes it away | `undefined` |
 | `dx`, `dy` | the origin, added to every coordinate | `0` |
 | `depth` | read-only: bits per pixel | `24` |
-| `density` | read-only: device pixels per point, always 1 on a hidden canvas | `1` |
+| `density` | read-only: device pixels per point, 2 on a high-density display, always 1 on a hidden canvas | `1` |
+| `displaywidth`, `displayheight` | read-only: the size of the display the window is on; a hidden canvas has none | `undefined` |
 | `font` | a font specification, a string ([Text and fonts](#text-and-fonts)) | `"fixed"` |
 | `leading` | an integer: the pixels between one line's baseline and the next | the font's `fheight` |
 | `ascent`, `descent` | read-only: how far the font rises above the baseline and falls below it | `10`, `3` |
@@ -571,6 +570,146 @@ write( w.goto_rc(2, 4).get("x"), w.get("y") )
 After `"two"` and `"three"`, each ending its line, the canvas has scrolled twice, and `"three"` is on
 row 1 with the cursor below it on row 2, the last row the canvas holds.
 
+## Images
+
+| method | what it does |
+|---|---|
+| `w.draw_image(x, y, spec)` | draws Icon's image string `spec` with its corner at `x`, `y` |
+| `w.read_image(file, x, y)` | reads an image file onto the canvas with its corner at `x`, `y` |
+| `w.write_image(file, x, y, wd, ht)` | writes a rectangle of the canvas to `file` as a PNG |
+| `w.image_bytes(x, y, wd, ht)` | answers the PNG `write_image` would write, as a [byte string](../reference/data.md#bytes) |
+
+Each answers `w` (`image_bytes` its bytes) and fails where Icon's does. As in drawing, `x` and `y`
+default to the canvas's corner and are moved by `dx` and `dy`, and an image goes only where the clip
+rectangle lets it; `write_image` and `image_bytes` read their rectangle as [`pixel`](#reading-pixels)
+does and keep the part of it on the canvas. An image is laid on the canvas pixel for pixel, with no
+drawing operation and no anti-aliasing.
+
+**An image string is a picture written as text.** `"wd,palette,data"` gives the width in pixels, a
+[palette](#palettes), and then a character a pixel, row by row, each a key of the palette. A `~`, and
+the character of code 255, are transparent, leaving the canvas as it was, where the palette has no
+such key; a space or a comma is punctuation, read as nothing, where the palette has none. `"wd,#hex"`
+is bi-level: each row is a run of hex digits read as one number, whose bit `i` is pixel `i`, drawn in
+the foreground for a one and the background for a zero -- or left as it was, in `"wd,~hex"`.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "icon", {canvas: #hidden, size: (4, 2)} )
+w.draw_image( 0, 0, "4,c2,rgb~ kkkk" )
+write( [p | p <- w.pixel(0, 0, 4, 1)] )
+w.set( {fg: "red"} ).draw_image( 0, 1, "4,~9" )
+write( [p | p <- w.pixel(0, 1, 4, 1)] )
+write( w.draw_image(0, 0, "3,c2,rgbr") | "not a rectangle" )
+```
+
+```output
+["65535,0,0", "0,65535,0", "0,0,65535", "65535,65535,65535"]
+["65535,0,0", "0,0,0", "0,0,0", "65535,0,0"]
+not a rectangle
+```
+
+**Reading takes whatever stb_image reads**: PNG, JPEG, BMP, GIF (its first frame), TGA, PSD, HDR,
+PIC and PNM. `read_image` fails when the file is not there or is no such image, and lays a pixel
+that is partly transparent over what the canvas has. The `image` attribute reads a file onto the
+canvas and makes the canvas its size, at `open` or after it.
+
+**Writing is PNG**, whatever the file is called. A name ending in another image format's extension
+-- `.jpg`, `.gif`, `.bmp` and the rest, in any case -- faults rather than putting PNG bytes under a
+name that says otherwise. `write_image` fails when none of the rectangle is on the canvas or the file
+cannot be made.
+
+```funl
+import { open } from funl:graphics
+import { remove } from funl:fs
+
+w = open( "strip", {canvas: #hidden, size: (3, 1)} )
+w.draw_image( 0, 0, "3,c2,rgb" )
+w.write_image( "docs/library/strip.png" )
+v = open( "copy", {canvas: #hidden, image: "docs/library/strip.png"} )
+write( v.get("size"), [p | p <- v.pixel()] )
+u = open( "wider", {canvas: #hidden, size: (5, 1), bg: "black"} )
+u.read_image( "docs/library/strip.png", 2 )
+write( [p | p <- u.pixel()] )
+write( w.image_bytes()(0..<4) )
+write( u.read_image("docs/library/nothing.png") | "no image" )
+remove( "docs/library/strip.png" )
+```
+
+```output
+(3, 1), ["65535,0,0", "0,65535,0", "0,0,65535"]
+["0,0,0", "0,0,0", "65535,0,0", "0,65535,0", "0,0,65535"]
+bytes([137, 80, 78, 71])
+no image
+```
+
+```funl
+import { open } from funl:graphics
+
+w = open( "photo", {canvas: #hidden, size: (3, 1)} )
+w.write_image( "photo.jpg" )
+```
+
+```error
+'write_image' writes PNG only, and `photo.jpg` names a .jpg file
+```
+
+Icon's `ReadImage` takes a palette to reduce an image to, which exists for colour-mapped displays and
+is not adopted.
+
+## Palettes
+
+**A palette is a fixed set of colours, each named by one character, its key**, in which an image
+string is written. `"c1"` is Icon's ninety named colours; `"c2"` to `"c6"` are colour cubes, `n`
+levels of each of red, green and blue, with the greys between the cube's own added after it; `"g2"`
+to `"g256"` are that many greys from black to white.
+
+| function | answers |
+|---|---|
+| `palette_chars(p)` | the keys of palette `p`, a string, in palette order |
+| `palette_color(p, k)` | the colour of key `k`, in the `"r,g,b"` form; fails when `p` has no such key |
+| `palette_key(p, c)` | the key of the colour of `p` nearest colour `c` |
+| `palette_grays(p)` | the keys of `p`'s greys, from black to white |
+
+Each fails on a string that names no palette, and faults on a palette that is not a string or a key
+that is not one character. The keys and colours are Icon's, number for number.
+
+```funl
+import { palette_chars, palette_color, palette_key, palette_grays } from funl:graphics
+
+write( palette_chars("c2"), palette_chars("g8") )
+write( palette_color("c1", "A"), palette_color("c3", "M"), palette_color("g5", "1") )
+write( palette_key("c1", "light blue"), palette_key("c2", "orange"), palette_key("g16", "gray") )
+write( palette_grays("c1"), palette_grays("c3") )
+write( palette_chars("c7") | "no such palette", palette_color("c2", "z") | "no such key" )
+```
+
+```output
+kbgcrmywx, 01234567
+65535,0,0, 32767,32767,32767, 16383,16383,16383
+j, r, 7
+0123456, @abMcdZ
+no such palette, no such key
+```
+
+**In `c1` the comma is a key**, very light yellow, so a `c1` image string has no punctuation but the
+space. The keys of `c5`, `c6` and the greys past `g64` are the characters from code 0 up, so those
+image strings are built with `char` rather than typed.
+
+**`w.new_color(…)` fails**, as Icon's `NewColor` does on a true-colour display: there is no colour
+map to take an entry of, and every colour is already a specification.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "map", {canvas: #hidden, size: (1, 1)} )
+write( w.new_color("red") | "no colour map" )
+```
+
+```output
+no colour map
+```
+
 ## Clones, couples and closing
 
 **A window is a canvas and a context.** The canvas is the picture, its size and its title; the
@@ -735,9 +874,10 @@ q, up
 so one task's events never change what another reads, and a task starts with `&x` and `&y` at 0 and
 no modifier held.
 
-**Nothing can queue an event while the program waits for one** in this build, where every canvas is
-hidden, so `event()` on an empty queue, and `active()` when no window has an event, fault rather than
-wait for ever:
+**A window on screen is waited on**: `event()` on its empty queue, and `active()` when no window has
+an event, wait for its user to press a key or click ([Windows on screen](graphics-screen.md#events-from-the-screen)).
+**Nothing can queue an event on a hidden canvas while the program waits for one**, so there they
+fault rather than wait for ever:
 
 ```funl
 import { open } from funl:graphics

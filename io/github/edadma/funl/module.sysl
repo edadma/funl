@@ -90,25 +90,28 @@ struct ModuleOut
     map_slot: usize
     chunk: usize
 
-// One module of FunL's own, `funl:name`: what it exports.
+// One module of FunL's own, `funl:name`: what it exports, and the part of it written in FunL -- its
+// source, compiled the first time the module is imported -- or `""` for a module wholly native.
 struct ModuleProvider
     name: string
     exports: &Fn() -> Buf[ModExport]
+    source: string
 
 // The modules of FunL's own, by name: each a list of natives registered under prefixed names
-// (`fs.read_file`) and exported under the short ones.
+// (`fs.read_file`) and exported under the short ones, and for `funl:graphics` the functions written in
+// FunL beside them (`modules.md` § "Built-in modules": only what FunL cannot do is native).
 builtin_modules() -> Buf[ModuleProvider]
     var out: Buf[ModuleProvider] = buf()
 
-    out.push(ModuleProvider("fs", fs_exports))
-    out.push(ModuleProvider("process", process_exports))
-    out.push(ModuleProvider("json", json_exports))
-    out.push(ModuleProvider("sqlite", sqlite_exports))
-    out.push(ModuleProvider("graphics", graphics_exports))
-    out.push(ModuleProvider("time", time_exports))
-    out.push(ModuleProvider("async", async_exports))
+    out.push(ModuleProvider("fs", fs_exports, ""))
+    out.push(ModuleProvider("process", process_exports, ""))
+    out.push(ModuleProvider("json", json_exports, ""))
+    out.push(ModuleProvider("sqlite", sqlite_exports, ""))
+    out.push(ModuleProvider("graphics", graphics_exports, graphics_source()))
+    out.push(ModuleProvider("time", time_exports, ""))
+    out.push(ModuleProvider("async", async_exports, ""))
 #if feature_http
-    out.push(ModuleProvider("http", http_exports))
+    out.push(ModuleProvider("http", http_exports, ""))
 #endif
     out
 
@@ -277,7 +280,12 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
                     continue
 
                 builtin_module(name) match
-                    Some(p) -> bind(&out, provided(p), s"funl:$name", i.form, report)
+                    Some(p) ->
+                        val l = provided(p)
+
+                        if l.fresh then out.loads.push(current().modules.at(l.index).chunk)
+
+                        bind(&out, l.index, s"funl:$name", i.form, report)
                     None -> report.add(error(i.at, unknown_builtin(name)))
 
     out
@@ -292,16 +300,36 @@ private dots_to_slash(name: string) -> string
 
     out
 
-// Module `funl:name`, from its provider: registered once, and found again after.
-private provided(p: ModuleProvider) -> usize
+// Module `funl:name`, from its provider: registered once, and found again after. A provider with FunL
+// source has it compiled the first time, as the prelude is, and its natives exported beside the
+// source's own names; that load is `fresh`, and its top level is for the importer to run.
+private provided(p: ModuleProvider) -> ModLoad
     val v = current()
     val file = s"funl:${p.name}"
 
     for i in 0..<v.modules.len()
-        if v.modules.at(i).file == file then return i
+        if v.modules.at(i).loaded && v.modules.at(i).file == file then return ModLoad(i, false)
 
-    v.modules.push(FunlModule(file, TopUp, true, p.exports(), NoMap, 0, false))
-    v.modules.len() - 1
+    if p.source == ""
+        v.modules.push(FunlModule(file, TopUp, true, p.exports(), NoMap, 0, false))
+        return ModLoad(v.modules.len() - 1, false)
+
+    var report = full_report()
+
+    val l = module_from_text(file, p.source, point(0), &report) match
+        Ok(l) -> l
+        Err(_) -> panic(s"`$file`'s FunL does not compile:\n${report.render(source_of(file, p.source))}")
+
+    var md = v.modules.at(l.index)
+
+    for x in p.exports().view()
+        md.exports.push(x)
+
+    // The map `import * as` names is made from the exports when it is used, natives included, rather
+    // than kept in the top level's frame, which holds the source's names alone.
+    md.map_slot = NoMap
+    v.modules.set(l.index, md)
+    l
 
 // The names `form` takes from module `index`, which the import wrote as `given`.
 private bind(out: *Imports, index: usize, given: string, form: ImportForm, report: *Report)
@@ -698,7 +726,7 @@ end module_exports
 // `name:f/(n+1)` for a function of `n` parameters, whose last argument is unified with each value it
 // gives (`modules.md`, what Prolog sees). A module-qualified goal `fs:read_file(P, T)` calls one, so
 // a built-in module takes no name out of Prolog's one namespace. Answers why the import is refused.
-prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> Refusal
+prolog_builtin_module(name: string, at: Span, report: *Report, goals: *Buf[LoadStep], why: Refusal) -> Refusal
     val p = builtin_module(name) match
         Some(p) -> p
         None ->
@@ -707,12 +735,25 @@ prolog_builtin_module(name: string, at: Span, report: *Report, why: Refusal) -> 
             report.add(error(at, unknown_builtin(name)))
             return now
 
-    for x in p.exports().view()
-        val id = x.kind match
-            ExNative(id) -> id
+    // A module with FunL source runs its top level where the directive stands, as the prelude does,
+    // and each of its functions is `name:f/(n+1)` beside the natives.
+    val l = provided(p)
+    val md = current().modules.at(l.index)
+
+    if l.fresh then goals.push(RunChunk(md.chunk))
+
+    for x in md.exports.view()
+        val made = x.kind match
+            ExNative(id) -> native_predicates(name, x, id)
+            ExFunction(chunk, arity) ->
+                val key = pred_key(s"$name:${x.name}", arity + 1)
+
+                if pred_defined(key) then continue
+
+                funl_predicate(key, x.name, chunk, arity, true, md.up, Origin(md.file, x.what))
             _ -> continue
 
-        native_predicates(name, x, id) match
+        made match
             Ok(_) -> ()
             Err(m) ->
                 val now = refusal(why, report, Unreadable)

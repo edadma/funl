@@ -71,7 +71,7 @@ private number(base: usize, i: usize, name: string) -> Result[real, Fault]
         _ -> Err(kind_error(x, "number", s"'$name' wants a number and was given ${described(x)}"))
 
 // Argument `i`, an integer, or `None` where it is `undefined` or not given.
-private integer_or(base: usize, argc: usize, i: usize, name: string) -> Result[Option[long], Fault]
+integer_or(base: usize, argc: usize, i: usize, name: string) -> Result[Option[long], Fault]
     if i >= argc then return Ok(None)
 
     val x = deref(arg(base, i))
@@ -82,7 +82,7 @@ private integer_or(base: usize, argc: usize, i: usize, name: string) -> Result[O
         _ -> Err(kind_error(x, "integer", s"'$name' wants an integer and was given ${described(x)}"))
 
 // A rectangle on the canvas: its corner, after `dx` and `dy`, and its extents, never negative.
-private struct Box
+struct Box
     x: real
     y: real
     wd: real
@@ -112,7 +112,7 @@ private boxed(x: Option[real], y: Option[real], wd: Option[real], ht: Option[rea
     Box(bx, by, bw, bh)
 
 // The integer rectangle of arguments `from` to `from + 3`, as `boxed` makes it.
-private int_box(base: usize, argc: usize, from: usize, c: WinCanvas, ox: long, oy: long, name: string) -> Result[Box, Fault]
+int_box(base: usize, argc: usize, from: usize, c: WinCanvas, ox: long, oy: long, name: string) -> Result[Box, Fault]
     val x = integer_or(base, argc, from, name)?
     val y = integer_or(base, argc, from + 1, name)?
     val wd = integer_or(base, argc, from + 2, name)?
@@ -156,6 +156,10 @@ private pen_on(w: Win, reversed: bool) -> Result[Pen, Fault]
 
     d.save()
     d.reset_transform()
+
+    // Coordinates are points: a canvas at a higher density draws `density` device pixels to each.
+    if c.density != 1 then d.scale(f32(c.density), f32(c.density))
+
     d.operator(pv.Operator.SrcOver)
     d.fill_rule(pv.FillRule.NonZero)
 
@@ -185,7 +189,8 @@ is_reversing(ctx: WinContext) -> bool = is_named(ctx.drawop, "reverse")
 // a plutovg canvas drawing on it. What is drawn there, opaque, `exclusive_ored` then applies: white
 // where the foreground would be painted, black where the background would be.
 reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
-    val s = pv.surface(int(c.width), int(c.height)) match
+    // In device pixels, as the canvas's surface is: `density` of them to the point.
+    val s = pv.surface(int(c.width * c.density), int(c.height * c.density)) match
         Some(s) -> s
         None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
 
@@ -194,6 +199,8 @@ reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
     val d = pv.canvas(s) match
         Some(d) -> d
         None -> return Err(resource_error("memory", "'drawop: #reverse' could not have the pixels of its coverage mask"))
+
+    if c.density != 1 then d.scale(f32(c.density), f32(c.density))
 
     Ok((s, d))
 
@@ -216,8 +223,8 @@ exclusive_ored(c: WinCanvas, ctx: WinContext, m: &pv.Surface)
     val xg = premultiplied(fg.g, 1.0) ^ bgg
     val xr = premultiplied(fg.r, 1.0) ^ br
 
-    for y in 0..<c.height
-        for x in 0..<c.width
+    for y in 0..<c.height * c.density
+        for x in 0..<c.width * c.density
             val a = from[usize(y * from_stride + 4 * x + 3)]
 
             if a >= 128
@@ -233,7 +240,7 @@ exclusive_ored(c: WinCanvas, ctx: WinContext, m: &pv.Surface)
                     to[o + 2] = to[o + 2] ^ br
 
 // The eight-bit component of `c` at coverage `a`, premultiplied as the surface stores it.
-private premultiplied(c: long, a: f32) -> u8 = u8(long(channel(c) * 255.0 * a + 0.5))
+premultiplied(c: long, a: f32) -> u8 = u8(long(channel(c) * 255.0 * a + 0.5))
 
 // The eight-bit component of `c`, as an opaque pixel stores it.
 eight_bit(c: long) -> u8 = premultiplied(c, 1.0)
@@ -658,12 +665,17 @@ private do_copy_area(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val from_stride = long(src.surface.stride())
     var scratch: Buf[u8] = buf()
 
-    for y in top..<bottom
-        for x in left..<right
-            val fx = sx + x - x2
-            val fy = sy + y - y2
+    // The copy is made in device pixels: a window on a high-density display has `density` of them to
+    // the point, and the two canvases' densities may differ.
+    val dd = dst.density
+    val sd = src.density
 
-            if fx >= 0 && fy >= 0 && fx < src.width && fy < src.height
+    for y in top * dd..<bottom * dd
+        for x in left * dd..<right * dd
+            val fx = (sx - x2) * sd + x * sd / dd
+            val fy = (sy - y2) * sd + y * sd / dd
+
+            if fx >= 0 && fy >= 0 && fx < src.width * sd && fy < src.height * sd
                 val o = usize(fy * from_stride + 4 * fx)
 
                 for k in 0..<4
@@ -678,8 +690,8 @@ private do_copy_area(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val to_stride = long(dst.surface.stride())
     var at: usize = 0
 
-    for y in top..<bottom
-        for x in left..<right
+    for y in top * dd..<bottom * dd
+        for x in left * dd..<right * dd
             val o = usize(y * to_stride + 4 * x)
 
             for k in 0..<4

@@ -252,7 +252,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    (canvas plus context), `open` with `canvas: #hidden` over plutovg, `set`/`get`/`attributes` with
    their failures and faults, colour specifications and `color_value`, `pixel`, `image_bytes`,
    `clone`, `couple`, `uncouple`, `close` closing every handle on the canvas. Waits on G1, G2, G3,
-   G5, G6, G12. Done, except `image_bytes`, which waits on finding F4 (plutovg's PNG stream writer).
+   G5, G6, G12. Done, `image_bytes` with item 4.
 2. **Drawing**: `draw_point`, `draw_line`, `draw_segment`, the rectangles, polygons, circles and
    arcs drawn and filled, `draw_curve`, `erase_area`, `copy_area` (overlapping included), `clip`,
    `dx`/`dy`, negative extents, `linestyle`, `fillstyle` with Icon's patterns. Waits on item 1. Done.
@@ -260,7 +260,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    item 2 and G7. Done.
 4. **Images and palettes**: `read_image`, `write_image` (PNG, the extension refusal), the `image`
    attribute, `draw_image` with Icon's image strings, the palette functions in FunL source,
-   `new_color` failing. Waits on item 1 and G8.
+   `new_color` failing; `image_bytes`. Waits on item 1 and G8. Done.
 5. **Fonts and text**: the `"fixed"` face carried in the binary, family lookup through the font-face
    cache, `font` and its failure, the metric attributes, `text_width`, `draw_string`; the text cursor
    with `goto_rc`, `goto_xy`, `write`, `writes` and scrolling. Waits on item 2, G4 and F1. Done.
@@ -274,6 +274,8 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    window id, `#close`, resize keeping pixels, several windows, the canvas attributes (`label`,
    `pos`, `size`, `pointer`, `resize`, `canvas`), `raise`/`lower`, waiting at program end. First
    proves the dummy video driver opens from a `Background` shell; tested only on it. Waits on item 6.
+   Done, except `lower` (F6: SDL has no call for it) and `canvas: #maximal`/`#iconic` (F5: the
+   `sdl3` package does not bind maximize and minimize), which fault naming what they need.
 8. **Events and the loop**: `next_event()` and its event map, the driver over SDL and libuv, `delay`
    as a timer inside a task, the one queue shared by both forms. Waits on item 7, G11 and F2.
 

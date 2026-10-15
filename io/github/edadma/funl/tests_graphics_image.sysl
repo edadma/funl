@@ -1,0 +1,266 @@
+module io.github.edadma.funl
+@tests
+
+// `funl:graphics`'s images and palettes (`docs/library/graphics.md`): `draw_image` with Icon's image
+// strings, `read_image`, `write_image` and `image_bytes` round-tripping through PNG on hidden canvases,
+// the `image` attribute, `new_color` failing, and the palette functions written in FunL.
+
+private const Imports: string = "import { open, palette_chars, palette_color, palette_key, palette_grays } from funl:graphics\n"
+
+// FunL program `body` run with the module's exports imported and `w` a hidden 4 by 3 canvas.
+private on_canvas(body: string) -> string = ran_funl(Imports + "w = open( \"test\", {canvas: #hidden, size: (4, 3)} )\n" + body)
+
+// The same, with `d` bound to scratch directory `dir`.
+private in_dir(dir: string, body: string) -> string =
+    ran_funl(Imports + s"import { write_file, write_bytes, read_bytes, exists } from funl:fs\nval d = \"$dir\"\n" +
+        "w = open( \"test\", {canvas: #hidden, size: (4, 3)} )\n" + body)
+
+// -- draw_image ------------------------------------------------------------------------------------
+
+@test
+DRAW_IMAGE_DRAWS_A_PALETTE_STRING_ROW_BY_ROW()
+    assert_eq(on_canvas("write( w.draw_image(0, 0, '2,c1,AJ FD') )\nwrite( [p | p <- w.pixel(0, 0, 2, 2)] )\n" +
+            "w.draw_image( 2, 1, '2,c2,~k, ww' )\nwrite( [p | p <- w.pixel(2, 1, 2, 2)] )\n" +
+            "w.draw_image( 0, 2, '1,c1,,' )\nwrite( w.pixel(0, 2, 1, 1) )\n" +
+            "w.draw_image( 1, 2, \"3,g2,1${char(255)}0\" )\nwrite( [p | p <- w.pixel(1, 2, 3, 1)] )\n"),
+        "<window handle>\n[\"65535,0,0\", \"0,0,65535\", \"0,65535,0\", \"65535,65535,0\"]\n" +
+        "[\"65535,65535,65535\", \"0,0,0\", \"65535,65535,65535\", \"65535,65535,65535\"]\n65535,65535,43690\n" +
+        "[\"65535,65535,65535\", \"65535,65535,65535\", \"0,0,0\"]\nsucceeded")
+
+@test
+DRAW_IMAGE_KEEPS_TO_THE_ORIGIN_THE_CLIP_AND_THE_CANVAS()
+    assert_eq(on_canvas("w.set( {dx: 1, dy: 1} ).clip( 0, 0, 2, 1 )\nw.draw_image( -1, 0, '4,c2,rrrr' )\n" +
+            "w.set( {dx: 0, dy: 0} ).clip()\nwrite( [p | p <- w.pixel(0, 0, 4, 2)] )\nw.draw_image( 3, 2, '3,c2,ggg,ggg' )\nwrite( [p | p <- w.pixel(2, 2, 2, 1)] )\n"),
+        "[\"65535,65535,65535\", \"65535,65535,65535\", \"65535,65535,65535\", \"65535,65535,65535\", " +
+        "\"65535,65535,65535\", \"65535,0,0\", \"65535,0,0\", \"65535,65535,65535\"]\n" +
+        "[\"65535,65535,65535\", \"0,65535,0\"]\nsucceeded")
+
+@test
+DRAW_IMAGE_DRAWS_A_BI_LEVEL_STRING_IN_THE_FOREGROUND_AND_BACKGROUND()
+    assert_eq(on_canvas("w.set( {fg: 'red', bg: 'blue'} )\nw.draw_image( 0, 0, '3,#5 2' )\nwrite( [p | p <- w.pixel(0, 0, 3, 2)] )\n" +
+            "w.set( {fg: 'green'} ).draw_image( 0, 0, '4,~8' )\nwrite( [p | p <- w.pixel(0, 0, 4, 1)] )\n" +
+            "w.draw_image( 0, 2, '5,#1f' )\nwrite( [p | p <- w.pixel(0, 2, 4, 1)] )\n"),
+        "[\"65535,0,0\", \"0,0,65535\", \"65535,0,0\", \"0,0,65535\", \"65535,0,0\", \"0,0,65535\"]\n" +
+        "[\"65535,0,0\", \"0,0,65535\", \"65535,0,0\", \"0,65535,0\"]\n" +
+        "[\"0,65535,0\", \"0,65535,0\", \"0,65535,0\", \"0,65535,0\"]\nsucceeded")
+
+@test
+DRAW_IMAGE_FAILS_ON_A_STRING_THAT_IS_NO_IMAGE_AND_DRAWS_NOTHING()
+    assert_eq(on_canvas("for s <- ['', '2', '0,c1,AA', '2,c1,AAA', '2,c7,AA', '2,c0,AA', '2,g1,00', '2,g257,00', '2,x1,AA', '2,c1,A\\\\', '2,c1,', '2,c1, ,', " +
+            "'2,#', '2,#1 2 x', '6,#1', '2,c1', 'two,c1,AA', '2;c1,AA'] do write( w.draw_image(0, 0, s) | #failed )\n" +
+            "write( [p | p <- w.pixel(0, 0, 2, 1)] )\n"),
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\n" +
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\n[\"65535,65535,65535\", \"65535,65535,65535\"]\nsucceeded")
+
+@test
+DRAW_IMAGE_FAULTS_ON_ARGUMENTS_OF_THE_WRONG_KIND_OR_COUNT()
+    assert_eq(on_canvas("write( w.draw_image(0, 0, 42) catch e -> e )\nwrite( w.draw_image(0.5, 0, '1,c1,A') catch e -> e )\n" +
+            "write( w.draw_image(0, 0) catch e -> e )\nw.close()\nwrite( w.draw_image(0, 0, '1,c1,A') catch e -> e )\n"),
+        "error(type_error(string, 42), context(_G2, \"'draw_image' wants a string and was given the integer 42\"))\n" +
+        "error(type_error(integer, 0.5), context(_G5, \"'draw_image' wants an integer and was given the real 0.5\"))\n" +
+        "error(existence_error(procedure, /(draw_image, 2)), context(_G8, \"'draw_image' takes x, y and an image string, and was given 2 arguments\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G11, \"'draw_image' was called on the handle <closed window handle>\"))\nsucceeded")
+
+// -- palettes ------------------------------------------------------------------------------------
+
+// Every key of every kind of palette, drawn by `draw_image`, reads back as the colour `palette_color`
+// gives it: the palettes in sysl and in FunL agree.
+@test
+EVERY_KEY_DRAWS_THE_COLOUR_PALETTE_COLOR_GIVES_IT()
+    assert_eq(ran_funl(Imports + "for p <- ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'g2', 'g64', 'g65', 'g256']\n" +
+            "  ks = palette_chars( p )\n" +
+            "  w = open( p, {canvas: #hidden, size: (ks.length, 2)} )\n" +
+            "  w.draw_image( 0, 0, \"${ks.length},${p},${ks}\" )\n" +
+            "  bad = 0\n" +
+            "  for i <- 0..<ks.length\n" +
+            "    w.set( {fg: palette_color(p, ks(i))} ).fill_rectangle( i, 1, 1, 1 )\n" +
+            "    if not (w.pixel(i, 0, 1, 1) == w.pixel(i, 1, 1, 1)) then bad += 1\n" +
+            "  write( p, ks.length, bad )\n"),
+        "c1, 90, 0\nc2, 9, 0\nc3, 31, 0\nc4, 73, 0\nc5, 141, 0\nc6, 241, 0\ng2, 2, 0\ng64, 64, 0\ng65, 65, 0\ng256, 256, 0\nsucceeded")
+
+@test
+PALETTE_CHARS_ARE_ICONS_KEYS()
+    assert_eq(ran_funl(Imports + "write( palette_chars('c1') )\nwrite( palette_chars('c2'), palette_chars('c3') )\nwrite( palette_chars('c4') )\n" +
+            "write( palette_chars('g5'), palette_chars('g64') == palette_chars('c4')(0..<64), [ord(c) | c <- !palette_chars('g65')(62..)] )\n" +
+            "write( [ord(c) | c <- !palette_chars('c5')(138..)], [ord(c) | c <- !palette_chars('c6')(239..)], palette_chars('g256').length )\n"),
+        "0123456789?!nNAa#@oOBb$%pPCc&|qQDd,.rREe;:sSFf+-tTGg*/uUHh`'vVIi<>wWJj()xXKk[]yYLl{}zZMm^=\n" +
+        "kbgcrmywx, @ABCDEFGHIJKLMNOPQRSTUVWXYZabcd\n0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz{}$%&*+-/?@\n" +
+        "01234, 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz{}, [62, 63, 64]\n" +
+        "[138, 139, 140], [239, 240], 256\nsucceeded")
+
+// Icon's own lists of each colour palette's greys, from its library's `PaletteGrays`.
+@test
+PALETTE_GRAYS_ARE_ICONS_GREYS_DARK_TO_LIGHT()
+    assert_eq(ran_funl(Imports + "write( palette_grays('c1'), palette_grays('c2'), palette_grays('c3'), palette_grays('c4') )\n" +
+            "write( [ord(c) | c <- !palette_grays('c5')] )\nwrite( [ord(c) | c <- !palette_grays('c6')] )\n" +
+            "write( palette_grays('g4'), palette_grays('g4') == palette_chars('g4') )\n"),
+        "0123456, kxw, @abMcdZ, 0$%&L*+-g/?@}\n" +
+        "[0, 125, 126, 127, 128, 31, 129, 130, 131, 132, 62, 133, 134, 135, 136, 93, 137, 138, 139, 140, 124]\n" +
+        "[0, 216, 217, 218, 219, 220, 43, 221, 222, 223, 224, 225, 86, 226, 227, 228, 229, 230, 129, 231, 232, 233, 234, 235, 172, 236, 237, 238, 239, 240, 215]\n" +
+        "0123, 0123\nsucceeded")
+
+@test
+PALETTE_COLOR_ANSWERS_ICONS_NUMBERS()
+    assert_eq(ran_funl(Imports + "write( palette_color('c1', 'A'), palette_color('c1', '7'), palette_color('c1', '='), palette_color('c1', '3') )\n" +
+            "write( palette_color('c3', 'M'), palette_color('c3', 'a'), palette_color('c6', char(100)), palette_color('c6', char(216)) )\n" +
+            "write( palette_color('g5', '1'), palette_color('g256', char(255)), palette_color('c2', 'x') )\n"),
+        "65535,0,0, 65535,32767,40959, 40959,24575,32767, 32767,32767,32767\n" +
+        "32767,32767,32767, 10922,10922,10922, 26214,52428,52428, 2184,2184,2184\n" +
+        "16383,16383,16383, 65535,65535,65535, 32767,32767,32767\nsucceeded")
+
+@test
+PALETTE_KEY_FINDS_THE_NEAREST_KEY()
+    assert_eq(ran_funl(Imports + "write( palette_key('c1', 'red'), palette_key('c1', 'gray'), palette_key('c1', 'white'), palette_key('c1', '0,0,30000') )\n" +
+            "write( palette_key('c2', 'red'), palette_key('c3', 'dark gray'), palette_key('g16', 'white'), palette_key('g16', 'red'), ord(palette_key('c6', 'blue')) )\n" +
+            "for p <- ['c2', 'c3', 'c4', 'c5', 'c6', 'g2', 'g10', 'g256']\n" +
+            "  write( p, [k | k <- !palette_chars(p) if not (palette_key(p, palette_color(p, k)) == k)] )\n"),
+        "A, 3, 6, w\nr, b, F, 4, 5\n" +
+        "c2, []\nc3, []\nc4, []\nc5, []\nc6, []\ng2, []\ng10, []\ng256, []\nsucceeded")
+
+@test
+A_PALETTE_FUNCTION_FAILS_ON_AN_UNKNOWN_PALETTE_OR_KEY_AND_FAULTS_ON_THE_WRONG_KIND()
+    assert_eq(ran_funl(Imports + "for p <- ['c0', 'c7', 'g1', 'g257', 'x1', 'c', '', 'c1x'] do write( palette_chars(p) | #failed )\n" +
+            "write( palette_color('c2', 'z') | #failed, palette_key('c1', 'no colour') | #failed, palette_key('c1', 3) | #failed, palette_grays('d2') | #failed )\n" +
+            "write( palette_color('c5', char(141)) | #failed, palette_color('g100', char(100)) | #failed, palette_color('g100', char(99)) )\n" +
+            "write( palette_chars(1) catch e -> e )\nwrite( palette_color('c1', 'ab') catch e -> e )\nwrite( palette_key('c1', [1]) catch e -> e )\nwrite( palette_grays(#c1) catch e -> e )\n"),
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed, failed, failed, failed\nfailed, failed, 65535,65535,65535\n" +
+        "error(type_error(string, 1), context(_G2, \"'palette_chars' wants a palette, a string, and was given the integer 1\"))\n" +
+        "error(domain_error(one_character_string, \"ab\"), context(_G5, \"'palette_color' wants a key of one character, and was given one of 2\"))\n" +
+        "error(type_error(string, [1]), context(_G8, \"'palette_key' wants a colour, a string, and was given the list [1]\"))\n" +
+        "error(type_error(string, c1), context(_G11, \"'palette_grays' wants a palette, a string, and was given the atom c1\"))\nsucceeded")
+
+@test
+THE_MODULE_MAP_HOLDS_ITS_NATIVES_AND_ITS_FUNL_FUNCTIONS()
+    assert_eq(ran_funl("import * as g from funl:graphics\nwrite( g.palette_chars('c2'), g('palette_grays')('c2'), g('color_value')('red') )\n" +
+            "m = g\nwrite( m.length, m.open, m.palette_key, m('palette_key')('c1', 'red') )\n"),
+        "kbgcrmywx, kxw, 65535,0,0\n8, <function graphics.open>, <function palette_key>, A\nsucceeded")
+
+@test
+PROLOG_REACHES_THE_PALETTE_FUNCTIONS_QUALIFIED()
+    val d = scratch()
+    defer scrap(d)
+
+    val pl = put(d, "pal.pl", ":- import(\"funl:graphics\").\n" +
+        ":- graphics:palette_chars(\"c2\", K), write(K), nl.\n" +
+        ":- graphics:palette_color(\"c1\", \"A\", C), write(C), nl.\n" +
+        ":- ( graphics:palette_chars(\"c0\", _) -> write(yes) ; write(no) ), nl.\n")
+
+    assert_eq(ran_funl(s"import \"$pl\"\nimport { palette_grays } from funl:graphics\nwrite( palette_grays('c2') )\n"),
+        "kbgcrmywx\n65535,0,0\nno\nkxw\nsucceeded")
+
+// -- reading and writing ---------------------------------------------------------------------------
+
+@test
+WRITE_IMAGE_WRITES_A_PNG_THAT_IMAGE_BYTES_ANSWERS_AND_READ_IMAGE_READS()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "w.draw_image( 0, 0, '4,c1,AJFD00066666' )\nf = d + '/out.png'\n" +
+            "write( w.write_image(f) )\nb = read_bytes( f )\nwrite( b(0..<8), if b == w.image_bytes() then #same else #differ )\n" +
+            "v = open( 'v', {canvas: #hidden, size: (6, 4), bg: 'white'} )\nwrite( v.read_image(f, 1, 1) )\n" +
+            "write( [p | p <- v.pixel(0, 1, 6, 1)] )\nwrite( [p | p <- v.pixel(1, 2, 4, 1)] )\n"),
+        "<window handle>\nbytes([137, 80, 78, 71, 13, 10, 26, 10]), same\n" +
+        "<window handle>\n" +
+        "[\"65535,65535,65535\", \"65535,0,0\", \"0,0,65535\", \"0,65535,0\", \"65535,65535,0\", \"65535,65535,65535\"]\n" +
+        "[\"0,0,0\", \"0,0,0\", \"0,0,0\", \"65535,65535,65535\"]\nsucceeded")
+
+@test
+A_RECTANGLE_IS_WRITTEN_AS_THE_DRAWING_METHODS_READ_ONE()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "w.draw_image( 0, 0, '4,c1,AJFD00066666' )\nf = d + '/part.png'\n" +
+            "w.set( {dx: 1} ).write_image( f, 0, 0, 2, 2 )\nv = open( 'v', {canvas: #hidden, image: f} )\n" +
+            "write( v.get('size'), [p | p <- v.pixel()] )\n" +
+            "write( open('u', {canvas: #hidden, image: d + '/never.png'}) | #failed )\n" +
+            "w.set( {dx: 0} ).write_image( d + '/x.png', 3, 2, -2, -5 )\nwrite( open('u', {canvas: #hidden, image: d + '/x.png'}).get('size') )\n" +
+            "write( if w.image_bytes(1, 0, 2, 2) == read_bytes(d + '/x.png') then #same else #differ )\n" +
+            "write( if w.image_bytes(1, 0, 2, 3) == read_bytes(d + '/x.png') then #same else #differ )\n"),
+        "(2, 2), [\"0,0,65535\", \"0,65535,0\", \"0,0,0\", \"0,0,0\"]\nfailed\n(2, 2)\nsame\ndiffer\nsucceeded")
+
+@test
+WRITE_IMAGE_REFUSES_ANOTHER_FORMATS_NAME_AND_WRITES_PNG_UNDER_ANY_OTHER()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "for n <- ['a.jpg', 'b.JPEG', 'c.gif', 'd.bmp', 'e.tiff'] do write( w.write_image(d + '/' + n) catch error(e, _) -> e )\n" +
+            "write( exists(d + '/a.jpg') | #absent )\n" +
+            "for n <- ['f.dat', 'g', 'h.PNG', 'dir.jpg/i'] do write( n, read_bytes(w.write_image(d + '/' + n) & d + '/' + n)(1..3) )\n"),
+        "domain_error(image_format, \"jpg\")\ndomain_error(image_format, \"JPEG\")\ndomain_error(image_format, \"gif\")\n" +
+        "domain_error(image_format, \"bmp\")\ndomain_error(image_format, \"tiff\")\nabsent\n" +
+        "f.dat, bytes([80, 78, 71])\ng, bytes([80, 78, 71])\nh.PNG, bytes([80, 78, 71])\nsucceeded")
+
+@test
+WRITING_FAILS_OFF_THE_CANVAS_OR_WHERE_NO_FILE_CAN_BE_MADE()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "write( w.write_image(d + '/none/x.png') | #failed, w.write_image(d + '/y.png', 4, 0) | #failed, w.write_image(d + '/z.png', 0, 0, 0, 3) | #failed )\n" +
+            "write( w.image_bytes(-5, -5, 5, 5) | #failed, w.image_bytes(0, 3) | #failed, w.image_bytes(-5, -5, 6, 6).length > 0 )\n" +
+            "write( w.write_image(42) catch e -> e )\nwrite( w.image_bytes(1, 2, 3, 4, 5) catch e -> e )\nwrite( w.write_image() catch e -> e )\n"),
+        "failed, failed, failed\nfailed, failed, 0\n" +
+        "error(type_error(string, 42), context(_G2, \"'write_image' wants a path, a string, and was given the integer 42\"))\n" +
+        "error(existence_error(procedure, /(image_bytes, 5)), context(_G5, \"'image_bytes' takes at most four numbers, and was given 5\"))\n" +
+        "error(existence_error(procedure, /(write_image, 0)), context(_G8, \"'write_image' takes a file and at most four numbers, and was given 0 arguments\"))\nsucceeded")
+
+@test
+READ_IMAGE_LAYS_TRANSPARENT_PIXELS_OVER_THE_CANVAS_INSIDE_THE_CLIP()
+    val d = scratch()
+    defer scrap(d)
+
+    // A 3 by 1 RGBA PNG: red at half coverage, blue fully transparent, opaque green.
+    val png = "bytes([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 3, 0, 0, 0, 1, 8, 6, 0, 0, 0, 27, 224, 20, 180, " +
+        "0, 0, 0, 19, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 208, 192, 192, 240, 31, 132, 254, 3, 0, 26, 119, 4, 125, 223, 142, 182, 154, " +
+        "0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130])"
+
+    assert_eq(in_dir(d, s"f = d + '/alpha.png'\nwrite_bytes( f, $png )\nw.read_image( f, 0, 0 )\nwrite( [p | p <- w.pixel(0, 0, 4, 1)] )\n" +
+            "w.set( {dy: 1} ).clip( 1, 0, 9, 9 )\nw.read_image( f )\nwrite( [p | p <- w.pixel(0, 0, 4, 1)] )\n" +
+            "w.set( {dy: 0} ).clip()\nw.read_image( f, 2, 2 )\nwrite( [p | p <- w.pixel(0, 2, 4, 1)] )\n"),
+        "[\"65535,32639,32639\", \"65535,65535,65535\", \"0,65535,0\", \"65535,65535,65535\"]\n" +
+        "[\"65535,65535,65535\", \"65535,65535,65535\", \"0,65535,0\", \"65535,65535,65535\"]\n" +
+        "[\"65535,65535,65535\", \"65535,65535,65535\", \"65535,32639,32639\", \"65535,65535,65535\"]\nsucceeded")
+
+@test
+READ_IMAGE_FAILS_ON_A_MISSING_FILE_OR_ONE_THAT_IS_NO_IMAGE()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "write_file( d + '/note.txt', 'not an image' )\n" +
+            "write( w.read_image(d + '/nowhere.png') | #failed, w.read_image(d + '/note.txt') | #failed, w.read_image(d) | #failed )\n" +
+            "write( w.read_image(d + '/x.png', 1, 2, 3) catch e -> e )\nwrite( w.read_image([]) catch e -> e )\n"),
+        "failed, failed, failed\n" +
+        "error(existence_error(procedure, /(read_image, 4)), context(_G2, \"'read_image' takes a file and at most two numbers, and was given 4 arguments\"))\n" +
+        "error(type_error(string, []), context(_G5, \"'read_image' wants a path, a string, and was given the empty list\"))\nsucceeded")
+
+// -- the image attribute ---------------------------------------------------------------------------
+
+@test
+THE_IMAGE_ATTRIBUTE_SIZES_THE_CANVAS_TO_ITS_IMAGE()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "w.draw_image( 0, 0, '4,c1,AJFD00066666' ).write_image( d + '/i.png', 0, 0, 3, 2 )\n" +
+            "write( w.get('image') )\n" +
+            "v = open( 'v', {canvas: #hidden, bg: 'blue', image: d + '/i.png'} )\nwrite( v.get('size'), v.get('image'), [p | p <- v.pixel(0, 0, 3, 1)] )\n" +
+            "u = open( 'u', {canvas: #hidden, image: d + '/i.png', size: (4, 1)} )\nwrite( [p | p <- u.pixel()] )\n" +
+            "write( w.set({image: d + '/i.png'}).get('size'), [p | p <- w.pixel(0, 1)] )\n" +
+            "f = open( 'f', {canvas: #hidden, font: 'fixed,20', image: d + '/i.png'} )\nwrite( f.get('size'), f.pixel(2, 0, 1, 1) )\n"),
+        "undefined\n(3, 2), " + d + "/i.png, [\"65535,0,0\", \"0,0,65535\", \"0,65535,0\"]\n" +
+        "[\"65535,0,0\", \"0,0,65535\", \"0,65535,0\", \"65535,65535,65535\"]\n" +
+        "(3, 2), [\"0,0,0\", \"0,0,0\", \"0,0,0\"]\n(3, 2), 0,65535,0\nsucceeded")
+
+@test
+AN_IMAGE_THAT_CANNOT_BE_READ_FAILS_OPEN_AND_SET_APPLYING_NOTHING()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(in_dir(d, "write_file( d + '/note.txt', 'not an image' )\n" +
+            "write( open('v', {canvas: #hidden, image: d + '/none.png'}) | #failed, open('v', {canvas: #hidden, image: d + '/note.txt'}) | #failed, open('v', {canvas: #hidden, image: 7}) | #failed )\n" +
+            "write( w.set({fg: 'red', image: d + '/none.png'}) | #failed )\nwrite( w.get('fg'), w.get('size'), w.get('image') )\n"),
+        "failed, failed, failed\nfailed\nblack, (4, 3), undefined\nsucceeded")
+
+@test
+NEW_COLOR_FAILS_AS_ICONS_DOES_ON_A_TRUE_COLOUR_DISPLAY()
+    assert_eq(on_canvas("write( w.new_color() | #failed, w.new_color('red') | #failed )\nw.close()\nwrite( w.new_color() catch e -> e )\n"),
+        "failed, failed\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G2, \"'new_color' was called on the handle <closed window handle>\"))\nsucceeded")
