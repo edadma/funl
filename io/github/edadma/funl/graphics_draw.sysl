@@ -127,7 +127,7 @@ private int_box(base: usize, argc: usize, from: usize, c: WinCanvas, ox: long, o
 // drawn on. That is the window's own, or, under `drawop: #reverse`, one over `mask`, a clear scratch
 // surface the size of the window's, whose covered pixels `finished` then exclusive-ors into the
 // window's.
-private struct Pen
+struct Pen
     w: Win
     c: WinCanvas
     ctx: WinContext
@@ -138,7 +138,7 @@ private struct Pen
 private is_named(id: u32, name: string) -> bool = atom_name(id) == name
 
 // A drawing begun on `w`, under the context's drawing operation.
-private began(w: Win) -> Result[Pen, Fault] = pen_on(w, is_reversing(context_at(w.ctx)))
+began(w: Win) -> Result[Pen, Fault] =pen_on(w, is_reversing(context_at(w.ctx)))
 
 // A drawing begun on `w`, onto a scratch coverage mask when `reversed` and onto the canvas otherwise:
 // the state saved, the context's clip rectangle applied, and the path empty.
@@ -165,11 +165,11 @@ private pen_on(w: Win, reversed: bool) -> Result[Pen, Fault]
         d.clip()
 
     d.begin()
-    Ok(Pen(w, c, ctx, tile_of(ctx, reversed), d, mask))
+    Ok(Pen(w, c, ctx, tile_of(ctx, reversed, false), d, mask))
 
 // The drawing finished: the canvas's state as it was before, and under `#reverse` the mask's covered
 // pixels exclusive-ored into the canvas's.
-private finished(pen: Pen) -> Result[Option[Value], Fault]
+finished(pen: Pen) -> Result[Option[Value], Fault]
     pen.d.restore()
 
     pen.mask match
@@ -182,7 +182,8 @@ private finished(pen: Pen) -> Result[Option[Value], Fault]
 is_reversing(ctx: WinContext) -> bool = is_named(ctx.drawop, "reverse")
 
 // A coverage mask for drawing in reverse on canvas `c`: a clear surface the size of the canvas's, and
-// a plutovg canvas drawing on it. What is drawn there, opaque, `exclusive_ored` then applies.
+// a plutovg canvas drawing on it. What is drawn there, opaque, `exclusive_ored` then applies: white
+// where the foreground would be painted, black where the background would be.
 reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
     val s = pv.surface(int(c.width), int(c.height)) match
         Some(s) -> s
@@ -196,10 +197,11 @@ reverse_mask(c: WinCanvas) -> Result[(&pv.Surface, &pv.Canvas), Fault]
 
     Ok((s, d))
 
-// `drawop: #reverse`'s exclusive-or: every pixel of canvas `c` that mask `m` covers at least half of
-// has context `ctx`'s `fg ^ bg` exclusive-ored into it, so drawing the same shape again restores it. A
-// partly covered pixel is either in or out -- an anti-aliased edge could not be undone by a second
-// exclusive-or.
+// `drawop: #reverse`'s exclusive-or, as X's `GXxor` does it under the GC Icon sets for reverse -- its
+// foreground pixel `fg ^ bg` and its background pixel `bg`: every pixel of canvas `c` that mask `m`
+// covers at least half of has context `ctx`'s `fg ^ bg` exclusive-ored into it where the mask is
+// white, and `bg` where it is black, so drawing the same shape again restores it. A partly covered
+// pixel is either in or out -- an anti-aliased edge could not be undone by a second exclusive-or.
 exclusive_ored(c: WinCanvas, ctx: WinContext, m: &pv.Surface)
     val from = m.data()
     val from_stride = long(m.stride())
@@ -207,72 +209,112 @@ exclusive_ored(c: WinCanvas, ctx: WinContext, m: &pv.Surface)
     val to_stride = long(c.surface.stride())
     val fg = ctx.fg_rgb
     val bg = ctx.bg_rgb
-    val xb = premultiplied(fg.b, 1.0) ^ premultiplied(bg.b, 1.0)
-    val xg = premultiplied(fg.g, 1.0) ^ premultiplied(bg.g, 1.0)
-    val xr = premultiplied(fg.r, 1.0) ^ premultiplied(bg.r, 1.0)
+    val bb = premultiplied(bg.b, 1.0)
+    val bgg = premultiplied(bg.g, 1.0)
+    val br = premultiplied(bg.r, 1.0)
+    val xb = premultiplied(fg.b, 1.0) ^ bb
+    val xg = premultiplied(fg.g, 1.0) ^ bgg
+    val xr = premultiplied(fg.r, 1.0) ^ br
 
     for y in 0..<c.height
         for x in 0..<c.width
-            if from[usize(y * from_stride + 4 * x + 3)] >= 128
+            val a = from[usize(y * from_stride + 4 * x + 3)]
+
+            if a >= 128
                 val o = usize(y * to_stride + 4 * x)
 
-                to[o] = to[o] ^ xb
-                to[o + 1] = to[o + 1] ^ xg
-                to[o + 2] = to[o + 2] ^ xr
+                if 2 * long(from[usize(y * from_stride + 4 * x + 1)]) >= long(a)
+                    to[o] = to[o] ^ xb
+                    to[o + 1] = to[o + 1] ^ xg
+                    to[o + 2] = to[o + 2] ^ xr
+                else
+                    to[o] = to[o] ^ bb
+                    to[o + 1] = to[o + 1] ^ bgg
+                    to[o + 2] = to[o + 2] ^ br
 
 // The eight-bit component of `c` at coverage `a`, premultiplied as the surface stores it.
 private premultiplied(c: long, a: f32) -> u8 = u8(long(channel(c) * 255.0 * a + 0.5))
 
-// The tile of context `ctx`'s pattern: its ones in the foreground, its zeros in the background for
-// `#textured` and clear for `#masked`; `None` for `#solid`, which paints the foreground alone. On a
-// `reversed` drawing's mask the ones are opaque and the zeros clear, under either style, so only the
-// ones are exclusive-ored.
-private tile_of(ctx: WinContext, reversed: bool) -> Option[&pv.Surface]
+// The eight-bit component of `c`, as an opaque pixel stores it.
+eight_bit(c: long) -> u8 = premultiplied(c, 1.0)
+
+// The tile of context `ctx`'s pattern, as X's fill styles paint one: `#textured` (X's
+// `FillOpaqueStippled`) its ones in the foreground and its zeros in the background, and `#masked`
+// (`FillStippled`) its ones in the foreground and its zeros clear; `None` for `#solid`. For the `odd`
+// dashes -- the gaps -- of a `#striped` line, `#masked` paints its ones in the background instead and
+// `#textured` is unchanged, as X's `LineDoubleDash` does. On a `reversed` drawing's mask the
+// foreground is opaque white and the background opaque black, which `exclusive_ored` reads.
+private tile_of(ctx: WinContext, reversed: bool, odd: bool) -> Option[&pv.Surface]
     if is_named(ctx.fillstyle, "solid") then return None
 
     val p = parse_pattern(ctx.pattern)?
     val tile = pv.surface(int(p.width), int(p.rows.len()))?
     val data = tile.data()
     val stride = long(tile.stride())
-    val masked = reversed || is_named(ctx.fillstyle, "masked")
-    val fg = ctx.fg_rgb
-    val bg = ctx.bg_rgb
-    val a = if reversed then 1.0 else ctx.fg_alpha
+    val masked = is_named(ctx.fillstyle, "masked")
+    val ones_fore = !(masked && odd)
 
     for y in 0..<long(p.rows.len())
         for x in 0..<p.width
             val o = usize(y * stride + 4 * x)
 
             if pattern_bit(p, x, y)
-                data[o] = premultiplied(fg.b, a)
-                data[o + 1] = premultiplied(fg.g, a)
-                data[o + 2] = premultiplied(fg.r, a)
-                data[o + 3] = u8(long(255.0 * a + 0.5))
+                inked_at(data, o, ctx, reversed, ones_fore)
             else if masked
                 data[o] = 0
                 data[o + 1] = 0
                 data[o + 2] = 0
                 data[o + 3] = 0
             else
-                data[o] = premultiplied(bg.b, 1.0)
-                data[o + 1] = premultiplied(bg.g, 1.0)
-                data[o + 2] = premultiplied(bg.r, 1.0)
-                data[o + 3] = 255
+                inked_at(data, o, ctx, reversed, false)
 
     Some(tile)
 
-// The pen's paint made current: the foreground at its coverage, or the pattern's tile repeated from
-// the canvas's corner; on a mask, opaque wherever the shape is to be exclusive-ored.
-private painted(pen: Pen)
+// The pixel at `o` of `data` set to what context `ctx` paints there: the foreground at its coverage
+// when `fore` and the opaque background otherwise, or, on a `reversed` drawing's mask, opaque white
+// for the foreground and opaque black for the background.
+private inked_at(data: []u8, o: usize, ctx: WinContext, reversed: bool, fore: bool)
+    if reversed
+        val v: u8 = if fore then 255 else 0
+
+        data[o] = v
+        data[o + 1] = v
+        data[o + 2] = v
+        data[o + 3] = 255
+    else if fore
+        val a = ctx.fg_alpha
+
+        data[o] = premultiplied(ctx.fg_rgb.b, a)
+        data[o + 1] = premultiplied(ctx.fg_rgb.g, a)
+        data[o + 2] = premultiplied(ctx.fg_rgb.r, a)
+        data[o + 3] = u8(long(255.0 * a + 0.5))
+    else
+        data[o] = premultiplied(ctx.bg_rgb.b, 1.0)
+        data[o + 1] = premultiplied(ctx.bg_rgb.g, 1.0)
+        data[o + 2] = premultiplied(ctx.bg_rgb.r, 1.0)
+        data[o + 3] = 255
+
+// The pen's paint made current: the pattern's tile repeated from the canvas's corner, or the
+// foreground at its coverage; on a mask, white wherever the shape is to be exclusive-ored.
+painted(pen: Pen) = painted_as(pen, pen.tile, true)
+
+// The pen's paint made current from `tile`, or, under `#solid`, the foreground when `fore` and the
+// background otherwise -- on a mask, white for the foreground and black for the background.
+private painted_as(pen: Pen, tile: Option[&pv.Surface], fore: bool)
     val d = pen.d
 
-    if pen.mask.is_some() && pen.tile.is_none()
-        d.rgb(1.0, 1.0, 1.0)
-        return
+    tile match
+        Some(t) ->
+            d.texture(t, pv.TextureType.Tiled, 1.0)
+            return
+        None -> ()
 
-    pen.tile match
-        Some(t) -> d.texture(t, pv.TextureType.Tiled, 1.0)
-        None -> d.rgba(channel(pen.ctx.fg_rgb.r), channel(pen.ctx.fg_rgb.g), channel(pen.ctx.fg_rgb.b), pen.ctx.fg_alpha)
+    if pen.mask.is_some()
+        if fore then d.rgb(1.0, 1.0, 1.0) else d.rgb(0.0, 0.0, 0.0)
+    else if fore
+        d.rgba(channel(pen.ctx.fg_rgb.r), channel(pen.ctx.fg_rgb.g), channel(pen.ctx.fg_rgb.b), pen.ctx.fg_alpha)
+    else
+        d.rgb(channel(pen.ctx.bg_rgb.r), channel(pen.ctx.bg_rgb.g), channel(pen.ctx.bg_rgb.b))
 
 // The width a stroke is drawn at: Icon's line width 0 is its thinnest line, one pixel.
 private stroke_width(ctx: WinContext) -> long = if ctx.linewidth < 1 then 1 else ctx.linewidth
@@ -288,7 +330,8 @@ private filled(pen: Pen)
 
 // The path stroked in the pen's paint, with square caps, so a line covers its end points, and mitred
 // joins. `#dashed` draws dashes and gaps each four line widths long; `#striped` draws the same dashes
-// over a line of the background colour.
+// over a line painted as X paints `LineDoubleDash`'s odd dashes -- the background, or under `#reverse`
+// the background exclusive-ored in.
 private stroked(pen: Pen)
     val d = pen.d
     val wd = real(stroke_width(pen.ctx))
@@ -305,10 +348,10 @@ private stroked(pen: Pen)
         d.stroke()
         return
 
-    // Under `#reverse` a striped line's gaps are left alone, as a dashed line's are: only the dashes
-    // are exclusive-ored.
-    if is_named(pen.ctx.linestyle, "striped") && pen.mask.is_none()
-        d.rgb(channel(pen.ctx.bg_rgb.r), channel(pen.ctx.bg_rgb.g), channel(pen.ctx.bg_rgb.b))
+    if is_named(pen.ctx.linestyle, "striped")
+        val odd = tile_of(pen.ctx, pen.mask.is_some(), true)
+
+        painted_as(pen, odd, false)
         d.stroke_preserve()
 
     // A square cap adds half the width at each end of a dash, so the dash is drawn that much shorter

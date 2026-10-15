@@ -312,12 +312,15 @@ whole pixels.
 ### Painting styles
 
 **`linestyle`** is `#solid`, `#dashed` -- dashes and gaps each four line widths long -- or
-`#striped`, the same dashes over a line in the background colour.
+`#striped`, the same dashes with their gaps in the background colour.
 
-**`fillstyle`** decides what every drawing paints with. `#solid` paints the foreground. `#textured`
-paints the window's **`pattern`**, its ones in the foreground and its zeros in the background, and
-`#masked` paints its ones only, leaving what is under the zeros. The pattern repeats from the
-canvas's corner. A pattern is one of Icon's names -- `"black"`, `"verydark"`, `"darkgray"`,
+**`fillstyle`** decides what every drawing paints with, the glyphs of
+[`draw_string`](#text-and-fonts) included. `#solid` paints the foreground. `#textured` paints the
+window's **`pattern`**, its ones in the foreground and its zeros in the background, and `#masked`
+paints its ones only, leaving what is under the zeros. A `#striped` line's gaps are painted as X
+paints them: in the background under `#solid`, exactly as the dashes under `#textured`, and under
+`#masked` the pattern's ones in the background with its zeros left alone. The pattern repeats from
+the canvas's corner. A pattern is one of Icon's names -- `"black"`, `"verydark"`, `"darkgray"`,
 `"gray"`, `"lightgray"`, `"verylight"`, `"white"`, `"vertical"`, `"diagonal"`, `"horizontal"`,
 `"grid"`, `"trellis"`, `"checkers"`, `"grains"`, `"scales"`, `"waves"` -- or a bit pattern: a width
 from 1 to 32, a comma, and the rows from the top, either `#` and hexadecimal digits, as many to a row
@@ -365,11 +368,41 @@ segments, polygons, curves, rectangles, arcs and circles, drawn or filled, and t
 [`draw_string`](#text-and-fonts) -- inside the clip rectangle, as `#copy` does.
 
 **A shape drawn in reverse is not anti-aliased.** A pixel is in it when the shape covers at least half
-of it and out otherwise, since a pixel only partly changed could not be changed back. Under
-`#textured` or `#masked` only the pattern's ones are exclusive-ored, and a `#striped` line changes
-only its dashes; a pixel the pattern or the gaps leave alone stays as it was. **`erase_area`, `copy_area`
-and the terminal's [`write` and `writes`](#the-window-as-a-terminal) are copies under either
-operation**, as Icon's `EraseArea`, `CopyArea` and `WWrite` are.
+of it and out otherwise, since a pixel only partly changed could not be changed back.
+
+**The rule is X's exclusive-or, under the colours Icon gives it in reverse**: wherever a drawing in
+`#copy` would paint the foreground, `fg ^ bg` is exclusive-ored in, and wherever it would paint the
+background, `bg` is. So under `#solid` every covered pixel takes `fg ^ bg`; under `#textured` the
+pattern's ones take `fg ^ bg` and its zeros `bg`; under `#masked` the ones take `fg ^ bg` and the zeros
+are left as they were; and a `#striped` line's gaps take what its gaps would be painted with, `bg`
+under `#solid`. Since an exclusive-or undoes itself, drawing the same thing twice puts back what was
+there under every fill style. With the default black on white, `bg` is white, so a `#textured`
+pattern's zeros invert just as its ones do, and a striped line inverts all the way along.
+
+**`erase_area` and `copy_area` are copies under either operation**, as Icon's `EraseArea` and
+`CopyArea` are. **So are the terminal's [`write` and `writes`](#the-window-as-a-terminal)**, Icon's
+`XDrawImageString`, which ignores the drawing operation and the fill style; but its glyphs are
+painted in the pixel Icon sets the foreground to in reverse, `fg ^ bg`. Black on white then writes
+white glyphs on white cells, and red on blue magenta on blue, and writing again changes nothing.
+
+```funl
+import { open } from funl:graphics
+
+w = open( "xor", {canvas: #hidden, size: (2, 1)} )
+w.set( {fg: "red", bg: "blue", fillstyle: #textured, pattern: "2,1", drawop: #reverse} ).fill_rectangle()
+write( w.pixel(0, 0), w.pixel(1, 0) )
+w.fill_rectangle()
+write( w.pixel(0, 0), w.pixel(1, 0) )
+```
+
+```output
+0,65535,0, 65535,65535,0
+65535,65535,65535, 65535,65535,65535
+```
+
+The canvas opens white, and the colours are set after. The pattern's one at the left takes red ^
+blue, turning white green, and its zero at the right takes
+blue, turning white yellow; the second fill turns both back.
 
 ```funl
 import { open } from funl:graphics
@@ -479,7 +512,10 @@ refused
 
 **`w.draw_string(x, y, s, …)` draws each string in the foreground colour** with its baseline
 starting at `(x, y)`, moved by `dx` and `dy`, and answers `w`. Only the glyphs are painted, the
-clip rectangle confines them, and the text cursor does not move.
+clip rectangle confines them, and the text cursor does not move. The glyphs are painted as any
+drawing is: in the [`fillstyle` and `pattern`](#painting-styles), and exclusive-ored under
+[`drawop: #reverse`](#drawing-in-reverse). The terminal's `write` and `writes` are not: their text is
+always solid, as Icon's is.
 
 ```funl
 import { open } from funl:graphics

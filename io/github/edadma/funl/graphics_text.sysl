@@ -289,10 +289,9 @@ private int_arg(base: usize, i: usize, name: string) -> Result[long, Fault]
 
 // The canvas of `c` ready to draw text in `ctx`: its state saved, the clip rectangle applied and the
 // face chosen. `restore()` on the canvas ends it.
-private begun(c: WinCanvas, ctx: WinContext, f: Face) -> &pv.Canvas = begun_on(c.drawn, ctx, f)
+private begun(c: WinCanvas, ctx: WinContext, f: Face) -> &pv.Canvas
+    val d = c.drawn
 
-// Plutovg canvas `d` ready to draw text in `ctx`, as `begun` makes a window's.
-private begun_on(d: &pv.Canvas, ctx: WinContext, f: Face) -> &pv.Canvas
     d.save()
 
     if ctx.clipw >= 0 && ctx.cliph >= 0
@@ -304,9 +303,19 @@ private begun_on(d: &pv.Canvas, ctx: WinContext, f: Face) -> &pv.Canvas
 
 private painted_in(d: &pv.Canvas, c: Rgb) = d.rgb(channel(c.r), channel(c.g), channel(c.b))
 
-// The foreground, at the coverage its specification asks for: a half for a `"transparent"` one.
-private inked(d: &pv.Canvas, ctx: WinContext) =
-    d.rgba(channel(ctx.fg_rgb.r), channel(ctx.fg_rgb.g), channel(ctx.fg_rgb.b), ctx.fg_alpha)
+// The terminal's ink, at the coverage the foreground's specification asks for -- a half for a
+// `"transparent"` one. It is X's GC foreground, which `XDrawImageString` paints with whatever the
+// drawing operation: the foreground, and under `drawop: #reverse`, where Icon sets that pixel to
+// `fg ^ bg`, the foreground exclusive-ored with the background.
+private inked(d: &pv.Canvas, ctx: WinContext)
+    if !is_reversing(ctx)
+        d.rgba(channel(ctx.fg_rgb.r), channel(ctx.fg_rgb.g), channel(ctx.fg_rgb.b), ctx.fg_alpha)
+        return
+
+    d.rgba(xored(ctx.fg_rgb.r, ctx.bg_rgb.r), xored(ctx.fg_rgb.g, ctx.bg_rgb.g), xored(ctx.fg_rgb.b, ctx.bg_rgb.b), ctx.fg_alpha)
+
+// The eight-bit components of `a` and `b` exclusive-ored, as a channel.
+private xored(a: long, b: long) -> f32 = f32(long(eight_bit(a) ^ eight_bit(b))) / 255.0
 
 // `w.text_width(s)`: how far `s` would advance in the window's font, in whole pixels.
 private do_text_width(base: usize, argc: usize) -> Result[Option[Value], Fault]
@@ -318,11 +327,11 @@ private do_text_width(base: usize, argc: usize) -> Result[Option[Value], Fault]
     d.set_font(f.font, f.size)
     Ok(Some(Int(rounded(d.text_extents(s).advance))))
 
-// `w.draw_string(x, y, s, …)`: each string drawn in the foreground colour with its baseline starting
-// at `(x, y)`, moved by the origin; only the glyphs are painted, and the cursor stays where it was.
-// Every argument is checked before anything is drawn. Answers the window. Under `drawop: #reverse`
-// the glyphs are drawn onto a coverage mask and exclusive-ored into the canvas, so drawing the same
-// strings again restores it.
+// `w.draw_string(x, y, s, …)`: each string drawn with its baseline starting at `(x, y)`, moved by the
+// origin; only the glyphs are painted, and the cursor stays where it was. Every argument is checked
+// before anything is drawn. Answers the window. The glyphs are painted as every drawing is, as X's
+// `XDrawString` paints them under the GC: in the fill style and pattern, and under `drawop: #reverse`
+// onto a coverage mask exclusive-ored into the canvas, so drawing the same strings again restores it.
 private do_draw_string(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val given = argc - 1
 
@@ -336,34 +345,20 @@ private do_draw_string(base: usize, argc: usize) -> Result[Option[Value], Fault]
         int_arg(base, 2 + 3 * i, "draw_string")?
         text_arg(base, 3 + 3 * i, "draw_string")?
 
-    val c = canvas_at(w.at)
-    val ctx = context_at(w.ctx)
-    var mask: Option[&pv.Surface] = None
-    var d = c.drawn
+    val pen = began(w)?
+    val ctx = pen.ctx
+    val f = face_at(ctx.face)
 
-    if is_reversing(ctx)
-        val (s, m) = reverse_mask(c)?
-
-        d = m
-        mask = Some(s)
-
-    begun_on(d, ctx, face_at(ctx.face))
-
-    if mask.is_some() then d.rgb(1.0, 1.0, 1.0) else inked(d, ctx)
+    pen.d.set_font(f.font, f.size)
+    painted(pen)
 
     for i in 0..<given / 3
         val x = int_arg(base, 1 + 3 * i, "draw_string")? + ctx.dx
         val y = int_arg(base, 2 + 3 * i, "draw_string")? + ctx.dy
 
-        d.fill_text(text_arg(base, 3 + 3 * i, "draw_string")?, f32(x), f32(y))
+        pen.d.fill_text(text_arg(base, 3 + 3 * i, "draw_string")?, f32(x), f32(y))
 
-    d.restore()
-
-    mask match
-        Some(s) -> exclusive_ored(c, ctx, s)
-        None -> ()
-
-    Ok(Some(Handle(w.h)))
+    finished(pen)
 
 // -- the text cursor -------------------------------------------------------------------------------
 
