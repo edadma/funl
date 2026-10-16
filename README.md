@@ -140,7 +140,7 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
   `funl:fs`'s `open` and the file handle, and the keyboard through `funl:term`.
 - `funl:graphics` is Icon's graphics: canvases drawn into with points, lines, polygons, arcs, text
   in a built-in monospaced font, images and palettes, `#reverse` drawing and an event queue
-  (`w.next_event()` is a promise of the next event map, settled by the event loop), and
+  (`w.next_event()` is a promise of the next event map, settled by the event loop; `w.delay(ms)` inside a task parks only that task), and
   windows on screen over SDL3 (the `graphics` feature, on by default).
 - Prolog reads and writes `1.0Inf` and `1.5NaN`, has SWI's `float_overflow`, `float_zero_div` and
   `float_undefined` flags, and reads integers in any radix.
