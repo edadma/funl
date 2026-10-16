@@ -328,26 +328,36 @@ screen_news(ms: long) -> Buf[ScreenNews]
     var next = if ms > 0 then sdl.wait_event_timeout(i32(ms)) else sdl.poll_event()
 
     while next.is_some()
-        val e = next.unwrap()
-        val kind = e.kind()
-
-        // A quit is every window asked to close at once.
-        if kind == sdl.EventKind.Quit
-            quit_asked = true
-
-            for i in 0..<screens.len()
-                screens.at(i) match
-                    Some(s) -> out.push(Closing(s.id))
-                    None -> ()
-        else
-            place_of(e.window_id()) match
-                Some(at) -> news_of(at, e, &out)
-                None -> ()
-
+        event_news(next.unwrap(), &out)
         next = sdl.poll_event()
 
     out
 end screen_news
+
+// SDL event `e`, which the event loop's pump took off SDL's queue while it waited, carried into its
+// window's canvas as `screen_news` carries what it takes. Not `private`: the loop's pump is made with it
+// (`events.sysl`).
+screen_event_in(e: sdl.Event)
+    var out: Buf[ScreenNews] = buf()
+
+    event_news(e, &out)
+    took_in(out)
+
+// What SDL event `e` is news of, pushed onto `out`. A quit is kept here, and a close asked for is kept
+// as well as answered.
+private event_news(e: sdl.Event, out: *Buf[ScreenNews])
+    // A quit is every window asked to close at once.
+    if e.kind() == sdl.EventKind.Quit
+        quit_asked = true
+
+        for i in 0..<screens.len()
+            screens.at(i) match
+                Some(s) -> out.push(Closing(s.id))
+                None -> ()
+    else
+        place_of(e.window_id()) match
+            Some(at) -> news_of(at, e, out)
+            None -> ()
 
 // What SDL event `e`, for the window at `at`, is news of, pushed onto `out`.
 private news_of(at: usize, e: sdl.Event, out: *Buf[ScreenNews])

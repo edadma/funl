@@ -214,6 +214,54 @@ foreground colour. It is drawn in the window only, over the canvas shown there, 
 as the wait ends — the canvas never holds it, so `pixel` never sees it, and a wait the queue answers
 at once shows none. `cursor` is off by default.
 
+**`w.next_event()` waits without blocking the program** ([the promise form](graphics.md#the-promise-form-next_event)):
+while a task awaits it, the [event loop](async.md) waits on the screen's events beside its timers and
+its I/O, carries each event to its window's queue as it comes, and keeps the oldest promise waiting on
+that window with it. Other tasks run meanwhile, and nothing the loop does while it waits runs FunL. A
+`#close` from the title bar is an event like any other, so the task awaiting it hears of it. This one
+writes each click until its window is closed, a timer ticking beside it; run it at the screen, since
+nothing here clicks:
+
+```funl
+import { open } from funl:graphics
+import { sleep } from funl:async
+
+w = open( "clicks", {size: (200, 100)} )
+
+async def ticking() =
+  await sleep( 1000 )
+  write( "a second has passed" )
+
+ticking()
+e = await w.next_event()
+
+while e.code != #close do
+  write( e.code, e.x, e.y )
+  e = await w.next_event()
+
+w.close()
+```
+
+An event `enqueue` puts on a window's queue settles a promise there as the screen's do:
+
+```funl
+import { open } from funl:graphics
+
+w = open( "queued", {size: (40, 30)} )
+e = w.next_event()
+w.enqueue( #lpress, 3, 4 )
+m = await e
+write( m.code, m.x, m.y, if m.window == w then "this window" else "another" )
+w.close()
+```
+
+```output
+lpress, 3, 4, this window
+```
+
+**SDL's calls are made on the process's main thread**, which is the thread FunL runs on, and macOS
+refuses them from any other; FunL starts no thread for a window.
+
 ## Density
 
 **A window is measured in points.** On a high-density display -- a retina screen -- its canvas has

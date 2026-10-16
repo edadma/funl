@@ -8,6 +8,10 @@ import sh.sysl.kairos.uv.{Uv, uv}
 #else
 import sh.sysl.kairos.host.{Host, host}
 #endif
+#if feature_graphics
+import sh.sysl.kairos.pump.{Pumped, pumped}
+import sh.sysl.sdl3.pump.{SdlPump, sdl_pump}
+#endif
 
 // The event loop: `sh.sysl.kairos`, used in callback form.
 //
@@ -15,6 +19,12 @@ import sh.sysl.kairos.host.{Host, host}
 // which reads files, waits for children and hears back from libuv's thread pool as well as keeping
 // time; without it, on kairos's host driver, which keeps time and links no library. A timer is the
 // same on both.
+//
+// **With the `graphics` feature, that driver is pumped by SDL's event queue** (`sh.sysl.kairos.pump`):
+// while SDL is up, the loop's wait is SDL's, bounded by the loop's timers and woken by libuv, and every
+// SDL event it takes is routed to its window's canvas (`graphics_screen.sysl`), settling the oldest
+// `next_event()` waiting there. Until a window is opened SDL is not up, and the driver is the inner
+// one, exactly.
 //
 // **There are two queues, in a fixed order.** The ready queue (`task.sysl`) holds the machines a
 // settled promise owes a turn, and is drained to empty first. Only then is the loop asked for
@@ -37,11 +47,17 @@ import sh.sysl.kairos.host.{Host, host}
 // Both tables are collector roots, so a promise nothing else holds -- `sleep( 10 )` on a line of its
 // own -- is still there to settle when its time comes.
 
-// The driver the loop runs on in this build.
+// The driver that keeps time in this build, and the one the loop runs on: the same, or the first
+// pumped by SDL's queue.
 #if feature_async
-type Driven = Uv
+type Inner = Uv
 #else
-type Driven = Host
+type Inner = Host
+#endif
+#if feature_graphics
+type Driven = Pumped[Inner, SdlPump]
+#else
+type Driven = Inner
 #endif
 
 // How a promise the loop settled is to be settled, run once FunL is running again: `Gives` keeps it
@@ -65,7 +81,14 @@ loop_of(v: *Vm) -> &Loop[Driven]
 #else
     val h = host()
 #endif
+#if feature_graphics
+    // Every event SDL hands the loop goes to its window's canvas. The pump is made on the thread FunL
+    // runs on, which is the process's main thread.
+    val p = sdl_pump((e) -> screen_event_in(e)).expect("funl:graphics runs on the main thread")
+    val lp = event_loop(pumped(h, p))
+#else
     val lp = event_loop(h)
+#endif
 
     v.clock = Some(h)
     v.events = Some(lp)
@@ -199,6 +222,7 @@ forget_events(v: *Vm)
         f.live = false
 
     v.flights.clear()
+    forget_event_waits(v)
     v.events = None
     v.clock = None
     v.stretch = None

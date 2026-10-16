@@ -3,7 +3,9 @@ github.com/sysl-lang/dal v0.1.1 sha256:bd40b09abeed0e8b2c731cdfae5ab447c62cbe283
 github.com/sysl-lang/gc v0.2.7 sha256:dca67017de693ee9c839b59b6afca52ee94b81c206d648f5adc83b025c33e27b
 github.com/sysl-lang/json v0.2.0 sha256:bd268e798ae1c7ef715f4f96f74ed8115a7bbc3ac21cc7584e0bfe2210e46a48
 github.com/sysl-lang/kairos v0.1.1 sha256:0a1e96e81a5fc3d859fff5913595f79ee22c2cd3e52d96924851a4ab9c9f4404
+github.com/sysl-lang/kairos v0.1.7 sha256:a27857296d5ab66d57a784f7ab5cd46dacd062acbdfbc6a941674dedf2eeb10b
 github.com/sysl-lang/libuv v0.1.9 sha256:56a5d115bd0d514a559b6df2c2976445221861c4a368f95be6f75960ebd38cee
+github.com/sysl-lang/libuv v0.1.14 sha256:393936290ca7e6dc64505414663928bcb3742c90975f1cca62f056e59b8a23ac
 github.com/sysl-lang/linenoise v0.3.0 sha256:197bc94c99c40b089d45115fa59bfe52fb7293bf935feeaecc5c8294aa24b940
 github.com/sysl-lang/parsing v0.13.0 sha256:d392b5d4449238ba518b59699b211298d7b33dc8f4abe78de8bfda57ac61e065
 github.com/sysl-lang/plutovg v0.2.4 sha256:6d501ebbff14ec19caa345fdba90ef3a8a9f20ce3a70bbef8ab311d3570790b5
@@ -11,4 +13,5 @@ github.com/sysl-lang/sdl3 v0.3.6 sha256:b0e094232e35075c641427e1e46b5f6924b16322
 github.com/sysl-lang/sdl3 v0.3.7 sha256:64556c1b84f9d5885b8b92ccff215cf61fb3c29c7a7924a2bc6032620c8196eb
 github.com/sysl-lang/sdl3 v0.3.8 sha256:efce036ab74ee6bbbf6d4d776d900a46a2216afcdd7df285938f4c0f4721fcfe
 github.com/sysl-lang/sdl3 v0.3.9 sha256:844a6e82a90b8a36c25186056bfa4e770dc24d76c961bedea1c5925c3d244d5a
+github.com/sysl-lang/sdl3 v0.3.10 sha256:80a5abf2ab683f7e75cb1b8e610d826e93f2d83b0e962e84f7ec9173661c34d2
 github.com/sysl-lang/sqlite3 v0.7.0 sha256:5ad09d7ce307300ae132220e49b911a351a4b7074417f99ff068a892226b97e5

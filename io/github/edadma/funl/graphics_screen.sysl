@@ -30,7 +30,9 @@ private queued(at: usize, ev: WinEvent)
     val unasked_release = (ev.mods & ScreenReleased) != 0 && !in_mask(c.inputmask, 'k')
     val unasked_motion = !ev.is_key && atom_name(ev.sym) == "move" && !in_mask(c.inputmask, 'm')
 
-    if !unasked_release && !unasked_motion then c.queue.push(ev)
+    if !unasked_release && !unasked_motion
+        c.queue.push(ev)
+        served(at)
 
 // A symbol event at the pointer of the canvas at `at`.
 private at_pointer(at: usize, sym: string) -> WinEvent
@@ -43,9 +45,11 @@ private at_pointer(at: usize, sym: string) -> WinEvent
 // picture kept and the new area filled, and `#resize` queued; a close asked for queues `#close`; one
 // exposed is shown again; the pointer seen over one is its `pointer`; a key, a button and the wheel
 // are queued as Icon's events.
-private take_news(ms: long)
-    val news = screen_news(ms)
+private take_news(ms: long) = took_in(screen_news(ms))
 
+// What has happened to the windows on screen, `news`, carried into their canvases as `take_news` says.
+// Not `private`: the event loop's pump hands each SDL event it takes here (`native_screen.sysl`).
+took_in(news: Buf[ScreenNews])
     for i in 0..<news.len()
         news.at(i) match
             Resized(id, w, h) ->
@@ -84,7 +88,7 @@ private take_news(ms: long)
 
                         queued(at, ev)
                     None -> ()
-end take_news
+end took_in
 
 // The program waits: what has happened to the windows on screen is taken in, and every canvas shown
 // in a window is copied there and presented. Not `private`: the event loop calls it before it blocks.

@@ -7,6 +7,9 @@ import sysl.buf.{Buf, buf}
 import sysl.text.str_builder
 import sh.sysl.sdl3 as sdl
 import sh.sysl.sdl3.c as sc
+import sysl.posix.time.sleep
+import sysl.threads.spawn
+import sysl.time.micros
 #endif
 
 // `funl:graphics`'s windows on screen (`docs/library/graphics-screen.md`), in a build with the
@@ -557,6 +560,64 @@ EVENT_READS_WHAT_THE_SCREEN_QUEUED_AND_MOTION_IS_QUEUED_ONLY_UNDER_INPUTMASK_M()
     assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"moved\", {size: (40, 30)} )\nw.set( {pointer: (3, 2)} )\nwrite( w.pending() | \"none\" )\n" +
             "w.set( {inputmask: \"m\", pointer: (5, 4)} )\nwrite( w.event(), &x, &y, w.get(\"pointer\") )\nw.close()\n"),
         "none\nmove, 5, 4, (5, 4)\nsucceeded")
+
+// What a window's user does while the program waits: after `delay_ms`, `first` and then `second` put on
+// SDL's queue from another thread, as the window system puts its events there.
+private struct Later
+    delay_ms: long
+    first: sdl.Event
+    second: sdl.Event
+
+private later(s: *Later) -> unit
+    sleep(micros(s.delay_ms * 1000))
+    sdl.push_event(s.first)
+    sdl.push_event(s.second)
+
+// Two tasks each take a click off a window with `event()` -- which `active()` found them by -- and then
+// await `next_event()` on it, while a third task's timer runs out. The two events come from another
+// thread while the program waits on the loop, which waits on SDL's queue as well as on its timer: the
+// timer is kept first, then each event settles the promise waiting on its window. The keywords are
+// still the click's after the await, and a close asked for from the title bar is an event like any.
+private const Watching: string = "import { active } from funl:graphics\nimport { sleep } from funl:async\n" +
+    "async def watch( w ) =\n" +
+    "    w.event()\n" +
+    "    e = await w.next_event()\n" +
+    "    write( e.window.get(\"label\"), e.code, e.x, e.y, e.shift, e.interval, &x, &y )\n" +
+    "    w.close()\n" +
+    "\n" +
+    "async def tick() =\n" +
+    "    await sleep( 20 )\n" +
+    "    write( #tick )\n" +
+    "\n" +
+    "ps = [watch( w ) | w <- active()]\ntick()\nfor p <- ps do await p\nwrite( #done )\n"
+
+@test
+NEXT_EVENT_ON_WINDOWS_ON_SCREEN_IS_SETTLED_WHILE_THE_LOOP_WAITS_ON_SDL()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val opened = compiled_text("import { open } from funl:graphics\none = open( \"one\", {size: (40, 30)} )\ntwo = open( \"two\", {size: (40, 30)} )\ntwo.flush()\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, opened)), "succeeded", transcript(streams))
+
+    val one = window_of(shown_canvas("one").expect("the first window is still open"))
+    val two = window_of(shown_canvas("two").expect("and the second"))
+
+    assert(sdl.push_event(button_event(one, 1, true, 3.0, 4.0, 1000000)), "a click on one")
+    assert(sdl.push_event(button_event(two, 1, true, 5.0, 6.0, 1000000)), "a click on two")
+
+    var job = Later(150, key_event(two, 4, sdl.KMOD_LSHIFT, true, 9000000), window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, one, 0, 0))
+    val t = spawn(&later, &job).unwrap()
+
+    assert_eq(outcome_text(run(&v, compiled_text(Watching).unwrap())), "succeeded", transcript(streams))
+    assert(t.join())
+    assert_eq(transcript(streams), "tick\ntwo, A, 5, 6, true, 8, 5, 6\none, close, 0, 0, false, 0, 3, 4\ndone\n")
+
+    dispose_vm(&v)
+    leave(was)
+end NEXT_EVENT_ON_WINDOWS_ON_SCREEN_IS_SETTLED_WHILE_THE_LOOP_WAITS_ON_SDL
 
 // What program `text` printed when run as `funl` runs it, and its status.
 private ran_as(text: string) -> string

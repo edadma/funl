@@ -118,6 +118,74 @@ WINDOW_IS_THE_WINDOW_OPEN_MADE_LAST_OR_THE_ONE_ASSIGNED()
         "none\nb\na\nnone\nb\nnone\n" +
         "error(type_error(window, 3), context(_G2, \"'&window' wants a window, or undefined, and was given the integer 3\"))\nsucceeded")
 
+// -- next_event ------------------------------------------------------------------------------------
+
+@test
+NEXT_EVENT_ANSWERS_THE_EVENTS_MAP_AND_SETS_NO_KEYWORD()
+    assert_eq(on_events("w.enqueue( #lpress, 5, 6, \"m\", 7 )\nw.event()\n" +
+            "w.set( {dx: 1, dy: 2} )\nw.enqueue( \"a\", 14, 28, \"cs\", 40 )\ne = await w.next_event()\n" +
+            "write( e.code, e.x, e.y, e.row, e.col, e.interval, e.control, e.shift, e.meta, e.released, if e.window == w then #same else #other )\n" +
+            "write( &x, &y, &interval, if &meta then #meta else #plain, if &control then #control else #plain )\n" +
+            "w.set( {inputmask: \"k\"} )\nw.enqueue( \"q\", 0, 0, \"r\" )\nwrite( (await w.next_event()).released, w.pending() | #empty )\n"),
+        "a, 14, 28, 3, 3, 40, true, true, false, false, same\n5, 6, 7, meta, plain\ntrue, empty\nsucceeded")
+
+@test
+EVENT_AND_NEXT_EVENT_TAKE_FROM_THE_ONE_QUEUE_IN_ORDER_EACH_EVENT_ONCE()
+    assert_eq(on_events("a = w.next_event()\nb = w.next_event()\nw.enqueue( \"x\" )\nw.enqueue( \"y\" )\nw.enqueue( \"z\" )\n" +
+            "write( w.pending() )\nwrite( w.event(), (await b).code, (await a).code, w.pending() | #empty )\n" +
+            "w.enqueue( \"q\" )\nc = w.next_event()\nwrite( w.pending() | #empty, (await c).code )\n"),
+        "1\nz, y, x, empty\nempty, q\nsucceeded")
+
+@test
+TWO_TASKS_AWAIT_EVENTS_ON_TWO_WINDOWS()
+    assert_eq(on_events("v = open( \"v\", {canvas: #hidden, size: (10, 10)} )\n" +
+            "async def watch( win ) =\n" +
+            "    e = await win.next_event()\n" +
+            "    write( e.window.get(\"label\"), e.code, e.x )\n" +
+            "\n" +
+            "p = watch( w )\nq = watch( v )\nwrite( #both_waiting )\n" +
+            "v.enqueue( #lpress, 1 )\nw.enqueue( \"k\", 2 )\nawait p\nawait q\nwrite( #done )\n"),
+        "both_waiting\nv, lpress, 1\ntest, k, 2\ndone\nsucceeded")
+
+@test
+A_TIMER_AND_AN_AWAITED_EVENT_RACE_IN_ONE_PROGRAM()
+    assert_eq(on_events("import { sleep } from funl:async\n" +
+            "async def clicker() =\n" +
+            "    await sleep( 5 )\n" +
+            "    write( #timer )\n" +
+            "    w.enqueue( #rpress, 3, 4 )\n" +
+            "\n" +
+            "async def ticker() =\n" +
+            "    await sleep( 1 )\n" +
+            "    write( #tick )\n" +
+            "\n" +
+            "e = w.next_event()\nclicker()\nticker()\nwrite( #waiting )\nm = await e\nwrite( m.code, m.x, m.y )\n"),
+        "waiting\ntick\ntimer\nrpress, 3, 4\nsucceeded")
+
+@test
+A_WINDOW_CLOSED_WHILE_ITS_EVENT_IS_AWAITED_FAULTS_THE_PROMISE()
+    assert_eq(on_events("e = w.next_event()\nc = w.clone()\nc.close()\nwrite( await e catch x -> x )\n" +
+            "write( w.next_event() catch x -> x )\n" +
+            "v = open( \"v\", {canvas: #hidden} )\nf = v.next_event()\nv.close()\nv.enqueue( \"a\" ) catch x -> ()\nwrite( await f catch x -> #faulted )\n"),
+        "error(existence_error(handle, <closed window handle>), context(_G2, \"'next_event' was awaited on the handle <closed window handle>, which was closed while it waited\"))\n" +
+        "error(existence_error(handle, <closed window handle>), context(_G5, \"'next_event' was called on the handle <closed window handle>\"))\n" +
+        "faulted\nsucceeded")
+
+// Without the `graphics` feature there is no window on screen to await an event from: the window
+// faults where it is opened, naming the feature, while a hidden canvas's `next_event` works as in any
+// build.
+#if !feature_graphics
+@test
+NEXT_EVENT_OF_A_WINDOW_ON_SCREEN_FAULTS_NAMING_THE_FEATURE()
+    assert_eq(on_events("write( open( \"shown\", {size: (4, 3)} ).next_event() catch e -> e )\n" +
+            "w.enqueue( \"h\" )\nwrite( (await w.next_event()).code )\n"),
+        "error(system_error, context(_G2, \"'open': a window on screen is not in this build -- it is behind the `graphics` feature\"))\nh\nsucceeded")
+#endif
+
+@test
+A_NEXT_EVENT_NOTHING_CAN_SETTLE_ENDS_THE_RUN()
+    assert_eq(on_events("write( #before )\nwrite( await w.next_event() )\nwrite( #after )\n"), "before\nsucceeded")
+
 @test
 ONLY_WINDOW_OF_THE_GRAPHICS_KEYWORDS_IS_ASSIGNED()
     assert_eq(complaints("&x = 1\n&shift = 1\n&lpress = 1\n&window <- 1\n"),

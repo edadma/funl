@@ -249,7 +249,7 @@ struct Vm
     // The event loop and the driver it runs on, made by the first timer or I/O operation a program
     // starts.
     events: Option[&Loop[Driven]]
-    clock: Option[&Driven]
+    clock: Option[&Inner]
 
     // The clock's reading when the stretch of FunL since the loop's last pass first set a timer.
     stretch: Option[Duration]

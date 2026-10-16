@@ -85,7 +85,9 @@ do_enqueue(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val unasked_release = (ev.mods & ModReleased) != 0 && !in_mask(c.inputmask, 'k')
     val unasked_motion = !ev.is_key && atom_name(ev.sym) == "move" && !in_mask(c.inputmask, 'm')
 
-    if !unasked_release && !unasked_motion then c.queue.push(ev)
+    if !unasked_release && !unasked_motion
+        c.queue.push(ev)
+        served(w.at)
 
     Ok(Some(Unit))
 
@@ -141,6 +143,144 @@ do_pending(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val n = canvas_at(w.at).queue.len()
 
     Ok(if n == 0 then None else Some(Int(long(n))))
+
+// -- the promise form --------------------------------------------------------------------------------
+
+// A `next_event()` waiting: the VM whose promise `p` is, and the place of the canvas it waits on. The
+// window it was called on is `p`'s value while it waits, which the collector marks, so the handle
+// lives as long as the wait does.
+struct EventWaiter
+    v: *Vm
+    p: *PromiseObj
+    at: usize
+
+// process-wide, as the canvases are: every `next_event()` still waiting, oldest first.
+private var event_waiters: Buf[EventWaiter] = buf()
+
+// `w.next_event()`: a promise of the oldest event on `w`'s queue, taken off it, as a map --
+// `{code, x, y, row, col, interval, control, shift, meta, released, window}`, the pointer in `w`'s
+// coordinates and its cells in `w`'s font, as `event()` would set the keywords, which this does not.
+// One already queued is answered at once; otherwise the promise waits for the next event to reach the
+// queue -- from the window's user while the event loop waits, or from `enqueue` -- each event going to
+// the oldest promise waiting on its canvas. The canvas closed while a promise waits faults it as a
+// call on the closed window would.
+do_next_event(base: usize, argc: usize) -> Result[Option[Value], Fault]
+    window_arg(base, 0, "next_event")?
+
+    val v = current()
+    val p = promise_made()?
+    val w = window_arg(base, 0, "next_event")?
+
+    show_screens()
+
+    // `p` holds the window from here on: the window keeps the collector's eye while the promise waits.
+    p.value = Handle(w.h)
+
+    val c = canvas_at(w.at)
+
+    if c.screen >= 0 then loop_of(v)
+
+    v.timed.push(Promise(p))
+    event_waiters.push(EventWaiter(v, p, w.at))
+    served(w.at)
+    Ok(Some(Promise(p)))
+
+// The events on the queue of the canvas at `at` given to the promises waiting on it, oldest to
+// oldest, for as long as there are both. Each promise is settled through the loop's table of
+// settlings, so it is kept once the ready queue is empty, as a timer's is. Not `private`: the screen's
+// news and `enqueue` call it as they queue.
+served(at: usize)
+    loop
+        if at >= canvases.len() || canvases.at(at).is_none() then return
+
+        val c = canvas_at(at)
+
+        if c.queue.is_empty() then return
+
+        var found: Option[usize] = None
+
+        for i in 0..<event_waiters.len()
+            if event_waiters.at(i).at == at
+                found = Some(i)
+                break
+
+        val i = found match
+            Some(i) -> i
+            None -> return
+
+        val wt = event_waiters.remove(i)
+        val ev = c.queue.remove(0)
+
+        came_back(wt.v, wt.p, settled_event(wt.p, ev))
+
+// How promise `p`, waiting with its window as its value, is settled by event `ev`: with the event's
+// map, the pointer in the window's coordinates as they are now -- or with the fault a call on the
+// window makes, where the window was uncoupled while it waited.
+private settled_event(p: *PromiseObj, ev: WinEvent) -> Settling
+    val h = p.value match
+        Handle(h) -> h
+        _ -> return () -> Err(Broken("'next_event' lost its window"))
+
+    if h.closed || !canvas_live(h) then return closed_wait(p)
+
+    val ctx = context_at(usize(small(h.vals.at(1))))
+    val x = ev.x - ctx.dx
+    val y = ev.y - ctx.dy
+    val f = face_at(ctx.face)
+    val high = if ctx.leading > 0 then ctx.leading else f.height()
+    val row = cell(y, high)
+    val col = cell(x, f.fwidth)
+
+    () -> event_map(p, ev, x, y, row, col)
+
+// The event map `next_event()`'s promise `p` is kept with.
+private event_map(p: *PromiseObj, ev: WinEvent, x: long, y: long, row: long, col: long) -> Result[Answer, Fault]
+    val m = new_map()?
+    val code = if ev.is_key then new_str(ev.key)? else Atom(ev.sym)
+
+    map_put(m, new_str("code")?, code)?
+    map_put(m, new_str("x")?, Int(x))?
+    map_put(m, new_str("y")?, Int(y))?
+    map_put(m, new_str("row")?, Int(row))?
+    map_put(m, new_str("col")?, Int(col))?
+    map_put(m, new_str("interval")?, Int(ev.interval))?
+    map_put(m, new_str("control")?, boolean((ev.mods & ModControl) != 0))?
+    map_put(m, new_str("shift")?, boolean((ev.mods & ModShift) != 0))?
+    map_put(m, new_str("meta")?, boolean((ev.mods & ModMeta) != 0))?
+    map_put(m, new_str("released")?, boolean((ev.mods & ModReleased) != 0))?
+    map_put(m, new_str("window")?, p.value)?
+    Ok(Gives(Map(m)))
+
+// How promise `p` is settled when its window's canvas closed while it waited: faulted, as a call on
+// the closed window faults.
+private closed_wait(p: *PromiseObj) -> Settling
+    () ->
+        p.value match
+            Handle(h) -> if !h.closed then retire_handle(h, detach_window)
+            _ -> ()
+
+        Err(existence_error("handle", p.value, s"'next_event' was awaited on ${described(p.value)}, which was closed while it waited"))
+
+// The canvas at `at` is closing: every promise waiting on it is faulted. Not `private`: `free_canvas`
+// calls it.
+canvas_waits_closed(at: usize)
+    var i: usize = 0
+
+    while i < event_waiters.len()
+        val wt = event_waiters.at(i)
+
+        if wt.at == at
+            event_waiters.remove(i)
+            came_back(wt.v, wt.p, closed_wait(wt.p))
+        else
+            i += 1
+
+// VM `v`'s waits let go, its run having ended or the VM being disposed: `forget_events` calls it.
+forget_event_waits(v: *Vm)
+    var i: usize = 0
+
+    while i < event_waiters.len()
+        if event_waiters.at(i).v == v then event_waiters.remove(i) else i += 1
 
 // The first canvas from place `from` on that this VM opened and that has an event waiting, and the
 // oldest window open on it.

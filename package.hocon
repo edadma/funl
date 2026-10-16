@@ -66,7 +66,7 @@ dependencies {
 
   // `async`'s loop. Its timers and its host driver need no library, so kairos itself is not behind a
   // feature; its libuv driver is, through `async` below.
-  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.1" }
+  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.7" }
 
   curl   { git = "github.com/sysl-lang/curl", version = "0.1.1", optional = true }
 
@@ -77,8 +77,9 @@ dependencies {
 
   // `funl:graphics`'s windows on screen, behind the `graphics` feature: SDL is a library the machine
   // has to have installed, where a hidden canvas needs nothing, so a build without the feature keeps
-  // every hidden canvas and links no SDL.
-  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.9", optional = true }
+  // every hidden canvas and links no SDL. Its `kairos` feature is the pump that lets the event loop
+  // wait on SDL's queue beside its timers and libuv, turned on by the `graphics` feature below.
+  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.10", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`
@@ -92,7 +93,8 @@ dependencies {
 //
 // **`graphics` is the window on screen**, over SDL. `funl:graphics` itself is in every build, since
 // its hidden canvas is plutovg's and links nothing; without the feature, opening or showing a window
-// faults and names it.
+// faults and names it. **It turns on sdl3's own `kairos` feature**, the SDL pump: with a window on
+// screen the loop waits on SDL's queue as well as on its timers and libuv (`events.sysl`).
 features {
   default = [http, async, graphics]
 
@@ -100,7 +102,7 @@ features {
 
   async = ["kairos/uv", libuv]
 
-  graphics = [sdl3]
+  graphics = [sdl3, "sdl3/kairos"]
 
   // **`profile` counts the instructions a run executes** (`profile.sysl`), and it is not in
   // `default`: the count is a branch in the instruction loop, and a build without the feature has

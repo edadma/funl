@@ -123,28 +123,9 @@ and `reads` with `echo` — are built**; see the library page,
 **The queue, `enqueue`, `event()`, `pending()`, `active()`, the event codes and keywords, `&window`
 and `inputmask` are built on hidden canvases** — see the library page's
 [events](../library/graphics.md#events) — and so are a window on screen's own events, which reach the
-same queue ([Windows on screen](../library/graphics-screen.md#events-from-the-screen)).
-
-### Events and the loop
-
-**`event()` blocks the machine that calls it, as `funl:fs`'s blocking forms do.** A program with no
-`async` in it is Icon's program and needs nothing more.
-
-**The promise form is a method, `w.next_event()`**, answering a promise of an **event map** —
-`{code, x, y, row, col, interval, control, shift, meta, released, window}` — so a task awaits a click
-while others run ([G11](#the-questions-collected)). It does not set the keywords: an awaited value is
-settled as it stands ([the loop's rule](modules.md#questions-decided)), and a map read after the
-`await` cannot be overwritten by another task's event, where a keyword could. `event()` and
-`next_event()` take from the one queue, each event once, in order.
-
-**The window's events reach FunL through kairos.** While a window is on screen the loop's driver waits
-on SDL's queue (`wait_event_timeout`) as well as on its timers and on libuv, moves each SDL event onto
-its canvas's queue (routed by window id), and settles the oldest `next_event()` promise waiting on
-that canvas. **Nothing the loop calls runs FunL**, as before: the driver only queues and settles. The
-driver that waits on two sources is F2.
-
-**SDL's video calls are made on the process's main thread**, which is the thread FunL's instruction
-loop and kairos run on; macOS refuses them from any other. FunL starts no thread for graphics.
+same queue ([Windows on screen](../library/graphics-screen.md#events-from-the-screen)). **The promise
+form, `w.next_event()`, is built too**, over kairos's pump and SDL's (F2) — see the library page's
+[promise form](../library/graphics.md#the-promise-form-next_event).
 
 ## Closed by design
 
@@ -186,7 +167,7 @@ loop and kairos run on; macOS refuses them from any other. FunL starts no thread
 | G8 | image formats | **Decided (user, 2026-10-15)**: read what stb_image reads; write PNG only, refusing another image format's extension with `domain_error(image_format, Ext)` |
 | G9 | key releases | **Decided (user, 2026-10-15)**: reported under `inputmask` `"k"`, with the same code and `&released` succeeding |
 | G10 | whose are `&x`, `&y`, `&control`, … | **Decided (user, 2026-10-15)**: the running machine's (each task its own), set by `event()` |
-| G11 | the promise form of `Event()` | a method, `w.next_event()`, answering a promise of an event map; it sets no keywords |
+| G11 | the promise form of `Event()` | **Decided (user, 2026-10-16)**: a method, `w.next_event()`, answering a promise of an event map; it sets no keywords |
 | G12 | module and feature | **Decided (user, 2026-10-15)**: one module, `funl:graphics`, in the core over vendored plutovg (hidden canvases work in every build); on-screen windows behind a `graphics` feature over `sdl3`, on in `default`; without it, opening a visible window faults naming the feature |
 
 **G12 in full.** plutovg's C is vendored and links nothing, so the drawing half costs no link line

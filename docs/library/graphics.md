@@ -892,6 +892,7 @@ a, 15, 20, 120, shift, a key
 | `w.event()` | takes the oldest event, answers its code and sets the event keywords |
 | `w.pending()` | answers how many events are queued; **fails when there are none**, so `if w.pending() then` asks whether any are |
 | `w.enqueue(code, x, y, mods, interval)` | puts an event on the queue |
+| `w.next_event()` | answers a promise of the oldest event, as a map, setting no keyword ([below](#the-promise-form-next_event)) |
 | `active()` | generates each window that has an event waiting, one for each canvas |
 
 **`inputmask` asks for the events not reported by default**: with `"m"` in it, motion with no button
@@ -937,4 +938,85 @@ w.event()
 
 ```error
 'event': no event is queued, and none can come while the program waits: a hidden canvas takes events only from `enqueue`
+```
+
+### The promise form: `next_event`
+
+**`w.next_event()` answers a promise of the next event, as a map**, so a task can await a click while
+other tasks run, where `event()` would hold the whole program. The map carries what `event()` would
+have set the keywords to:
+
+| key | value |
+|---|---|
+| `code` | the event's code, as `event()` answers it: a one-character string or a symbol |
+| `x`, `y` | where the pointer was, in the window's coordinates (`dx` and `dy` taken off) |
+| `row`, `col` | the text cell under it, counted from 1 |
+| `interval` | the milliseconds since the event before |
+| `control`, `shift`, `meta`, `released` | `true` or `false` |
+| `window` | the window `next_event` was called on |
+
+**It sets no keyword.** An awaited value is settled as it stands, and a map read after the `await` is
+the task's own, which another task's `event()` cannot overwrite where a keyword could:
+
+```funl
+import { open } from funl:graphics
+
+w = open( "promised", {canvas: #hidden, size: (100, 60)} )
+w.enqueue( #lpress, 10, 20 )
+w.event()
+w.enqueue( "a", 15, 25, "s", 120 )
+e = await w.next_event()
+write( e.code, e.x, e.y, e.interval, e.shift, e.control )
+write( &x, &y )
+```
+
+```output
+a, 15, 25, 120, true, false
+10, 20
+```
+
+**`event()` and `next_event()` take from the one queue, each event once, in order.** An event already
+queued settles the promise at once; otherwise the promise waits for the next event to reach the queue
+-- from the window's user while the program waits on the [event loop](async.md), or from `enqueue` --
+and promises waiting on one window are settled oldest first. A promise on a hidden canvas that nothing
+will `enqueue` onto is one nothing settles, and a program left awaiting only that ends, as with any
+such promise. Two tasks may each await their own window:
+
+```funl
+import { open } from funl:graphics
+
+left = open( "left", {canvas: #hidden} )
+right = open( "right", {canvas: #hidden} )
+
+async def watch( w ) =
+  e = await w.next_event()
+  write( e.window.get("label"), e.code )
+
+a = watch( left )
+b = watch( right )
+right.enqueue( #rpress )
+left.enqueue( "k" )
+await a
+await b
+```
+
+```output
+right, rpress
+left, k
+```
+
+**A window closed while its event is awaited faults the promise**, as a call on the closed window
+would, since a closed canvas is closed for every handle on it:
+
+```funl
+import { open } from funl:graphics
+
+w = open( "brief", {canvas: #hidden} )
+e = w.next_event()
+w.close()
+await e
+```
+
+```error
+'next_event' was awaited on the handle <closed window handle>, which was closed while it waited
 ```
