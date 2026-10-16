@@ -154,7 +154,8 @@ struct EventWaiter
     p: *PromiseObj
     at: usize
 
-// process-wide, as the canvases are: every `next_event()` still waiting, oldest first.
+// process-wide: every `next_event()` still waiting, oldest first, beside the process-wide canvases they
+// wait on; each names its own VM.
 private var event_waiters: Buf[EventWaiter] = buf()
 
 // `w.next_event()`: a promise of the oldest event on `w`'s queue, taken off it, as a map --
