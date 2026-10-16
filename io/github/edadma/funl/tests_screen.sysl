@@ -232,6 +232,11 @@ private closed_one_by_one(first: string, second: string)
     ended_screens_looked_at(0)
     assert(canvases.at(one).is_none(), s"${first} is closed at once, not when the wait is over")
     assert(canvases.at(other).is_some(), s"${second} is still waited on")
+    assert(!screens_quit_asked(), "closing one window is no quit")
+
+    // The wait goes on: another look with nothing new leaves the second window open.
+    ended_screens_looked_at(0)
+    assert(canvases.at(other).is_some(), s"${second} is still open after another look")
 
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(other), 0, 0)), s"then ${second}")
     wait_for_screens()
