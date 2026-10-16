@@ -31,7 +31,7 @@ With Homebrew:
 brew install edadma/tap/funl
 ```
 
-Or build from source. You need `sysl` 0.1.0-alpha.7 or later:
+Or build from source. You need `sysl` 0.1.1 or later:
 
 ```
 brew install sysl-lang/tap/sysl
@@ -138,6 +138,9 @@ family tree in standard Prolog is [`examples/family_tree.pl`](examples/family_tr
   preprocessor, csets, deques, `random`, bit functions, more string functions, and the standard
   streams `read`, `reads`, `ewrite` and `stop`; files, pipes and `&input`/`&output`/`&errout` through
   `funl:fs`'s `open` and the file handle, and the keyboard through `funl:term`.
+- `funl:graphics` is Icon's graphics: canvases drawn into with points, lines, polygons, arcs, text
+  in a built-in monospaced font, images and palettes, `#reverse` drawing and an event queue, and
+  windows on screen over SDL3 (the `graphics` feature, on by default).
 - Prolog reads and writes `1.0Inf` and `1.5NaN`, has SWI's `float_overflow`, `float_zero_div` and
   `float_undefined` flags, and reads integers in any radix.
 
