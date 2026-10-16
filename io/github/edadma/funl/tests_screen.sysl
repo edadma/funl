@@ -161,6 +161,17 @@ WHAT_IS_SHOWN_IS_THE_CANVAS_COPIED_INTO_THE_WINDOW()
     assert(screens.at(at).is_none(), "and closing lets the window go")
 
 @test
+STARTING_THE_SCREEN_STOPS_SDL_FROM_QUITTING_WHEN_THE_LAST_WINDOW_CLOSES()
+    headless_video()
+
+    val at = screen_open("kept", 4, 3, false, true).expect("the window was made")
+
+    assert(!sdl.get_hint_boolean(sdl.HINT_QUIT_ON_LAST_WINDOW_CLOSE, true),
+        "a close of the last window is not a quit")
+
+    screen_close(at)
+
+@test
 A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
     headless_video()
 
@@ -199,6 +210,91 @@ A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
     dispose_vm(&v)
     leave(was)
 end A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT
+
+// A program that ends with two windows on screen, `back` opened first and `front` opened over it and
+// then lowered behind it, run to its end in `v`: the places of their canvases, `back`'s first.
+private two_left_open(v: *Vm) -> (usize, usize)
+    val streams = capture_streams(v)
+    val chunk = compiled_text("import { open } from funl:graphics\n" +
+        "back = open( \"back\", {size: (6, 4), bg: \"red\"} )\n" +
+        "front = open( \"front\", {size: (6, 4), bg: \"blue\", pos: (10, 8)} )\n" +
+        "front.delay(1)\nfront.lower()\nfront.delay(1)\n").unwrap()
+
+    assert_eq(outcome_text(run(v, chunk)), "succeeded", transcript(streams))
+
+    (shown_canvas("back").expect("the back window is still open"), shown_canvas("front").expect("and the front one"))
+
+// The SDL id of the window the canvas at `at` is shown in.
+private window_of(at: usize) -> u32 = screen_id(usize(canvases.at(at).unwrap().screen))
+
+// Window `first` closed from its title bar while the program's end waits, then window `second`: the
+// first leaves the screen at once while the wait goes on for the second, and the second's close ends
+// the wait.
+private closed_one_by_one(first: string, second: string)
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val (back, front) = two_left_open(&v)
+    val one = if first == "back" then back else front
+    val other = if first == "back" then front else back
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(one), 0, 0)), s"its user closes ${first}")
+    ended_screens_looked_at(0)
+    assert(canvases.at(one).is_none(), s"${first} is closed at once, not when the wait is over")
+    assert(canvases.at(other).is_some(), s"${second} is still waited on")
+    assert(!screens_quit_asked(), "closing one window is no quit")
+
+    // The wait goes on: another look with nothing new leaves the second window open.
+    ended_screens_looked_at(0)
+    assert(canvases.at(other).is_some(), s"${second} is still open after another look")
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(other), 0, 0)), s"then ${second}")
+    wait_for_screens()
+    assert(canvases.at(other).is_none(), "and with no window left the wait is over")
+
+    dispose_vm(&v)
+    leave(was)
+
+@test
+OF_TWO_WINDOWS_LEFT_OPEN_THE_ONE_BEHIND_CLOSES_FIRST_WHEN_ITS_USER_CLOSES_IT()
+    closed_one_by_one("back", "front")
+
+@test
+OF_TWO_WINDOWS_LEFT_OPEN_THE_LOWERED_ONE_CLOSES_FIRST_WHEN_ITS_USER_CLOSES_IT()
+    closed_one_by_one("front", "back")
+
+@test
+BOTH_WINDOWS_CLOSED_TOGETHER_END_THE_WAIT_AT_THE_PROGRAMS_END()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val (back, front) = two_left_open(&v)
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(back), 0, 0)), "back closed")
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(front), 0, 0)), "front closed")
+    wait_for_screens()
+    assert(canvases.at(back).is_none() && canvases.at(front).is_none(), "both windows are closed")
+
+    dispose_vm(&v)
+    leave(was)
+
+@test
+QUIT_CLOSES_EVERY_WINDOW_LEFT_OPEN_AND_ENDS_THE_WAIT()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val (back, front) = two_left_open(&v)
+
+    assert(sdl.push_event(window_event(sdl.EVENT_QUIT, 0, 0, 0)), "the application is quit")
+    wait_for_screens()
+    assert(canvases.at(back).is_none() && canvases.at(front).is_none(), "every window is closed")
+    assert(!screens_quit_asked(), "and the quit is answered, not kept for windows opened later")
+
+    dispose_vm(&v)
+    leave(was)
 
 // A key going down (`down`) or up, scancode `code` with modifiers `mods`, at `ts` nanoseconds.
 private key_event(id: u32, code: i32, mods: u16, down: bool, ts: u64) -> sdl.Event

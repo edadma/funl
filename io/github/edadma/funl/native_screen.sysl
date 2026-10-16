@@ -104,6 +104,11 @@ const HasScreen: bool = true
 private video() -> Result[unit, string]
     if video_up then return Ok(())
 
+    // SDL would make a quit of a close asked of the last window it counts as shown, and on macOS a
+    // window covered by others can be counted out, so closing one of two ended the program. Which
+    // windows are left is this file's to say; a quit is only the platform's own (Cmd-Q, a SIGINT).
+    sdl.set_hint(sdl.HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0")
+
     if !sdl.init(sdl.INIT_VIDEO) then return Err(s"no window can be opened here: ${sdl.error()}")
 
     video_up = true
@@ -298,6 +303,11 @@ screen_close_asked(at: usize) -> bool = screen_at(at).close_asked
 
 // Whether the platform has asked the program to end.
 screens_quit_asked() -> bool = quit_asked
+
+// The platform's quit answered, every window having been closed for it, so that it is not kept for
+// windows opened afterwards.
+screens_quit_answered()
+    quit_asked = false
 
 // The place of the window SDL calls `id`.
 private place_of(id: u32) -> Option[usize]
@@ -506,6 +516,8 @@ screen_display(at: usize) -> Option[(long, long)] = None
 screen_close_asked(at: usize) -> bool = true
 
 screens_quit_asked() -> bool = true
+
+screens_quit_answered() = ()
 
 screen_news(ms: long) -> Buf[ScreenNews] = buf()
 

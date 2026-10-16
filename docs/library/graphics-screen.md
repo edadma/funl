@@ -82,7 +82,9 @@ front.delay(1500)
 
 **A program that ends with a window still on screen keeps it there until its user closes it**, as
 Icon's `WDone` waits; a program that called `close()` on its windows, or kept them hidden, ends at
-once.
+once. With several windows left open, each one closed from its title bar leaves the screen at once,
+and the program ends when the last is closed; quitting the application (Cmd-Q, or the platform's
+Quit) closes them all and ends it.
 
 ## Hidden, then shown
 

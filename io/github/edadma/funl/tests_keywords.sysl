@@ -122,6 +122,11 @@ RANDOM_IS_THE_SEED_AND_ASSIGNING_IT_REPEATS_A_RUN()
     faults_with("&random = 1.5\n", "'&random' wants a 64-bit integer and was given the real 1.5")
 
 @test
+THE_PROCESSOR_CLOCK_NEVER_RUNS_BACKWARDS()
+    assert_eq(ran_funl("a = &time\nfor i <- 1..200000 do i * i\nb = &time\nwrite(if b >= a and a >= 0 then 'steady' else [a, b])\n"),
+        "steady\nsucceeded")
+
+@test
 THE_CLOCKS_READ_THE_HOSTS_TIME_IN_ICONS_SHAPES()
     assert_eq(ran_funl("t = &time\nwrite(if t is integer and t >= 0 then 'ms' else t)\nc = &clock\nwrite(c.length, c(2), c(5))\nd = &date\nwrite(d.length, d(4), d(7))\nl = &dateline\nwrite(if l(l.length - 2..) in ['am', 'pm'] then 'ok' else l)\n"),
         "ms\n8, :, :\n10, /, /\nok\nsucceeded")

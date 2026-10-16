@@ -165,15 +165,30 @@ private screens_left() -> bool
 
 // The program has ended with windows still on screen: they are shown, and waited on until each is
 // closed from its title bar or the platform asks the program to quit, as Icon's `WDone` waits; then
-// every window is closed. Not `private`: the driver calls it when a program ends (`source_file.sysl`).
+// every window is closed and the quit counted as answered. Not `private`: the driver calls it when a
+// program ends (`source_file.sysl`).
 wait_for_screens()
     while screens_left()
-        show_screens()
-        take_news(100)
+        ended_screens_looked_at(100)
 
     for i in 0..<canvases.len()
         canvases.at(i) match
             Some(c) -> if c.screen >= 0 then free_canvas(i)
+            None -> ()
+
+    screens_quit_answered()
+
+// One look of the wait at the program's end, waiting up to `ms` milliseconds for something to happen:
+// the canvases shown, their windows' events taken in, and every window its user has asked to close
+// closed there and then, so that it leaves the screen while the others are still waited on. Not
+// `private`: a test takes one look at a time.
+ended_screens_looked_at(ms: long)
+    show_screens()
+    take_news(ms)
+
+    for i in 0..<canvases.len()
+        canvases.at(i) match
+            Some(c) -> if c.screen >= 0 && screen_close_asked(usize(c.screen)) then free_canvas(i)
             None -> ()
 
 // `ms` milliseconds waited, in short sleeps, the windows on screen taken in between them so that
