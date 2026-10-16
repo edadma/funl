@@ -43,6 +43,8 @@ run(v: *Vm, chunk: usize) -> Outcome
     forget_events(v)
     v.quit = None
     v.refused = null
+    v.parks = false
+    v.relays.clear()
     v.co = null
     v.co_main = null
 
@@ -105,8 +107,8 @@ private drive(v: *Vm) -> Outcome
                 val r = execute(v, code.at(at))
 
                 // An instruction that tried to bind another task's variable is that fault, whatever
-                // it answered.
-                if v.refused != null then Err(refused_binding(v)) else r
+                // it answered; a builtin that parked its task has its answer awaited.
+                if v.refused != null || v.parks then checked(v, r) else r
 
         step match
             Ok(Next) -> ()
@@ -180,6 +182,22 @@ private drive(v: *Vm) -> Outcome
                         if !task_ends(v, PromiseFaulted, x, said) then injected = Some(Ok(Idle))
                     Err(e) -> return Faulted(e)
 end drive
+
+// What instruction answer `r` becomes when it tried to bind another task's variable -- that fault --
+// or when a builtin it ran parked the task (`park_on`): the promise the builtin answered is awaited
+// where the call's value goes, as an `await` written there would await it.
+private checked(v: *Vm, r: Result[Flow, Fault]) -> Result[Flow, Fault]
+    val parks = v.parks
+
+    v.parks = false
+
+    if v.refused != null then return Err(refused_binding(v))
+
+    if !parks then return r
+
+    r match
+        Ok(Next) -> Ok(if await_top(v)? then Next else Idle)
+        _ -> r
 
 private fails_if(ok: bool) -> Flow = if ok then Next else Fails
 

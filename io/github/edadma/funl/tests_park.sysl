@@ -1,0 +1,147 @@
+module io.github.edadma.funl
+@tests
+
+// A builtin parking only the task that called it (`park_on` in `task.sysl`), and `w.delay(ms)`, which
+// does so inside a task: the task waits on a timer while every other task, timer and `next_event` goes
+// on, and at the top level the whole program waits as it always has. Every canvas here is hidden, so
+// these run in every build.
+
+// FunL program `body` run with `h` a hidden canvas and `sleep`, `resolve` and `monotonic` imported.
+private on_hidden(body: string) -> string =
+    ran_funl("import { open } from funl:graphics\nimport { sleep, resolve } from funl:async\nimport { monotonic } from funl:time\n" +
+        "h = open( \"hid\", {canvas: #hidden} )\n" + body)
+
+@test
+A_TASK_IN_DELAY_WAITS_ALONE_WHILE_ANOTHER_TASK_RUNS_AND_ITS_TIMER_FIRES()
+    assert_eq(on_hidden("async def napper() =\n" +
+            "    write( #napping )\n" +
+            "    t = monotonic()\n" +
+            "    r = h.delay( 50 )\n" +
+            "    write( #napped, r.get(\"canvas\"), if monotonic() - t >= 50 then #waited else #early )\n" +
+            "\n" +
+            "async def other() =\n" +
+            "    write( #other )\n" +
+            "    await sleep( 10 )\n" +
+            "    write( #ticked )\n" +
+            "\n" +
+            "a = napper()\nb = other()\nwrite( #top )\nawait b\nwrite( #other_done )\nawait a\nwrite( #done )\n"),
+        "napping\nother\ntop\nticked\nother_done\nnapped, hidden, waited\ndone\nsucceeded")
+
+@test
+AT_THE_TOP_LEVEL_DELAY_BLOCKS_THE_WHOLE_PROGRAM_AND_ANSWERS_THE_WINDOW()
+    assert_eq(on_hidden("async def other() =\n" +
+            "    await sleep( 5 )\n" +
+            "    write( #ticked )\n" +
+            "\n" +
+            "other()\nt = monotonic()\nwrite( h.delay(30).get(\"label\"), if monotonic() - t >= 30 then #waited else #early )\nwrite( #after_delay )\n"),
+        "hid, waited\nafter_delay\nticked\nsucceeded")
+
+@test
+DELAY_OF_ZERO_IN_A_TASK_STILL_GOES_ROUND_THE_LOOP()
+    assert_eq(on_hidden("async def zero() =\n" +
+            "    write( h.delay(0).get(\"canvas\") )\n" +
+            "\n" +
+            "async def ready() =\n" +
+            "    await resolve( 1 )\n" +
+            "    write( #resolved )\n" +
+            "\n" +
+            "zero()\nready()\nwrite( #top )\n"),
+        "top\nresolved\nhidden\nsucceeded")
+
+@test
+A_NEGATIVE_DELAY_WAITS_NOTHING_AND_ONE_THAT_IS_NO_INTEGER_FAULTS_IN_A_TASK_AS_AT_THE_TOP()
+    assert_eq(on_hidden("async def bad() =\n" +
+            "    write( h.delay(-5).get(\"canvas\") )\n" +
+            "    write( h.delay(\"5\") catch e -> e )\n" +
+            "    write( h.delay(1.5) catch e -> e.message )\n" +
+            "    h.close()\n" +
+            "    write( h.delay(1) catch e -> e.message )\n" +
+            "\n" +
+            "write( h.delay(-5).get(\"canvas\") )\nawait bad()\n"),
+        "hidden\nhidden\n" +
+        "error(type_error(integer, \"5\"), context(_G3, \"'delay' wants a number of milliseconds, an integer, and was given the string '5'\"))\n" +
+        "'delay' wants a number of milliseconds, an integer, and was given the real 1.5\n" +
+        "'delay' was called on the handle <closed window handle>\nsucceeded")
+
+@test
+A_TASK_IN_DELAY_DOES_NOT_HOLD_UP_A_NEXT_EVENT_AWAITED_ON_ANOTHER_WINDOW()
+    assert_eq(on_hidden("g = open( \"other\", {canvas: #hidden} )\n" +
+            "async def watch() =\n" +
+            "    e = await g.next_event()\n" +
+            "    write( #event, e.code, e.window.get(\"label\") )\n" +
+            "\n" +
+            "async def napper() =\n" +
+            "    h.delay( 60 )\n" +
+            "    write( #napped )\n" +
+            "\n" +
+            "async def poke() =\n" +
+            "    await sleep( 10 )\n" +
+            "    g.enqueue( \"a\" )\n" +
+            "    write( #poked )\n" +
+            "\n" +
+            "ps = [watch(), napper(), poke()]\nfor p <- ps do await p\nwrite( #done )\n"),
+        "poked\nevent, a, other\nnapped\ndone\nsucceeded")
+
+@test
+TWO_TASKS_IN_DELAY_AT_ONCE_COME_BACK_IN_THE_ORDER_THEIR_TIMES_RUN_OUT()
+    assert_eq(on_hidden("async def nap( name, ms ) =\n" +
+            "    h.delay( ms )\n" +
+            "    write( name )\n" +
+            "\n" +
+            "t = monotonic()\na = nap( #long, 40 )\nb = nap( #short, 10 )\nawait a\nawait b\nwrite( if monotonic() - t < 80 then #together else #one_after_the_other )\n"),
+        "short\nlong\ntogether\nsucceeded")
+
+// The mechanism itself: what a parked call awaits is settled as the promise it waits on is -- kept with
+// the call's answer, failed, or faulted with the same fault -- at once where that promise is already
+// settled, and is the promise itself where the answer is to be its value.
+@test
+A_PARKED_CALL_IS_SETTLED_AS_THE_PROMISE_IT_WAITS_ON_IS()
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+
+    val kept = promise_made().unwrap()
+    val failed = promise_made().unwrap()
+    val faulted = promise_made().unwrap()
+    val already = promise_made().unwrap()
+
+    settle_promise(&v, already, PromiseKept, Unit, "")
+
+    val a = parked(park_on(&v, kept, Int(7)).unwrap())
+    val b = parked(park_on(&v, failed, Int(8)).unwrap())
+    val c = parked(park_on(&v, faulted, Int(9)).unwrap())
+    val d = parked(park_on(&v, already, Int(10)).unwrap())
+
+    assert(v.parks, "parking is asked for")
+    assert_eq(v.relays.len(), 6)
+    assert_eq(a.state, PromisePending)
+    assert_eq(d.state, PromiseKept)
+    assert_eq(answered(d), 10)
+
+    settle_promise(&v, kept, PromiseKept, Unit, "")
+    settle_promise(&v, failed, PromiseFailed, Undefined, "")
+    settle_promise(&v, faulted, PromiseFaulted, Undefined, "it broke")
+
+    assert_eq(v.relays.len(), 0)
+    assert_eq(a.state, PromiseKept)
+    assert_eq(answered(a), 7)
+    assert_eq(b.state, PromiseFailed)
+    assert_eq(c.state, PromiseFaulted)
+    assert_eq(c.message, "it broke")
+    assert(faulted.awaited, "the promise waited on counts as awaited")
+
+    val own = promise_made().unwrap()
+
+    assert(parked(park_on(&v, own, Undefined).unwrap()) == own, "with no answer of its own, the call awaits the promise itself")
+
+    v.parks = false
+    dispose_vm(&v)
+    leave(was)
+end A_PARKED_CALL_IS_SETTLED_AS_THE_PROMISE_IT_WAITS_ON_IS
+
+private parked(x: Value) -> *PromiseObj = x match
+    Promise(p) -> p
+    _ -> panic("park_on answers a promise")
+
+private answered(p: *PromiseObj) -> long = p.value match
+    Int(n) -> n
+    _ -> -1

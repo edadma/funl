@@ -229,7 +229,9 @@ private[funl] do_sync(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     Ok(Some(Handle(w.h)))
 
-// `w.delay(ms)`: the canvases shown, then `ms` milliseconds waited; answers `w`.
+// `w.delay(ms)`: the canvases shown, then `ms` milliseconds waited; answers `w`. **Inside a task the
+// wait is a timer, and only the task waits** (`park_on`): every other task, timer and `next_event`
+// goes on meanwhile. At the top level the whole program waits, the windows answering their user.
 private[funl] do_delay(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val w = window_arg(base, 0, "delay")?
     val x = deref(arg(base, 1))
@@ -239,6 +241,15 @@ private[funl] do_delay(base: usize, argc: usize) -> Result[Option[Value], Fault]
         _ -> return Err(kind_error(x, "integer", s"'delay' wants a number of milliseconds, an integer, and was given ${described(x)}"))
 
     show_screens()
+
+    val v = current()
+
+    if in_task(v)
+        val p = promise_made()?
+
+        arm_timer(v, p, micros(if ms > 0 then ms * 1000 else 0))
+        return Ok(Some(park_on(v, p, Handle(w.h))?))
+
     pause(ms)
     Ok(Some(Handle(w.h)))
 

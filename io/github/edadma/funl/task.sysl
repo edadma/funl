@@ -275,9 +275,72 @@ settle_promise(v: *Vm, p: *PromiseObj, state: u8, x: Value, message: string)
 
     p.waiters.clear()
 
+    if !v.relays.is_empty() then pass_on(v, p)
+
     if state != PromiseFaulted || p.awaited then return
 
     if p.orphaned then quit_with(v, p.message) else v.rejected.push(Promise(p))
+
+// **A builtin can park the task that called it** -- only that task, as an `await` written at the call
+// would -- while every other task, timer and wait on the loop goes on. It calls `park_on` with the
+// promise to wait for and what the call is then to answer, and answers what `park_on` gives back;
+// once the builtin returns, the instruction loop awaits that in the call's place (`checked` in
+// `run.sysl`). When `p` is kept the call answers `answer` -- or, `answer` being `Undefined`, what `p`
+// was kept with; when `p` fails or faults, the call fails or raises as an `await` of `p` would.
+//
+// **What the call awaits is a promise of its own**, holding `answer` while it is pending, and settled
+// when `p` is (`pass_on`); `p` counts as awaited, its fault being raised at the call.
+park_on(v: *Vm, p: *PromiseObj, answer: Value) -> Result[Value, Fault]
+    v.parks = true
+    p.awaited = true
+
+    answer match
+        Undefined -> return Ok(Promise(p))
+        _ -> ()
+
+    val q = promise_made()?
+
+    q.value = answer
+
+    if p.state == PromisePending
+        v.relays.push(Promise(p))
+        v.relays.push(Promise(q))
+    else
+        relay(v, p, q)
+
+    Ok(Promise(q))
+
+// Promise `p` is settled: every promise a parked builtin's call awaits on it is settled to match.
+private pass_on(v: *Vm, p: *PromiseObj)
+    var i: usize = 0
+
+    while i + 1 < v.relays.len()
+        val here = v.relays.at(i) match
+            Promise(from) -> from == p
+            _ -> false
+
+        if !here
+            i += 2
+            continue
+
+        val to = v.relays.at(i + 1)
+        val n = v.relays.len()
+
+        v.relays.set(i, v.relays.at(n - 2))
+        v.relays.set(i + 1, v.relays.at(n - 1))
+        v.relays.truncate(n - 2)
+
+        to match
+            Promise(q) -> relay(v, p, q)
+            _ -> ()
+
+// Settle `q`, which holds what a parked call answers, as settled `p` says: kept with what it holds, or
+// failed or faulted as `p` was.
+private relay(v: *Vm, p: *PromiseObj, q: *PromiseObj)
+    if p.state == PromiseKept
+        settle_promise(v, q, PromiseKept, q.value, "")
+    else
+        settle_promise(v, q, p.state, p.value, p.message)
 
 // `Orphan`: the value on top is the answer of a call written as a statement of its own, about to be
 // thrown away. **A promise thrown away can never be awaited, so its fault is final where it happens**:

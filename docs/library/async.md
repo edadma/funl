@@ -83,6 +83,10 @@ waited
 
 A wait starts when it is asked for, however long the program ran before asking.
 
+A window's [`delay`](graphics-screen.md#delay-inside-a-task) is the one wait that is both: inside a
+task it waits as `await sleep( ms )` would, only the task stopping, and at the top level it blocks as
+`funl:time`'s `sleep` does.
+
 ## The order things run in
 
 There are two queues. One holds the calls a promise that has been kept owes a turn; the other is the

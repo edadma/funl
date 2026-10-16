@@ -288,6 +288,9 @@ roots(h: *gc.Heap)
     mark_values(h, v.timed)
     mark_values(h, v.fired)
 
+    // The promises parked builtins wait on, and those their calls await.
+    mark_values(h, v.relays)
+
     // The top level's frame, the static link of every top-level function's frames.
     gc.mark(h, ptr_cast(v.globals))
 

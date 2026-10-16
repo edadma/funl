@@ -40,7 +40,7 @@ Between those, a hundred drawing calls cost one copy to the screen, the latitude
 |---|---|
 | `w.flush()` | shows every window's canvas as it now is, and answers `w` |
 | `w.sync()` | `flush`, then every pending request to the window -- its size, place, maximizing -- waited for |
-| `w.delay(ms)` | shows the canvases, then waits `ms` milliseconds, the windows answering their user meanwhile; answers `w` |
+| `w.delay(ms)` | shows the canvases, then waits `ms` milliseconds -- inside a task only the task waits ([below](#delay-inside-a-task)), at the top level the whole program, the windows answering their user meanwhile; answers `w` |
 | `w.raise()` | brings `w`'s window in front of the others, and answers `w` |
 | `w.lower()` | sends `w`'s window behind the others, and answers `w` |
 
@@ -57,6 +57,45 @@ w.close()
 
 ```output
 <window handle>, <window handle>, <window handle>, <window handle>
+```
+
+### `delay` inside a task
+
+**Inside an `async` function's task, `delay` waits on a timer, and only that task waits**: the
+canvases are shown, the task is set aside for `ms` milliseconds as an `await` of a
+[`sleep`](async.md#sleep) would set it aside, and every other task, timer and `next_event()` goes on
+meanwhile; then the task carries on, and `delay` answers `w`. At the top level, outside any task, the
+whole program waits, as an Icon program's `WDelay` does. A wait of zero or less still goes round the
+[event loop](async.md#the-order-things-run-in) inside a task, and waits nothing at the top level; a
+number of milliseconds that is not an integer is a `type_error` in either place.
+
+```funl
+import { open } from funl:graphics
+import { sleep } from funl:async
+
+w = open( "paced", {size: (40, 30)} )
+
+async def animate() =
+  i = 0
+  while i < 3 do
+    w.fill_rectangle( i * 10, 0, 10, 10 )
+    w.delay( 20 )
+    i += 1
+  write( "animated" )
+
+async def ticking() =
+  await sleep( 30 )
+  write( "a tick between frames" )
+
+a = animate()
+ticking()
+await a
+w.close()
+```
+
+```output
+a tick between frames
+animated
 ```
 
 **SDL has no call that lowers a window, so `lower` reaches the platform's own**: on macOS it sends
