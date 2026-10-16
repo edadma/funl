@@ -318,7 +318,7 @@ A file is used through its methods:
 | `f.reads(n)` | the next `n` characters, newlines included; fewer at the end, failing when none are left |
 | `f.write(x...)` | the arguments, separated by `, `, and a newline, as `write` prints them |
 | `f.writes(x...)` | the arguments run together, and no newline |
-| `f.seek(i)` | moves to position `i`; fails where it cannot |
+| `f.seek(i)` | moves to position `i` and answers the file itself, so `f.seek(1).read()` chains; fails where it cannot |
 | `f.where()` | the position; fails where the file has none |
 | `f.flush()` | writes out what the file holds back |
 | `f.close()` | closes the file; for a pipe, waits for the command and answers its exit status |
@@ -370,8 +370,7 @@ f.seek(-2)
 write( f.reads(2) )
 f.seek(0)
 f.writes( "AB" )
-f.seek(1)
-write( f.read() )
+write( f.seek(1).read() )
 write( f.seek(-20) | "before the start" )
 f.close()
 remove( "docs/library/fs/seek-demo.txt" )

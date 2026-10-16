@@ -68,9 +68,9 @@ SEEK_AND_WHERE_COUNT_FROM_ONE_AND_FROM_THE_END()
 
     val body = "f = open(d + \"/s.txt\")\nwrite( f.where() )\nf.seek(4)\nwrite( f.where(), f.reads(2) )\nf.seek(-3)\nwrite( f.where(), f.reads(9) )\n" +
         "f.seek(0)\nwrite( f.where(), f.read() | #end )\nf.seek(1)\nwrite( f.read() )\nwrite( f.seek(-11) | #before_the_start )\nwrite( f.where() )\n" +
-        "write( f.seek(-10) )\nwrite( f.reads(1) )\n"
+        "write( f.seek(-10) == f )\nwrite( f.reads(1) )\nwrite( f.seek(3).reads(2) )\n"
 
-    assert_eq(in_dir(d, body), "1\n4, 34\n8, 789\n11, end\n0123456789\nbefore_the_start\n11\n()\n0\nsucceeded")
+    assert_eq(in_dir(d, body), "1\n4, 34\n8, 789\n11, end\n0123456789\nbefore_the_start\n11\n<file handle>\n0\n23\nsucceeded")
 
 @test
 THE_MODES_APPEND_UPDATE_AND_CREATE_AS_ICON_DOES()

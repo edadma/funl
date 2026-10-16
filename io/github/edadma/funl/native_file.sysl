@@ -433,7 +433,8 @@ private file_put(f: File, text: string, name: string) -> Result[unit, Fault]
     if g.failed() then Err(system_error(s"'$name' could not write to the file")) else Ok(())
 
 // `f.seek(i)`: the position moved to `i`, counted as Icon counts, 1 before the first byte; 0 is the
-// end and a negative `i` counts back from it. Fails where the position is before the start, or the
+// end and a negative `i` counts back from it. Answers the file itself, as Icon's `seek` does, so
+// `f.seek(1).read()` chains. Fails where the position is before the start, or the
 // file cannot be moved in -- a pipe, a standard stream.
 private do_seek(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val (h, o) = file_arg(base, "seek")?
@@ -460,7 +461,7 @@ private do_seek(base: usize, argc: usize) -> Result[Option[Value], Fault]
     if to < 0 then return Ok(None)
 
     g.seek(to) match
-        Ok(_) -> Ok(Some(Unit))
+        Ok(_) -> Ok(Some(Handle(h)))
         Err(_) -> Ok(None)
 
 // `f.where()`: the position, counted from 1; fails where the file has none -- a pipe, a standard
