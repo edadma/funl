@@ -101,16 +101,13 @@ private var quit_asked: bool = false
 // Whether this build has windows on screen.
 const HasScreen: bool = true
 
-// SDL's `SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE`, which the binding does not name.
-private val QuitOnLastWindowClose: string = "SDL_QUIT_ON_LAST_WINDOW_CLOSE"
-
 private video() -> Result[unit, string]
     if video_up then return Ok(())
 
     // SDL would make a quit of a close asked of the last window it counts as shown, and on macOS a
     // window covered by others can be counted out, so closing one of two ended the program. Which
     // windows are left is this file's to say; a quit is only the platform's own (Cmd-Q, a SIGINT).
-    sdl.set_hint(QuitOnLastWindowClose, "0")
+    sdl.set_hint(sdl.HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0")
 
     if !sdl.init(sdl.INIT_VIDEO) then return Err(s"no window can be opened here: ${sdl.error()}")
 

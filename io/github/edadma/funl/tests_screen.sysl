@@ -161,6 +161,17 @@ WHAT_IS_SHOWN_IS_THE_CANVAS_COPIED_INTO_THE_WINDOW()
     assert(screens.at(at).is_none(), "and closing lets the window go")
 
 @test
+STARTING_THE_SCREEN_STOPS_SDL_FROM_QUITTING_WHEN_THE_LAST_WINDOW_CLOSES()
+    headless_video()
+
+    val at = screen_open("kept", 4, 3, false, true).expect("the window was made")
+
+    assert(!sdl.get_hint_boolean(sdl.HINT_QUIT_ON_LAST_WINDOW_CLOSE, true),
+        "a close of the last window is not a quit")
+
+    screen_close(at)
+
+@test
 A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
     headless_video()
 
