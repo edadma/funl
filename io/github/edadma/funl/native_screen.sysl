@@ -299,6 +299,11 @@ screen_close_asked(at: usize) -> bool = screen_at(at).close_asked
 // Whether the platform has asked the program to end.
 screens_quit_asked() -> bool = quit_asked
 
+// The platform's quit answered, every window having been closed for it, so that it is not kept for
+// windows opened afterwards.
+screens_quit_answered()
+    quit_asked = false
+
 // The place of the window SDL calls `id`.
 private place_of(id: u32) -> Option[usize]
     for i in 0..<screens.len()
@@ -506,6 +511,8 @@ screen_display(at: usize) -> Option[(long, long)] = None
 screen_close_asked(at: usize) -> bool = true
 
 screens_quit_asked() -> bool = true
+
+screens_quit_answered() = ()
 
 screen_news(ms: long) -> Buf[ScreenNews] = buf()
 
