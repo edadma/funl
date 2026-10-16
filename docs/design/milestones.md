@@ -276,6 +276,8 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
    through the Objective-C runtime.
 8. **Events and the loop**: `next_event()` and its event map, the driver over SDL and libuv, `delay`
    as a timer inside a task, the one queue shared by both forms. Waits on item 7, G11 and F2.
+   `w.next_event()` is done: a promise of an event map, settled by the event loop over kairos's SDL
+   pump.
 
 **Done when:** Icon programs of each kind in the book — a rubber-band rectangle under `#reverse`, a
 click-and-drag sketcher, a text window that echoes what is typed, an image read, annotated and
