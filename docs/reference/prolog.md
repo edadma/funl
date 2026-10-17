@@ -1394,8 +1394,8 @@ A binary stream is read and written a byte at a time, with `get_byte`, `peek_byt
 :- open('docs/reference/prolog/notes.txt', read, S, [type(binary), eof_action(error)]),
    get_byte(S, A), get_byte(S, B), get_byte(S, C), get_byte(S, D), get_byte(S, E),
    catch(get_byte(S, _), error(Err, _), true),
-   close(S),
-   writeq([A, B, C, D, E]), nl, print(Err), nl.
+   writeq([A, B, C, D, E]), nl, print(Err), nl,
+   close(S).
 ```
 
 ```output
