@@ -66,7 +66,31 @@ private back_quote_is_symbol() -> bool = current().flags.back_quotes == "symbol_
 pl_lex(src: Source, report: *Report) -> Tokens[PlTok] = pl_lex_from(src, report, 0)
 
 // The tokens of `src` from byte `from` on, their spans in the whole of `src`.
+//
+// **Where characters are converted** (`pl_chars.sysl`), what is cut into tokens is the text as the
+// table makes it, and each span -- of a token or of a refusal -- is carried back to the text as
+// written, so a diagnostic points where the program's own characters are.
 pl_lex_from(src: Source, report: *Report, from: usize) -> Tokens[PlTok]
+    if !converting() then return tokens_of(cut(src, report, from))
+
+    val c = converted_text(src.bytes, from)
+    var said = full_report()
+    var out = cut(source(src.name, c.text.bytes), &said, from)
+
+    for i in 0..<out.len()
+        val t = out.at(i)
+
+        out.set(i, Spanned(t.value, written_span(c, t.span)))
+
+    for i in 0..<said.len()
+        val d = said.at(i)
+
+        report.add(Diagnostic(d.severity, written_span(c, d.span), d.message, d.label, d.note))
+
+    tokens_of(out)
+
+// The tokens of `src` from byte `from` on.
+private cut(src: Source, report: *Report, from: usize) -> Buf[Spanned[PlTok]]
     var s = scan(src)
     var out: Buf[Spanned[PlTok]] = buf()
 
@@ -94,8 +118,8 @@ pl_lex_from(src: Source, report: *Report, from: usize) -> Tokens[PlTok]
         out.push(Spanned(tok, s.span_from(start)))
     end loop
 
-    tokens_of(out)
-end pl_lex_from
+    out
+end cut
 
 // The token at the cursor, which is not layout; `touching` says a name ends just before it.
 private token(s: *Scanner, report: *Report, touching: bool) -> PlTok

@@ -4,7 +4,7 @@ import sysl.buf.{Buf, buf}
 
 // Prolog's flags: `set_prolog_flag/2`, and what `current_prolog_flag/2` (in the library) enumerates.
 //
-// **Eight flags can be changed**, and each changes something: `unknown` decides what a call of a
+// **Nine flags can be changed**, and each changes something: `unknown` decides what a call of a
 // predicate nothing defines does (`error`, `fail`, or `warning`, which fails after saying so on
 // standard error); `double_quotes` decides what the reader makes of `"text"` from then on (`string`,
 // the default, or ISO's `codes`, `chars` and `atom`); `back_quotes`, SWI-Prolog's, does the same for
@@ -15,7 +15,9 @@ import sysl.buf.{Buf, buf}
 // finite -- `float_overflow` (`error` or `infinity`) one too large, `float_zero_div` (`error` or
 // `infinity`) a division by zero, and `float_undefined` (`error` or `nan`) one with no value -- each
 // `error` by default, ISO's evaluation error, and otherwise the infinity or NaN itself; `debug` is
-// `off`, and `on` is accepted and recorded, there being no debugger for it to start. **The rest describe the machine and cannot be changed**: integers are unbounded (so
+// `off`, and `on` is accepted and recorded, there being no debugger for it to start;
+// `char_conversion`, `off` by default, makes the reader apply the table `char_conversion/2` fills
+// (`pl_chars.sysl`) when `on`. **The rest describe the machine and cannot be changed**: integers are unbounded (so
 // `bounded` is `false`, and `max_integer` and `min_integer` name the 64-bit range an integer is held
 // inline in), `//` rounds toward zero, and a compound holds at most `max_arity` arguments.
 
@@ -28,8 +30,9 @@ struct PlFlags
     float_overflow: string
     float_zero_div: string
     float_undefined: string
+    char_conversion: string
 
-pl_flags() -> PlFlags = PlFlags("error", "string", "off", false, "codes", "error", "error", "error")
+pl_flags() -> PlFlags = PlFlags("error", "string", "off", false, "codes", "error", "error", "error", "off")
 
 private const MaxInteger: long = 9223372036854775807
 
@@ -55,6 +58,7 @@ private flag_list() -> Result[Value, Fault]
     items.push(pair("float_overflow", atom(f.float_overflow))?)
     items.push(pair("float_zero_div", atom(f.float_zero_div))?)
     items.push(pair("float_undefined", atom(f.float_undefined))?)
+    items.push(pair("char_conversion", atom(f.char_conversion))?)
 
     Ok(list_of(&items, Nil)?)
 
@@ -76,7 +80,7 @@ private settable(name: string, value: string) -> bool
 
     if name == "double_quotes" then return value == "codes" || value == "chars" || value == "atom" || value == "string"
 
-    if name == "debug" then return value == "on" || value == "off"
+    if name == "debug" || name == "char_conversion" then return value == "on" || value == "off"
 
     if name == "prefer_rationals" then return value == "true" || value == "false"
 
@@ -102,7 +106,7 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
 
     val known = read_only(name) || name == "unknown" || name == "double_quotes" || name == "debug" ||
         name == "prefer_rationals" || name == "back_quotes" || name == "float_overflow" || name == "float_zero_div" ||
-        name == "float_undefined"
+        name == "float_undefined" || name == "char_conversion"
 
     if !known then return Err(domain_error("prolog_flag", f, s"$who: there is no flag $name"))
 
@@ -153,6 +157,8 @@ set_flag(flag: Value, value: Value) -> Result[Value, Fault]
         v.flags.float_zero_div = text
     elif name == "float_undefined"
         v.flags.float_undefined = text
+    elif name == "char_conversion"
+        v.flags.char_conversion = text
     else
         v.flags.debug = text
 

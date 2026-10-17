@@ -297,6 +297,19 @@ private library_text() -> string = raw"""
         '$stream_properties'(S, P, Ps),
         member(S-P, Ps).
 
+    % current_char_conversion/2: each conversion in the table (pl_chars.sysl), its arguments
+    % checked first.
+    current_char_conversion(In, Out) :-
+        '$char_conversions'(In, Out, Ps),
+        member(In-Out, Ps).
+
+    % ensure_loaded/1: consult the file unless it has been loaded already (pl_chars.sysl).
+    ensure_loaded(F) :-
+        (   '$loaded'(F)
+        ->  true
+        ;   consult(F)
+        ).
+
     % -- Text -----------------------------------------------------------------------------------
 
     % string_to_atom/2: SWI-Prolog's older spelling of atom_string/2, its arguments the other way.

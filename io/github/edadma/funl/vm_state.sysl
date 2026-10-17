@@ -363,6 +363,15 @@ struct Vm
     // Every stream Prolog has open, and which are the current input and output. Their handles are
     // roots.
     pl_io: PlIo
+
+    // -- Prolog's reader and loader (`pl_chars.sysl`) ----------------------------------------------
+
+    // The character conversion table, `char_conversion/2`'s, as `(In, Out)` code points in the order
+    // the conversions were made; no entry converts a character to itself.
+    pl_chars: Buf[(u32, u32)]
+
+    // The absolute paths of the files `consult/1` and `ensure_loaded/1` have loaded.
+    pl_loaded: Buf[string]
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -395,7 +404,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
         buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", 0, 0, 0, heap_bytes, buf(), buf(), null, null, 0, Undefined,
-        no_event_keys(), buf(), (wait) -> terminal_key(wait), "", false, buf(), pl_io())
+        no_event_keys(), buf(), (wait) -> terminal_key(wait), "", false, buf(), pl_io(), buf(), buf())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

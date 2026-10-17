@@ -4,7 +4,7 @@ import sh.sysl.parsing.{Report, Source, full_report, source_of}
 import sysl.buf.{Buf, buf}
 import sysl.text.{Search, from_utf8, from_utf8_unchecked, str_builder}
 
-// Reading terms while a program runs: `read/1`, `read_term/2`, `term_to_atom/2`, `term_string/2` and
+// Reading terms while a program runs: `read/1-2`, `read_term/2-3`, `term_to_atom/2`, `term_string/2` and
 // `atom_to_term/3`; and the operator
 // table as `current_op/3` enumerates it.
 //
@@ -20,8 +20,10 @@ import sysl.text.{Search, from_utf8, from_utf8_unchecked, str_builder}
 // message. A read that refuses a term has consumed it, up to its `.`.
 
 install_prolog_read(v: *Vm)
-    register_generator(v, "read/1", 1, (b, n, c) -> read_term_from_input(arg(b, 0), Nil, "read/1"))
-    register_generator(v, "read_term/2", 2, (b, n, c) -> read_term_from_input(arg(b, 0), arg(b, 1), "read_term/2"))
+    register_generator(v, "read/1", 1, (b, n, c) -> read_term_from(b, false, arg(b, 0), Nil, "read/1"))
+    register_generator(v, "read/2", 2, (b, n, c) -> read_term_from(b, true, arg(b, 1), Nil, "read/2"))
+    register_generator(v, "read_term/2", 2, (b, n, c) -> read_term_from(b, false, arg(b, 0), arg(b, 1), "read_term/2"))
+    register_generator(v, "read_term/3", 3, (b, n, c) -> read_term_from(b, true, arg(b, 1), arg(b, 2), "read_term/3"))
     register_generator(v, "term_to_atom/2", 2, (b, n, c) -> pl_term_to_atom(arg(b, 0), arg(b, 1)))
     register_generator(v, "term_string/2", 2, (b, n, c) -> pl_term_string(arg(b, 0), arg(b, 1)))
     register_generator(v, "atom_to_term/3", 3, (b, n, c) -> pl_atom_to_term(arg(b, 0), arg(b, 1), arg(b, 2)))
@@ -55,11 +57,12 @@ private read_one(name: string, text: string, whole: bool) -> Result[OneTerm, Fau
 private read_error(report: Report, src: Source) -> Fault =
     syntax_error(report.at(0).message, report.render(src).trim())
 
-// `read_term(T, Options)` and `read(T)`: the next term of the input.
-private read_term_from_input(t: Value, options: Value, who: string) -> Result[Answer, Fault]
+// `read_term(S, T, Options)` and `read(S, T)`: the next term of stream `S`, the first argument where
+// `named`; `read_term(T, Options)` and `read(T)` are these on the current input.
+private read_term_from(base: usize, named: bool, t: Value, options: Value, who: string) -> Result[Answer, Fault]
     val wanted = read_options(options, who)?
-    val s = current_text_input(who)?
-    val text = clause_ahead(s, who)?
+    val (s, culprit) = term_input(base, named, who)?
+    val text = clause_ahead(s, culprit, who)?
 
     val one = read_one(stream_label(s), text, false) match
         Ok(o) -> o

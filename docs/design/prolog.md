@@ -319,6 +319,54 @@ current input, a line at a time until the lines taken hold the `.` that ends a c
 token's layout character is taken with it, and the rest waits for the next read; a read that does
 not parse consumes what it took.
 
+**Term I/O on a named stream (ISO §8.14).** `write/2`, `writeq/2`, `print/2`, `write_canonical/2`,
+`write_term/3`, `read/2` and `read_term/3` take a stream or alias first and do what their shorter
+forms do on it; the shorter forms *are* these on the current stream, one code path each. The stream
+argument raises what every stream argument raises (above); term output to an input stream is
+`permission_error(output, stream, S)`, to a binary stream `permission_error(output, binary_stream,
+S)`; a term read from an output stream `permission_error(input, stream, S)`, from a binary stream
+`permission_error(input, binary_stream, S)`, and past the end of an `eof_action(error)` stream
+`permission_error(input, past_end_of_stream, S)`. ISO lists a builtin's errors without ordering them;
+the options are checked before the stream, as the one-argument-shorter forms already did. `print/2`
+is `print/1`'s output — quoted, `'$VAR'(N)` as a variable name — since FunL has no `portray/1`.
+
+**Character conversion (ISO §8.14.5–6, flag §7.11.2.1).** The machine keeps one table of
+conversions, empty at the start. `char_conversion(In, Out)` makes the reader read `In` as `Out`;
+`char_conversion(C, C)` removes `C`'s conversion. `current_char_conversion(In, Out)` enumerates the
+conversions in the order they were made, only those where `In` and `Out` differ — so a character
+with none is not reported converted to itself (GNU Prolog's reading; SWI-Prolog enumerates every
+character). The errors are ISO's, which differ between the two: `char_conversion` of an unbound
+argument is `instantiation_error`, and of anything but a one-character atom
+`representation_error(character)`; `current_char_conversion` of a bound argument that is no
+one-character atom is `type_error(character, C)` (SWI-Prolog and GNU Prolog raise the type error for
+both; ISO is followed). **The table applies only while the `char_conversion` flag is `on`**; its
+values are ISO's `on` and `off` (SWI-Prolog's are `true` and `false`), and its default, which ISO
+leaves to the implementation, is `off`. Turning it off keeps the table.
+
+**What the reader converts** is every character of Prolog text — a file consulted, a term read, a
+top-level query, the text of `term_to_atom/2` and its kin — **except within a quoted token**:
+single-quoted atoms, double- and back-quoted text, the character of `0'c`, and comments. A character
+the table turns into a quote opens a quoted token as the quote would. GNU Prolog also converts within
+double quotes and after `0'`; ISO's rule is that a quoted token is read as written, and it is
+followed. The conversion changes no position: a diagnostic points into the text as written. While a
+file loads, a directive that is `char_conversion/2` or `set_prolog_flag(char_conversion, _)` takes
+effect at once, for the clauses after it, as `op/3` and `double_quotes` do (a conjunction holding
+one runs only in its place, as one holding `op/3` does); the flag is put back when the
+file has been read and set again in its place among the directives, as `double_quotes` is, while the
+table is not put back (the table is the machine's, as the operator table is).
+
+**`discontiguous/1` (ISO §7.4.2.3)** takes what `dynamic/1` takes — `Name/Arity`, a conjunction
+`a/1, b/2` or a list `[a/1, b/2]` — with `dynamic/1`'s errors for each indicator. It declares nothing
+FunL needs: the loader gathers a predicate's clauses wherever they stand in the file, and gives no
+warning for clauses that are not together, so there is no warning to suppress. It is a directive and
+a goal alike, as in SWI-Prolog.
+
+**`ensure_loaded(File)` (ISO §7.4.2.8)** consults `File` unless this machine has already loaded it —
+by `consult/1` or by `ensure_loaded/1` — and is a no-op if it has. Files are told apart by their
+absolute path (the working directory before a relative one). `consult/1` loads a file again whether
+or not it was loaded, as before; a file whose load was refused is not counted as loaded. Its errors
+are `consult/1`'s. It is a directive, run in its place among a file's directives, and a goal alike.
+
 ## The builtin set
 
 **ISO core first, then the SWI-Prolog library predicates programs actually reach for.** Grouped as
@@ -335,11 +383,12 @@ the standard groups them:
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3` (with `^`), `aggregate_all/3` (`count`, `sum`, `max`, `bag`, `set`) |
 | atoms and strings | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `atom_string/2`, `string_concat/3`, `string_chars/2`, `string_codes/2`, `split_string/4`, `sub_string/5`, `upcase_atom/2`, `term_to_atom/2` |
 | lists (library) | `append/3`, `member/2`, `memberchk/2`, `length/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `msort/2`, `sort/2`, `sort/4`, `predsort/3`, `sum_list/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `maplist/2-5`, `foldl/4-6`, `nb_getval/2`, `b_getval/2` |
-| input and output | `write/1`, `writeln/1`, `print/1`, `write_canonical/1`, `writeq/1`, `nl/0`, `tab/1`, `format/1-2`, `read_term/2`, `read/1` |
+| input and output | `write/1-2`, `writeln/1`, `print/1-2`, `write_canonical/1-2`, `writeq/1-2`, `write_term/2-3`, `nl/0`, `tab/1`, `format/1-2`, `read_term/2-3`, `read/1-2` |
 | streams | `open/3-4`, `close/1-2`, `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`, `flush_output/0-1`, `stream_property/2`, `at_end_of_stream/0-1`, `set_stream_position/2` |
 | character and byte I/O | `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `put_char/1-2`, `put_code/1-2`, `nl/1`, `get_byte/1-2`, `peek_byte/1-2`, `put_byte/1-2` |
-| flags and operators | `op/3`, `current_op/3`, `set_prolog_flag/2`, `current_prolog_flag/2` |
+| flags and operators | `op/3`, `current_op/3`, `set_prolog_flag/2`, `current_prolog_flag/2`, `char_conversion/2`, `current_char_conversion/2` |
 | grammar rules | `-->` translation at load time, `phrase/2-3` |
+| loading | `consult/1`, `ensure_loaded/1`, `discontiguous/1` |
 
 **The library predicates are written in Prolog** wherever that is natural (`append`, `member`,
 `reverse`, the `maplist` family), loaded from a source file carried in the binary, so they are

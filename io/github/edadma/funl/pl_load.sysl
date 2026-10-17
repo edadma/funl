@@ -315,6 +315,7 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
     // is read, and again, in its place, when the directives run.
     val quotes = current().flags.double_quotes
     val back_quotes = current().flags.back_quotes
+    val conversion = current().flags.char_conversion
 
     loop
         val c = next_clause(&r) match
@@ -328,8 +329,9 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
 
                 why = directive(src, report, ReadClause(g, c.names), &goals, &inits, why)
 
-                // `back_quotes` can change where a token ends, so the rest is cut into tokens again.
-                if current().flags.back_quotes != was then relex_rest(&r, src)
+                // `back_quotes` can change where a token ends, and character conversion what the
+                // characters are, so the rest is cut into tokens again.
+                if current().flags.back_quotes != was || rereads(g) then relex_rest(&r, src)
 
                 continue
             None -> ()
@@ -382,6 +384,7 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
 
     v.flags.double_quotes = quotes
     v.flags.back_quotes = back_quotes
+    v.flags.char_conversion = conversion
 
     if report.has_errors() then return Err(why)
 
@@ -519,7 +522,8 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
             // flag as it was, and one after it sees the new value -- `load_file` puts the reader's
             // flags back once the file is read.
             if n == "set_prolog_flag" && args.len() == 2 &&
-                    (is_atom_named(args.at(0), "double_quotes") || is_atom_named(args.at(0), "back_quotes"))
+                    (is_atom_named(args.at(0), "double_quotes") || is_atom_named(args.at(0), "back_quotes") ||
+                        is_atom_named(args.at(0), "char_conversion"))
                 var vars: Buf[Value] = buf()
 
                 val flag = term_value(args.at(0), &vars)
@@ -534,6 +538,17 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
                     Err(f) ->
                         report.add(error(t.span, fault_text(f)))
                         return why
+
+            // `char_conversion/2` is carried out now as well, so the clauses after it are read
+            // through the table it changes, and run again in its place among the directives -- where
+            // one that is in error raises its error as any directive does.
+            if n == "char_conversion" && args.len() == 2
+                var vars: Buf[Value] = buf()
+
+                val from = term_value(args.at(0), &vars)
+                val to = term_value(args.at(1), &vars)
+
+                if from.is_ok() && to.is_ok() then set_conversion(from.unwrap(), to.unwrap())
 
             // `dynamic/1` is carried out now too: the file's own clauses for the predicates it
             // names are added to the database rather than compiled as static code.
@@ -555,6 +570,15 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
 
     goals.push(Goal(c))
     why
+
+// Whether directive `g` changes how characters are converted: `char_conversion/2`, or the flag.
+private rereads(g: &Term) -> bool = g.kind match
+    TComp(f, args) ->
+        val n = atom_name(f)
+
+        (n == "char_conversion" && args.len() == 2) ||
+            (n == "set_prolog_flag" && args.len() == 2 && is_atom_named(args.at(0), "char_conversion"))
+    _ -> false
 
 // Whether `t` is the atom `name`.
 private is_atom_named(t: &Term, name: string) -> bool = t.kind match

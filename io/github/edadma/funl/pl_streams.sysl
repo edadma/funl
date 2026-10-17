@@ -384,17 +384,16 @@ private next_byte(s: &PlStream, culprit: Value, who: string, peek: bool) -> Resu
 
 // -- reading terms ----------------------------------------------------------------------------------
 
-// The current input, for `who`, which reads text from it.
-current_text_input(who: string) -> Result[&PlStream, Fault]
-    val s = current_in()?
-
-    check_input(s, culprit_of(s), who, false)?
-    Ok(s)
+// The text stream a term is read from for `who` -- its first argument where `named`, else the
+// current input -- and what an error names it by.
+term_input(base: usize, named: bool, who: string) -> Result[(&PlStream, Value), Fault] =
+    in_stream(base, if named then 2 else 1, who, false)
 
 // What `s` holds ahead once it holds the `.` that ends a clause, or the source has ended: the text
-// a read of a term reads. Past its end, `eof_action` says what happens, as for a character.
-clause_ahead(s: &PlStream, who: string) -> Result[string, Fault]
-    if !past_ok(s, culprit_of(s), who)? then return Ok("")
+// a read of a term reads. Past its end, `eof_action` says what happens, as for a character, the
+// error naming the stream as `culprit`.
+clause_ahead(s: &PlStream, culprit: Value, who: string) -> Result[string, Fault]
+    if !past_ok(s, culprit, who)? then return Ok("")
 
     while !holds_clause_end(ahead_of(s))
         if !more(s, who, true)? then break
@@ -431,6 +430,14 @@ put_current(text: string) -> Result[unit, Fault]
 
     check_output(s, culprit_of(s), "writing", false)?
     emit_text(s, text)
+
+// The text stream a term is written to for `who`: its first argument where `named`, else the
+// current output.
+term_output(base: usize, named: bool, who: string) -> Result[&PlStream, Fault] =
+    Ok(out_stream(base, if named then 2 else 1, who, false)?.0)
+
+// `text` written to `s`, a stream `term_output` gave.
+put_on(s: &PlStream, text: string) -> Result[unit, Fault] = emit_text(s, text)
 
 // How many characters the current output's line holds: what `format/2`'s column stops count from.
 // Standard output's is the machine's own line, which FunL's writes go on too.

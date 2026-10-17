@@ -168,6 +168,8 @@ consult(v: *Vm) -> Result[unit, Fault]
         Ok(c) -> c
         Err(why) -> return Err(refused(file, why, s"consult could not load $file:\n${report.render(src)}"))
 
+    // What `ensure_loaded/1` will not load again.
+    note_loaded(file)
     call(v, chunk, 0)
 end consult
 

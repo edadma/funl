@@ -1,0 +1,2 @@
+point('X',[1,2]).
+f("two words",'it\'s').

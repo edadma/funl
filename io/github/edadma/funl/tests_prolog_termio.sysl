@@ -1,0 +1,273 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.fs.read_text
+
+// Term input and output on a named stream, character conversion, `discontiguous/1` and
+// `ensure_loaded/1` (`pl_output.sysl`, `pl_read_term.sysl`, `pl_chars.sysl`; `prolog.md` § "Term I/O
+// on a named stream" and after) -- each with the errors ISO gives it. A file a test reads is written
+// to a scratch directory first.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// `Goal` run in a directive: `yes` when it succeeds, `no` when it fails, and the formal term of an
+// error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(E, _), print(E)), nl.\n")
+
+// `Goal` run in a directive, then a newline: for a goal that writes what it found.
+private shown(goal: string) -> string = ran_prolog(s":- $goal, nl.\n")
+
+// Each goal of `goals`, a Prolog list, run as `holds` runs one, a line each.
+private each_holds(goals: string) -> string =
+    ran_prolog(s":- forall(member(G, $goals), (catch((G -> write(yes) ; write(no)), error(E, _), print(E)), nl)).\n")
+
+// -- writing terms to a stream ----------------------------------------------------------------------
+
+@test
+THE_WRITE_FAMILY_WRITES_TO_THE_STREAM_ITS_FIRST_ARGUMENT_NAMES()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.txt"
+
+    assert_eq(holds(s"open('$f', write, S), write(S, f('A', \"s\")), nl(S), writeq(S, f('A', 'b c')), nl(S), " +
+        "print(S, '$VAR'(1)), nl(S), write_canonical(S, [a|'$VAR'(1)]), nl(S), " +
+        "write_term(S, 1+2, [ignore_ops(true)]), nl(S), write_term(S, 'a b', []), close(S)"), ok("yes"))
+    assert_eq(read_text(f).unwrap(), "f(A,s)\nf('A','b c')\nB\n[a|'$VAR'(1)]\n+(1,2)\na b")
+
+@test
+A_STREAM_IS_NAMED_BY_ITS_ALIAS_AND_THE_STANDARD_STREAMS_BY_THEIRS()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.txt"
+
+    assert_eq(holds(s"open('$f', write, _, [alias(o)]), writeq(o, 'x y'), write(o, ' '), print(o, z), close(o)"), ok("yes"))
+    assert_eq(read_text(f).unwrap(), "'x y' z")
+    assert_eq(shown("write(user_output, a), writeq(user_output, 'B'), write_term(user_output, [c], [quoted(true)])"), ok("a'B'[c]"))
+
+@test
+THE_ONE_ARGUMENT_FORMS_WRITE_TO_THE_CURRENT_OUTPUT()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.txt"
+
+    assert_eq(holds(s"open('$f', write, S), set_output(S), write(a), writeq('B'), print(c), write_canonical(\"d\"), " +
+        "write_term(e, []), set_output(user_output), close(S)"), ok("yes"))
+    assert_eq(read_text(f).unwrap(), "a'B'c\"d\"e")
+
+@test
+TERM_OUTPUT_TO_A_STREAM_RAISES_ISOS_STREAM_ERRORS()
+    val goals = "[write(_, x), writeq(nosuch, x), print(1, x), write_canonical(f(y), x), write_term(user_input, x, []), " +
+        "write(user_input, x)]"
+
+    assert_eq(each_holds(goals), ok("instantiation_error\nexistence_error(stream,nosuch)\n" +
+        "domain_error(stream_or_alias,1)\ndomain_error(stream_or_alias,f(y))\n" +
+        "permission_error(output,stream,user_input)\npermission_error(output,stream,user_input)"))
+
+@test
+TERM_OUTPUT_TO_A_BINARY_OR_CLOSED_STREAM_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.bin"
+    val culprit = "error(E, _), (E = permission_error(A, B, C) -> (C == S -> print(A/B) ; print(other)) ; print(E))"
+
+    for w in ["write", "writeq", "print", "write_canonical"]
+        assert_eq(shown(s"open('$f', write, S, [type(binary)]), catch($w(S, x), $culprit), close(S)"),
+            ok("output/binary_stream"))
+
+    assert_eq(shown(s"open('$f', write, S, [type(binary)]), catch(write_term(S, x, []), $culprit), close(S)"),
+        ok("output/binary_stream"))
+    assert_eq(holds(s"open('$f', write, S, [type(binary), alias(b)]), catch(write(b, x), error(E, _), true), close(S), print(E)"),
+        ok("permission_error(output,binary_stream,b)yes"))
+    assert_eq(holds(s"open('$f', write, S), close(S), catch(write(S, x), error(existence_error(stream, T), _), true), T == S"),
+        ok("yes"))
+
+@test
+WRITE_TERM_3_CHECKS_ITS_OPTIONS()
+    val goals = "[write_term(user_output, x, foo), write_term(user_output, x, [bad]), write_term(user_output, x, [_]), " +
+        "write_term(user_output, x, [quoted(_)]), write_term(user_output, x, [quoted(true)|_]),write_term(user_output, x, [quoted(maybe)])]"
+
+    assert_eq(each_holds(goals), ok("type_error(list,foo)\ndomain_error(write_option,bad)\ninstantiation_error\n" +
+        "instantiation_error\ninstantiation_error\ndomain_error(write_option,quoted(maybe))"))
+
+// -- reading terms from a stream --------------------------------------------------------------------
+
+@test
+READ_2_AND_READ_TERM_3_READ_FROM_THE_STREAM_NAMED()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.pl", "f(X, Y, X).\n'a b'. g(Z,\n  _W).\n")
+
+    assert_eq(shown(s"open('$f', read, S), read(S, A), read_term(S, B, [variable_names(V)]), " +
+        "read_term(S, C, [variable_names(N), singletons(G), variables(Vs)]), read(S, D), read(S, E), close(S), " +
+        "L = [A, B, V, C, N, G, Vs, D, E], numbervars(L, 0, _), print(L)"),
+        ok("[f(A,B,A),'a b',[],g(C,D),['Z'=C,'_W'=D],['Z'=C,'_W'=D],[C,D],end_of_file,end_of_file]"))
+
+    // By alias, and the one-argument forms on the current input.
+    assert_eq(shown(s"open('$f', read, _, [alias(i)]), read(i, A), set_input(i), read(B), read_term(C, []), " +
+        "set_input(user_input), close(i), L = [A, B, C], numbervars(L, 0, _), print(L)"), ok("[f(A,B,A),'a b',g(C,D)]"))
+
+@test
+A_TERM_READ_PAST_THE_END_OF_AN_EOF_ACTION_ERROR_STREAM_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.pl", "a.\n")
+
+    assert_eq(holds(s"open('$f', read, _, [alias(i), eof_action(error)]), read(i, a), read(i, end_of_file), " +
+        "catch(read_term(i, _, []), error(E, _), true), close(i), print(E)"),
+        ok("permission_error(input,past_end_of_stream,i)yes"))
+    assert_eq(holds(s"open('$f', read, S, [eof_action(error)]), read(S, _), read(S, _), " +
+        "catch(read(S, _), error(permission_error(input, past_end_of_stream, T), _), true), close(S), T == S"), ok("yes"))
+    // `eof_code` answers the end again.
+    assert_eq(holds(s"open('$f', read, S), read(S, _), read(S, end_of_file), read(S, end_of_file), close(S)"), ok("yes"))
+
+@test
+TERM_INPUT_FROM_A_STREAM_RAISES_ISOS_STREAM_ERRORS()
+    val goals = "[read(_, _), read_term(nosuch, _, []), read(1, _), read_term(user_output, _, []), read(user_error, _)]"
+
+    assert_eq(each_holds(goals), ok("instantiation_error\nexistence_error(stream,nosuch)\n" +
+        "domain_error(stream_or_alias,1)\npermission_error(input,stream,user_output)\n" +
+        "permission_error(input,stream,user_error)"))
+
+@test
+TERM_INPUT_FROM_A_BINARY_OR_CLOSED_STREAM_IS_REFUSED()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.bin", "a.\n")
+
+    assert_eq(holds(s"open('$f', read, _, [type(binary), alias(b)]), catch(read(b, _), error(E, _), true), close(b), print(E)"),
+        ok("permission_error(input,binary_stream,b)yes"))
+    assert_eq(holds(s"open('$f', read, _, [type(binary), alias(b)]), catch(read_term(b, _, []), error(E, _), true), close(b), print(E)"),
+        ok("permission_error(input,binary_stream,b)yes"))
+    assert_eq(holds(s"open('$f', read, S), close(S), catch(read(S, _), error(existence_error(stream, T), _), true), T == S"),
+        ok("yes"))
+
+@test
+READ_TERM_3_CHECKS_ITS_OPTIONS_AND_A_BAD_TERM_IS_A_SYNTAX_ERROR()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.pl", "f(a :- .\ng.\n")
+
+    assert_eq(each_holds("[read_term(user_input, _, foo), read_term(user_input, _, [bad]), read_term(user_input, _, [_])]"),
+        ok("type_error(list,foo)\ndomain_error(read_option,bad)\ninstantiation_error"))
+    // The bad term is consumed up to its `.`, and the next one reads.
+    assert_eq(holds(s"open('$f', read, S), catch(read(S, _), error(syntax_error(_), _), true), read(S, T), close(S), T == g"),
+        ok("yes"))
+
+// -- character conversion ---------------------------------------------------------------------------
+
+@test
+THE_CHAR_CONVERSION_FLAG_IS_ON_OR_OFF_AND_OFF_BY_DEFAULT()
+    assert_eq(shown("current_prolog_flag(char_conversion, F), write(F)"), ok("off"))
+    assert_eq(shown("set_prolog_flag(char_conversion, on), current_prolog_flag(char_conversion, F), write(F)"), ok("on"))
+    assert_eq(each_holds("[set_prolog_flag(char_conversion, true), set_prolog_flag(char_conversion, 1), set_prolog_flag(char_conversion, _)]"),
+        ok("domain_error(flag_value,char_conversion+true)\ndomain_error(flag_value,char_conversion+1)\ninstantiation_error"))
+
+@test
+CHAR_CONVERSION_MAKES_AND_REMOVES_CONVERSIONS_THAT_CURRENT_CHAR_CONVERSION_ENUMERATES()
+    assert_eq(shown("char_conversion(a, b), char_conversion(x, y), char_conversion('é', e), char_conversion(a, c), " +
+        "findall(I-O, current_char_conversion(I, O), L), print(L)"), ok("[a-c,x-y,'é'-e]"))
+    // A character converted to itself has its conversion removed, and none is reported for it.
+    assert_eq(each_holds("[(char_conversion(x, y), char_conversion(x, x), current_char_conversion(x, _)), " +
+        "current_char_conversion(z, z), current_char_conversion(_, _), " +
+        "(char_conversion(p, q), current_char_conversion(p, q)), (char_conversion(r, s), current_char_conversion(I, s), I == r)]"),
+        ok("no\nno\nno\nyes\nyes"))
+
+@test
+CHAR_CONVERSION_RAISES_ISOS_ERRORS()
+    assert_eq(each_holds("[char_conversion(_, a), char_conversion(a, _), char_conversion(ab, c), char_conversion(a, 1), " +
+        "char_conversion(f(x), a), char_conversion('', a)]"),
+        ok("instantiation_error\ninstantiation_error\nrepresentation_error(character)\nrepresentation_error(character)\n" +
+            "representation_error(character)\nrepresentation_error(character)"))
+    // `current_char_conversion/2`'s are type errors.
+    assert_eq(each_holds("[current_char_conversion(ab, _), current_char_conversion(_, 1), current_char_conversion(f(x), _)]"),
+        ok("type_error(character,ab)\ntype_error(character,1)\ntype_error(character,f(x))"))
+
+@test
+THE_READER_CONVERTS_UNQUOTED_CHARACTERS_WHILE_THE_FLAG_IS_ON()
+    val program = ":- char_conversion(;, ',').\n:- char_conversion('，', ',').\n" +
+        "before(T) :- T = (a ; b).\n" +
+        ":- set_prolog_flag(char_conversion, on).\n" +
+        "after(T) :- T = f(a ; b, 'a;b', \"a;b\", 0';, a，b). % a ; comment's quote\n" +
+        "/* ; ' */ more(a;b).\n" +
+        ":- before(T), writeq(T), nl.\n:- after(T), writeq(T), nl.\n:- more(A, B), writeq(A/B), nl.\n" +
+        ":- set_prolog_flag(char_conversion, off).\n" +
+        "off(T) :- T = (a ; b).\n:- off(T), writeq(T), nl.\n"
+
+    assert_eq(ran_prolog(program), "a;b\nf(a,b,'a;b',\"a;b\",59,a,b)\na/b\na;b\nsucceeded")
+
+@test
+A_CHARACTER_CONVERTED_TO_A_QUOTE_OPENS_A_QUOTED_TOKEN()
+    val program = ":- set_prolog_flag(char_conversion, on).\n:- char_conversion('^', '''').\n" +
+        "q(^a ^ b').\n:- q(X), writeq(X), nl.\n"
+
+    assert_eq(ran_prolog(program), "'a ^ b'\nsucceeded")
+
+@test
+A_TERM_READ_FROM_A_STREAM_IS_CONVERTED()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.pl", "f(a & é).\n'a&é'. g(a，b).\n")
+
+    assert_eq(shown(s"char_conversion('&', ','), char_conversion('，', ','), char_conversion('é', e), " +
+        s"set_prolog_flag(char_conversion, on), open('$f', read, S), read(S, A), read(S, B), read(S, C), read(S, D), " +
+        "close(S), set_prolog_flag(char_conversion, off), print([A, B, C, D])"), ok("[f(a,e),'a&é',g(a,b),end_of_file]"))
+
+@test
+A_DIAGNOSTIC_POINTS_AT_THE_TEXT_AS_WRITTEN()
+    // The full-width comma is three bytes, the comma it is read as one; the column is the one written.
+    assert_eq(prolog_complaints(":- set_prolog_flag(char_conversion, on).\n:- char_conversion('，', ',').\nx(a，b，) .\n"),
+        "error 3:7 a term was expected here\n")
+
+// -- discontiguous/1 --------------------------------------------------------------------------------
+
+@test
+DISCONTIGUOUS_ACCEPTS_AN_INDICATOR_A_CONJUNCTION_AND_A_LIST()
+    val program = ":- discontiguous a/1.\n:- discontiguous a/1, b/0.\n:- discontiguous([a/1, b/0]).\n" +
+        "a(1).\nb.\na(2).\n:- forall(a(X), (write(X), nl)).\n:- discontiguous(c/2), write(goal), nl.\n"
+
+    assert_eq(ran_prolog(program), "1\n2\ngoal\nsucceeded")
+    // Without it the clauses are gathered just the same, and nothing is said about them.
+    assert_eq(prolog_complaints("a(1).\nb.\na(2).\n"), "")
+
+@test
+DISCONTIGUOUS_RAISES_DYNAMICS_ERRORS()
+    assert_eq(each_holds("[discontiguous(_), discontiguous(foo), discontiguous(a/b), discontiguous(1/1), " +
+        "discontiguous(a/(-1)), discontiguous([a/1|_]), discontiguous((a/1, _))]"),
+        ok("instantiation_error\ntype_error(predicate_indicator,foo)\ntype_error(integer,b)\ntype_error(atom,1)\n" +
+            "domain_error(not_less_than_zero,-1)\ninstantiation_error\ninstantiation_error"))
+
+// -- ensure_loaded/1 --------------------------------------------------------------------------------
+
+@test
+ENSURE_LOADED_LOADS_A_FILE_ONCE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "lib.pl", ":- write(loading), nl.\nitem(1).\n")
+
+    assert_eq(ran_prolog(s":- ensure_loaded('$f').\n:- ensure_loaded(\"$f\").\n:- forall(item(X), (write(X), nl)).\n"),
+        "loading\n1\nsucceeded")
+    // `consult/1` loads it again; a file `consult/1` loaded is not loaded again by `ensure_loaded/1`.
+    assert_eq(ran_prolog(s":- ensure_loaded('$f').\n:- consult('$f').\n:- ensure_loaded('$f').\n"), "loading\nloading\nsucceeded")
+    assert_eq(ran_prolog(s":- consult('$f').\n:- ensure_loaded('$f').\n"), "loading\nsucceeded")
+
+@test
+ENSURE_LOADED_RAISES_CONSULTS_ERRORS_AND_A_REFUSED_FILE_IS_NOT_LOADED()
+    val d = scratch()
+    defer scrap(d)
+
+    val bad = put(d, "bad.pl", "a(.\n")
+
+    assert_eq(each_holds(s"[ensure_loaded(_), ensure_loaded(1), ensure_loaded('$d/missing.pl')]"),
+        ok(s"instantiation_error\ndomain_error(source_sink,1)\nexistence_error(source_sink,'$d/missing.pl')"))
+    assert_eq(each_holds(s"[ensure_loaded('$bad'), ensure_loaded('$bad')]"), ok(s"syntax_error('$bad')\nsyntax_error('$bad')"))

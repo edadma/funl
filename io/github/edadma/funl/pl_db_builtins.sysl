@@ -298,7 +298,28 @@ private pl_dynamic(base: usize, argc: usize) -> Result[Value, Fault]
 // Make each predicate `spec` names dynamic: by the directive at `at` of `file`, or while the program
 // runs when `file` is empty.
 declare_dynamic(spec: Value, file: string, at: string) -> Result[unit, Fault]
+    for (name, arity) in indicators_of(spec, "dynamic/1")?.view()
+        val key = pred_key(name, arity)
+        val origin = if file == "" then nowhere() else Origin(file, s"the dynamic predicate `$key` declared at $at")
+
+        procedure(name, arity) match
+            Dyn(i) ->
+                revive(i)
+                claim(key, origin)
+            Absent -> make_dynamic(name, arity, origin)?
+            Fixed ->
+                if !is_library(key) then return Err(cannot_modify(name, arity, "dynamic/1"))
+
+                make_dynamic(name, arity, origin)?
+
+    Ok(())
+end declare_dynamic
+
+// The predicates `spec` names for `who` -- `Name/Arity`, a conjunction or a list of them -- each
+// indicator checked.
+indicators_of(spec: Value, who: string) -> Result[Buf[(string, usize)], Fault]
     var work: Buf[Value] = buf()
+    var out: Buf[(string, usize)] = buf()
 
     work.push(spec)
 
@@ -318,22 +339,10 @@ declare_dynamic(spec: Value, file: string, at: string) -> Result[unit, Fault]
             Nil -> continue
             _ -> ()
 
-        val (name, arity) = indicated(x, "dynamic/1")?
-        val key = pred_key(name, arity)
-        val origin = if file == "" then nowhere() else Origin(file, s"the dynamic predicate `$key` declared at $at")
+        out.push(indicated(x, who)?)
 
-        procedure(name, arity) match
-            Dyn(i) ->
-                revive(i)
-                claim(key, origin)
-            Absent -> make_dynamic(name, arity, origin)?
-            Fixed ->
-                if !is_library(key) then return Err(cannot_modify(name, arity, "dynamic/1"))
-
-                make_dynamic(name, arity, origin)?
-
-    Ok(())
-end declare_dynamic
+    Ok(out)
+end indicators_of
 
 // `'$user_predicates'(L)`: the indicators of every predicate a program has defined, static or
 // dynamic, in the standard order -- what `current_predicate/1` enumerates.

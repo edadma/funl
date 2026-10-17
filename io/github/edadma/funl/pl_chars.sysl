@@ -1,0 +1,272 @@
+module io.github.edadma.funl
+
+import sh.sysl.parsing.Span
+import sysl.buf.{Buf, buf}
+import sysl.text.{StrBuilder, char_from_u32, chars_of, from_utf8_unchecked, str_builder}
+
+// Character conversion (`prolog.md` § "Character conversion"): `char_conversion/2`,
+// `current_char_conversion/2`, and the text the reader cuts into tokens while the `char_conversion`
+// flag is `on`; and the two directives that declare rather than do, `discontiguous/1` and
+// `ensure_loaded/1`.
+//
+// **The table is the machine's**, `Vm.pl_chars`, as the operator table is: a conversion made while
+// a file loads stays made. **What is converted** is every character outside a quoted token -- a
+// single-, double- or back-quoted text, the character of `0'c` -- and outside a comment; a character
+// the table makes a quote opens a quoted token as the quote would.
+
+install_prolog_chars(v: *Vm)
+    register(v, "char_conversion/2", 2, (b, n) -> pl_char_conversion(arg(b, 0), arg(b, 1)))
+    register_generator(v, "$char_conversions/3", 3, (b, n, c) -> pl_conversions(arg(b, 0), arg(b, 1), arg(b, 2)))
+    register(v, "discontiguous/1", 1, (b, n) -> pl_discontiguous(arg(b, 0)))
+    register_generator(v, "$loaded/1", 1, (b, n, c) -> answer(was_loaded(arg(b, 0))))
+
+// -- the table --------------------------------------------------------------------------------------
+
+// The character one-character atom `x` is, or `None`.
+private char_of(x: Value) -> Option[u32] = deref(x) match
+    Atom(id) ->
+        val name = atom_name(id)
+
+        if one_char(name) then Some(u32(chars_of(name.bytes).peek().unwrap())) else None
+    _ -> None
+
+// The one-character atom of code point `c`.
+private char_atom(c: u32) -> Value
+    var b = str_builder()
+
+    b.push_char(char_from_u32(c).unwrap())
+    atom(b.finish())
+
+// `char_conversion(In, Out)`: the reader reads `In` as `Out` from now on; `Out` the same as `In`
+// removes `In`'s conversion. ISO's errors: unbound is `instantiation_error`, anything but a
+// one-character atom `representation_error(character)`.
+private pl_char_conversion(from: Value, to: Value) -> Result[Value, Fault]
+    val who = "char_conversion/2"
+
+    if is_unbound(from) || is_unbound(to) then return Err(instantiation_error(s"instantiation error: $who wants two characters"))
+
+    for x in [from, to]
+        if char_of(x).is_none()
+            return Err(representation_error("character", s"$who wants a one-character atom, and was given ${described(deref(x))}"))
+
+    set_conversion(from, to)
+    Ok(Unit)
+
+// The conversion of `from` to `to` made, where both are characters; nothing otherwise.
+set_conversion(from: Value, to: Value)
+    val a = char_of(from) match
+        Some(c) -> c
+        None -> return
+
+    val b = char_of(to) match
+        Some(c) -> c
+        None -> return
+
+    val v = current()
+
+    for i in 0..<v.pl_chars.len()
+        if v.pl_chars.at(i).0 == a
+            if a == b then v.pl_chars.remove(i) else v.pl_chars.set(i, (a, b))
+
+            return
+
+    if a != b then v.pl_chars.push((a, b))
+
+// `'$char_conversions'(In, Out, Pairs)`: every conversion as `In-Out`, in the order they were made,
+// once `In` and `Out` are checked -- what the library's `current_char_conversion/2` enumerates. A
+// bound argument that is no one-character atom is ISO's `type_error(character, C)`.
+private pl_conversions(from: Value, to: Value, pairs: Value) -> Result[Answer, Fault]
+    for x in [from, to]
+        if !is_unbound(x) && char_of(x).is_none()
+            return Err(type_error("character", deref(x), s"current_char_conversion/2 wants a one-character atom, and was given ${described(deref(x))}"))
+
+    var items: Buf[Value] = buf()
+
+    for p in current().pl_chars.view()
+        var args: Buf[Value] = buf()
+
+        args.push(char_atom(p.0))
+        args.push(char_atom(p.1))
+        items.push(build_compound(intern("-"), args)?)
+
+    unified(pairs, list_of(&items, Nil)?)
+
+// -- the reader's text ------------------------------------------------------------------------------
+
+// Whether the reader converts characters now: the flag `on`, and a conversion in the table.
+converting() -> bool
+    val v = current()
+
+    v.flags.char_conversion == "on" && v.pl_chars.len() > 0
+
+// What the table makes of `c`.
+private converted_char(c: u32) -> u32
+    for p in current().pl_chars.view()
+        if p.0 == c then return p.1
+
+    c
+
+// Text converted for the reader, and for each of its bytes the offset of the character it came from
+// in the text as written -- with the written text's length after the last.
+struct Converted
+    text: string
+    at: Buf[usize]
+
+// Span `s` of converted text `c`, as a span of the text as written.
+written_span(c: Converted, s: Span) -> Span = Span(c.at.at(s.start), c.at.at(s.end))
+
+// How many bytes the character at `b[i]` takes.
+private width_at(b: []const u8, i: usize) -> usize
+    val lead = b[i]
+    val w: usize = if lead < 128 then 1 elif lead >= 240 then 4 elif lead >= 224 then 3 elif lead >= 192 then 2 else 1
+
+    if i + w > b.len then 1 else w
+
+// How many bytes UTF-8 takes for code point `c`.
+private width_of_code(c: u32) -> usize = if c < 128 then 1 elif c < 2048 then 2 elif c < 65536 then 3 else 4
+
+private is_word_char(c: u32) -> bool =
+    (c >= u32('a') && c <= u32('z')) || (c >= u32('A') && c <= u32('Z')) || (c >= u32('0') && c <= u32('9')) || c == u32('_')
+
+// Where the conversion walk stands: among tokens, in a quoted text closed by `quote`, in a comment
+// to the end of the line, at the `*` that opens a block comment, in one, or at the character after
+// `0'`.
+private enum CvState
+    CvPlain
+    CvQuoted(quote: u32)
+    CvLine
+    CvBlockOpen
+    CvBlock
+    CvCode
+
+// Text `b` as the reader sees it once characters are converted from byte `from` on.
+converted_text(b: []const u8, from: usize) -> Converted
+    var out = str_builder()
+    var at: Buf[usize] = buf()
+    var state = CvPlain
+    var last: u32 = 0
+    var before: u32 = 0
+    var i: usize = 0
+
+    keep_raw(&out, &at, b, 0, from)
+    i = if from > b.len then b.len else from
+
+    while i < b.len
+        val w = width_at(b, i)
+
+        val c: u32 = chars_of(b[i..<i + w]).peek() match
+            Some(ch) -> u32(ch)
+            None -> u32(b[i])
+
+        var taken = w
+        var converts = false
+
+        state match
+            CvPlain ->
+                val k = converted_char(c)
+                val after = if i + w < b.len then converted_char(u32(b[i + w])) else 0
+
+                converts = k != c
+
+                if k == u32('%')
+                    state = CvLine
+                elif k == u32('/') && after == u32('*')
+                    state = CvBlockOpen
+                elif k == u32('\'') && last == u32('0') && !is_word_char(before)
+                    state = CvCode
+                elif k == u32('\'') || k == u32('"') || (k == u32('`') && current().flags.back_quotes != "symbol_char")
+                    state = CvQuoted(k)
+
+                before = last
+                last = k
+            CvQuoted(q) ->
+                // An escape takes the character after its backslash, and a doubled quote stands for
+                // one; the quote alone closes the text.
+                if c == u32('\\') && i + w < b.len
+                    taken = w + width_at(b, i + w)
+                elif c == q
+                    if i + w < b.len && u32(b[i + w]) == q
+                        taken = w + 1
+                    else
+                        state = CvPlain
+                        last = c
+                        before = 0
+            CvLine -> if c == u32('\n') then state = CvPlain
+            CvBlockOpen ->
+                converts = converted_char(c) != c
+                state = CvBlock
+            CvBlock ->
+                if c == u32('*') && i + 1 < b.len && b[i + 1] == u8('/')
+                    taken = 2
+                    state = CvPlain
+                    last = 0
+                    before = 0
+            CvCode ->
+                // `0'\n`, an escape, and `0'''`, a doubled quote, take a character more.
+                if (c == u32('\\') || c == u32('\'')) && i + w < b.len then taken = w + width_at(b, i + w)
+
+                state = CvPlain
+                last = c
+                before = 0
+
+        if converts
+            val k = converted_char(c)
+
+            out.push_char(char_from_u32(k).unwrap())
+
+            for n in 0..<width_of_code(k)
+                at.push(i)
+        else
+            keep_raw(&out, &at, b, i, taken)
+
+        i += taken
+    end while
+
+    at.push(b.len)
+    Converted(out.finish(), at)
+end converted_text
+
+// The `n` bytes of `b` at `i`, copied as written.
+private keep_raw(out: *StrBuilder, at: *Buf[usize], b: []const u8, i: usize, n: usize)
+    val e = if i + n > b.len then b.len else i + n
+
+    if e <= i then return
+
+    out.push(from_utf8_unchecked(b[i..<e]))
+
+    for k in i..<e
+        at.push(k)
+
+// -- discontiguous/1 and ensure_loaded/1 ------------------------------------------------------------
+
+// `discontiguous(Spec)`: each indicator checked as `dynamic/1` checks it. The loader gathers a
+// predicate's clauses wherever they stand, so there is nothing more to declare.
+private pl_discontiguous(spec: Value) -> Result[Value, Fault]
+    indicators_of(spec, "discontiguous/1")?
+    Ok(Unit)
+
+// The absolute path of file `name`.
+private loaded_path(name: string) -> string = if name.starts_with("/") then name else s"${working_dir()}/$name"
+
+// Whether the file `x` names has been loaded: what `ensure_loaded/1` asks before it consults.
+private was_loaded(x: Value) -> bool
+    val name = deref(x) match
+        Str(p) -> p.s
+        Atom(id) -> atom_name(id)
+        _ -> return false
+
+    val p = loaded_path(name)
+
+    for f in current().pl_loaded.view()
+        if f == p then return true
+
+    false
+
+// File `name` counted as loaded.
+note_loaded(name: string)
+    val p = loaded_path(name)
+
+    for f in current().pl_loaded.view()
+        if f == p then return
+
+    current().pl_loaded.push(p)

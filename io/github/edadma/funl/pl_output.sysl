@@ -2,16 +2,22 @@ module io.github.edadma.funl
 
 import sysl.text.chars_of
 
-// Prolog's output: the `write` family, `nl/0` and `tab/1`. Text goes to the current output stream
-// (`pl_streams.sysl`) as it is written; standard output's goes through the same sink as FunL's
-// `write` (`io.sysl`'s `put_out`), so the two keep the order they ran in.
+// Prolog's output: the `write` family, `nl/0` and `tab/1`. Text goes to the stream a two-argument
+// form names, or to the current output stream (`pl_streams.sysl`), as it is written; standard
+// output's goes through the same sink as FunL's `write` (`io.sysl`'s `put_out`), so the two keep the
+// order they ran in.
 
 install_prolog_output(v: *Vm)
-    register(v, "write/1", 1, (b, n) -> written(b, write_opts(false, false, true)))
-    register(v, "print/1", 1, (b, n) -> written(b, write_opts(true, false, true)))
-    register(v, "writeq/1", 1, (b, n) -> written(b, write_opts(true, false, true)))
-    register(v, "write_canonical/1", 1, (b, n) -> written(b, write_opts(true, true, false)))
-    register(v, "write_term/2", 2, pl_write_term)
+    register(v, "write/1", 1, (b, n) -> written(b, false, write_opts(false, false, true), "write/1"))
+    register(v, "write/2", 2, (b, n) -> written(b, true, write_opts(false, false, true), "write/2"))
+    register(v, "print/1", 1, (b, n) -> written(b, false, write_opts(true, false, true), "print/1"))
+    register(v, "print/2", 2, (b, n) -> written(b, true, write_opts(true, false, true), "print/2"))
+    register(v, "writeq/1", 1, (b, n) -> written(b, false, write_opts(true, false, true), "writeq/1"))
+    register(v, "writeq/2", 2, (b, n) -> written(b, true, write_opts(true, false, true), "writeq/2"))
+    register(v, "write_canonical/1", 1, (b, n) -> written(b, false, write_opts(true, true, false), "write_canonical/1"))
+    register(v, "write_canonical/2", 2, (b, n) -> written(b, true, write_opts(true, true, false), "write_canonical/2"))
+    register(v, "write_term/2", 2, (b, n) -> pl_write_term(b, false))
+    register(v, "write_term/3", 3, (b, n) -> pl_write_term(b, true))
     register(v, "writeln/1", 1, pl_writeln)
     register(v, "nl/0", 0, pl_nl)
     register(v, "tab/1", 1, pl_tab)
@@ -21,9 +27,12 @@ private out(text: string) -> Result[unit, Fault] = put_current(text)
 // `t` onto the current output, each newline in it ending the line as `nl/0` does.
 put_text(t: string) -> Result[unit, Fault] = put_current(t)
 
-// The first argument, written with options `o`.
-private written(base: usize, o: WriteOpts) -> Result[Value, Fault]
-    out(term_text(arg(base, 0), o))?
+// The term argument written with options `o`: to the stream the first argument names where
+// `named`, the term then second, else to the current output.
+private written(base: usize, named: bool, o: WriteOpts, who: string) -> Result[Value, Fault]
+    val s = term_output(base, named, who)?
+
+    put_on(s, term_text(arg(base, if named then 1 else 0), o))?
     Ok(Unit)
 
 private pl_nl(base: usize, argc: usize) -> Result[Value, Fault]
@@ -31,12 +40,14 @@ private pl_nl(base: usize, argc: usize) -> Result[Value, Fault]
     Ok(Unit)
 
 private pl_writeln(base: usize, argc: usize) -> Result[Value, Fault]
-    written(base, write_opts(false, false, true))?
+    written(base, false, write_opts(false, false, true), "writeln/1")?
     pl_nl(base, 0)
 
-// `write_term(T, Options)`: `quoted(B)`, `ignore_ops(B)`, `numbervars(B)` and `max_depth(N)`.
-private pl_write_term(base: usize, argc: usize) -> Result[Value, Fault]
-    val given = arg(base, 1)
+// `write_term(S, T, Options)` where `named`, and `write_term(T, Options)` on the current output:
+// `quoted(B)`, `ignore_ops(B)`, `numbervars(B)` and `max_depth(N)`.
+private pl_write_term(base: usize, named: bool) -> Result[Value, Fault]
+    val who = if named then "write_term/3" else "write_term/2"
+    val given = arg(base, if named then 2 else 1)
     var o = write_opts(false, false, false)
     var at = deref(given)
 
@@ -44,40 +55,40 @@ private pl_write_term(base: usize, argc: usize) -> Result[Value, Fault]
         at match
             Nil -> break
             Cons(p) ->
-                write_option(&o, deref(p.head))?
+                write_option(&o, deref(p.head), who)?
                 at = deref(p.tail)
-            Var(_) -> return Err(instantiation_error("instantiation error: write_term/2's options end in an unbound variable"))
-            _ -> return Err(type_error("list", given, s"write_term/2 wants a list of options, and was given ${described(given)}"))
+            Var(_) -> return Err(instantiation_error(s"instantiation error: $who's options end in an unbound variable"))
+            _ -> return Err(type_error("list", given, s"$who wants a list of options, and was given ${described(given)}"))
 
-    written(base, o)
+    written(base, named, o, who)
 
-private write_option(o: *WriteOpts, x: Value) -> Result[unit, Fault]
+private write_option(o: *WriteOpts, x: Value, who: string) -> Result[unit, Fault]
     val c = x match
-        Compound(c) -> if c.args.len() == 1 then c else return Err(bad_option(x))
-        Var(_) -> return Err(instantiation_error("instantiation error: write_term/2 was given an unbound variable as an option"))
-        _ -> return Err(bad_option(x))
+        Compound(c) -> if c.args.len() == 1 then c else return Err(bad_option(x, who))
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable as an option"))
+        _ -> return Err(bad_option(x, who))
 
     val name = atom_name(c.functor)
     val a = deref(c.args.at(0))
 
     if is_unbound(a)
-        return Err(instantiation_error(s"instantiation error: write_term/2's option $name was given an unbound variable"))
+        return Err(instantiation_error(s"instantiation error: $who's option $name was given an unbound variable"))
 
     if name == "max_depth"
         a match
             Int(n) ->
-                if n < 0 then return Err(bad_option(x))
+                if n < 0 then return Err(bad_option(x, who))
 
                 o.max_depth = n
                 return Ok(())
-            _ -> return Err(bad_option(x))
+            _ -> return Err(bad_option(x, who))
 
     val on = a match
         Atom(id) ->
             val b = atom_name(id)
 
-            if b == "true" then true elif b == "false" then false else return Err(bad_option(x))
-        _ -> return Err(bad_option(x))
+            if b == "true" then true elif b == "false" then false else return Err(bad_option(x, who))
+        _ -> return Err(bad_option(x, who))
 
     if name == "quoted"
         o.quoted = on
@@ -86,13 +97,13 @@ private write_option(o: *WriteOpts, x: Value) -> Result[unit, Fault]
     elif name == "numbervars"
         o.numbervars = on
     else
-        return Err(bad_option(x))
+        return Err(bad_option(x, who))
 
     Ok(())
 end write_option
 
-private bad_option(x: Value) -> Fault =
-    domain_error("write_option", x, s"${term_text(x, write_opts(true, false, false))} is not an option write_term/2 takes")
+private bad_option(x: Value, who: string) -> Fault =
+    domain_error("write_option", x, s"${term_text(x, write_opts(true, false, false))} is not an option $who takes")
 
 // `tab(N)`: `N` spaces, `N` an expression.
 private pl_tab(base: usize, argc: usize) -> Result[Value, Fault]

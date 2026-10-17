@@ -1432,6 +1432,129 @@ domain_error(stream,user_input)
 `current_input(S)` and `stream_property(S, P)` take a stream, as ISO has them, and not an alias:
 `stream_property(S, alias(user_input))` finds the stream an alias names.
 
+### Terms on a stream
+
+`write/2`, `writeq/2`, `print/2`, `write_canonical/2` and `write_term/3` write a term to the stream
+or alias they are given first, and `read/2` and `read_term/3` read one from it; `write/1` and the rest
+are these on the current streams. A term read from a file ends at its `.`, and at the end of the file
+the term read is `end_of_file`.
+
+```prolog
+:- open('docs/reference/prolog/terms.txt', write, S, [alias(out)]),
+   writeq(out, point('X', [1, 2])), write(out, '.'), nl(out),
+   write_term(out, f("two words", 'it''s'), [quoted(true)]), write(out, '.'), nl(out),
+   close(S).
+:- open('docs/reference/prolog/terms.txt', read, S),
+   read(S, A), read_term(S, B, []), read(S, C),
+   close(S),
+   print([A, B, C]), nl.
+```
+
+```output
+[point('X',[1,2]),f("two words",'it\'s'),end_of_file]
+```
+
+A term written to a binary stream, or one read from it, is a permission error, as is one written to
+an input stream or read from an output stream.
+
+```prolog
+try(G) :- catch(G, error(E, _), (print(E), nl)).
+
+:- try(write(user_input, x)).
+:- try(read(user_output, _)).
+:- try(writeq(nosuch, x)).
+:- try(write_term(user_output, x, [colour(red)])).
+:- open('docs/reference/prolog/terms.txt', read, S, [type(binary), alias(bin)]),
+   try(read(bin, _)), close(S).
+```
+
+```output
+permission_error(output,stream,user_input)
+permission_error(input,stream,user_output)
+existence_error(stream,nosuch)
+domain_error(write_option,colour(red))
+permission_error(input,binary_stream,bin)
+```
+
+### Character conversion
+
+`char_conversion(In, Out)` has the reader read the character `In` as `Out`, and
+`current_char_conversion(In, Out)` enumerates the conversions made. They apply while the
+`char_conversion` flag is `on`; it is `off` unless a program sets it. A quoted atom, double- or
+back-quoted text, the character of `0'c` and a comment are read as they are written.
+`char_conversion(C, C)` removes `C`'s conversion.
+
+```prolog
+:- char_conversion('，', ',').
+:- char_conversion('（', '(').
+:- char_conversion('）', ')').
+:- set_prolog_flag(char_conversion, on).
+
+pair(T) :- T = point（1，2）.
+quoted('point（1，2）').
+
+:- pair(T), writeq(T), nl.
+:- quoted(Q), writeq(Q), nl.
+:- forall(current_char_conversion(I, O), (writeq(I/O), nl)).
+```
+
+```output
+point(1,2)
+'point（1，2）'
+'，'/(',')
+'（'/'('
+'）'/')'
+```
+
+`char_conversion/2` wants two one-character atoms; anything else is
+`representation_error(character)`.
+
+```prolog
+:- catch(char_conversion(ab, c), error(E, _), (print(E), nl)).
+```
+
+```output
+representation_error(character)
+```
+
+### `discontiguous/1` and `ensure_loaded/1`
+
+`:- discontiguous Name/Arity.` declares that a predicate's clauses are not all together. The loader
+gathers a predicate's clauses wherever they stand and says nothing about it, so the directive only
+checks what it names; it takes one indicator, several joined by commas, or a list.
+
+```prolog
+:- discontiguous colour/1, size/1.
+
+colour(red).
+size(small).
+colour(blue).
+
+:- forall(colour(C), (write(C), nl)).
+```
+
+```output
+red
+blue
+```
+
+`ensure_loaded(File)` consults `File` unless it has already been loaded, by `consult/1` or
+`ensure_loaded/1`; `consult/1` always loads it again.
+
+```prolog
+:- open('docs/reference/prolog/loaded.pl', write, S),
+   write(S, ':- write(loading), nl.'), nl(S),
+   close(S).
+:- ensure_loaded('docs/reference/prolog/loaded.pl').
+:- ensure_loaded('docs/reference/prolog/loaded.pl').
+:- consult('docs/reference/prolog/loaded.pl').
+```
+
+```output
+loading
+loading
+```
+
 ## The builtin set
 
 Every predicate there is, by group. Those marked *(library)* are written in Prolog and loaded into
@@ -1452,15 +1575,17 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 | lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
 | lists, built in | `length/2`, `msort/2`, `sort/2`, `keysort/2` |
 | global variables | `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2` |
-| output | `write/1`, `writeln/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2`, `nl/0`, `nl/1`, `tab/1`, `put_char/1-2`, `put_code/1-2`, `put_byte/1-2`, `format/1`, `format/2` |
-| input | `read/1`, `read_term/2`, `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `get_byte/1-2`, `peek_byte/1-2` |
+| output | `write/1-2`, `writeln/1`, `print/1-2`, `writeq/1-2`, `write_canonical/1-2`, `write_term/2-3`, `nl/0`, `nl/1`, `tab/1`, `put_char/1-2`, `put_code/1-2`, `put_byte/1-2`, `format/1`, `format/2` |
+| input | `read/1-2`, `read_term/2-3`, `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `get_byte/1-2`, `peek_byte/1-2` |
 | streams | `open/3`, `open/4`, `close/1`, `close/2`, `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`, `flush_output/0-1`, `stream_property/2` *(library)*, `at_end_of_stream/0-1`, `set_stream_position/2` |
-| flags and operators | `op/3`, `current_op/3` *(library)*, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)* |
+| flags and operators | `op/3`, `current_op/3` *(library)*, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)*, `char_conversion/2`, `current_char_conversion/2` *(library)* |
 | grammar rules | `phrase/2`, `phrase/3` *(library)*, `dcg_translate_rule/2` |
-| loading | `consult/1` |
+| loading | `consult/1`, `ensure_loaded/1` *(library)*, `discontiguous/1` |
 
 Four directives are carried out by the loader rather than called: `:- dynamic(…)`, `:- op(…)`,
-`:- initialization(Goal)`, and, where FunL is present, `:- import(File)`.
+`:- initialization(Goal)`, and, where FunL is present, `:- import(File)`. `:- char_conversion(…)`
+and `:- set_prolog_flag(char_conversion, …)` are carried out as the file is read, for the clauses
+after them, and called again in their place.
 
 The string predicates are SWI-Prolog's. Each takes any atomic value as text and makes a string where
 its atom counterpart makes an atom; a given argument is compared by its text, so an atom may stand

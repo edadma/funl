@@ -32,7 +32,8 @@ THE_FLAGS_DESCRIBE_THE_MACHINE()
     assert_eq(gives("current_prolog_flag(float_overflow, X)"), ok("error"))
     assert_eq(gives("current_prolog_flag(float_zero_div, X)"), ok("error"))
     assert_eq(gives("current_prolog_flag(float_undefined, X)"), ok("error"))
-    assert_eq(gives("findall(F, current_prolog_flag(F, _), L), length(L, X)"), ok("13"))
+    assert_eq(gives("current_prolog_flag(char_conversion, X)"), ok("off"))
+    assert_eq(gives("findall(F, current_prolog_flag(F, _), L), length(L, X)"), ok("14"))
 
 // The expected answers of the two below are what swipl 10.0.2 gives for the same goals.
 @test
