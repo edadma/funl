@@ -29,7 +29,7 @@ the language cannot disagree for long.
 | [Modules](modules.md) | a file is a module, `export`, `import { ... } from`, `import * as`, qualified names, imports resolved first and run once, exports as a snapshot, circles of imports, what Prolog sees of a module |
 | [Packages](packages.md) | `package.funl`, importing a package and its modules with `/`, which manifest governs a file, Prolog's atoms, `vendor/` and the cache, running offline, `funl.sum`, exact versions and the newer of two, the `funl` floor, constructors across packages, and the commands `funl add`, `funl fetch`, `funl vendor` and `funl deps` |
 | [Regular expressions](regex.md) | regex literals, classes, repetition, groups and backreferences, anchors, flags, lookahead, lookbehind, atomic groups, the pattern combinators, how a pattern matches and backtracks |
-| [Prolog](prolog.md) | loading Prolog from FunL, the `prolog` executable, the reader and reading terms, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic, rationals, infinities and NaN, standard order, cyclic terms, grammar rules, `format`, the builtin set |
+| [Prolog](prolog.md) | loading Prolog from FunL, the `fprolog` executable, the reader and reading terms, control, dynamic predicates, the terms shared with FunL, calling FunL from Prolog, errors, arithmetic, rationals, infinities and NaN, standard order, cyclic terms, grammar rules, `format`, the builtin set |
 
 ## How a page is checked
 

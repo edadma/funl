@@ -44,8 +44,7 @@ depending on it, and a program has one `main`, so neither driver can live in the
 | member | builds | what it is |
 |---|---|---|
 | the root, package `funl-vm` | — | the module `io.github.edadma.funl`: the machine, both front ends, every test |
-| `funl/` | `sysl build -p funl` → `funl/funl` | `main.sysl`: FunL programs, and `.pl` files through FunL's driver |
-| `prolog/` | `sysl build -p prolog` → `prolog/prolog` | `main.sysl`: the standalone Prolog top level, over linenoise ([prolog.md](prolog.md)) |
+| `funl/` | `sysl build -p funl` → `funl/funl` | `main.sysl`: FunL programs, and `.pl` files through FunL's driver; run as `fprolog`, the standalone Prolog top level, over linenoise ([prolog.md](prolog.md)) |
 
 The library is not called `funl` because the member that builds the `funl` executable is, and two
 members may not share a name. `sysl test .` at the root tests all three.
@@ -63,7 +62,7 @@ however even the halves look. The first layout, to be revisited by counting once
 
 | subject | files |
 |---|---|
-| the drivers | `funl/main.sysl` and `prolog/main.sysl`, members of the workspace; `toplevel.sysl` (the standalone Prolog's ISO top level) |
+| the driver | `funl/main.sysl`, the member of the workspace, which is also `fprolog` when started under that name; `toplevel.sysl` (the standalone Prolog's ISO top level) |
 | the scanner tier | `lex.sysl` (FunL tokens over `sh.sysl.parsing`'s cursor, interpolation, regex literals), `tok.sysl` (the token kinds and their binding powers) |
 | FunL parsing | `parse.sysl` (the `Parser`, statements, declarations), `parse_expr.sysl` (the `pratt` callbacks), `parse_def.sysl` (clauses, guards, `where`, facts and rules), `parse_loop.sysl` (the loops, their labels, `for` heads), `pattern.sysl` (parameter and `for` patterns), `regex_parse.sysl` (regex literal syntax to a pattern tree), `regex_tree.sysl` (the pattern tree and its character classes) |
 | the tree | `ast.sysl` |
@@ -276,8 +275,8 @@ sysl build -O2 -p funl --features profile
 FUNL_PROFILE=1 funl/funl program.funl
 ```
 
-**`FUNL_PROFILE` set to anything but `0` or the empty string** has `funl` (and `prolog`, built the
-same way) write a table to standard error when the program ends, whatever its status: the total,
+**`FUNL_PROFILE` set to anything but `0` or the empty string** has `funl` (and `fprolog`, which is the
+same executable) write a table to standard error when the program ends, whatever its status: the total,
 then each instruction kind executed, heaviest first, with its count and its share to a tenth of a
 percent. A build without the feature answers the variable with two lines saying so, rather than an
 empty table that would read as a program that ran nothing.

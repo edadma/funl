@@ -2,6 +2,8 @@
 
 import io.github.edadma.funl.run_source
 import sysl.buf.{Buf, buf}
+import sysl.fs.{make_temp_dir, remove_dir_all, symlink, write_text}
+import sysl.process.{Exited, Output, Stdio, capture}
 import sysl.text.str_builder
 #if feature_graphics
 import sh.sysl.sdl3.{HINT_VIDEO_DRIVER, set_hint}
@@ -42,3 +44,52 @@ A_FUNL_BUILT_WITH_GRAPHICS_OPENS_A_WINDOW_ON_SCREEN()
 A_FUNL_BUILT_WITHOUT_GRAPHICS_HAS_NO_WINDOW_ON_SCREEN()
     assert_eq(ran_as(Shown), "funl: main at build.funl:2: 'open': a window on screen is not in this build -- it is behind the `graphics` feature\nstatus 1")
 #endif
+
+// **One executable, two names.** The dispatch is on the name the program was started under, so it is
+// tested on the built executable: `funl` is built into a scratch directory, linked there as `fprolog`,
+// and each name is fed lines on its standard input.
+
+private has(text: string, part: string) -> bool = text.index_of(part).is_some()
+
+// The status and everything written, on both streams, by `program` run on the lines `input`.
+private fed(program: string, input: string, dir: string) -> string
+    write_text(s"$dir/input.txt", input).unwrap()
+
+    val o = capture(program, [], dir, [], true, 120000, true, Stdio.FromPath(s"$dir/input.txt")).unwrap()
+    val ended = o.status match
+        Exited(code) -> s"status $code"
+        _ -> "abnormal"
+
+    val err = o.err match
+        Some(t) -> t
+        None -> ""
+
+    s"${o.text}${err}|$ended"
+
+@test
+THE_EXECUTABLE_RUN_AS_FPROLOG_IS_THE_ISO_TOP_LEVEL_AND_AS_FUNL_IS_FUNL()
+    val d = make_temp_dir("funl-one-binary-").unwrap()
+    defer remove_dir_all(d).unwrap()
+
+    // `sysl test` runs at the repository root.
+    val built = capture("sysl", ["build", "-o", s"$d/funl", "-p", "funl", "."], "", [], true, 0)
+    assert(built.unwrap().status.ok(), "building funl failed")
+
+    symlink("funl", s"$d/fprolog").unwrap()
+
+    // Under its own name it is FunL: with no program it prints its usage.
+    assert(has(fed(s"$d/funl", "", d), "usage: funl"))
+
+    // `fprolog`: the top level answers a query, in standard Prolog, from lines on standard input.
+    assert_eq(fed(s"$d/fprolog", "X is 6 * 7.\n", d), "X = 42.\n|status 0")
+
+    // ... and is the ISO machine only: FunL's `import` is no directive and no goal, and what is not
+    // Prolog syntax is refused as it is there.
+    assert(has(fed(s"$d/fprolog", "import(\"x.funl\").\n", d), "existence_error(procedure,import/1)"))
+    assert(has(fed(s"$d/fprolog", "write( 1 + ).\n", d), "a term was expected here"))
+
+    // With nothing to read it ends quietly, where `funl` with no program is a usage error.
+    assert_eq(fed(s"$d/fprolog", "", d), "|status 0")
+
+    // The same executable, under its own name, still answers `--version`, which `fprolog` has no use for.
+    assert(has(capture(s"$d/funl", ["--version"], "", [], false, 0).unwrap().text, "funl "))

@@ -19,7 +19,7 @@ import sysl.text.{Search, join}
 // resume ends in `.` and asks nothing.**
 //
 // Lines come from `line` and everything said goes to `say`, so the driver chooses the terminal
-// (`prolog/main.sysl` reads through linenoise) and a test hands in a script. `say` is the machine's
+// (`funl/main.sysl`, as `fprolog`, reads through linenoise) and a test hands in a script. `say` is the machine's
 // standard output: what a query writes goes there as it runs, and the top level's own lines -- the
 // answers, `false.`, the errors -- follow it, after a newline where the query left a line unfinished.
 
@@ -59,7 +59,7 @@ toplevel(files: []string, line: &Fn(string) -> Option[string], say: &Fn(string) 
 end toplevel
 
 // Answer queries on `v`, the machine in charge, until `halt` or the end of input: the status to exit
-// with. The `prolog` executable's session after its files are consulted, and `funl file.pl`'s after
+// with. The `fprolog` session after its files are consulted, and `funl file.pl`'s after
 // the file is loaded. The top level says what it has to say on `v`'s standard output.
 answer_queries(v: *Vm, line: &Fn(string) -> Option[string]) -> int
     val say: &Fn(string) -> unit = (text) -> told(v, text)

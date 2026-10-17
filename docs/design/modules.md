@@ -182,7 +182,7 @@ for the module it serves**, never for the library under it. Its dependency is `o
 the root `package.hocon`; its files are `#if feature_x` after the `module` line; its `install_` line,
 its arm in the module table, its tests and its import strings in `tests_kit.sysl` are gated with it.
 **A link directive is never pruned**, so a library bound in the core would sit on the link line of
-every `funl` and `prolog` build whether a program used it or not; a feature is how it stays off.
+every `funl` build whether a program used it or not; a feature is how it stays off.
 
 **`left_out_module` is the diagnostic**, as in slate: ``funl:http` is not in this build -- it is
 behind the `http` feature, so build with `--features http``, rather than "FunL has no module called".
@@ -190,8 +190,9 @@ behind the `http` feature, so build with `--features http``, rather than "FunL h
 **Both shapes are gated**: `sysl test .` and `sysl test . --no-default-features`, the second being
 the one that finds a missed gate.
 
-**The release is unchanged by the features**: the shipped `funl` is built with `default`. The
-`prolog` member has no FunL front end and imports no `funl:` module, so it depends on no feature.
+**The release is unchanged by the features**: the shipped `funl` is built with `default`. `fprolog`
+is the same executable, so it carries whatever features the build has, though its machine has no FunL front end and
+imports no `funl:` module.
 
 ### Who can add one
 
@@ -341,8 +342,8 @@ line would otherwise sit under every build; on by default, so the release has it
 > `set-cookie` a list, as slate's), `body` and `bytes`: `body` is the text and is absent when the
 > body is not UTF-8 (not well-formed, question 3), `bytes` is always there. A non-2xx status is a
 > response; a request that cannot be done is `system_error`, and a URL that is not one
-> `domain_error(url, U)` (question 3's fault side). The `prolog` member takes `funl-vm` with
-> `default_features = false`, so its executable links no libcurl.
+> `domain_error(url, U)` (question 3's fault side). The `funl` member takes `funl-vm` with
+> `default_features = false` and forwards its own features, so a build without `http` links no libcurl.
 
 ### `funl:sqlite` — core, over `sysl-lang/sqlite3`
 

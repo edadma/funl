@@ -324,7 +324,7 @@ is the command, and a program file called `add` is run as `funl ./add`.
 
 A FunL file's exports are what Prolog's `:- import` sees (decided in
 [modules](modules.md#questions-decided)), and a package's modules are FunL files, so Prolog reaches
-them the same way, naming a package with an atom ([decided](#decided) 4). **The standalone `prolog` executable has no
+them the same way, naming a package with an atom ([decided](#decided) 4). **The standalone Prolog (`fprolog`) has no
 FunL front end** and so no packages, as it has no `funl:` modules.
 
 ### What a package can and cannot bring
@@ -421,7 +421,7 @@ over a library.
 - **Costs**: everything in A or B, plus a manifest key for sysl sources and their own `dependencies`, a
   generated sysl program per project (`main` plus an `install_` line per package), a sysl compiler
   on every user's machine at `funl build` time, a cache of built binaries keyed over every package,
-  and a story for the `prolog` executable. Several thousand lines, and a second distribution model.
+  and a story for `fprolog`. Several thousand lines, and a second distribution model.
 - **Binds**: a program is no longer run by *the* `funl`; it is run by its project's. It contradicts
   the decided "a package cannot carry a native, as in slate", so it would need that decision
   reopened in slate's terms first.

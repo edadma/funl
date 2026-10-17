@@ -556,5 +556,5 @@ A_MANIFEST_IS_DATA_AND_EVERY_MISTAKE_IN_IT_IS_REPORTED()
 
 @test
 THE_VERSION_FUNL_REPORTS_IS_THE_ONE_ITS_MANIFESTS_DECLARE()
-    for file in ["package.hocon", "funl/package.hocon", "prolog/package.hocon"]
+    for file in ["package.hocon", "funl/package.hocon"]
         assert(has(read_text(file).unwrap(), s"version = \"$FunlVersion\""), s"$file declares another version than FunlVersion")

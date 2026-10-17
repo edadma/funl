@@ -10,7 +10,7 @@ written in a `.funl` file are the same kind of thing, so each language calls the
 a term passes between them unchanged.
 
 Prolog is reached three ways: a FunL program imports or consults a `.pl` file; `funl file.pl` loads
-one from the command line; and the separate `prolog` executable is a standard Prolog with an ISO top
+one from the command line; and `fprolog`, the same executable started under that name, is a standard Prolog with an ISO top
 level and no FunL in it.
 
 The Prolog programs on this page are whole files. A program runs as it loads: each `:- Goal.`
@@ -74,16 +74,19 @@ consult cannot read nowhere.pl
 
 From the command line, `funl family.pl` loads a Prolog file, runs its directives, and then runs the
 goal of each `:- initialization(Goal).` directive in it. A file with such a directive ends there; a
-file without one then reads queries at the same top level the `prolog` executable has, below, with
+file without one then reads queries at the same top level `fprolog` has, below, with
 FunL present.
 
-## The `prolog` executable
+## The `fprolog` executable
 
-`prolog` is standard Prolog alone: the Prolog reader, the Prolog builtins and an ISO top level, with
-no FunL syntax, no FunL builtins and no FunL values. A Prolog program runs the same in it as through
-`funl`.
+Installing FunL gives two commands, `funl` and `fprolog`, which are one executable: `fprolog` is a
+symlink to `funl`, and the executable behaves as `fprolog` when it is started under that name.
+`fprolog [file.pl ...]` is standard Prolog alone: the Prolog reader, the Prolog builtins and an ISO
+top level, with no FunL syntax, no FunL builtins and no FunL values. A Prolog program runs the same
+in it as through `funl`, which is the command to use when a Prolog program wants FunL as well:
+`funl x.pl` runs a Prolog program with FunL available.
 
-`prolog family.pl` loads the file and then reads queries. An answer that leaves another to find
+`fprolog family.pl` loads the file and then reads queries. An answer that leaves another to find
 waits: `;` asks for the next, and anything else stops. An answer with nothing left to find ends in a
 `.`, and a query with no answer says `false.`. An error no `catch/3` handles is printed, and the next
 query is read. `halt.` ends the session with status 0 and `halt(N).` with status `N`; the end of the
@@ -106,7 +109,7 @@ X is 1 / 0.
 halt.
 ```
 
-`prolog family.pl` answers:
+`fprolog family.pl` answers:
 
 ```
 X = bob
@@ -118,7 +121,7 @@ uncaught exception: error(evaluation_error(zero_divisor),_)
 ```
 
 `consult('other.pl').` loads another file from the top level. `import/1`, which loads a FunL file
-from Prolog, needs FunL, so in `prolog` it is an unknown procedure.
+from Prolog, needs FunL, so in `fprolog` it is an unknown procedure.
 
 ## Directives and `initialization`
 
@@ -336,7 +339,7 @@ a term was expected here
 `read(T)` reads the next term from the current input, up to the `.` that ends it, and
 `read_term(T, Options)` does the same with the options `variable_names(Vs)`, `variables(Vs)` and
 `singletons(Vs)`. The current input is `user_input` unless `set_input/1` has changed it (see
-[Streams](#streams)): at the `prolog` top level that is the lines typed after the query, and elsewhere
+[Streams](#streams)): at the `fprolog` top level that is the lines typed after the query, and elsewhere
 standard input. At the end of the input the term read is `end_of_file`.
 
 `term_to_atom(T, A)` reads atom `A` as a term, its `.` optional, or, when `A` is unbound, writes `T`
@@ -1122,7 +1125,7 @@ g(Z,A1) g('$VAR'(25),'$VAR'(26))
 [Foo,'$VAR'(x),S_1]
 ```
 
-The `prolog` top level writes a binding that is its own only cycle with the variable's own name,
+The `fprolog` top level writes a binding that is its own only cycle with the variable's own name,
 and names every other cycle `_S1`, `_S2`, and so on, spelling each out once in a `% where` block
 under the binding that first holds it; a later binding refers to it by that name. Given these lines
 on its input:

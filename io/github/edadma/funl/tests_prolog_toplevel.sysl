@@ -6,7 +6,7 @@ import sysl.text.{Search, join}
 
 // The standalone Prolog's top level (`toplevel.sysl`), driven end to end: a script of lines in, the
 // session's transcript out -- each line read written after the prompt it was read under, then what
-// the top level said -- and the status it ends with. This is the `prolog` executable with its
+// the top level said -- and the status it ends with. This is `fprolog` with its
 // terminal swapped for the script.
 
 // A family the top level consults, saying so as it loads.

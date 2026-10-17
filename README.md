@@ -10,7 +10,8 @@ Give that machine logic variables, a trail and unification and it runs Prolog as
 relations, FunL functions, regular expressions and ISO Prolog predicates call one another freely,
 because they are all code on the same machine.
 
-Two executables are built from this repository:
+One executable is built from this repository, and it is installed under two names, `funl` and
+`fprolog`:
 
 - `funl` runs FunL programs: `funl file.funl`, or a literate program, `funl file.lfunl`. Given a
   Prolog file, `funl file.pl` loads it (it may import FunL code) and starts the Prolog top level.
@@ -18,7 +19,8 @@ Two executables are built from this repository:
   `package.funl` and fetches it with `git`, `funl fetch` fetches what the project uses, `funl vendor`
   copies it into the project, and `funl deps` lists it. A program file named like one of those
   words is run by its path, `funl ./add`.
-- `prolog` is a standalone standard-Prolog REPL.
+- `fprolog [file.pl ...]` is a standalone standard-Prolog REPL: it consults each file, then reads
+  queries. It is a symlink to `funl`, which behaves as `fprolog` when started under that name.
 
 FunL source files end in `.funl`; literate FunL, Markdown whose indented blocks are the program,
 ends in `.lfunl`.
@@ -38,10 +40,9 @@ brew install sysl-lang/tap/sysl
 git clone https://github.com/edadma/funl
 cd funl
 sysl build -p funl
-sysl build -p prolog
 ```
 
-This produces `funl/funl` and `prolog/prolog`. The test suite is `sysl test .`.
+This produces `funl/funl`; link it as `fprolog` for the standard-Prolog top level. The test suite is `sysl test .`.
 
 To see where a program's time goes, build with `--features profile` and run it with
 `FUNL_PROFILE=1`: the instructions it executed, per kind, are written to standard error at the end

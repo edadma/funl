@@ -13,8 +13,8 @@ import sysl.time.Duration
 // census in `tests_vm_state.sysl` refuses a module-level `var` that is not `the_vm` or marked
 // process-wide with a reason. A second VM in the same process is then a second `Vm` and an `enter`.
 
-// The heap a program runs in, and the collector's schedule over it: what both executables, `funl`
-// and `prolog`, give their machine. The benchmark tests run on it too.
+// The heap a program runs in, and the collector's schedule over it: what the executable, as `funl`
+// and as `fprolog`, gives its machine. The benchmark tests run on it too.
 const HeapBytes: usize = 268435456
 const CollectFloor: usize = 4194304
 const Growth: usize = 2

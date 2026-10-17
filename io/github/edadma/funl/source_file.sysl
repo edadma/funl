@@ -67,7 +67,7 @@ run_file(file: string, line: &Fn(string) -> Option[string], say: &Fn(string) -> 
 //
 // **A Prolog file is loaded, which runs its directives and `initialization/1` goals; a file with no
 // such goal then starts the top level** (`prolog.md` § "Loading Prolog") on the same machine, reading
-// queries from `line` exactly as the `prolog` executable does.
+// queries from `line` exactly as `fprolog` does.
 //
 // **The status says which of four things happened**: 0 for a program that ran, 1 for one that was
 // refused or faulted, 2 for a file that could not be read, and `N` for a program that ran `halt(N)`.

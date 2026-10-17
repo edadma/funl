@@ -3,16 +3,17 @@
 //
 // The module is `io.github.edadma.funl`, the repository's address `github.com/edadma/funl` reversed.
 //
-// **This root is the machine, a library; the two executables are workspace members over it.** A
+// **This root is the machine, a library; the executable is a workspace member over it.** A
 // program has one `main`, and a package whose root carries an entry file brings that file into every
-// program depending on it -- so the drivers live beside the library rather than in it:
+// program depending on it -- so the driver lives beside the library rather than in it:
 //
-//     funl/     the `funl` executable: FunL programs, and Prolog files through FunL's driver
-//     prolog/   the `prolog` executable: an ISO top level that knows standard Prolog and no FunL
+//     funl/     the `funl` executable: FunL programs, and Prolog files through FunL's driver;
+//               run as `fprolog` (a symlink to it) it is an ISO top level that knows standard
+//               Prolog and no FunL
 //
-// `sysl build -p funl` and `sysl build -p prolog` write `funl/funl` and `prolog/prolog`; `sysl test .`
-// at the root tests every member. The library is named `funl-vm` because the `funl` member is called
-// `funl`, after the executable it builds, and two members may not share a name.
+// `sysl build -p funl` writes `funl/funl`; `sysl test .` at the root tests every member. The library
+// is named `funl-vm` because the `funl` member is called `funl`, after the executable it builds, and
+// two members may not share a name.
 
 package {
   name    = "funl-vm"
@@ -26,7 +27,7 @@ package {
   sysl = "0.1.1"
 }
 
-workspace = ["funl", "prolog"]
+workspace = ["funl"]
 
 // **`gc` is the heap.** Every FunL value that points anywhere is a collected object -- a logic
 // variable, a compound term, a frame -- and the machine's control entries, saved operand cells and
@@ -49,7 +50,7 @@ workspace = ["funl", "prolog"]
 //
 // **`curl` is `funl:http`'s, and it is optional, behind the `http` feature.** libcurl is not on every
 // machine a `funl` is built on, and a link directive is never pruned, so bound in the core it would
-// sit on the link line of every `funl` and `prolog` build whether a program fetched anything or not.
+// sit on the link line of every `funl` build whether a program fetched anything or not.
 dependencies {
   dal     { git = "github.com/sysl-lang/dal", version = "0.1.1" }
   gc      { git = "github.com/sysl-lang/gc", version = "0.2.7" }
