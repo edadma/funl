@@ -73,7 +73,7 @@ CHAR_TYPE_GIVES_EVERY_TYPE_OF_A_CHARACTER_IN_SWI_PROLOGS_ORDER()
 @test
 CHAR_TYPE_READS_UNICODE()
     assert_eq(every("findall(T, (char_type('Σ', T), T \\= to_lower(_)), X)"),
-        ok("[alnum,alpha,csym,csymf,prolog_var_start,prolog_identifier_continue,print,graph,upper,upper('σ'),to_upper('σ')]"))
+        ok("[alnum,alpha,csym,csymf,prolog_var_start,prolog_identifier_continue,print,graph,upper,upper(σ),to_upper(σ)]"))
     // An Arabic-Indic three is a decimal digit of weight 3, and not `digit/1`'s, which is ASCII's.
     assert_eq(every("findall(T, (char_type('٣', T), atom(T)), X)"), ok("[alnum,csym,prolog_identifier_continue,decimal,print,graph]"))
     assert_eq(every("char_type('٣', decimal(X))"), ok("3"))

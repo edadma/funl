@@ -174,7 +174,7 @@ THE_CHAR_CONVERSION_FLAG_IS_ON_OR_OFF_AND_OFF_BY_DEFAULT()
 @test
 CHAR_CONVERSION_MAKES_AND_REMOVES_CONVERSIONS_THAT_CURRENT_CHAR_CONVERSION_ENUMERATES()
     assert_eq(shown("char_conversion(a, b), char_conversion(x, y), char_conversion('é', e), char_conversion(a, c), " +
-        "findall(I-O, current_char_conversion(I, O), L), print(L)"), ok("[a-c,x-y,'é'-e]"))
+        "findall(I-O, current_char_conversion(I, O), L), print(L)"), ok("[a-c,x-y,é-e]"))
     // A character converted to itself has its conversion removed, and none is reported for it.
     assert_eq(each_holds("[(char_conversion(x, y), char_conversion(x, x), current_char_conversion(x, _)), " +
         "current_char_conversion(z, z), current_char_conversion(_, _), " +

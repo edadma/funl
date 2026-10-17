@@ -1,0 +1,61 @@
+module io.github.edadma.funl
+
+import sysl.unicode.{Category, category}
+
+// What the Prolog reader and `writeq` make of a character beyond ASCII, as SWI-Prolog does, from the
+// Unicode database's general category (the same one `char_type/2` reads). Reader and writer both
+// ask here, so an atom written bare is one the reader reads back as that atom.
+//
+// - A **name** starts with a lowercase letter, a titlecase letter or a letter with no case
+//   (`Ll`, `Lt`, `Lo`, `Lm`); a **variable** starts with an uppercase letter (`Lu`) or `_`.
+// - Either goes on with any letter, a decimal digit, a combining mark, a connector such as `‿`, or `_`.
+// - A symbol character (`Sm`, `Sc`, `Sk`, `So`) joins runs with the ASCII ones: `€` is a name of its
+//   own, `+€` is one name, and `€x` is the name `€` followed by `x`.
+
+// Whether `c` can start an unquoted name.
+pl_name_start(c: char) -> bool = category(c) match
+    Category.Ll -> true
+    Category.Lt -> true
+    Category.Lo -> true
+    Category.Lm -> true
+    _ -> false
+
+// Whether `c` can start a variable, `_` apart.
+pl_var_start(c: char) -> bool = category(c) == Category.Lu
+
+// Whether `c` can continue a name or a variable.
+pl_ident_cont(c: char) -> bool = category(c) match
+    Category.Lu -> true
+    Category.Ll -> true
+    Category.Lt -> true
+    Category.Lm -> true
+    Category.Lo -> true
+    Category.Nd -> true
+    Category.Mn -> true
+    Category.Mc -> true
+    Category.Pc -> true
+    _ -> false
+
+// Whether `c` is a symbol character beyond ASCII.
+pl_symbol(c: char) -> bool = category(c) match
+    Category.Sm -> true
+    Category.Sc -> true
+    Category.Sk -> true
+    Category.So -> true
+    _ -> false
+
+// Whether `writeq` must write `c` as `\x..\` inside quotes: a control, a separator other than the
+// space, a format, private-use, surrogate or unassigned code point.
+pl_unprintable(c: char) -> bool
+    if u32(c) == 32 then return false
+
+    category(c) match
+        Category.Cc -> true
+        Category.Cf -> true
+        Category.Cs -> true
+        Category.Co -> true
+        Category.Cn -> true
+        Category.Zs -> true
+        Category.Zl -> true
+        Category.Zp -> true
+        _ -> false

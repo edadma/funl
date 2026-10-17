@@ -48,7 +48,7 @@ GET_CODE_AND_PEEK_CODE_READ_UNICODE_CODE_POINTS()
     assert_eq(shown(s"open('$f', read, S), get_code(S, A), peek_code(S, B), get_code(S, C), get_char(S, D), " +
         "get_code(S, E), peek_code(S, F), writeq([A, B, C, D, E, F])"), ok("[233,8364,8364,x,-1,-1]"))
 
-    assert_eq(shown(s"open('$f', read, S), get_char(S, A), get_char(S, B), write(A/B)"), ok("é/€"))
+    assert_eq(shown(s"open('$f', read, S), get_char(S, A), get_char(S, B), write(A/B)"), ok("é/ €"))
 
 @test
 A_READ_ARGUMENT_THAT_IS_BOUND_IS_UNIFIED_WITH_WHAT_IS_READ()

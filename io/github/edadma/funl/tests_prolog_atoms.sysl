@@ -26,7 +26,7 @@ ATOM_CODES_AND_ATOM_CHARS_GO_BOTH_WAYS()
     assert_eq(gives("atom_codes(12, X)"), ok("[49,50]"))
     assert_eq(gives("atom_chars(abc, X)"), ok("[a,b,c]"))
     assert_eq(gives("atom_chars(X, [h, i])"), ok("hi"))
-    assert_eq(gives("atom_chars('hé', X)"), ok("[h,'é']"))
+    assert_eq(gives("atom_chars('hé', X)"), ok("[h,é]"))
     assert_eq(holds("atom_chars(abc, [a | T]), T == [b, c]"), ok("yes"))
 
 @test
@@ -79,7 +79,7 @@ SUB_ATOM_FINDS_EVERY_PLACE_A_SUB_ATOM_STANDS()
     assert_eq(every("sub_atom(abcab, B, 2, A, ab), X = B-A"), ok("0-3\n3-0"))
     assert_eq(every("sub_atom(ab, B, L, _, S), X = B-L-S"), ok("0-0-''\n0-1-a\n0-2-ab\n1-0-''\n1-1-b\n2-0-''"))
     assert_eq(every("sub_atom(abc, _, _, 0, X)"), ok("abc\nbc\nc\n''"))
-    assert_eq(gives("sub_atom('héllo', 1, 2, _, X)"), ok("'él'"))
+    assert_eq(gives("sub_atom('héllo', 1, 2, _, X)"), ok("él"))
     assert_eq(holds("sub_atom(abc, _, _, _, x)"), ok("no"))
 
 @test

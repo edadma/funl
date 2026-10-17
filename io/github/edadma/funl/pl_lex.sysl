@@ -126,12 +126,14 @@ private token(s: *Scanner, report: *Report, touching: bool) -> PlTok
     val start = s.offset
     val c = s.peek().unwrap()
 
-    if is_lower(c)
-        s.accept_while(is_ident_cont)
+    val wide: Option[char] = if c >= 128 then s.peek_char() else None
+
+    if is_lower(c) || wide.map((w) -> pl_name_start(w)).unwrap_or(false)
+        ident_run(s)
         return PlName(from_utf8_unchecked(s.text_from(start)))
 
-    if is_upper(c) || c == u8('_')
-        s.accept_while(is_ident_cont)
+    if is_upper(c) || c == u8('_') || wide.map((w) -> pl_var_start(w)).unwrap_or(false)
+        ident_run(s)
         return PlVarT(from_utf8_unchecked(s.text_from(start)))
 
     if is_digit(c) then return number(s, report)
@@ -155,11 +157,8 @@ private token(s: *Scanner, report: *Report, touching: bool) -> PlTok
         s.bump()
         return PlName(from_utf8_unchecked(s.text_from(start)))
 
-    if is_symbol_or_back(c)
-        if back_quote_is_symbol()
-            symbol_run_with_back_quotes(s)
-        else
-            s.accept_while(is_symbol_char)
+    if is_symbol_or_back(c) || wide.map((w) -> pl_symbol(w)).unwrap_or(false)
+        symbol_run(s)
 
         val text = from_utf8_unchecked(s.text_from(start))
 
@@ -192,13 +191,24 @@ private punct_of(c: u8, touching: bool) -> PlTok
 // A `.` ends a clause when layout, a `%` comment or the end of the input follows it.
 // A run of symbol characters where a back quote is one: a `.` after a back quote that layout or the
 // end follows ends the clause rather than joining the run, as SWI-Prolog reads `` X = `+`. ``.
-private symbol_run_with_back_quotes(s: *Scanner)
+private symbol_run(s: *Scanner)
     var prev: u8 = 0
 
     loop
         val c = s.peek() match
             Some(c) -> c
             None -> break
+
+        if c >= 128
+            val w = s.peek_char() match
+                Some(w) -> w
+                None -> break
+
+            if !pl_symbol(w) then break
+
+            prev = 0
+            s.next_char()
+            continue
 
         if !is_symbol_or_back(c) then break
 
@@ -211,6 +221,27 @@ private symbol_run_with_back_quotes(s: *Scanner)
 
         prev = c
         s.bump()
+
+// The rest of a name or variable: ASCII letters, digits and `_`, and the letters, digits, marks and
+// connectors `pl_ident_cont` allows.
+private ident_run(s: *Scanner)
+    loop
+        val c = s.peek() match
+            Some(c) -> c
+            None -> break
+
+        if c >= 128
+            val w = s.peek_char() match
+                Some(w) -> w
+                None -> break
+
+            if !pl_ident_cont(w) then break
+
+            s.next_char()
+        else
+            if !is_ident_cont(c) then break
+
+            s.bump()
 
 private ends_clause(s: Scanner) -> bool = s.peek() match
     None -> true

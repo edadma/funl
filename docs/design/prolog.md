@@ -88,6 +88,16 @@ of symbol characters, a quoted `'atom'`, or one of `[]`, `{}`, `!`, `;`, `,`; nu
 syntax is read too: `16'1F` in any base from 2 to 36, digit groups (`1 000 000`, `1_000_000`, a `_`
 followed by layout or a comment), rationals `7r2`, and `1.0Inf`, `-1.0Inf` and `1.5NaN`.
 
+**Characters beyond ASCII are classified by their Unicode general category, as SWI-Prolog does**
+(`pl_class.sysl`, the one place the reader and `writeq` both ask). An unquoted name starts with a
+lowercase, titlecase or caseless letter (`Ll`, `Lt`, `Lo`, `Lm`: `été`, `σ`, `日本`); a variable with an
+uppercase letter (`Lu`) or `_`. Either continues with letters, decimal digits, combining marks, connector
+punctuation such as `‿`, or `_`. A symbol character (`Sm`, `Sc`, `Sk`, `So`) joins the ASCII ones into a
+run, so `€` is a name, `+€` is one name, and `€x` is the name `€` followed by `x`. Any other character
+(`²`, `«`) cannot begin a token. `writeq` writes an atom bare exactly when the reader reads it back as
+that atom, and quotes any other; inside quotes it writes `\a \b \f \n \r \t \v` as those escapes and any
+other control, separator, format, private-use or unassigned character as `\x<hex>\` in upper case.
+
 **A double-quoted string is a string**, not a list of codes — the `double_quotes` flag defaults to
 `string`, as in SWI-Prolog 7 and later. That is the setting under which a Prolog string and a FunL
 string are the same value. A program that wants ISO's `codes` sets the flag.

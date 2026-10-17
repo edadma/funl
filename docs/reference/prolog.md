@@ -157,7 +157,8 @@ after
 ## The reader
 
 Tokens are ISO's. A variable begins with a capital letter or `_`. An atom is a name beginning with a
-lower-case letter, a run of symbol characters, a quoted `'atom'`, or one of `[]`, `{}`, `!`, `;` and
+lower-case letter (or any caseless letter, as in `日本`; letters are Unicode, so `été` and `σ` are
+names and `Été` a variable), a run of symbol characters (`€` is one), a quoted `'atom'`, or one of `[]`, `{}`, `!`, `;` and
 `,`. Integers are unbounded, and may be written `0'c` (a character's code), `0x1F`, `0o17`,
 `0b101`, or `16'1F` in any base from 2 to 36. `%` begins a comment to the end of the line, and
 `/* */` encloses one.
@@ -1656,7 +1657,7 @@ a character.
 
 ```output
 10
-'σ'
+σ
 7
 q
 ```

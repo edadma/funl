@@ -265,3 +265,41 @@ AN_INF_OR_NAN_SUFFIX_IS_REFUSED_WHERE_SWI_PROLOG_REFUSES_IT()
     assert_eq(prolog_complaints("p(1.0e10Inf).\n"), "error 1:9 `,` or `)` was expected here\n")
     assert_eq(prolog_complaints("p(1.0Infinity).\n"), "error 1:6 `,` or `)` was expected here\n")
     assert_eq(prolog_complaints("p(1.0inf).\n"), "error 1:6 `,` or `)` was expected here\n")
+
+@test
+AN_UNQUOTED_NAME_MAY_START_WITH_ANY_LOWERCASE_OR_CASELESS_LETTER_AND_A_VARIABLE_WITH_AN_UPPERCASE_ONE()
+    assert_eq(shown("été"), "été\nsucceeded")
+    assert_eq(ran_prolog(":- X = σ(Σx, _é, Été), X =.. [F|As], length(As, N), write(F-N), nl.\n"), "σ-3\nsucceeded")
+    assert_eq(shown("日本"), "日本\nsucceeded")
+    assert_eq(shown("aé1_Ö٣‿b"), "aé1_Ö٣‿b\nsucceeded")
+    assert_eq(shown("ǅa"), "ǅa\nsucceeded")
+    assert_eq(ran_prolog(":- X = f(Été, Y, Y), Été = 1, Y = 2, write_canonical(X), nl.\n"), "f(1,2,2)\nsucceeded")
+
+@test
+A_SYMBOL_CHARACTER_BEYOND_ASCII_JOINS_A_RUN_AND_ANY_OTHER_NON_LETTER_IS_REFUSED()
+    assert_eq(shown("€"), "€\nsucceeded")
+    assert_eq(shown("+€"), "+€\nsucceeded")
+    assert_eq(shown("⌘⌘"), "⌘⌘\nsucceeded")
+    assert_eq(prolog_complaints("p(€x).\n"), "error 1:4 `,` or `)` was expected here\n")
+    assert_eq(prolog_complaints("p(a²).\n"), "error 1:4 this character cannot begin a Prolog token\n")
+    assert_eq(prolog_complaints("p(‿a).\n"), "error 1:3 this character cannot begin a Prolog token\n")
+
+@test
+WRITEQ_QUOTES_AN_ATOM_EXACTLY_WHEN_THE_READER_WOULD_NOT_READ_IT_BARE()
+    assert_eq(ran_prolog(":- writeq(['σ', été, '日本', 'Été', '_x', 'a b', '€', '€x', '+€', 'a²', ǅ]), nl.\n"),
+        "[σ,été,日本,'Été','_x','a b',€,'€x',+€,'a²',ǅ]\nsucceeded")
+
+@test
+WRITEQ_WRITES_CONTROL_CHARACTERS_AS_SWI_PROLOG_DOES()
+    assert_eq(ran_prolog(":- writeq('\\a\\b\\f\\n\\r\\t\\v\\0\\'), nl.\n"), "'\\a\\b\\f\\n\\r\\t\\v\\x0\\'\nsucceeded")
+    assert_eq(ran_prolog(":- writeq(['\\e', '\\x7f\\', '\\x1\\', '\\x80\\', '\\xa0\\', '\\x2028\\', '\\x200b\\', 'é\\x301\\']), nl.\n"),
+        "['\\x1B\\','\\x7F\\','\\x1\\','\\x80\\','\\xA0\\','\\x2028\\','\\x200B\\',é́]\nsucceeded")
+
+@test
+WRITEQ_THEN_READ_GIVES_BACK_THE_SAME_ATOM()
+    val atoms = "[abc, 'σ', été, '日本', 'Été', 'Σ', '€', '€x', '+€', ⌘⌘, 'a b', '', '\\a', '\\v', '\\0\\', '\\e', '\\x7f\\', " +
+        "'\\x80\\', '\\xa0\\', '\\x2028\\', 'é\\x301\\', 'it''s', 'a\\\\b', ǅ, 'ǅa', '_é', '٣', 'a٣', 'x²']"
+    val goal = s":- forall(member(A, $atoms), (format(atom(S), '~q', [A]), term_to_atom(T, S), " +
+        "(T == A -> true ; (write(differs(A, S)), nl)))), write(round_trips), nl.\n"
+
+    assert_eq(ran_prolog(goal), "round_trips\nsucceeded")
