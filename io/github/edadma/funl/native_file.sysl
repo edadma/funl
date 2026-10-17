@@ -640,6 +640,14 @@ file_is_standard(h: *HandleObj) -> bool = opened_of(h) match
     Some(Standard(_)) -> true
     _ -> false
 
+// A file handle with no file behind it: the handle of a Prolog stream that writes to memory
+// (`with_output_to/2`), whose record keeps what is written. Every file method finds its file gone.
+memory_handle() -> Result[*HandleObj, Fault]
+    val h = new_handle(file_kind())?
+
+    h.n = -1
+    Ok(h)
+
 // Whether `x` is a handle of the file kind.
 is_file_handle(x: Value) -> bool = x match
     Handle(p) -> p.kind == file_kind()

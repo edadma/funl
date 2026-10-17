@@ -1,7 +1,7 @@
 module io.github.edadma.funl
 @tests
 
-import sysl.fs.read_text
+import sysl.fs.{make_dir_all, read_text, symlink}
 
 // Term input and output on a named stream, character conversion, `discontiguous/1` and
 // `ensure_loaded/1` (`pl_output.sysl`, `pl_read_term.sysl`, `pl_chars.sysl`; `prolog.md` § "Term I/O
@@ -260,6 +260,22 @@ ENSURE_LOADED_LOADS_A_FILE_ONCE()
     // `consult/1` loads it again; a file `consult/1` loaded is not loaded again by `ensure_loaded/1`.
     assert_eq(ran_prolog(s":- ensure_loaded('$f').\n:- consult('$f').\n:- ensure_loaded('$f').\n"), "loading\nloading\nsucceeded")
     assert_eq(ran_prolog(s":- consult('$f').\n:- ensure_loaded('$f').\n"), "loading\nsucceeded")
+
+@test
+ENSURE_LOADED_KNOWS_A_FILE_BY_EVERY_PATH_TO_IT()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "lib.pl", ":- write(loading), nl.\n")
+
+    make_dir_all(s"$d/sub").unwrap()
+    symlink(f, s"$d/link.pl").unwrap()
+
+    // `.` and `..` parts, a repeated separator, and a symbolic link all name the one file.
+    assert_eq(ran_prolog(s":- ensure_loaded('$f').\n:- ensure_loaded('$d/./lib.pl').\n:- ensure_loaded('$d//lib.pl').\n" +
+        s":- ensure_loaded('$d/sub/../lib.pl').\n:- ensure_loaded('$d/link.pl').\n"), "loading\nsucceeded")
+    // So does the path that loaded it, for `consult/1`'s load.
+    assert_eq(ran_prolog(s":- consult('$d/sub/../lib.pl').\n:- ensure_loaded('$f').\n"), "loading\nsucceeded")
 
 @test
 ENSURE_LOADED_RAISES_CONSULTS_ERRORS_AND_A_REFUSED_FILE_IS_NOT_LOADED()

@@ -1,0 +1,73 @@
+module io.github.edadma.funl
+@tests
+
+// `setup_call_cleanup/3` and `call_cleanup/2` (`cleanup.sysl`; `prolog.md` § "Cleanup"): the cleanup
+// runs exactly once, when the goal exits leaving nothing to resume, fails, raises, or has its choice
+// points cut away -- with SWI-Prolog's bindings, order and errors in each case.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// `Goal` run in a directive, then `yes`, `no`, or the ball it raised, a line each.
+private ran(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> R = yes ; R = no), E, (E = error(F, _) -> R = err(F) ; R = ball(E))), writeq(R), nl.\n")
+
+@test
+THE_CLEANUP_RUNS_WHEN_THE_GOAL_EXITS_FAILS_OR_RAISES()
+    assert_eq(ran("setup_call_cleanup(true, true, writeln(c))"), ok("c\nyes"))
+    assert_eq(ran("setup_call_cleanup(true, fail, writeln(c))"), ok("c\nno"))
+    assert_eq(ran("setup_call_cleanup(true, throw(x), writeln(c))"), ok("c\nball(x)"))
+    assert_eq(ran("call_cleanup(true, writeln(c))"), ok("c\nyes"))
+    // The setup runs once, and its failure is the call's, with no cleanup.
+    assert_eq(ran("setup_call_cleanup(member(S, [a, b]), writeln(S), writeln(cl(S)))"), ok("a\ncl(a)\nyes"))
+    assert_eq(ran("setup_call_cleanup(fail, writeln(never), writeln(never))"), ok("no"))
+
+@test
+A_GOAL_THAT_LEAVES_CHOICE_POINTS_IS_CLEANED_UP_WHEN_THEY_GO()
+    // At a cut, with the goal's bindings; at the last solution; when failure exhausts it.
+    assert_eq(ran("(setup_call_cleanup(true, member(Y, [1, 2]), writeln(c(Y))), !, writeln(after(Y)))"), ok("c(1)\nafter(1)\nyes"))
+    assert_eq(ran("(setup_call_cleanup(true, member(X, [1, 2]), writeln(c(X))), writeln(after(X)))"), ok("after(1)\nc(1)\nyes"))
+    assert_eq(ran("(setup_call_cleanup(true, member(Z, [1, 2]), writeln(c(Z))), Z == 2)"), ok("c(2)\nyes"))
+    assert_eq(ran("(setup_call_cleanup(true, member(_, [1, 2]), writeln(c)), fail)"), ok("c\nno"))
+    assert_eq(ran("forall(setup_call_cleanup(true, member(M, [1, 2]), writeln(c)), writeln(M))"), ok("1\nc\n2\nyes"))
+    assert_eq(ran("(setup_call_cleanup(true, member(V, [1, 2, 3]), writeln(c)), V >= 2, !)"), ok("c\nyes"))
+    // `once/1`, `\\+` and `findall/3` commit the goal as a cut does.
+    assert_eq(ran("once(setup_call_cleanup(true, member(_, [1, 2]), writeln(c)))"), ok("c\nyes"))
+    assert_eq(ran("\\+ setup_call_cleanup(true, member(_, [1, 2]), writeln(c))"), ok("c\nno"))
+    assert_eq(ran("findall(B, setup_call_cleanup(true, member(B, [1, 2]), writeln(c)), _)"), ok("c\nyes"))
+
+@test
+A_THROW_UNDOES_THE_GOALS_BINDINGS_BEFORE_THE_CLEANUP()
+    assert_eq(ran("(setup_call_cleanup(true, member(W, [1, 2]), (W == 1 -> writeln(bound) ; writeln(unbound))), throw(oops))"),
+        ok("unbound\nball(oops)"))
+    assert_eq(ran("catch((setup_call_cleanup(true, member(_, [1, 2]), writeln(c)), throw(e)), e, writeln(caught))"), ok("c\ncaught\nyes"))
+    // A catch the goal has left behind does not catch a later throw for the cleanup's sake.
+    assert_eq(ran("(catch(setup_call_cleanup(true, member(_, [1, 2]), writeln(c)), _, writeln(wrong)), throw(e))"), ok("c\nball(e)"))
+
+@test
+THE_CLEANUPS_ERROR_IS_RAISED_EXCEPT_AFTER_A_THROW()
+    assert_eq(ran("setup_call_cleanup(true, true, throw(in_cleanup))"), ok("ball(in_cleanup)"))
+    assert_eq(ran("setup_call_cleanup(true, fail, throw(in_cleanup))"), ok("ball(in_cleanup)"))
+    assert_eq(ran("(setup_call_cleanup(true, member(_, [1, 2]), throw(in_cleanup)), !)"), ok("ball(in_cleanup)"))
+    assert_eq(ran("setup_call_cleanup(true, throw(goal), throw(in_cleanup))"), ok("ball(goal)"))
+    // Its failure is ignored, and its bindings are its own.
+    assert_eq(ran("setup_call_cleanup(true, true, (writeln(c), fail))"), ok("c\nyes"))
+    assert_eq(ran("(nb_setval(k, 0), setup_call_cleanup(true, true, nb_setval(k, 1)), nb_getval(k, K), writeln(K))"), ok("1\nyes"))
+
+@test
+NESTED_CLEANUPS_RUN_INNERMOST_FIRST()
+    assert_eq(ran("(setup_call_cleanup(true, member(_, [1, 2]), writeln(outer)), setup_call_cleanup(true, member(_, [1, 2]), writeln(inner)), !)"),
+        ok("inner\nouter\nyes"))
+    assert_eq(ran("(setup_call_cleanup(true, setup_call_cleanup(true, member(_, [1, 2]), writeln(inner)), writeln(outer)), !)"),
+        ok("inner\nouter\nyes"))
+    assert_eq(ran("setup_call_cleanup(true, setup_call_cleanup(true, fail, writeln(inner)), writeln(outer))"), ok("inner\nouter\nno"))
+    assert_eq(ran("setup_call_cleanup(true, setup_call_cleanup(true, throw(t), writeln(inner)), writeln(outer))"),
+        ok("inner\nouter\nball(t)"))
+
+@test
+SETUP_CALL_CLEANUP_RAISES_SWI_PROLOGS_ERRORS()
+    assert_eq(ran("setup_call_cleanup(_, true, true)"), ok("err(instantiation_error)"))
+    assert_eq(ran("setup_call_cleanup(true, _, true)"), ok("err(instantiation_error)"))
+    assert_eq(ran("setup_call_cleanup(true, true, _)"), ok("err(instantiation_error)"))
+    assert_eq(ran("setup_call_cleanup(true, 1, true)"), ok("err(type_error(callable,1))"))
+    assert_eq(ran("setup_call_cleanup(true, true, 1)"), ok("err(type_error(callable,1))"))
+    assert_eq(ran("call_cleanup(_, true)"), ok("err(instantiation_error)"))

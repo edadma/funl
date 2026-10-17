@@ -1,0 +1,266 @@
+module io.github.edadma.funl
+@tests
+
+// The SWI-Prolog library predicates of `pl_swi.sysl`, `pl_streams.sysl` and the library
+// (`prolog.md` § "The builtin set"): `atomic_list_concat/2-3`, `char_type/2` and `code_type/2`,
+// `format/3`, `with_output_to/2`, `tab/2`, `read_line_to_string/2` and `read_line_to_codes/2`,
+// `max_member/2` and `min_member/2`, `setarg/3` and `nb_setarg/3`, `predicate_property/2`,
+// `statistics/2` and `get_time/1` -- each with SWI-Prolog's answers and its errors. A file a test reads
+// is written to a scratch directory first.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// Every solution of `goal`, `X` written by `writeq`, one a line; or the formal term of its error.
+private every(goal: string) -> string =
+    ran_prolog(s":- catch(forall($goal, (writeq(X), nl)), error(F, _), (writeq(F), nl)).\n")
+
+// Each goal of `goals`, a Prolog list: `yes`, `no`, or the formal term of the error it raises, a line
+// each.
+private each_holds(goals: string) -> string =
+    ran_prolog(s":- forall(member(G, $goals), (catch((G -> write(yes) ; write(no)), error(E, _), writeq(E)), nl)).\n")
+
+// -- atomic_list_concat/2-3 -------------------------------------------------------------------------
+
+@test
+ATOMIC_LIST_CONCAT_JOINS_ATOMIC_TEXT()
+    assert_eq(every("atomic_list_concat([a, 'B', 1, 2.5, \"s\", []], X)"), ok("'aB12.5s[]'"))
+    assert_eq(every("atomic_list_concat([], X)"), ok("''"))
+    assert_eq(every("atomic_list_concat([a, b, c], '-', X)"), ok("'a-b-c'"))
+    assert_eq(every("atomic_list_concat([1, 2], '', X)"), ok("'12'"))
+    assert_eq(every("atomic_list_concat([a, b], 1, X)"), ok("a1b"))
+    assert_eq(every("atomic_list_concat([a], '-', X)"), ok("a"))
+    assert_eq(each_holds("[atomic_list_concat([a, b], ab), atomic_list_concat([a, b], ac), atomic_list_concat([a, b], \"ab\"), " +
+        "atomic_list_concat([a, b], '-', 'a-b'), atomic_list_concat([a, b], '-', 'a-c')]"), ok("yes\nno\nno\nyes\nno"))
+
+@test
+ATOMIC_LIST_CONCAT_SPLITS_WHERE_THE_LIST_IS_NOT_WHOLE()
+    assert_eq(every("atomic_list_concat(X, '-', 'a-b--c')"), ok("[a,b,'',c]"))
+    assert_eq(every("atomic_list_concat(X, -, '')"), ok("['']"))
+    assert_eq(every("atomic_list_concat([a, X, c], '-', 'a-x-c')"), ok("x"))
+    assert_eq(every("atomic_list_concat([a|X], '-', 'a-b')"), ok("[b]"))
+    assert_eq(every("atomic_list_concat(X, '-', \"a-b\")"), ok("[a,b]"))
+    assert_eq(every("atomic_list_concat(X, \"-\", 'a-b')"), ok("[a,b]"))
+    assert_eq(every("atomic_list_concat(X, 1, a1b)"), ok("[a,b]"))
+    assert_eq(every("atomic_list_concat(X, '-', 12)"), ok("['12']"))
+    assert_eq(every("atomic_list_concat(X, ab, xabyabz)"), ok("[x,y,z]"))
+    assert_eq(each_holds("[atomic_list_concat([a, _], '-', 'a-x-c')]"), ok("no"))
+
+@test
+ATOMIC_LIST_CONCAT_RAISES_SWI_PROLOGS_ERRORS()
+    assert_eq(each_holds("[atomic_list_concat([a, _], _), atomic_list_concat([a|_], _), atomic_list_concat([a, f(x)], _), " +
+        "atomic_list_concat(foo, _), atomic_list_concat([a, b|c], _), atomic_list_concat(_, '', abc), " +
+        "atomic_list_concat(_, _, abc), atomic_list_concat(_, '-', _), atomic_list_concat([a, b], f(x), _), " +
+        "atomic_list_concat(_, '-', f(x))]"),
+        ok("instantiation_error\ninstantiation_error\ntype_error(text,f(x))\ntype_error(list,foo)\ntype_error(list,c)\n" +
+            "domain_error(non_empty_atom,'')\ninstantiation_error\ninstantiation_error\ntype_error(text,f(x))\n" +
+            "type_error(atomic,f(x))"))
+
+// -- char_type/2 and code_type/2 --------------------------------------------------------------------
+
+@test
+CHAR_TYPE_GIVES_EVERY_TYPE_OF_A_CHARACTER_IN_SWI_PROLOGS_ORDER()
+    assert_eq(every("findall(T, char_type(a, T), X)"),
+        ok("[alnum,alpha,csym,csymf,prolog_atom_start,prolog_identifier_continue,ascii,print,graph,lower,lower('A'),to_lower('A'),to_upper(a),xdigit(10)]"))
+    assert_eq(every("findall(T, char_type('_', T), X)"),
+        ok("[csym,csymf,prolog_var_start,prolog_identifier_continue,ascii,print,graph,punct,to_lower('_'),to_upper('_')]"))
+    assert_eq(every("findall(T, char_type(' ', T), X)"), ok("[ascii,white,print,space,to_lower(' '),to_upper(' ')]"))
+    assert_eq(every("findall(T, char_type('7', T), X)"),
+        ok("[alnum,csym,prolog_identifier_continue,decimal,decimal(7),ascii,digit,print,graph,to_lower('7'),to_upper('7'),digit(7),xdigit(7)]"))
+    assert_eq(every("findall(T, char_type('.', T), X)"), ok("[prolog_symbol,ascii,print,graph,punct,period,to_lower('.'),to_upper('.')]"))
+    assert_eq(every("findall(T, code_type(0'\\n, T), X)"), ok("[ascii,cntrl,space,end_of_line,newline,to_lower(10),to_upper(10)]"))
+    assert_eq(every("findall(T, char_type('\"', T), X)"), ok("[ascii,print,graph,punct,quote,to_lower('\"'),to_upper('\"')]"))
+
+@test
+CHAR_TYPE_READS_UNICODE()
+    assert_eq(every("findall(T, (char_type('Σ', T), T \\= to_lower(_)), X)"),
+        ok("[alnum,alpha,csym,csymf,prolog_var_start,prolog_identifier_continue,print,graph,upper,upper('σ'),to_upper('σ')]"))
+    // An Arabic-Indic three is a decimal digit of weight 3, and not `digit/1`'s, which is ASCII's.
+    assert_eq(every("findall(T, (char_type('٣', T), atom(T)), X)"), ok("[alnum,csym,prolog_identifier_continue,decimal,print,graph]"))
+    assert_eq(every("char_type('٣', decimal(X))"), ok("3"))
+    assert_eq(each_holds("[char_type('٣', digit(_)), char_type('é', alpha), char_type('é', lower('É')), char_type('\\xa0\\', space), " +
+        "char_type('\\xa0\\', print), char_type('\\x7f\\', cntrl), char_type('²', graph), char_type('²', alnum)]"),
+        ok("no\nyes\nyes\nyes\nyes\nyes\nyes\nno"))
+
+@test
+CHAR_TYPE_ENUMERATES_THE_CHARACTERS_OF_A_TYPE()
+    assert_eq(every("findall(C, char_type(C, digit(_)), X)"), ok("['0','1','2','3','4','5','6','7','8','9']"))
+    assert_eq(every("findall(C-W, char_type(C, xdigit(W)), X)"),
+        ok("['0'-0,'1'-1,'2'-2,'3'-3,'4'-4,'5'-5,'6'-6,'7'-7,'8'-8,'9'-9,'A'-10,'B'-11,'C'-12,'D'-13,'E'-14,'F'-15,a-10,b-11,c-12,d-13,e-14,f-15]"))
+    assert_eq(every("findall(C, char_type(C, white), X)"), ok("['\\t',' ']"))
+    assert_eq(every("findall(C, code_type(C, end_of_line), X)"), ok("[10,11,12,13]"))
+    assert_eq(every("code_type(X, digit(5))"), ok("53"))
+    assert_eq(every("findall(C, char_type(C, upper(a)), X)"), ok("['A']"))
+    // Every code point is tried, so on the roomy heap alone.
+    assert_eq(roomy(() -> prolog_text(":- findall(C, char_type(C, upper(_)), L), length(L, N), N > 1000, write(many), nl.\n")).text,
+        ok("many"))
+
+@test
+CHAR_TYPE_CONVERTS_CASE_AS_SWI_PROLOG_DOES()
+    // `to_lower(U)`: `U` is the upper case of a given character, and the character the lower case of a
+    // given `U`; `to_upper(L)` the other way about.
+    assert_eq(every("code_type(0'a, to_lower(X))"), ok("65"))
+    assert_eq(every("code_type(0'A, to_lower(X))"), ok("65"))
+    assert_eq(every("char_type(X, to_lower('A'))"), ok("a"))
+    assert_eq(every("char_type(X, to_upper(a))"), ok("'A'"))
+    assert_eq(every("char_type(a, upper(X))"), "succeeded")
+    assert_eq(every("char_type('A', upper(X))"), ok("a"))
+    assert_eq(each_holds("[char_type(a, to_lower(a)), char_type(a, to_lower('A')), char_type('A', to_lower(a)), " +
+        "char_type('A', to_upper(a)), code_type(a, alpha), code_type(0'a, alpha), char_type(1, alpha), code_type(-1, end_of_file), " +
+        "code_type(-1, alpha), char_type(a, digit(x))]"),
+        ok("yes\nyes\nno\nyes\nyes\nyes\nno\nyes\nno\nno"))
+
+@test
+CHAR_TYPE_RAISES_SWI_PROLOGS_ERRORS()
+    assert_eq(each_holds("[char_type(_, _), char_type(a, foo), code_type(0'a, foo), char_type(a, digit(1, 2)), char_type(ab, alpha), " +
+        "code_type(f(x), alpha), code_type(1114112, alpha), code_type(-2, alpha)]"),
+        ok("instantiation_error\ntype_error(char_type,foo)\ntype_error(char_type,foo)\ntype_error(char_type,digit(1,2))\n" +
+            "type_error(character,ab)\ntype_error(character,f(x))\ndomain_error(character,1114112)\ndomain_error(character,-2)"))
+
+// -- format/3, with_output_to/2 and tab/2 -----------------------------------------------------------
+
+@test
+FORMAT_3_WRITES_TO_A_STREAM_OR_INTO_A_SINK()
+    assert_eq(every("format(atom(X), \"x~wy\", [1])"), ok("x1y"))
+    assert_eq(every("format(string(X), \"x~wy\", [1])"), ok("\"x1y\""))
+    assert_eq(every("format(codes(X), \"x~wy\", [1])"), ok("[120,49,121]"))
+    assert_eq(every("format(codes(X, [0'z]), \"x~wy\", [1])"), ok("[120,49,121,122]"))
+    assert_eq(every("format(chars(X), \"x~wy\", [1])"), ok("[x,'1',y]"))
+    assert_eq(every("format(atom(X), \"~a~t~10|~w\", [ab, c])"), ok("'ab        c'"))
+    assert_eq(every("format(atom(X), \"~a\", bar)"), ok("bar"))
+    assert_eq(ran_prolog(":- format(user_output, \"to ~w~n\", [user_output]), format(user_error, \"\", []).\n"), ok("to user_output"))
+
+@test
+FORMAT_3_RAISES_SWI_PROLOGS_ERRORS()
+    assert_eq(each_holds("[format(_, \"x\", []), format(foo(x), \"x\", []), format(nostream, \"x\", []), format(user_input, \"x\", []), " +
+        "format(atom(_), \"~q\", [])]"),
+        ok("instantiation_error\ntype_error(output,foo(x))\nexistence_error(stream,nostream)\n" +
+            "permission_error(output,stream,user_input)\nformat('not enough arguments')"))
+
+@test
+WITH_OUTPUT_TO_CAPTURES_WHAT_THE_GOAL_WRITES()
+    assert_eq(every("with_output_to(string(X), (write(a), nl, tab(2), print(b)))"), ok("\"a\\n  b\""))
+    assert_eq(every("with_output_to(atom(X), (member(Y, [a, b]), write(Y)))"), ok("a"))
+    assert_eq(every("with_output_to(chars(X, []), write(ab))"), ok("[a,b]"))
+    assert_eq(every("with_output_to(codes(X), write(ab))"), ok("[97,98]"))
+    assert_eq(every("with_output_to(string(X), (current_output(S), write(S, x), format(S, \"~w\", [y])))"), ok("\"xy\""))
+    // Nested captures each keep their own text.
+    assert_eq(every("with_output_to(string(X), (write(a), with_output_to(string(I), write(b)), write(I)))"), ok("\"ab\""))
+    assert_eq(each_holds("[with_output_to(atom(abc), write(abc)), with_output_to(atom(abd), write(abc)), with_output_to(string(_), fail)]"),
+        ok("yes\nno\nno"))
+    // A stream is a sink too.
+    assert_eq(ran_prolog(":- with_output_to(user_output, write(direct)), nl.\n"), ok("direct"))
+
+@test
+WITH_OUTPUT_TO_RESTORES_THE_OUTPUT_HOWEVER_THE_GOAL_ENDS()
+    assert_eq(ran_prolog(":- catch(with_output_to(string(_), (write(lost), throw(q))), q, true), write(after_throw), nl.\n" +
+        ":- \\+ with_output_to(string(_), (write(lost), fail)), write(after_failure), nl.\n" +
+        ":- with_output_to(string(S), write(kept)), write(S), nl.\n"), ok("after_throw\nafter_failure\nkept"))
+    assert_eq(each_holds("[with_output_to(_, true), with_output_to(foo, true), with_output_to(bar(x), true), with_output_to(string(_), _), " +
+        "with_output_to(string(_), 1), with_output_to(user_input, true)]"),
+        ok("instantiation_error\nexistence_error(stream,foo)\ntype_error(output,bar(x))\ninstantiation_error\n" +
+            "type_error(callable,1)\npermission_error(output,stream,user_input)"))
+    assert_eq(ran_prolog(":- catch(with_output_to(string(_), throw(z)), B, (write(caught(B)), nl)).\n"), ok("caught(z)"))
+
+@test
+TAB_2_WRITES_SPACES_ON_A_STREAM()
+    assert_eq(every("with_output_to(string(X), (current_output(S), tab(S, 1 + 2), write(S, x), tab(S, 0), tab(S, -1)))"), ok("\"   x\""))
+    assert_eq(each_holds("[tab(user_output, _), tab(user_output, a), tab(user_input, 2), tab(nostream, 2), tab(_, 1)]"),
+        ok("instantiation_error\ntype_error(evaluable,a/0)\npermission_error(output,stream,user_input)\n" +
+            "existence_error(stream,nostream)\ninstantiation_error"))
+
+// -- read_line_to_string/2 and read_line_to_codes/2 -------------------------------------------------
+
+@test
+READ_LINE_READS_A_LINE_WITHOUT_ITS_NEWLINE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "lines.txt", "ab\r\ncd\n\nlast")
+
+    assert_eq(ran_prolog(s":- open('$f', read, S), read_line_to_codes(S, A), read_line_to_string(S, B), read_line_to_codes(S, C), " +
+        "read_line_to_string(S, D), read_line_to_string(S, E), read_line_to_codes(S, F), close(S), writeq([A, B, C, D, E, F]), nl.\n"),
+        ok("[[97,98],\"cd\",[],\"last\",end_of_file,end_of_file]"))
+    assert_eq(ran_prolog(s":- open('$f', read, S), read_line_to_string(S, 'not a string'), close(S).\n"),
+        s"Warning: directive failed: open('$f', read, S), read_line_to_string(S, 'not a string'), close(S)\nsucceeded")
+
+@test
+READ_LINE_RAISES_THE_STREAM_ERRORS()
+    assert_eq(each_holds("[read_line_to_string(_, _), read_line_to_codes(user_output, _), read_line_to_string(nostream, _), read_line_to_codes(1, _)]"),
+        ok("instantiation_error\npermission_error(input,stream,user_output)\nexistence_error(stream,nostream)\n" +
+            "domain_error(stream_or_alias,1)"))
+
+// -- max_member/2 and min_member/2 ------------------------------------------------------------------
+
+@test
+MAX_AND_MIN_MEMBER_ARE_IN_THE_STANDARD_ORDER()
+    assert_eq(every("max_member(X, [3, 1, a, f(x), \"s\"])"), ok("f(x)"))
+    assert_eq(every("min_member(X, [3, 1, a, f(x), \"s\", 2.0])"), ok("1"))
+    assert_eq(every("max_member(X, [_, 1])"), ok("1"))
+    assert_eq(every("(min_member(X, [V, 1]), X == V, X = var)"), ok("var"))
+    assert_eq(each_holds("[max_member(_, []), min_member(1, [1, 2]), max_member(2, [1, 2, 3]), max_member(_, _), max_member(_, [a|_]), " +
+        "max_member(_, foo)]"),
+        ok("no\nyes\nno\ninstantiation_error\ninstantiation_error\ntype_error(list,foo)"))
+
+// -- setarg/3 and nb_setarg/3 -----------------------------------------------------------------------
+
+@test
+SETARG_IS_UNDONE_ON_BACKTRACKING_AND_NB_SETARG_IS_NOT()
+    assert_eq(every("(T = f(a, b), setarg(1, T, x), X = T)"), ok("f(x,b)"))
+    assert_eq(every("(T = f(a, b), (setarg(1, T, x), fail ; true), X = T)"), ok("f(a,b)"))
+    assert_eq(every("(T = f(a, b), (nb_setarg(1, T, x), fail ; true), X = T)"), ok("f(x,b)"))
+    assert_eq(every("(T = f(a), setarg(1, T, g(Y)), Y = 1, X = T)"), ok("f(g(1))"))
+    // `nb_setarg/3` stores a copy: a binding made after it does not reach the term.
+    assert_eq(every("(T = f(a), (nb_setarg(1, T, g(Y)), Y = 1, fail ; true), T = f(g(Z)), var(Z), X = unbound)"), ok("unbound"))
+    assert_eq(every("(functor(T, f, 3), setarg(1, T, a), setarg(2, T, b), once((setarg(3, T, c), member(_, [1, 2]))), X = T)"), ok("f(a,b,c)"))
+
+@test
+SETARG_RAISES_SWI_PROLOGS_ERRORS()
+    assert_eq(each_holds("[setarg(3, f(a, b), x), setarg(0, f(a, b), x), setarg(_, f(a, b), x), setarg(1, _, x), setarg(1, foo, x), " +
+        "setarg(a, f(a), x), setarg(-1, f(a), x), nb_setarg(1, foo, x)]"),
+        ok("no\nno\ninstantiation_error\ninstantiation_error\ntype_error(compound,foo)\ntype_error(integer,a)\n" +
+            "domain_error(not_less_than_zero,-1)\ntype_error(compound,foo)"))
+
+@test
+SETARG_CANNOT_CHANGE_A_TERM_A_STORED_CLAUSE_SHARES()
+    // Every call of `fact/1` answers the one stored term, so changing it in place would change the
+    // clause: refused, where a copy may be changed.
+    assert_eq(ran_prolog(":- assertz(fact(f(a))).\n" +
+        ":- fact(T), catch(setarg(1, T, b), error(E, _), (writeq(E), nl)).\n" +
+        ":- fact(T), copy_term(T, C), setarg(1, C, b), writeq(C), nl.\n:- fact(T), writeq(T), nl.\n"),
+        ok("permission_error(modify,shared_term,f(a))\nf(b)\nf(a)"))
+
+// -- predicate_property/2 ---------------------------------------------------------------------------
+
+@test
+PREDICATE_PROPERTY_NAMES_BUILTINS_CLAUSES_AND_THE_DATABASE()
+    val program = "p(1).\np(2).\np(3).\n:- dynamic(d/1).\n"
+
+    assert_eq(ran_prolog(program + ":- findall(P, predicate_property(p(_), P), L), writeq(L), nl.\n" +
+        ":- findall(P, predicate_property(atom_length(_, _), P), L), writeq(L), nl.\n" +
+        ":- findall(P, predicate_property(d(_), P), L), writeq(L), nl.\n" +
+        ":- assertz(d(1)), assertz(d(2)), retract(d(1)), predicate_property(d(_), number_of_clauses(N)), writeq(N), nl.\n" +
+        ":- findall(P, predicate_property(append(_, _, _), P), L), writeq(L), nl.\n" +
+        ":- findall(P, predicate_property((_, _), P), L), writeq(L), nl.\n" +
+        ":- findall(N/A, (predicate_property(H, dynamic), functor(H, N, A)), L), writeq(L), nl.\n"),
+        ok("[static,number_of_clauses(3),defined]\n[built_in,static,defined]\n[dynamic,number_of_clauses(0),defined]\n1\n" +
+            "[static,number_of_clauses(2),defined]\n[built_in,static,defined]\n[d/1]"))
+    assert_eq(each_holds("[predicate_property(nope(_), _), predicate_property(1, _), predicate_property(call(_), built_in), " +
+        "predicate_property(catch(_, _, _), built_in), predicate_property(setup_call_cleanup(_, _, _), defined), " +
+        "predicate_property(append(_, _, _), built_in)]"),
+        ok("no\nno\nyes\nyes\nyes\nno"))
+
+// -- statistics/2 and get_time/1 --------------------------------------------------------------------
+
+@test
+STATISTICS_ANSWERS_SWI_PROLOGS_KEYS()
+    assert_eq(each_holds("[(statistics(runtime, [A, B]), integer(A), integer(B), A >= 0), (statistics(cputime, C), float(C)), " +
+        "(statistics(process_cputime, D), float(D)), (statistics(walltime, [W1, W2]), integer(W1), integer(W2)), " +
+        "(statistics(real_time, [S, H]), S > 1700000000, integer(H)), (statistics(epoch, I), float(I)), " +
+        "(statistics(runtime, [J, _]), statistics(runtime, [K, L]), K >= J, L >= 0)]"),
+        ok("yes\nyes\nyes\nyes\nyes\nyes\nyes"))
+    assert_eq(each_holds("[statistics(foo, _), statistics(_, _), statistics(1, _), statistics(inferences, _)]"),
+        ok("domain_error(statistics_key,foo)\ninstantiation_error\ntype_error(atom,1)\ndomain_error(statistics_key,inferences)"))
+
+@test
+GET_TIME_IS_THE_SECONDS_SINCE_THE_EPOCH()
+    assert_eq(each_holds("[(get_time(T), float(T), T > 1700000000.0), get_time(1), (get_time(A), get_time(B), B >= A)]"), ok("yes\nno\nyes"))

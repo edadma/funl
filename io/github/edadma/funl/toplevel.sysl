@@ -468,6 +468,8 @@ private told(v: *Vm, text: string)
 // bound will be undone, so the machine is empty for the next query.
 private settle(v: *Vm)
     cut_to(v, 0, true)
+    run_cleanups_alone(v)
+    cut_to(v, 0, true)
     v.trail.truncate(0)
     v.saved.truncate(0)
     v.stack.truncate(0)

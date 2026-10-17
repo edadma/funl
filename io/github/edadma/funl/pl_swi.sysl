@@ -1,0 +1,687 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.posix.time.{cpu_time, monotonic}
+import sysl.slices.sort_by
+import sysl.text.{char_from_u32, chars_of, str_builder}
+import sysl.time.{now, whole_micros, whole_millis}
+import sysl.unicode.{Category, category, is_alpha, is_digit, is_lower, is_space, is_upper, to_lower, to_upper}
+
+// The SWI-Prolog library predicates that need the machine (`prolog.md` § "The builtin set"):
+// `atomic_list_concat/2-3`, `char_type/2` and `code_type/2`, `setarg/3` and `nb_setarg/3`,
+// `statistics/2`, `get_time/1`, and what `predicate_property/2` reads. Each takes SWI-Prolog's
+// arguments and raises its errors; the library (`pl_lib.sysl`) builds the rest on them.
+
+install_prolog_swi(v: *Vm)
+    register_generator(v, "atomic_list_concat/2", 2, (b, n, c) -> pl_atomic_list_concat(b, false))
+    register_generator(v, "atomic_list_concat/3", 3, (b, n, c) -> pl_atomic_list_concat(b, true))
+    register_generator(v, "char_type/2", 2, (b, n, c) -> pl_char_type(b, c, false))
+    register_generator(v, "code_type/2", 2, (b, n, c) -> pl_char_type(b, c, true))
+    register_generator(v, "setarg/3", 3, (b, n, c) -> pl_setarg(b, true))
+    register_generator(v, "nb_setarg/3", 3, (b, n, c) -> pl_setarg(b, false))
+    register_generator(v, "statistics/2", 2, (b, n, c) -> pl_statistics(b))
+    register_generator(v, "get_time/1", 1, (b, n, c) -> unified(arg(b, 0), Real(real(now().us) / 1000000.0)))
+    register_generator(v, "$predicate_properties/2", 2, (b, n, c) -> pl_predicate_properties(b))
+    register_generator(v, "$visible_heads/1", 1, (b, n, c) -> pl_visible_heads(b))
+
+// -- atomic_list_concat/2-3 -------------------------------------------------------------------------
+
+// `atomic_list_concat(L, A)` and, `sep`, `atomic_list_concat(L, Sep, A)`. With `L` a proper list of
+// atomic values, `A` is the atom of their texts joined, `Sep` between each two. Otherwise -- some
+// element unbound, or the list not whole -- `atomic_list_concat/3` splits: `A`, which must be bound,
+// cut at every `Sep`, which must be bound and not empty, and its pieces, as atoms, unified with `L`.
+private pl_atomic_list_concat(base: usize, sep: bool) -> Result[Answer, Fault]
+    val who = if sep then "atomic_list_concat/3" else "atomic_list_concat/2"
+    val list = arg(base, 0)
+    val target = arg(base, if sep then 2 else 1)
+    var items: Buf[Value] = buf()
+    var whole = true
+    var at = deref(list)
+
+    loop
+        at match
+            Nil -> break
+            Cons(p) ->
+                items.push(p.head)
+                at = deref(p.tail)
+            Var(_) ->
+                whole = false
+                break
+            _ -> return Err(type_error("list", at, s"$who wants a list, and was given ${render(list)}"))
+
+    val separator: Option[string] = if sep then piece_text(arg(base, 1), who)? else Some("")
+
+    if whole
+        var texts: Buf[string] = buf()
+        var bound = true
+
+        for x in items.view()
+            piece_text(x, who)? match
+                Some(t) -> texts.push(t)
+                None -> bound = false
+
+        if bound
+            val glue = separator match
+                Some(s) -> s
+                None -> return Err(instantiation_error(s"instantiation error: $who was given an unbound separator"))
+
+            var out = str_builder()
+
+            for i in 0..<texts.len()
+                if i > 0 then out.push(glue)
+
+                out.push(texts.at(i))
+
+            return unified(target, atom(out.finish()))
+
+    if !sep then return Err(instantiation_error(s"instantiation error: $who was given a list with an unbound part"))
+
+    val whole_text = deref(target) match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given a list with an unbound part and an unbound atom to split"))
+        Compound(_) -> return Err(type_error("atomic", deref(target), s"$who wants an atomic value to split, and was given ${render(target)}"))
+        Cons(_) -> return Err(type_error("atomic", deref(target), s"$who wants an atomic value to split, and was given ${render(target)}"))
+        y -> piece_text(y, who)?.unwrap()
+
+    val glue = separator match
+        Some(s) -> s
+        None -> return Err(instantiation_error(s"instantiation error: $who was given an unbound separator"))
+
+    if glue == "" then return Err(domain_error("non_empty_atom", deref(arg(base, 1)), s"$who cannot split at an empty separator"))
+
+    var pieces: Buf[Value] = buf()
+
+    for piece in split_at(whole_text, glue).view()
+        pieces.push(atom(piece))
+
+    unified(list, list_of(&pieces, Nil)?)
+end pl_atomic_list_concat
+
+// The text of one atomic piece of `atomic_list_concat`: an atom, `[]`, a string or a number; `None`
+// when it is unbound, and SWI-Prolog's `type_error(text, X)` for anything else.
+private piece_text(x: Value, who: string) -> Result[Option[string], Fault]
+    val y = deref(x)
+
+    y match
+        Var(_) -> Ok(None)
+        Atom(id) -> Ok(Some(atom_name(id)))
+        Nil -> Ok(Some("[]"))
+        Str(p) -> Ok(Some(p.s))
+        _ ->
+            if is_num(y) then return Ok(Some(written_number(y)))
+
+            Err(type_error("text", y, s"$who wants atomic text, and was given ${render(y)}"))
+
+// `s` cut at every occurrence of `sep`, which is not empty: one piece more than there are occurrences.
+private split_at(s: string, sep: string) -> Buf[string]
+    var pieces: Buf[string] = buf()
+    val b = s.bytes
+    val w = sep.bytes
+    var start: usize = 0
+    var i: usize = 0
+
+    while i + w.len <= b.len
+        var hit = true
+
+        for j in 0..<w.len
+            if b[i + j] != w[j]
+                hit = false
+                break
+
+        if hit
+            pieces.push(s[start..<i])
+            i += w.len
+            start = i
+        else
+            i += 1
+
+    pieces.push(s[start..<b.len])
+    pieces
+
+// -- char_type/2 and code_type/2 --------------------------------------------------------------------
+
+// The character types, in the order SWI-Prolog enumerates them for an unbound type. Those with an
+// argument are written `name/1`.
+private val CharTypes: [31]string = ["alnum", "alpha", "csym", "csymf", "prolog_var_start", "prolog_atom_start",
+    "prolog_identifier_continue", "prolog_symbol", "decimal", "decimal/1", "ascii", "white", "cntrl", "digit", "print",
+    "space", "end_of_line", "newline", "graph", "punct", "period", "quote", "upper", "upper/1", "lower", "lower/1",
+    "to_lower/1", "to_upper/1", "digit/1", "xdigit/1", "end_of_file"]
+
+// The last code point.
+private const LastCode: long = 1114111
+
+// What a character type says of code `k`: `-2` where it does not hold; where it does, its argument --
+// a weight, or the code of the other case -- or `-1` for a type with none.
+private fn_type(t: usize, k: long) -> long
+    val name = CharTypes[t]
+
+    if k < 0 then return if name == "end_of_file" then -1 else -2
+
+    val c = char_from_u32(u32(k)) match
+        Some(c) -> c
+        None -> return if name == "to_lower/1" || name == "to_upper/1" then k else -2
+
+    val alnum = is_alpha(c) || is_digit(c)
+    val yes: long = -1
+    val no: long = -2
+
+    if name == "alnum" then return if alnum then yes else no
+    if name == "alpha" then return if is_alpha(c) then yes else no
+    if name == "csym" then return if alnum || k == 95 then yes else no
+    if name == "csymf" then return if is_alpha(c) || k == 95 then yes else no
+    if name == "ascii" then return if k < 128 then yes else no
+    if name == "white" then return if k == 32 || k == 9 then yes else no
+    if name == "cntrl" then return if is_control(c) then yes else no
+    if name == "digit/1" then return if k >= 48 && k <= 57 then k - 48 else no
+    if name == "digit" then return if k >= 48 && k <= 57 then yes else no
+    if name == "decimal" then return if is_digit(c) then yes else no
+    if name == "decimal/1" then return if is_digit(c) then digit_weight(k) else no
+    if name == "space" then return if is_space(c) && k != 133 then yes else no
+    if name == "end_of_line" then return if k >= 10 && k <= 13 then yes else no
+    if name == "lower" then return if is_lower(c) then yes else no
+    if name == "lower/1" then return if is_lower(c) then long(u32(to_upper(c))) else no
+    if name == "upper" then return if is_upper(c) then yes else no
+    if name == "upper/1" then return if is_upper(c) then long(u32(to_lower(c))) else no
+    if name == "punct" then return if is_punct(c, k, alnum) then yes else no
+    if name == "graph" then return if is_graph(c) then yes else no
+    if name == "print" then return if is_graph(c) || (is_space(c) && !is_control(c)) then yes else no
+    if name == "period" then return if k == 46 || k == 33 || k == 63 then yes else no
+    if name == "quote" then return if k == 39 || k == 34 || k == 96 then yes else no
+
+    if name == "xdigit/1"
+        if k >= 48 && k <= 57 then return k - 48
+        if k >= 97 && k <= 102 then return k - 87
+        if k >= 65 && k <= 70 then return k - 55
+
+        return no
+
+    if name == "to_lower/1" then return long(u32(to_upper(c)))
+    if name == "to_upper/1" then return long(u32(to_lower(c)))
+    if name == "newline" then return if k == 10 then yes else no
+    if name == "prolog_var_start" then return if is_upper(c) || k == 95 then yes else no
+    if name == "prolog_atom_start" then return if is_lower(c) then yes else no
+    if name == "prolog_identifier_continue" then return if alnum || k == 95 then yes else no
+
+    if name == "prolog_symbol"
+        if k < 128 then return if "#$&*+-./:<=>?@\\^~".contains(text_of_code(k)) then yes else no
+
+        return category(c) match
+            Category.Sm -> yes
+            Category.Sc -> yes
+            Category.Sk -> yes
+            Category.So -> yes
+            _ -> no
+
+    no
+end fn_type
+
+// The weight of decimal digit `k`: Unicode lays every script's digits out as runs of ten, from 0 up,
+// so it is how far `k` stands into its run.
+private digit_weight(k: long) -> long
+    var start = k
+
+    while start > 0
+        val prev = char_from_u32(u32(start - 1)) match
+            Some(p) -> p
+            None -> break
+
+        if !is_digit(prev) then break
+
+        start -= 1
+
+    (k - start) % 10
+
+// Punctuation: below 128, every character that marks the page and is no letter or digit, `_` among
+// them; above, the punctuation categories, `P*`. Symbols above 128 are `prolog_symbol`'s.
+private is_punct(c: char, k: long, alnum: bool) -> bool
+    if k < 128 then return is_graph(c) && !alnum
+
+    category(c) match
+        Category.Pc -> true
+        Category.Pd -> true
+        Category.Ps -> true
+        Category.Pe -> true
+        Category.Pi -> true
+        Category.Pf -> true
+        Category.Po -> true
+        _ -> false
+
+// A control character: `Cc`, or one of the format characters, `Cf`.
+private is_control(c: char) -> bool = category(c) match
+    Category.Cc -> true
+    Category.Cf -> true
+    _ -> false
+
+// A character that marks the page: assigned, and neither a space, a separator nor a control.
+private is_graph(c: char) -> bool
+    if is_space(c) then return false
+
+    category(c) match
+        Category.Cc -> false
+        Category.Cf -> false
+        Category.Cs -> false
+        Category.Cn -> false
+        Category.Zs -> false
+        Category.Zl -> false
+        Category.Zp -> false
+        _ -> true
+
+private text_of_code(k: long) -> string
+    var b = str_builder()
+
+    b.push_char(char_from_u32(u32(k)).unwrap())
+    b.finish()
+
+// Whether the type at `t` has an argument that is a weight, rather than a character.
+private weighs(t: usize) -> bool = CharTypes[t] == "digit/1" || CharTypes[t] == "xdigit/1" || CharTypes[t] == "decimal/1"
+
+// `char_type(C, T)` and, `codes`, `code_type(C, T)`: character `C` is of type `T`. An unbound `C`
+// enumerates the characters of the type, an unbound `T` the types of the character; both unbound is
+// an instantiation error. `char_type/2` takes and gives one-character atoms, `code_type/2` codes, and
+// each takes the other's too.
+private pl_char_type(base: usize, cursor: long, codes: bool) -> Result[Answer, Fault]
+    val who = if codes then "code_type/2" else "char_type/2"
+    val cx = arg(base, 0)
+    val tx = arg(base, 1)
+    val code = code_arg(cx, who)?
+    val t = deref(tx)
+
+    if code.is_none() && is_unbound(t)
+        return Err(instantiation_error(s"instantiation error: $who was given neither a character nor a type"))
+
+    val k = code match
+        Some(k) -> k
+        None -> return char_of_type(base, cursor, codes, who)
+
+    // The types of a known character, from the one at `cursor`.
+    if is_unbound(t)
+        var i = usize(cursor)
+
+        while i < CharTypes.len
+            val a = fn_type(i, k)
+
+            if a != -2
+                unify_on_answer(tx, type_term(i, a, codes)?)
+
+                return Ok(if i + 1 < CharTypes.len then GivesMore(Unit, long(i) + 1) else Gives(Unit))
+
+            i += 1
+
+        return Ok(Refuses)
+
+    val (i, given) = type_of(t, who)?
+
+    answer(type_holds(i, k, given, codes))
+end pl_char_type
+
+// The characters of a known type, from code `cursor` on.
+private char_of_type(base: usize, cursor: long, codes: bool, who: string) -> Result[Answer, Fault]
+    val cx = arg(base, 0)
+    val (i, given) = type_of(deref(arg(base, 1)), who)?
+    val name = CharTypes[i]
+
+    // The conversions name the one character they convert: `to_lower(U)` the lower case of `U`.
+    if (name == "to_lower/1" || name == "to_upper/1") && !is_unbound(given)
+        if cursor > 0 then return Ok(Refuses)
+
+        val u = case_arg(given) match
+            Some(u) -> u
+            None -> return Ok(Refuses)
+
+        val c = char_from_u32(u32(u)) match
+            Some(c) -> c
+            None -> return Ok(Refuses)
+
+        val k = long(u32(if name == "to_lower/1" then to_lower(c) else to_upper(c)))
+
+        return unified(cx, char_value(k, codes))
+
+    var k = cursor
+
+    while k <= LastCode
+        if (codes || char_from_u32(u32(k)).is_some()) && type_holds(i, k, given, codes)
+            unify_on_answer(cx, char_value(k, codes))
+
+            return Ok(if k < LastCode then GivesMore(Unit, k + 1) else Gives(Unit))
+
+        k += 1
+
+    Ok(Refuses)
+end char_of_type
+
+// Whether code `k` is of type `i`, whose argument is `given` -- `Undefined` for a type with none. An
+// unbound argument is bound to what the type gives.
+private type_holds(i: usize, k: long, given: Value, codes: bool) -> bool
+    val a = fn_type(i, k)
+
+    if a == -2 then return false
+
+    if !CharTypes[i].ends_with("/1") then return true
+
+    val g = deref(given)
+
+    if is_unbound(g)
+        unify_on_answer(g, if weighs(i) then Int(a) else char_value(a, codes))
+        return true
+
+    if weighs(i)
+        return g match
+            Int(w) -> w == a
+            _ -> false
+
+    val other = case_arg(g) match
+        Some(o) -> o
+        None -> return false
+
+    // A conversion given both sides holds where `C` is what converting the other gives, as in
+    // SWI-Prolog: `to_lower(U)` where `C` is the lower case of `U`.
+    val name = CharTypes[i]
+
+    if name == "to_lower/1" || name == "to_upper/1"
+        val c = char_from_u32(u32(other)) match
+            Some(c) -> c
+            None -> return other == k
+
+        return k == long(u32(if name == "to_lower/1" then to_lower(c) else to_upper(c)))
+
+    other == a
+end type_holds
+
+// The code a character type's argument names: a one-character atom or a code.
+private case_arg(x: Value) -> Option[long] = deref(x) match
+    Int(n) -> Some(n)
+    Atom(id) ->
+        val s = atom_name(id)
+
+        if one_char(s) then Some(long(u32(chars_of(s.bytes).peek().unwrap()))) else None
+    _ -> None
+
+// Code `k` as `char_type/2` gives it, a one-character atom, or as `code_type/2` does.
+private char_value(k: long, codes: bool) -> Value = if codes then Int(k) else atom(text_of_code(k))
+
+// The term for type `i` with argument `a`.
+private type_term(i: usize, a: long, codes: bool) -> Result[Value, Fault]
+    val name = CharTypes[i]
+
+    if !name.ends_with("/1") then return Ok(atom(name))
+
+    val functor = name[0..<name.bytes.len - 2]
+    val x = if weighs(i) then Int(a) else char_value(a, codes)
+    val c = new_compound(intern(functor), 1)?
+
+    c.args.set(0, x)
+    Ok(Compound(c))
+
+// Which type `t` names, and its argument -- `Undefined` for a type with none.
+private type_of(t: Value, who: string) -> Result[(usize, Value), Fault]
+    val (name, given) = t match
+        Atom(id) -> (atom_name(id), Undefined)
+        Compound(c) -> if c.args.len() == 1 then (atom_name(c.functor) + "/1", c.args.at(0)) else ("", Undefined)
+        _ -> ("", Undefined)
+
+    for i in 0..<CharTypes.len
+        if CharTypes[i] == name then return Ok((i, given))
+
+    Err(type_error("char_type", t, s"$who: ${render(t)} is not a character type"))
+
+// The code of the character argument: `None` when it is unbound. A one-character atom or a code
+// (-1, the end of a file, among them for `code_type/2`).
+private code_arg(x: Value, who: string) -> Result[Option[long], Fault]
+    val y = deref(x)
+
+    y match
+        Var(_) -> Ok(None)
+        Int(n) ->
+            if n < -1 || n > LastCode then return Err(no_code(y, who))
+
+            Ok(Some(n))
+        Atom(id) ->
+            val s = atom_name(id)
+
+            if !one_char(s) then return Err(type_error("character", y, s"$who wants a character, and was given ${render(y)}"))
+
+            Ok(Some(long(u32(chars_of(s.bytes).peek().unwrap()))))
+        _ -> Err(type_error("character", y, s"$who wants a character, and was given ${render(y)}"))
+
+private no_code(y: Value, who: string) -> Fault =
+    domain_error("character", y, s"$who wants a character code, and ${render(y)} is none")
+
+// -- setarg/3 and nb_setarg/3 -----------------------------------------------------------------------
+
+// `setarg(N, T, V)`: argument `N` of compound `T` is now `V`, put back when failure passes back over
+// the change -- or, `nb_setarg/3` (not `backtracks`), a copy of `V` for good. `N` past the arguments
+// fails. A term a stored clause shares with every call, or a FunL record, may not be changed:
+// `permission_error(modify, shared_term, T)`.
+private pl_setarg(base: usize, backtracks: bool) -> Result[Answer, Fault]
+    val who = if backtracks then "setarg/3" else "nb_setarg/3"
+    val nx = deref(arg(base, 0))
+    val tx = deref(arg(base, 1))
+
+    val n = nx match
+        Int(n) -> n
+        Big(_) ->
+            if compare_terms(nx, Int(0)) < 0 then return Err(domain_error("not_less_than_zero", nx, s"$who wants an argument number of 0 or more, and was given ${render(nx)}"))
+
+            return Ok(Refuses)
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound argument number"))
+        _ -> return Err(type_error("integer", nx, s"$who wants an integer argument number, and was given ${described(nx)}"))
+
+    val c = tx match
+        Compound(c) -> c
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound term"))
+        _ -> return Err(type_error("compound", tx, s"$who wants a compound term, and was given ${render(tx)}"))
+
+    if n < 0 then return Err(domain_error("not_less_than_zero", nx, s"$who wants an argument number of 0 or more, and was given $n"))
+
+    if n == 0 || n > long(c.args.len()) then return Ok(Refuses)
+
+    if c.shared || c.record != 0
+        return Err(permission_error("modify", "shared_term", tx, s"$who cannot change ${render(tx)}, which a stored clause or a FunL value shares"))
+
+    val i = usize(n - 1)
+    val x = if backtracks then arg(base, 2) else copy_term(arg(base, 2))?
+    val v = current()
+
+    if backtracks && v.control.len() > 0 then v.trail.push(Setarg(c, i, c.args.at(i)))
+
+    c.args.set(i, x)
+    Ok(Gives(Unit))
+end pl_setarg
+
+// -- statistics/2 -----------------------------------------------------------------------------------
+
+// When the machine was made -- on the monotonic clock and the wall clock, in microseconds -- and what
+// each key that reports a difference last answered: CPU milliseconds, wall milliseconds, seconds.
+struct PlStats
+    start_us: long
+    epoch_us: long
+    runtime: long
+    walltime: long
+    real_time: long
+
+pl_stats() -> PlStats = PlStats(whole_micros(monotonic()), now().us, 0, 0, 0)
+
+// `statistics(K, V)`: SWI-Prolog's keys `runtime` and `process_cputime` -- `[CPU ms, ms since the
+// last]`, and the CPU seconds as a float -- `cputime`, `walltime` and `real_time` (each `[T, since the
+// last]`, milliseconds since the machine was made and seconds since the epoch), and `epoch`, when it
+// was made. FunL counts no inferences, so there is no `inferences` key.
+private pl_statistics(base: usize) -> Result[Answer, Fault]
+    val v = current()
+    val kx = deref(arg(base, 0))
+
+    val key = kx match
+        Atom(id) -> atom_name(id)
+        Var(_) -> return Err(instantiation_error("instantiation error: statistics/2 was given an unbound key"))
+        _ -> return Err(type_error("atom", kx, s"statistics/2 wants an atom as its key, and was given ${described(kx)}"))
+
+    val out = arg(base, 1)
+
+    if key == "runtime"
+        val t = whole_millis(cpu_time())
+        val d = t - v.pl_stats.runtime
+
+        v.pl_stats.runtime = t
+        return unified(out, pair_list(t, d)?)
+
+    if key == "cputime" || key == "process_cputime"
+        return unified(out, Real(real(whole_micros(cpu_time())) / 1000000.0))
+
+    if key == "walltime"
+        val t = (whole_micros(monotonic()) - v.pl_stats.start_us) / 1000
+        val d = t - v.pl_stats.walltime
+
+        v.pl_stats.walltime = t
+        return unified(out, pair_list(t, d)?)
+
+    if key == "real_time"
+        val t = now().us / 1000000
+        val d = t - v.pl_stats.real_time
+
+        v.pl_stats.real_time = t
+        return unified(out, pair_list(t, d)?)
+
+    if key == "epoch" then return unified(out, Real(real(v.pl_stats.epoch_us) / 1000000.0))
+
+    Err(domain_error("statistics_key", kx, s"statistics/2 has no key $key"))
+end pl_statistics
+
+private pair_list(a: long, b: long) -> Result[Value, Fault]
+    var items: Buf[Value] = buf()
+
+    items.push(Int(a))
+    items.push(Int(b))
+    Ok(list_of(&items, Nil)?)
+
+// -- predicate_property/2 ---------------------------------------------------------------------------
+
+// `'$predicate_properties'(Head, Props)`: the properties of the predicate `Head` calls, which is
+// bound -- `built_in` and `static` for a control construct or builtin, `dynamic` or `static` and
+// `number_of_clauses(N)` for clauses, and `defined` for every one -- or failure, for a predicate
+// nothing defines and for a head that is not callable.
+private pl_predicate_properties(base: usize) -> Result[Answer, Fault]
+    val (name, n) = deref(arg(base, 0)) match
+        Atom(id) -> (atom_name(id), usize(0))
+        Compound(c) -> (atom_name(c.functor), c.args.len())
+        _ -> return Ok(Refuses)
+
+    val v = current()
+    val key = pred_key(name, n)
+    var props: Buf[Value] = buf()
+
+    if is_inline(name, n) || machine_pred(key) || native_id(key).is_some()
+        props.push(atom("built_in"))
+        props.push(atom("static"))
+    else
+        val p = v.preds.get(key) match
+            Some(p) -> p
+            None -> return Ok(Refuses)
+
+        if !p.defined then return Ok(Refuses)
+
+        p.kind match
+            DynamicPred(i) ->
+                if v.db.preds.at(i).abolished then return Ok(Refuses)
+
+                props.push(atom("dynamic"))
+                props.push(clause_count(live_clauses(v, i))?)
+            NativePred ->
+                props.push(atom("built_in"))
+                props.push(atom("static"))
+            Unclaimed -> return Ok(Refuses)
+            _ ->
+                props.push(atom("static"))
+
+                v.pl_clauses.get(key) match
+                    Some(k) -> props.push(clause_count(k)?)
+                    None -> ()
+
+    props.push(atom("defined"))
+    unified(arg(base, 1), list_of(&props, Nil)?)
+end pl_predicate_properties
+
+private clause_count(n: usize) -> Result[Value, Fault]
+    val c = new_compound(intern("number_of_clauses"), 1)?
+
+    c.args.set(0, Int(long(n)))
+    Ok(Compound(c))
+
+// How many clauses dynamic predicate `i` has that a call starting now would see.
+private live_clauses(v: *Vm, i: usize) -> usize
+    var n: usize = 0
+    var at = v.db.preds.at(i).first
+
+    while at != NoClause
+        val c = v.db.clauses.at(at)
+
+        if c.died == 0 then n += 1
+
+        at = c.next
+
+    n
+
+// `'$visible_heads'(Heads)`: a head, its arguments fresh, for every predicate a program or the
+// library has defined, in the standard order of their indicators -- what an unbound head of
+// `predicate_property/2` enumerates. The library's helpers, named `'$...'`, are left out.
+private pl_visible_heads(base: usize) -> Result[Answer, Fault]
+    val v = current()
+    var keys: Buf[Value] = buf()
+    var walk = v.preds.walk()
+
+    loop
+        walk.next() match
+            Some((k, p)) ->
+                if !p.defined then continue
+
+                val shown = p.kind match
+                    ProgramPred -> true
+                    DynamicPred(i) -> !v.db.preds.at(i).abolished
+                    LibraryPred -> true
+                    _ -> false
+
+                val name = key_name(k)
+
+                if shown && !name.starts_with("$") then keys.push(indicator(name, arity_of_key(k))?)
+            None -> break
+
+    sort_by(keys.view(), (a, b) -> compare_terms(a, b) < 0)
+
+    var heads: Buf[Value] = buf()
+
+    for pi in keys.view()
+        val c = deref(pi) match
+            Compound(c) -> c
+            _ -> continue
+
+        val name = deref(c.args.at(0)) match
+            Atom(id) -> id
+            _ -> continue
+
+        val n = deref(c.args.at(1)) match
+            Int(n) -> usize(n)
+            _ -> continue
+
+        if n == 0
+            heads.push(Atom(name))
+        else
+            val h = new_compound(name, n)?
+
+            for j in 0..<n
+                h.args.set(j, Var(new_var()?))
+
+            heads.push(Compound(h))
+
+    unified(arg(base, 0), list_of(&heads, Nil)?)
+end pl_visible_heads
+
+// The arity part of key `name/arity`.
+private arity_of_key(k: string) -> usize
+    val b = k.bytes
+    var i = b.len
+    var n: usize = 0
+    var scale: usize = 1
+
+    while i > 0 && b[i - 1] >= u8('0') && b[i - 1] <= u8('9')
+        n += usize(b[i - 1] - u8('0')) * scale
+        scale *= 10
+        i -= 1
+
+    n

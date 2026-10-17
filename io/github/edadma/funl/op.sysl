@@ -529,6 +529,21 @@ enum Op
     // Pop a ball and throw it again: the fault no pattern of a `catch` wanted.
     Rethrow
 
+    // `setup_call_cleanup/3`'s goal begins: push a `Cleanup` entry in the running frame, whose
+    // cleanup -- run when failure or a throw reaches the entry -- starts at `to` (`cleanup.sysl`).
+    PushCleanup(to: usize)
+
+    // The goal has succeeded: when nothing above the `Cleanup` at the height slot `slot` recorded can
+    // be resumed, the entry is committed away, which runs the cleanup.
+    ExitCleanup(slot: usize)
+
+    // A cleanup a throw ran has finished: the throw it interrupted goes on unwinding.
+    ResumeThrow
+
+    // Return from a frame that was called between two instructions, leaving no value: the end of the
+    // cleanups a commit set running (`cleanup.sysl`).
+    ReturnBare
+
     // `await`: set the running machine aside until the value on top -- a promise, or anything else,
     // which is its own answer -- is ready, leaving it on the operand stack, where the answer is
     // written over it when the machine comes back (`task.sysl`).

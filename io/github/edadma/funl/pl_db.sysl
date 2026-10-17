@@ -525,7 +525,7 @@ private data_term(x: Value, vars: *Map[u64, usize]) -> &Term
         Int(n) -> term(TInt(n), point(0))
         Nil -> term(TNil, point(0))
         Compound(c) ->
-            if c.record != 0 || is_ground(y) then return term(TConst(y), point(0))
+            if c.record != 0 || is_ground(y) then return term(TConst(mark_shared(y)), point(0))
 
             var args: Buf[&Term] = buf()
 
@@ -534,12 +534,33 @@ private data_term(x: Value, vars: *Map[u64, usize]) -> &Term
 
             term(TComp(c.functor, args), point(0))
         Cons(c) ->
-            if is_ground(y) then return term(TConst(y), point(0))
+            if is_ground(y) then return term(TConst(mark_shared(y)), point(0))
 
             term(TCons(data_term(c.head, vars), data_term(c.tail, vars)), point(0))
         _ -> term(TConst(y), point(0))
 
 private is_ground(x: Value) -> bool = variables_of(x, true).len() == 0
+
+// `x`, a ground term a stored clause will answer to every call, with each compound in it marked
+// shared (`CompoundObj.shared`), so that `setarg/3` cannot change the clause through an answer.
+private mark_shared(x: Value) -> Value
+    var at = deref(x)
+
+    loop
+        at match
+            Compound(c) ->
+                c.shared = true
+
+                for a in c.args.view()
+                    mark_shared(a)
+
+                break
+            Cons(p) ->
+                mark_shared(p.head)
+                at = deref(p.tail)
+            _ -> break
+
+    x
 
 // -- A stored clause from what the reader read --------------------------------------------------------
 

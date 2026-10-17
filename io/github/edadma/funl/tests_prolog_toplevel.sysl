@@ -57,6 +57,11 @@ A_QUERY_WITH_SEVERAL_SOLUTIONS_GIVES_THE_NEXT_FOR_EACH_SEMICOLON_AND_ENDS_WHERE_
         "?- member(X, [a, b, c]).\nX = a\n;\nX = b\n;\nX = c.\nstatus: 0")
 
 @test
+STOPPING_AT_AN_ANSWER_RUNS_THE_CLEANUP_OF_A_GOAL_LEFT_OPEN()
+    assert_eq(session([], ["setup_call_cleanup(true, member(X, [a, b]), writeln(c)).", ""]),
+        "?- setup_call_cleanup(true, member(X, [a, b]), writeln(c)).\nX = a\n\nc\nstatus: 0")
+
+@test
 ANYTHING_BUT_A_SEMICOLON_STOPS_AT_THE_ANSWER_GIVEN()
     assert_eq(session([], ["member(X, [a, b]).", "", "X = 1."]),
         "?- member(X, [a, b]).\nX = a\n\n?- X = 1.\nX = 1.\nstatus: 0")

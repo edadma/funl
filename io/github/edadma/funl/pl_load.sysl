@@ -94,8 +94,8 @@ predicate_chunk(name: string, arity: usize) -> usize
         Some(p) -> return p.chunk
         None -> ()
 
-    if key == "catch/3"
-        val at = catch_chunk()
+    if machine_pred(key)
+        val at = machine_chunk(key)
 
         v.preds.put(key, PredInfo(at, true, NativePred, nowhere()))
         return at
@@ -157,7 +157,7 @@ define_predicate(key: string, e: Emit, origin: Origin) -> Result[unit, string]
     Ok(())
 
 // Whether `key` is a builtin's -- `catch/3` among them -- which no program can define.
-is_builtin(key: string) -> bool = key == "catch/3" || native_id(key).is_some()
+is_builtin(key: string) -> bool = machine_pred(key) || native_id(key).is_some()
 
 // Why `key` cannot be given the definition `origin`, or `None` when it can: a definition of a
 // program's or a dynamic predicate's is already there, made by another file. The library's gives way,
@@ -427,7 +427,9 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
             Some(p) ->
                 claim(key, origins.at(i))
                 load_dynamic(report, p, g.clauses, src.name)
-            None -> define_predicate(key, codes.at(i), origins.at(i)).unwrap()
+            None ->
+                define_predicate(key, codes.at(i), origins.at(i)).unwrap()
+                current().pl_clauses.put(key, g.clauses.len())
 
     if report.has_errors() then return Err(why)
 

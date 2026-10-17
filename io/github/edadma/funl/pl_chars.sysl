@@ -2,6 +2,8 @@ module io.github.edadma.funl
 
 import sh.sysl.parsing.Span
 import sysl.buf.{Buf, buf}
+import sysl.fs.canonicalize
+import sysl.path.normalize
 import sysl.text.{StrBuilder, char_from_u32, chars_of, from_utf8_unchecked, str_builder}
 
 // Character conversion (`prolog.md` § "Character conversion"): `char_conversion/2`,
@@ -245,8 +247,15 @@ private pl_discontiguous(spec: Value) -> Result[Value, Fault]
     indicators_of(spec, "discontiguous/1")?
     Ok(Unit)
 
-// The absolute path of file `name`.
-private loaded_path(name: string) -> string = if name.starts_with("/") then name else s"${working_dir()}/$name"
+// The absolute path of file `name`, as one file has only one: the filesystem's own answer, every
+// `.`, `..` and symbolic link resolved -- or, for a file that does not exist, the path with its `.`
+// and `..` parts and repeated separators taken out.
+private loaded_path(name: string) -> string
+    val whole = if name.starts_with("/") then name else s"${working_dir()}/$name"
+
+    canonicalize(whole) match
+        Ok(p) -> p
+        Err(_) -> normalize(whole)
 
 // Whether the file `x` names has been loaded: what `ensure_loaded/1` asks before it consults.
 private was_loaded(x: Value) -> bool

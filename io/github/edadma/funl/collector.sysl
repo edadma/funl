@@ -315,6 +315,15 @@ roots(h: *gc.Heap)
     // Every stream Prolog has open, which it reaches by alias or as the current input or output.
     for s in v.pl_io.streams.view()
         mark_value(h, s.handle)
+
+    // The cleanup goals a commit queued, and each throw set aside while a cleanup runs: its ball and
+    // the frame it was thrown in (`cleanup.sysl`).
+    mark_values(h, v.cleanups.pending)
+
+    for u in v.cleanups.unwinds.view()
+        mark_value(h, u.ball)
+
+        if u.inside != null then gc.mark(h, ptr_cast(u.inside))
 end roots
 
 // What one machine can still reach: its operands, its control stack and the cells it saved, its scan
@@ -355,6 +364,9 @@ private mark_machine(h: *gc.Heap, stack: Buf[Value], saved: Buf[Value], control:
             Capture(_, _) -> ()
             Global(key, old, _) ->
                 mark_value(h, key)
+                mark_value(h, old)
+            Setarg(c, _, old) ->
+                gc.mark(h, ptr_cast(c))
                 mark_value(h, old)
 
     // The code running, and through it the static and dynamic chains.

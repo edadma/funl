@@ -1,0 +1,245 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+
+// `setup_call_cleanup/3`'s machinery (`prolog.md` § "Cleanup"): a goal whose cleanup runs exactly
+// once, when the goal is finished with -- it exits leaving nothing to resume, it fails, it raises,
+// or the choice points it left are cut away.
+//
+// **The goal runs under a `Cleanup` entry, in a chunk of its own** (`'$call_cleanup'/2`, which the
+// library's `setup_call_cleanup/3` calls once the setup has succeeded):
+//
+//     Frame(1); SaveHeight(0); PushCleanup(f); LoadArg(0); CallGoal(0); ExitCleanup(0); Return
+//     f: PushConst('$cleanup_once'); LoadArg(1); CallGoal(1); Pop; Fail
+//     t: PushConst('$cleanup_quiet'); LoadArg(1); CallGoal(1); Pop; ResumeThrow
+//
+// Each way the goal can be finished with reaches the entry its own way:
+//
+// - **Failure** pops the entry as it pops any other, and resumes at `f`, which runs the cleanup and
+//   fails on. The trail has been undone to the entry's height, so the cleanup sees no binding the
+//   goal made.
+// - **A throw** unwinding past the entry sets the throw aside (`Unwind`) and resumes at `t`, which
+//   runs the cleanup with every error it raises ignored, then `ResumeThrow` takes the throw up again
+//   where it stopped: from the frame it was thrown in, with the traps it had passed, so the cleanup's
+//   frame cannot catch what its own callers could not. The bindings are undone here too.
+// - **A commit** -- a cut, the end of `once/1`, `\+`, `findall/3`, or `ExitCleanup` finding the goal
+//   left nothing to resume -- discards the entry in `cut_to`, which queues the cleanup goal; the
+//   instruction loop runs the queue before the next instruction, in a frame called there and
+//   returning there with no value. The goal's bindings stand, as the commit keeps them.
+//
+// After an exit, a failure or a commit the cleanup runs as `once/1` would, its failure ignored and
+// its error raised in the goal's place; after a throw its error is ignored and the goal's ball goes
+// on. Both are SWI-Prolog's rules.
+
+// How far the throw path `t` stands past the failure path `f` in `'$call_cleanup'/2`'s chunk.
+private const CleanupThrowAt: usize = 5
+
+// A throw set aside while the cleanup of an entry it unwound past runs: the ball, the frame it was
+// thrown in, and the heights of the `Untrap` entries it had passed (`throw_ball`).
+struct Unwind
+    ball: Value
+    inside: *FrameObj
+    passed: Buf[usize]
+
+// The cleanups queued by commits and not yet run, the throws set aside, whether the next throw is
+// one of those taken up again, and the chunks this file builds, made the first time each is wanted.
+struct Cleanups
+    pending: Buf[Value]
+    unwinds: Buf[Unwind]
+    resuming: bool
+    goal_chunk: usize
+    runner: usize
+    failing_runner: usize
+
+no_cleanups() -> Cleanups = Cleanups(buf(), buf(), false, NoCleanupChunk, NoCleanupChunk, NoCleanupChunk)
+
+private const NoCleanupChunk: usize = 4294967295
+
+// Whether `key` is a predicate the machine builds as a chunk of control instructions rather than a
+// builtin or clauses: `catch/3` and `'$call_cleanup'/2`.
+machine_pred(key: string) -> bool = key == "catch/3" || key == "$call_cleanup/2"
+
+// The chunk of machine predicate `key`.
+machine_chunk(key: string) -> usize = if key == "catch/3" then catch_chunk() else call_cleanup_chunk()
+
+// The chunk of `'$call_cleanup'(Goal, Cleanup)`, laid out as above.
+private call_cleanup_chunk() -> usize
+    val v = current()
+
+    if v.cleanups.goal_chunk != NoCleanupChunk then return v.cleanups.goal_chunk
+
+    var e = emit("$call_cleanup/2")
+    val f = e.label()
+    val once = e.constant(atom("$cleanup_once"))
+    val quiet = e.constant(atom("$cleanup_quiet"))
+
+    e.op(Frame(1))
+    e.op(SaveHeight(0))
+    e.op(PushCleanup(f))
+    e.op(LoadArg(0))
+    e.op(CallGoal(0))
+    e.op(ExitCleanup(0))
+    e.op(Return)
+
+    val f_at = e.code.len()
+
+    e.place(f)
+    e.op(PushConst(once))
+    e.op(LoadArg(1))
+    e.op(CallGoal(1))
+    e.op(Pop)
+    e.op(Fail)
+
+    if e.code.len() - f_at != CleanupThrowAt then panic("'$call_cleanup' has its throw path in the wrong place")
+
+    e.op(PushConst(quiet))
+    e.op(LoadArg(1))
+    e.op(CallGoal(1))
+    e.op(Pop)
+    e.op(ResumeThrow)
+
+    val at = finish(e).unwrap()
+
+    v.cleanups.goal_chunk = at
+    at
+end call_cleanup_chunk
+
+// `PushCleanup(to)`: a `Cleanup` entry in the running frame, which saves no operand cells.
+push_cleanup(v: *Vm, to: usize)
+    push_entry(v, Cleanup, to, v.stack.len())
+
+// `ExitCleanup(slot)`: the goal has succeeded. When nothing above its entry can be resumed, the goal
+// is finished with: the entry is committed away, which queues the cleanup.
+exit_cleanup(v: *Vm, slot: usize) -> Result[unit, string]
+    val h = saved_height(v, slot)?
+
+    if h >= v.control.len() || v.control.at(h).kind != Cleanup then return Ok(())
+
+    for i in h + 1..<v.control.len()
+        val k = v.control.at(i).kind
+
+        if k == Choice || k == Mark then return Ok(())
+
+    cut_to(v, h, false)
+    Ok(())
+
+// Queue the cleanup goal of every `Cleanup` entry from height `h` up, the innermost first: what a
+// commit to `h` is about to discard.
+queue_cleanups(v: *Vm, h: usize)
+    var i = v.control.len()
+
+    while i > h
+        i -= 1
+
+        val e = v.control.at(i)
+
+        if e.kind == Cleanup && e.frame.args.len() == 2 then v.cleanups.pending.push(e.frame.args.at(1))
+
+// Whether commits have queued cleanups that have not run.
+cleanups_pending(v: *Vm) -> bool = v.cleanups.pending.len() > 0
+
+// Run the queued cleanups now, between two instructions: a frame of the runner called with the
+// queue as a list, which returns to the next instruction leaving nothing on the operand stack -- or,
+// `failing`, where the instruction that queued them failed, fails on once they are done.
+start_cleanups(v: *Vm, failing: bool) -> Result[unit, Fault]
+    val goals = list_of(&v.cleanups.pending, Nil) match
+        Ok(l) -> l
+        Err(e) -> return Err(Broken(e))
+
+    v.cleanups.pending.clear()
+    v.stack.push(goals)
+    call(v, runner_chunk(v, failing), 1)
+
+// The runner: `'$cleanup_all'(Goals)`, then a bare return or a failure.
+private runner_chunk(v: *Vm, failing: bool) -> usize
+    val have = if failing then v.cleanups.failing_runner else v.cleanups.runner
+
+    if have != NoCleanupChunk then return have
+
+    var e = emit(if failing then "cleanups, failing" else "cleanups")
+    val all = e.constant(atom("$cleanup_all"))
+
+    e.op(Frame(0))
+    e.op(PushConst(all))
+    e.op(LoadArg(0))
+    e.op(CallGoal(1))
+    e.op(Pop)
+    e.op(if failing then Fail else ReturnBare)
+
+    val at = finish(e).unwrap()
+
+    if failing then v.cleanups.failing_runner = at else v.cleanups.runner = at
+
+    at
+
+// The queued cleanups run as a run of their own, after the top level has committed to an answer and
+// no instruction is left to run them before.
+run_cleanups_alone(v: *Vm)
+    if !cleanups_pending(v) then return
+
+    val goals = list_of(&v.cleanups.pending, Nil) match
+        Ok(l) -> l
+        Err(_) -> return
+
+    v.cleanups.pending.clear()
+
+    var e = emit("cleanups")
+    val all = e.constant(atom("$cleanup_all"))
+    val list = e.constant(goals)
+
+    e.op(Frame(0))
+    e.op(PushConst(all))
+    e.op(PushConst(list))
+    e.op(CallGoal(1))
+    e.op(Halt)
+
+    val at = finish(e) match
+        Ok(at) -> at
+        Err(_) -> return
+
+    run(v, at)
+
+// A throw reaching the `Cleanup` entry just popped: set the throw aside and resume at the entry's
+// throw path. The entry has been restored, so the running frame is the goal's call.
+cleanup_unwound(v: *Vm, e: Entry, ball: Value, inside: *FrameObj, passed: Buf[usize])
+    v.cleanups.unwinds.push(Unwind(ball, inside, passed))
+    v.ip = e.ip + CleanupThrowAt
+
+// `ResumeThrow`: the ball of the throw set aside last, which `throw_ball` takes up where it stopped.
+resume_throw(v: *Vm) -> Result[Value, string]
+    val n = v.cleanups.unwinds.len()
+
+    if n == 0 then return Err("ResumeThrow with no throw set aside")
+
+    v.cleanups.resuming = true
+    Ok(v.cleanups.unwinds.at(n - 1).ball)
+
+// The throw `throw_ball` is to take up, if it is one set aside: popped, and the next throw is a new one.
+resumed_throw(v: *Vm) -> Option[Unwind]
+    if !v.cleanups.resuming then return None
+
+    v.cleanups.resuming = false
+    v.cleanups.unwinds.pop()
+
+// `ReturnBare`: return from a frame called between two instructions, pushing no value.
+ret_bare(v: *Vm) -> Result[unit, string]
+    val f = v.frame
+
+    if f == null || f.caller == null then return Err("ReturnBare with no caller to return to")
+
+    if v.control.len() > f.entry
+        push_entry(v, Restore, 0, floor_of(v, f.caller_mark))
+
+    if v.stack.len() > f.base then v.stack.truncate(f.base)
+
+    v.mark = f.caller_mark
+    v.ip = f.return_ip
+    v.frame = f.caller
+    v.code = f.caller.chunk
+    Ok(())
+
+// A run begins with nothing queued and no throw set aside.
+reset_cleanups(v: *Vm)
+    v.cleanups.pending.clear()
+    v.cleanups.unwinds.clear()
+    v.cleanups.resuming = false

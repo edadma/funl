@@ -372,6 +372,22 @@ struct Vm
 
     // The absolute paths of the files `consult/1` and `ensure_loaded/1` have loaded.
     pl_loaded: Buf[string]
+
+    // How many clauses each static Prolog predicate a file or the library loaded has, by key, for
+    // `predicate_property/2`'s `number_of_clauses(N)`.
+    pl_clauses: Map[string, usize]
+
+    // -- setup_call_cleanup/3 (`cleanup.sysl`) ------------------------------------------------------
+
+    // The cleanup goals a commit has discarded and the instruction loop is yet to run, and the throws
+    // waiting while a cleanup runs. Roots.
+    cleanups: Cleanups
+
+    // -- statistics/2 (`pl_swi.sysl`) ---------------------------------------------------------------
+
+    // When the machine was made, and the values `statistics/2` last answered for each key that
+    // reports a difference: the clock's microseconds, the CPU's milliseconds.
+    pl_stats: PlStats
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -404,7 +420,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
         buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", 0, 0, 0, heap_bytes, buf(), buf(), null, null, 0, Undefined,
-        no_event_keys(), buf(), (wait) -> terminal_key(wait), "", false, buf(), pl_io(), buf(), buf())
+        no_event_keys(), buf(), (wait) -> terminal_key(wait), "", false, buf(), pl_io(), buf(), buf(), map(), no_cleanups(), pl_stats())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

@@ -38,6 +38,10 @@ enum Undo
     // anything that could fail back past it is still on the control stack.
     Global(key: Value, old: Value, had: bool)
 
+    // `setarg/3` overwrote argument `i` of compound `c`, which held `old`. Undone like a binding, as
+    // `Global` is.
+    Setarg(c: *CompoundObj, i: usize, old: Value)
+
 // Bind an unbound variable.
 //
 // **Conditional trailing**: a variable made after the newest control entry needs no record, since no
@@ -189,6 +193,7 @@ undo_trail_to(v: *Vm, h: usize)
             Some(ScanClosed(subject, pos)) -> v.scans.push(ScanSaved(subject, pos))
             Some(Capture(group, old)) -> v.captures.set(group, old)
             Some(Global(key, old, had)) -> put_element_back(v.pl_globals, key, old, had)
+            Some(Setarg(c, i, old)) -> c.args.set(i, old)
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
@@ -223,6 +228,7 @@ commit_trail(v: *Vm, h: usize, ends: bool)
             ScanClosed(_, _) -> !ends
             Capture(_, _) -> true
             Global(_, _, _) -> true
+            Setarg(_, _, _) -> true
 
         if keep
             v.trail.set(kept, u)

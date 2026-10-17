@@ -1555,6 +1555,163 @@ loading
 loading
 ```
 
+`./a.pl`, `a.pl`, `sub/../a.pl` and a symbolic link to it are one file: files are told apart by
+the path the filesystem resolves.
+
+## Cleanup
+
+`setup_call_cleanup(Setup, Goal, Cleanup)` runs `once(Setup)`, then `Goal`, and runs `Cleanup`
+exactly once, when `Goal` is finished with: it succeeds leaving nothing to resume, it fails, it
+raises, or the choice points it left are cut away. `call_cleanup(Goal, Cleanup)` is the same with
+no setup. The rules are SWI-Prolog's: after a success, a failure or a cut the cleanup runs once, its
+failure ignored and its error raised; after a throw its error is ignored, and the goal's bindings
+are undone before it runs.
+
+```prolog
+:- setup_call_cleanup(write(open), (write(' work'), nl), (write(closed), nl)).
+:- setup_call_cleanup(true, member(X, [1, 2, 3]), (write(cleaned(X)), nl)), X >= 2, !,
+   write(stopped_at(X)), nl.
+:- catch(setup_call_cleanup(true, throw(oops), (write(cleaned), nl)), E, (write(caught(E)), nl)).
+:- \+ setup_call_cleanup(true, fail, (write(cleaned_after_failure), nl)).
+```
+
+```output
+open work
+closed
+cleaned(2)
+stopped_at(2)
+cleaned
+caught(oops)
+cleaned_after_failure
+```
+
+## Output into a term
+
+`with_output_to(Sink, Goal)` runs `Goal` once with the current output a stream to memory, and
+unifies what it wrote with the sink: `atom(A)`, `string(S)`, `codes(Cs)`, `codes(Cs, Tail)`,
+`chars(Cs)` or `chars(Cs, Tail)`. The output is put back however the goal ends. `format/3` is
+`format/2` onto a stream or into such a sink; `tab/2` writes spaces on a stream.
+
+```prolog
+:- with_output_to(string(S), (write(a), tab(2), print(f('X')))), writeq(S), nl.
+:- format(atom(A), "~w-~a", [1, x]), writeq(A), nl.
+:- format(codes(Cs, [0'!]), "hi", []), atom_codes(A, Cs), writeq(A), nl.
+:- format(user_output, "~a~t~8|~w~n", [name, value]).
+```
+
+```output
+"a  f('X')"
+'1-x'
+'hi!'
+name    value
+```
+
+`read_line_to_string(S, Line)` and `read_line_to_codes(S, Line)` read the next line, without its
+newline (or a carriage return before it), and give `end_of_file` once the stream has no more.
+
+```prolog
+:- open('docs/reference/prolog/lines.txt', write, S), write(S, 'one\ntwo'), close(S).
+:- open('docs/reference/prolog/lines.txt', read, S),
+   read_line_to_string(S, A), read_line_to_codes(S, B), read_line_to_string(S, C),
+   close(S), writeq([A, B, C]), nl.
+```
+
+```output
+["one",[116,119,111],end_of_file]
+```
+
+## Text and characters
+
+`atomic_list_concat(List, Atom)` joins the texts of a list of atomic values; with a separator,
+`atomic_list_concat(List, Sep, Atom)` puts it between each two, and where the list is not yet whole
+it splits `Atom` at every `Sep` instead.
+
+```prolog
+:- atomic_list_concat([a, 1, "b", 2.5], A), writeq(A), nl.
+:- atomic_list_concat([x, y, z], ', ', A), writeq(A), nl.
+:- atomic_list_concat(Parts, '/', 'usr/local/bin'), writeq(Parts), nl.
+```
+
+```output
+'a1b2.5'
+'x, y, z'
+[usr,local,bin]
+```
+
+`char_type(C, Type)` and `code_type(C, Type)` classify a character -- a one-character atom, or a
+code -- by SWI-Prolog's types: `alnum`, `alpha`, `csym`, `csymf`, `ascii`, `white`, `cntrl`,
+`digit(W)`, `digit`, `decimal(W)`, `decimal`, `space`, `end_of_line`, `newline`, `lower`,
+`lower(U)`, `upper`, `upper(L)`, `punct`, `graph`, `print`, `period`, `quote`, `xdigit(W)`,
+`to_lower(U)`, `to_upper(L)`, `prolog_var_start`, `prolog_atom_start`,
+`prolog_identifier_continue`, `prolog_symbol` and `end_of_file`. Letters, digits and spaces are
+Unicode's. An unbound character enumerates the characters of a type, an unbound type the types of
+a character.
+
+```prolog
+:- findall(C-W, char_type(C, digit(W)), L), length(L, N), writeq(N), nl.
+:- char_type('Σ', upper(L)), char_type('é', alpha), writeq(L), nl.
+:- code_type(0'7, digit(W)), writeq(W), nl.
+:- char_type(X, to_lower('Q')), writeq(X), nl.
+```
+
+```output
+10
+'σ'
+7
+q
+```
+
+## Terms in place, predicates, and the clock
+
+`setarg(N, Term, Value)` changes argument `N` of a compound in place, and puts it back when
+failure passes back over the change; `nb_setarg/3` keeps a copy of `Value` for good. A term that a
+stored clause shares with every call may not be changed: copy it first.
+
+```prolog
+:- T = f(a, b), setarg(1, T, x), writeq(T), nl.
+:- T = f(a, b), (setarg(1, T, x), fail ; true), writeq(T), nl.
+:- T = f(a, b), (nb_setarg(1, T, x), fail ; true), writeq(T), nl.
+```
+
+```output
+f(x,b)
+f(a,b)
+f(x,b)
+```
+
+`predicate_property(Head, Property)` gives `built_in`, `dynamic` or `static`,
+`number_of_clauses(N)` for a predicate of clauses, and `defined`; an unbound head enumerates the
+predicates a program and the library define. `max_member/2` and `min_member/2` are the greatest and
+least element in the standard order of terms.
+
+```prolog
+colour(red).
+colour(green).
+
+:- findall(P, predicate_property(colour(_), P), Ps), writeq(Ps), nl.
+:- predicate_property(atom_length(_, _), built_in), write(built_in), nl.
+:- max_member(M, [3, b, f(x), "s"]), min_member(N, [3, b, f(x), "s"]), writeq(M / N), nl.
+```
+
+```output
+[static,number_of_clauses(2),defined]
+built_in
+f(x)/3
+```
+
+`statistics(Key, Value)` answers SWI-Prolog's `runtime` and `walltime` (`[Milliseconds,
+SinceLast]`), `real_time` (`[Seconds, SinceLast]`), `cputime` and `process_cputime` (seconds, a
+float) and `epoch`; FunL counts no inferences. `get_time(T)` is the time now, in seconds since the
+epoch, a float.
+
+```prolog
+:- statistics(runtime, [T, _]), integer(T), get_time(Now), float(Now), write(ok), nl.
+```
+
+```output
+ok
+```
+
 ## The builtin set
 
 Every predicate there is, by group. Those marked *(library)* are written in Prolog and loaded into
@@ -1563,24 +1720,25 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 
 | group | predicates |
 |---|---|
-| control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0`, `halt/1`, `between/3`, `repeat/0` *(library)* |
+| control | `true/0`, `fail/0`, `false/0`, `!/0`, `,/2`, `;/2`, `->/2`, `*->/2`, `\+/1`, `not/1`, `call/1-8`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0`, `halt/1`, `between/3`, `repeat/0` *(library)*, `setup_call_cleanup/3` *(library)*, `call_cleanup/2` *(library)* |
 | unification and comparison | `=/2`, `\=/2`, `unify_with_occurs_check/2`, `==/2`, `\==/2`, `@</2`, `@>/2`, `@=</2`, `@>=/2`, `=@=/2`, `\=@=/2`, `compare/3`, `subsumes_term/2`, `unifiable/3`, `?=/2` |
 | type tests | `var/1`, `nonvar/1`, `atom/1`, `number/1`, `integer/1`, `float/1`, `rational/1`, `atomic/1`, `compound/1`, `callable/1`, `is_list/1`, `string/1`, `ground/1`, `cyclic_term/1`, `acyclic_term/1` |
-| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2`, `numbervars/3`, `numbervars/4` |
+| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2`, `numbervars/3`, `numbervars/4`, `setarg/3`, `nb_setarg/3` |
 | arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3`, `rational/3` |
-| database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1` *(library)*, `retractall/1` *(library)*, `abolish/1`, `clause/2`, `dynamic/1`, `current_predicate/1` *(library)* |
+| database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1` *(library)*, `retractall/1` *(library)*, `abolish/1`, `clause/2`, `dynamic/1`, `current_predicate/1` *(library)*, `predicate_property/2` *(library)* |
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3`, `aggregate_all/3` *(library)* |
-| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `upcase_atom/2`, `downcase_atom/2`, `term_to_atom/2`, `atom_to_term/3` |
+| atoms and text | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `number_chars/2`, `upcase_atom/2`, `downcase_atom/2`, `term_to_atom/2`, `atom_to_term/3`, `atomic_list_concat/2`, `atomic_list_concat/3`, `char_type/2`, `code_type/2` |
 | strings | `atom_string/2`, `string_to_atom/2` *(library)*, `string_chars/2`, `string_codes/2`, `string_code/3`, `string_length/2`, `string_concat/3`, `sub_string/5`, `split_string/4`, `string_upper/2`, `string_lower/2`, `number_string/2`, `term_string/2` |
-| lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
+| lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `max_member/2`, `min_member/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
 | lists, built in | `length/2`, `msort/2`, `sort/2`, `keysort/2` |
 | global variables | `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2` |
-| output | `write/1-2`, `writeln/1`, `print/1-2`, `writeq/1-2`, `write_canonical/1-2`, `write_term/2-3`, `nl/0`, `nl/1`, `tab/1`, `put_char/1-2`, `put_code/1-2`, `put_byte/1-2`, `format/1`, `format/2` |
-| input | `read/1-2`, `read_term/2-3`, `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `get_byte/1-2`, `peek_byte/1-2` |
+| output | `write/1-2`, `writeln/1`, `print/1-2`, `writeq/1-2`, `write_canonical/1-2`, `write_term/2-3`, `nl/0`, `nl/1`, `tab/1`, `tab/2`, `put_char/1-2`, `put_code/1-2`, `put_byte/1-2`, `format/1`, `format/2`, `format/3` *(library)*, `with_output_to/2` *(library)* |
+| input | `read/1-2`, `read_term/2-3`, `read_line_to_string/2`, `read_line_to_codes/2`, `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `get_byte/1-2`, `peek_byte/1-2` |
 | streams | `open/3`, `open/4`, `close/1`, `close/2`, `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`, `flush_output/0-1`, `stream_property/2` *(library)*, `at_end_of_stream/0-1`, `set_stream_position/2` |
 | flags and operators | `op/3`, `current_op/3` *(library)*, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)*, `char_conversion/2`, `current_char_conversion/2` *(library)* |
 | grammar rules | `phrase/2`, `phrase/3` *(library)*, `dcg_translate_rule/2` |
 | loading | `consult/1`, `ensure_loaded/1` *(library)*, `discontiguous/1` |
+| system | `statistics/2`, `get_time/1` |
 
 Four directives are carried out by the loader rather than called: `:- dynamic(…)`, `:- op(…)`,
 `:- initialization(Goal)`, and, where FunL is present, `:- import(File)`. `:- char_conversion(…)`

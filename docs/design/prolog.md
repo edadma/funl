@@ -363,9 +363,72 @@ a goal alike, as in SWI-Prolog.
 
 **`ensure_loaded(File)` (ISO §7.4.2.8)** consults `File` unless this machine has already loaded it —
 by `consult/1` or by `ensure_loaded/1` — and is a no-op if it has. Files are told apart by their
-absolute path (the working directory before a relative one). `consult/1` loads a file again whether
+absolute path (the working directory before a relative one) as the filesystem resolves it — every
+`.`, `..` and symbolic link taken out — so `./a.pl`, `a.pl`, `sub/../a.pl` and a link to it are one
+file; a path to no file has its `.` and `..` parts and repeated separators taken out by string
+surgery instead. `consult/1` loads a file again whether
 or not it was loaded, as before; a file whose load was refused is not counted as loaded. Its errors
 are `consult/1`'s. It is a directive, run in its place among a file's directives, and a goal alike.
+
+**A stream to memory** is what `with_output_to/2` and `format/3` write into: a stream record whose
+handle is a `file` handle with no file behind it (every file method finds its file gone), and which
+keeps what is written in the record (`PlStream.held`). It is the current output while the goal runs,
+so `current_output/1` names it and every output builtin writes to it, the column `format/2` counts
+from included. `with_output_to(Sink, Goal)` runs `Goal` once; on success the text is unified with
+the sink — `atom(A)`, `string(S)`, `codes(Cs)`, `codes(Cs, Tail)`, `chars(Cs)`, `chars(Cs, Tail)` —
+and on success, failure and a throw alike the current output is put back. A stream or an alias is a
+sink too (SWI-Prolog takes one): the goal runs with it the current output. `format(Out, F, A)` is
+`format(F, A)` run so, onto a stream or into a sink. Their errors are SWI-Prolog's: an unbound sink
+`instantiation_error`, an atom that is no alias `existence_error(stream, A)`, an input stream
+`permission_error(output, stream, S)`, any other term `type_error(output, T)`.
+
+## Cleanup
+
+**`setup_call_cleanup(Setup, Goal, Cleanup)` runs `once(Setup)`, then `Goal`, and runs `Cleanup`
+exactly once when `Goal` is finished with**: it exits leaving nothing to resume, it fails, it
+raises, or the choice points it left are cut away — by `!`, or by the end of `once/1`, `\+`,
+`->`, `findall/3` and the like. `call_cleanup(Goal, Cleanup)` is the same with no setup. These are
+SWI-Prolog's rules, and its answers are matched case by case (`tests_prolog_cleanup.sysl`).
+
+**The goal runs under a `Cleanup` entry on the control stack**, in a chunk of its own
+(`'$call_cleanup'/2`, `cleanup.sysl`), as `catch/3`'s goal runs under a `Catch`:
+
+    Frame(1); SaveHeight(0); PushCleanup(f); LoadArg(0); CallGoal(0); ExitCleanup(0); Return
+    f: PushConst('$cleanup_once'); LoadArg(1); CallGoal(1); Pop; Fail
+    t: PushConst('$cleanup_quiet'); LoadArg(1); CallGoal(1); Pop; ResumeThrow
+
+Each way the goal can be finished with reaches the entry its own way, and the machine needed one new
+mechanism for the third:
+
+- **Failure** pops the entry as it pops a `Choice`, and resumes at `f`: the cleanup, then failing on.
+  The trail is undone to the entry's height first, so the cleanup sees none of the goal's bindings.
+- **A throw** unwinding past the entry sets itself aside — the ball, the frame it was thrown in, the
+  traps it had passed — and resumes at `t`; `ResumeThrow` takes it up again exactly where it
+  stopped, so the cleanup's frame cannot catch what the thrower's callers could not. Bindings are
+  undone here too.
+- **A commit** — `cut_to`, which every cut, every end of a bounded expression and `ExitCleanup`
+  itself go through — queues the cleanup goal of each `Cleanup` entry it discards, the innermost
+  first. **The instruction loop runs the queue before the next instruction**: it calls a small
+  runner chunk in a frame of its own, whose `ReturnBare` returns to that next instruction leaving
+  nothing on the operand stack (or, where the instruction failed, fails on). The commit keeps the
+  goal's bindings, and so does the cleanup. A query the top level stops at is committed in `settle`,
+  outside the loop, so it runs the queue as a run of its own.
+
+`ExitCleanup` decides "nothing to resume": when no `Choice` or `Mark` stands above the entry, it
+commits the entry away. On backtracking into the goal it runs again, so a goal whose last solution
+is deterministic is cleaned up at that exit, as in SWI-Prolog. After an exit, a failure or a commit
+the cleanup runs as `once/1` would, its failure ignored and its error raised in the goal's place;
+after a throw its error is ignored and the goal's ball goes on. The goal and the cleanup are checked
+before the setup runs: an unbound one is `instantiation_error`, one that is no callable term
+`type_error(callable, G)`; the setup's errors are `once/1`'s.
+
+**`setarg/3` changes a compound in place, undone on backtracking** (a `Setarg` trail entry, undone
+like a binding), and `nb_setarg/3` stores a copy for good. **A term a stored clause shares with every
+call is refused**: `assert/1` keeps a clause's ground parts as one term that every call answers
+rather than copies (`pl_db.sysl`), so changing such a term would change the clause. Those terms are
+marked shared (`CompoundObj.shared`), and `setarg/3` on one, or on a FunL record, is
+`permission_error(modify, shared_term, T)`; a `copy_term/2` of it may be changed. SWI-Prolog copies
+a clause's terms on every call, so the case does not arise there.
 
 ## The builtin set
 
@@ -374,21 +437,26 @@ the standard groups them:
 
 | group | predicates |
 |---|---|
-| control | `call/1-8`, `not/1`, `\+/1`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0-1`, `between/3`, `repeat/0` |
+| control | `call/1-8`, `not/1`, `\+/1`, `once/1`, `ignore/1`, `forall/2`, `catch/3`, `throw/1`, `halt/0-1`, `between/3`, `repeat/0`, `setup_call_cleanup/3`, `call_cleanup/2` |
 | unification and comparison | `=/2`, `\=/2`, `unify_with_occurs_check/2`, `==/2`, `\==/2`, `@</2` and the other three, `compare/3` |
 | type tests | `var/1`, `nonvar/1`, `atom/1`, `number/1`, `integer/1`, `float/1`, `atomic/1`, `compound/1`, `callable/1`, `is_list/1`, `string/1`, `ground/1` |
-| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2` |
+| terms | `functor/3`, `arg/3`, `=../2`, `copy_term/2`, `term_variables/2`, `setarg/3`, `nb_setarg/3` |
 | arithmetic | `is/2`, `=:=/2`, `=\=/2`, `</2`, `>/2`, `=</2`, `>=/2`, `succ/2`, `plus/3` |
-| database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1`, `retractall/1`, `abolish/1`, `clause/2`, `dynamic/1` |
+| database | `assert/1`, `asserta/1`, `assertz/1`, `retract/1`, `retractall/1`, `abolish/1`, `clause/2`, `dynamic/1`, `predicate_property/2` (`built_in`, `dynamic`, `static`, `defined`, `number_of_clauses(N)`) |
 | all solutions | `findall/3`, `findall/4`, `bagof/3`, `setof/3` (with `^`), `aggregate_all/3` (`count`, `sum`, `max`, `bag`, `set`) |
-| atoms and strings | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `atom_string/2`, `string_concat/3`, `string_chars/2`, `string_codes/2`, `split_string/4`, `sub_string/5`, `upcase_atom/2`, `term_to_atom/2` |
-| lists (library) | `append/3`, `member/2`, `memberchk/2`, `length/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `msort/2`, `sort/2`, `sort/4`, `predsort/3`, `sum_list/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `maplist/2-5`, `foldl/4-6`, `nb_getval/2`, `b_getval/2` |
-| input and output | `write/1-2`, `writeln/1`, `print/1-2`, `write_canonical/1-2`, `writeq/1-2`, `write_term/2-3`, `nl/0`, `tab/1`, `format/1-2`, `read_term/2-3`, `read/1-2` |
+| atoms and strings | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `atom_string/2`, `string_concat/3`, `string_chars/2`, `string_codes/2`, `split_string/4`, `sub_string/5`, `upcase_atom/2`, `term_to_atom/2`, `atomic_list_concat/2-3` (splitting where the list is not whole), `char_type/2`, `code_type/2` |
+| lists (library) | `append/3`, `member/2`, `memberchk/2`, `length/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `msort/2`, `sort/2`, `sort/4`, `predsort/3`, `sum_list/2`, `max_list/2`, `min_list/2`, `max_member/2`, `min_member/2`, `list_to_set/2`, `exclude/3`, `include/3`, `maplist/2-5`, `foldl/4-6`, `nb_getval/2`, `b_getval/2` |
+| input and output | `write/1-2`, `writeln/1`, `print/1-2`, `write_canonical/1-2`, `writeq/1-2`, `write_term/2-3`, `nl/0`, `tab/1-2`, `format/1-3`, `with_output_to/2`, `read_term/2-3`, `read/1-2`, `read_line_to_string/2`, `read_line_to_codes/2` |
 | streams | `open/3-4`, `close/1-2`, `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`, `flush_output/0-1`, `stream_property/2`, `at_end_of_stream/0-1`, `set_stream_position/2` |
 | character and byte I/O | `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `put_char/1-2`, `put_code/1-2`, `nl/1`, `get_byte/1-2`, `peek_byte/1-2`, `put_byte/1-2` |
 | flags and operators | `op/3`, `current_op/3`, `set_prolog_flag/2`, `current_prolog_flag/2`, `char_conversion/2`, `current_char_conversion/2` |
 | grammar rules | `-->` translation at load time, `phrase/2-3` |
 | loading | `consult/1`, `ensure_loaded/1`, `discontiguous/1` |
+| system | `statistics/2` (`runtime`, `cputime`, `process_cputime`, `walltime`, `real_time`, `epoch`; FunL counts no inferences, so there is no `inferences`), `get_time/1` |
+
+**The probe** (`tests_prolog_probe.sysl`) calls every ISO builtin (13211-1 and its corrigenda) and
+every predicate of this table with fresh arguments, and fails naming any that raises
+`existence_error(procedure, _)`; a predicate added here is added to its list.
 
 **The library predicates are written in Prolog** wherever that is natural (`append`, `member`,
 `reverse`, the `maplist` family), loaded from a source file carried in the binary, so they are

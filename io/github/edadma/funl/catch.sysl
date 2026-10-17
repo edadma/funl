@@ -133,10 +133,20 @@ exit_trap(v: *Vm, slot: usize) -> Result[unit, string]
 // Unwind to the innermost active catch that takes `thrown`, and resume at its recovery: true. False
 // when none does, the control stack then empty. A `catch/3` takes a ball its catcher unifies with; a
 // FunL `Trap` takes every ball, with a copy of it pushed for the recovery to match.
+//
+// **A `Cleanup` entry stops the unwinding while its cleanup runs** (`cleanup.sysl`): the throw is set
+// aside, and `ResumeThrow` takes it up again here, from the frame it was thrown in and with the traps
+// it had passed, as though it had never stopped.
 throw_ball(v: *Vm, thrown: Value) -> Result[bool, string]
     val ball = copy_term(thrown)?
-    val inside = v.frame
+    var inside = v.frame
     var passed: Buf[usize] = buf()
+
+    resumed_throw(v) match
+        Some(u) ->
+            inside = u.inside
+            passed = u.passed
+        None -> ()
 
     loop
         val e = v.control.pop() match
@@ -145,7 +155,10 @@ throw_ball(v: *Vm, thrown: Value) -> Result[bool, string]
 
         restore(v, e)
 
-        if e.kind == Untrap
+        if e.kind == Cleanup
+            cleanup_unwound(v, e, ball, inside, passed)
+            return Ok(true)
+        elif e.kind == Untrap
             passed.push(e.ip)
         elif e.kind == Trap && encloses(inside, e.frame) && !holds(passed, v.control.len())
             v.stack.push(copy_term(ball)?)

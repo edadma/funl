@@ -21,6 +21,7 @@ install_prolog_output(v: *Vm)
     register(v, "writeln/1", 1, pl_writeln)
     register(v, "nl/0", 0, pl_nl)
     register(v, "tab/1", 1, pl_tab)
+    register(v, "tab/2", 2, pl_tab)
 
 private out(text: string) -> Result[unit, Fault] = put_current(text)
 
@@ -105,20 +106,24 @@ end write_option
 private bad_option(x: Value, who: string) -> Fault =
     domain_error("write_option", x, s"${term_text(x, write_opts(true, false, false))} is not an option $who takes")
 
-// `tab(N)`: `N` spaces, `N` an expression.
+// `tab(N)` and `tab(S, N)`: `N` spaces, `N` an expression, on the current output or on stream `S`.
+// A count below one writes nothing, as in SWI-Prolog.
 private pl_tab(base: usize, argc: usize) -> Result[Value, Fault]
-    val x = eval(arg(base, 0))?
+    val named = argc == 2
+    val who = if named then "tab/2" else "tab/1"
+    val s = term_output(base, named, who)?
+    val x = eval(arg(base, if named then 1 else 0))?
 
     val n = x match
         Int(k) -> k
-        _ -> return Err(type_error("integer", x, s"tab/1 wants an integer count, and was given ${described(x)}"))
+        _ -> return Err(type_error("integer", x, s"$who wants an integer count, and was given ${described(x)}"))
 
     var spaces = ""
 
     for i in 0..<n
         spaces = spaces + " "
 
-    out(spaces)?
+    put_on(s, spaces)?
     Ok(Unit)
 
 // Whether `s` is exactly one character.

@@ -29,6 +29,12 @@ enum EntryKind
     // reachable again once `e` is resumed.
     Untrap
 
+    // `setup_call_cleanup/3`'s goal is running or has left choice points, in the frame of the call:
+    // failure reaching it runs the cleanup at `ip` and keeps failing, a throw reaching it runs the
+    // cleanup and keeps unwinding, and a commit discarding it runs the cleanup at the next
+    // instruction (`cleanup.sysl`).
+    Cleanup
+
 struct Entry
     kind: EntryKind
 
@@ -106,7 +112,8 @@ fail(v: *Vm) -> bool
             here_code = e.code
             here_ip = e.ip
 
-        if e.kind == Mark || e.kind == Choice
+        // A `Cleanup` resumes at its cleanup, which fails on when it is done.
+        if e.kind == Mark || e.kind == Choice || e.kind == Cleanup
             v.ip = e.ip
             return true
 end fail
@@ -128,8 +135,13 @@ restore(v: *Vm, e: Entry)
 // Discard every entry from height `h` up without failing: a commit. The trail is filtered, not
 // unwound (`commit_trail`); `ends` says whether the commit ends a bounded expression, which makes
 // the reversible assignments made inside it permanent, or is a cut, which does not.
+//
+// **A `Cleanup` among the entries discarded has its cleanup goal queued** (`cleanup.sysl`), the
+// innermost first, and the instruction loop runs the queue before the next instruction.
 cut_to(v: *Vm, h: usize, ends: bool)
     if v.control.len() <= h then return
+
+    queue_cleanups(v, h)
 
     val first = v.control.at(h)
 

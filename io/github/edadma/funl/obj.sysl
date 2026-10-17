@@ -85,6 +85,12 @@ struct CompoundObj
     // fields are named by its constructor; a plain term's are not.
     record: u32
 
+    // Whether the term is shared by every call that reaches it -- a ground part of a clause
+    // `assert/1` stored, which each call of the clause answers rather than copies -- so that
+    // `setarg/3` may not change it in place (`pl_swi.sysl`). False, as `gc.alloc` leaves it, for every
+    // term made any other way, a copy of a shared one among them.
+    shared: bool
+
 struct TupleObj
     items: Buf[Value]
 

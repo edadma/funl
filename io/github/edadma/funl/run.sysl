@@ -47,6 +47,7 @@ run(v: *Vm, chunk: usize) -> Outcome
     v.relays.clear()
     v.co = null
     v.co_main = null
+    reset_cleanups(v)
 
     val o = run_loop(v, chunk)
 
@@ -111,8 +112,20 @@ private drive(v: *Vm) -> Outcome
                 if v.refused != null || v.parks then checked(v, r) else r
 
         step match
-            Ok(Next) -> ()
+            // Cleanups a commit queued run before the next instruction (`cleanup.sysl`).
+            Ok(Next) ->
+                if cleanups_pending(v)
+                    start_cleanups(v, false) match
+                        Ok(_) -> ()
+                        Err(f) -> injected = Some(Err(f))
             Ok(Fails) ->
+                if cleanups_pending(v)
+                    start_cleanups(v, true) match
+                        Ok(_) -> ()
+                        Err(f) -> injected = Some(Err(f))
+
+                    continue
+
                 if !fail(v)
                     // A co-expression whose expression has no more results is over, and the `@`
                     // that activated it fails.
@@ -710,6 +723,16 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             exit_trap(v, slot)?
             Ok(Next)
         Rethrow -> Err(Thrown(pop(v)?))
+        PushCleanup(to) ->
+            push_cleanup(v, to)
+            Ok(Next)
+        ExitCleanup(slot) ->
+            exit_cleanup(v, slot)?
+            Ok(Next)
+        ResumeThrow -> Err(Thrown(resume_throw(v)?))
+        ReturnBare ->
+            ret_bare(v)?
+            Ok(Next)
         Await -> Ok(if await_top(v)? then Next else Idle)
         Settle -> Ok(if settle_top(v)? then Next else Idle)
         Orphan -> Ok(if orphan_top(v) then Next else Quits)

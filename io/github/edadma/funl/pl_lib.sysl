@@ -310,6 +310,107 @@ private library_text() -> string = raw"""
         ;   consult(F)
         ).
 
+    % setup_call_cleanup/3 and call_cleanup/2: the goal runs under a cleanup entry (cleanup.sysl),
+    % whose cleanup runs once the goal is finished with -- an exit leaving nothing to resume, a
+    % failure, a throw, or a cut of the choice points it left.
+    setup_call_cleanup(S, G, C) :-
+        '$must_be'(callable, G, setup_call_cleanup/3),
+        '$must_be'(callable, C, setup_call_cleanup/3),
+        once(S),
+        '$call_cleanup'(G, C).
+
+    call_cleanup(G, C) :-
+        '$must_be'(callable, G, call_cleanup/2),
+        '$must_be'(callable, C, call_cleanup/2),
+        '$call_cleanup'(G, C).
+
+    % The cleanup after an exit, a failure or a commit: once, its failure ignored, its error raised.
+    '$cleanup_once'(C) :-
+        (   call(C)
+        ->  true
+        ;   true
+        ).
+
+    % The cleanup after a throw: once, its failure and its error ignored, so the ball goes on.
+    '$cleanup_quiet'(C) :-
+        (   catch(C, _, true)
+        ->  true
+        ;   true
+        ).
+
+    % The cleanups one commit discarded, innermost first.
+    '$cleanup_all'([]).
+    '$cleanup_all'([C|Cs]) :-
+        '$cleanup_once'(C),
+        '$cleanup_all'(Cs).
+
+    % -- Output to memory -----------------------------------------------------------------------
+
+    % with_output_to/2: the goal run once with the current output a stream to memory (or the stream
+    % named), and what it wrote unified with the sink; the output is restored however it ends.
+    with_output_to(Out, G) :-
+        '$output_sink'(Out, with_output_to/2, Kind),
+        '$must_be'(callable, G, with_output_to/2),
+        (   Kind == stream
+        ->  '$output_on'(Out, G)
+        ;   '$capture_begin'(Old, S),
+            (   catch(G, E, ('$capture_end'(Old, S, _), throw(E)))
+            ->  '$capture_end'(Old, S, Text),
+                '$sink_text'(Out, Text)
+            ;   '$capture_end'(Old, S, _),
+                fail
+            )
+        ).
+
+    % format/3: format/2 onto a stream or into a sink, as with_output_to/2 takes them.
+    format(Out, F, A) :-
+        '$output_sink'(Out, format/3, Kind),
+        (   Kind == stream
+        ->  '$output_on'(Out, format(F, A))
+        ;   with_output_to(Out, format(F, A))
+        ).
+
+    % The goal run once with stream S the current output, the output before it restored after.
+    '$output_on'(S, G) :-
+        current_output(Old),
+        set_output(S),
+        (   catch(G, E, (set_output(Old), throw(E)))
+        ->  set_output(Old)
+        ;   set_output(Old),
+            fail
+        ).
+
+    '$sink_text'(atom(A), T) :-
+        atom_string(A0, T),
+        A = A0.
+    '$sink_text'(string(S), T) :-
+        S = T.
+    '$sink_text'(codes(Cs), T) :-
+        string_codes(T, Cs0),
+        Cs = Cs0.
+    '$sink_text'(codes(Cs, Tail), T) :-
+        string_codes(T, Cs0),
+        append(Cs0, Tail, Cs).
+    '$sink_text'(chars(Cs), T) :-
+        string_chars(T, Cs0),
+        Cs = Cs0.
+    '$sink_text'(chars(Cs, Tail), T) :-
+        string_chars(T, Cs0),
+        append(Cs0, Tail, Cs).
+
+    % -- Predicates -----------------------------------------------------------------------------
+
+    % predicate_property/2: each property of the predicate the head calls (pl_swi.sysl); an unbound
+    % head enumerates the predicates a program or the library defines.
+    predicate_property(H, P) :-
+        (   var(H)
+        ->  '$visible_heads'(Hs),
+            member(H, Hs)
+        ;   true
+        ),
+        '$predicate_properties'(H, Ps),
+        member(P, Ps).
+
     % -- Text -----------------------------------------------------------------------------------
 
     % string_to_atom/2: SWI-Prolog's older spelling of atom_string/2, its arguments the other way.
@@ -515,6 +616,34 @@ private library_text() -> string = raw"""
     '$min_list'([X|Xs], M0, M) :-
         M1 is min(M0, X),
         '$min_list'(Xs, M1, M).
+
+    % max_member/2 and min_member/2: the greatest and the least element in the standard order of
+    % terms, the first of equals; an empty list fails.
+    max_member(M, L) :-
+        '$must_be'(list, L, max_member/2),
+        L = [X|Xs],
+        '$max_member'(Xs, X, M0),
+        M = M0.
+
+    '$max_member'([], M, M).
+    '$max_member'([X|Xs], M0, M) :-
+        (   X @> M0
+        ->  '$max_member'(Xs, X, M)
+        ;   '$max_member'(Xs, M0, M)
+        ).
+
+    min_member(M, L) :-
+        '$must_be'(list, L, min_member/2),
+        L = [X|Xs],
+        '$min_member'(Xs, X, M0),
+        M = M0.
+
+    '$min_member'([], M, M).
+    '$min_member'([X|Xs], M0, M) :-
+        (   X @< M0
+        ->  '$min_member'(Xs, X, M)
+        ;   '$min_member'(Xs, M0, M)
+        ).
 
     numlist(Low, High, L) :-
         '$must_be'(integer, Low, numlist/3),

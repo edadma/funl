@@ -18,8 +18,9 @@ import sysl.text.{Search, char_from_u32, chars_of, from_utf8, from_utf8_unchecke
 // Prolog reaches for a stream; a stream's handle is a root while its record is there.
 
 // One stream Prolog has open. `which` is the standard stream it is -- 0 input, 1 output, 2 error --
-// or -1 for a file Prolog opened. The position is `chars` and `bytes` taken or written from the
-// start, the line `lines`, counted from 1, and `line_pos` characters into it.
+// -1 for a file Prolog opened, or -2 for a stream writing to memory, `with_output_to/2`'s, whose
+// text is `held`. The position is `chars` and `bytes` taken or written from the start, the line
+// `lines`, counted from 1, and `line_pos` characters into it.
 struct PlStream
     handle: Value
     h: *HandleObj
@@ -37,6 +38,7 @@ struct PlStream
     lines: long
     line_pos: long
     bytes: long
+    held: Buf[u8]
 
 // Every stream Prolog has open, and the handles of the current input and output (`Undefined` until
 // the standard streams are made).
@@ -81,6 +83,11 @@ install_prolog_streams(v: *Vm)
     register(v, "put_byte/1", 1, (b, n) -> pl_put_byte(b, n))
     register(v, "put_byte/2", 2, (b, n) -> pl_put_byte(b, n))
     register(v, "nl/1", 1, (b, n) -> pl_nl_to(b, n))
+    register_generator(v, "read_line_to_string/2", 2, (b, n, c) -> pl_read_line(b, false))
+    register_generator(v, "read_line_to_codes/2", 2, (b, n, c) -> pl_read_line(b, true))
+    register_generator(v, "$capture_begin/2", 2, (b, n, c) -> pl_capture_begin(b))
+    register_generator(v, "$capture_end/3", 3, (b, n, c) -> pl_capture_end(b))
+    register_generator(v, "$output_sink/3", 3, (b, n, c) -> pl_output_sink(b))
 end install_prolog_streams
 
 // -- the records ------------------------------------------------------------------------------------
@@ -109,7 +116,7 @@ private standard_record(which: int, alias: string, mode: string, eof: string) ->
 
     names.push(intern(alias))
 
-    val s: &PlStream = PlStream(x, p, which, names, "", mode, false, false, eof, false, "", -1, 0, 1, 0, 0)
+    val s: &PlStream = PlStream(x, p, which, names, "", mode, false, false, eof, false, "", -1, 0, 1, 0, 0, buf())
 
     Ok(s)
 
@@ -420,7 +427,12 @@ stream_label(s: &PlStream) -> string = if s.aliases.len() > 0 then atom_name(s.a
 
 // `text` written to `s`, the position moved past it.
 private emit_text(s: &PlStream, text: string) -> Result[unit, Fault]
-    file_write_text(s.h, text)?
+    if s.which == MemoryStream
+        for b in text.bytes
+            s.held.push(b)
+    else
+        file_write_text(s.h, text)?
+
     advance(s, text.bytes)
     Ok(())
 
@@ -565,7 +577,7 @@ private pl_open(base: usize, four: bool) -> Result[Answer, Fault]
         _ -> return Err(Broken("an opened file is not a handle"))
 
     val repositions = if o.reposition < 0 then mode != "append" else o.reposition == 1
-    val s: &PlStream = PlStream(x, p, -1, o.aliases, absolute(path), mode, o.binary, repositions, o.eof_action, false, "", -1, 0, 1, 0, 0)
+    val s: &PlStream = PlStream(x, p, -1, o.aliases, absolute(path), mode, o.binary, repositions, o.eof_action, false, "", -1, 0, 1, 0, 0, buf())
 
     v.pl_io.streams.push(s)
     unified(target, x)
@@ -974,3 +986,110 @@ private pl_nl_to(base: usize, argc: usize) -> Result[Value, Fault]
 
     emit_text(s, "\n")?
     Ok(Unit)
+
+// -- lines ------------------------------------------------------------------------------------------
+
+// `read_line_to_string(S, Line)` and `read_line_to_codes(S, Line)`: the next line of text stream `S`,
+// a string or a code list, without the newline that ends it or a carriage return before that; the
+// atom `end_of_file` where the stream has no more to read, as in SWI-Prolog.
+private pl_read_line(base: usize, codes: bool) -> Result[Answer, Fault]
+    val who = if codes then "read_line_to_codes/2" else "read_line_to_string/2"
+    val (s, culprit) = in_stream(base, 2, who, false)?
+    var line = str_builder()
+    var any = false
+
+    loop
+        val c = next_char(s, culprit, who, false)? match
+            Some(c) -> c
+            None -> break
+
+        any = true
+
+        if c == "\n" then break
+
+        line.push(c)
+
+    if !any then return unified(arg(base, 1), atom("end_of_file"))
+
+    var text = line.finish()
+
+    if text.ends_with("\r") then text = text[0..<text.bytes.len - 1]
+
+    if !codes then return unified(arg(base, 1), new_str(text)?)
+
+    var items: Buf[Value] = buf()
+
+    for ch in chars_of(text.bytes)
+        items.push(Int(long(u32(ch))))
+
+    unified(arg(base, 1), list_of(&items, Nil)?)
+end pl_read_line
+
+// -- memory streams ---------------------------------------------------------------------------------
+
+// `PlStream.which` of a stream that writes to memory.
+private const MemoryStream: int = -2
+
+// `'$capture_begin'(Old, S)`: a new stream that writes to memory, made the current output; `Old` the
+// current output it replaces (`with_output_to/2`, in the library).
+private pl_capture_begin(base: usize) -> Result[Answer, Fault]
+    val v = io_ready()?
+    val old = current_out()?.handle
+    val h = memory_handle()?
+    val s: &PlStream = PlStream(Handle(h), h, MemoryStream, buf(), "", "write", false, false, "eof_code", false, "", -1, 0, 1, 0, 0, buf())
+
+    v.pl_io.streams.push(s)
+    v.pl_io.output = s.handle
+    answer(unify(arg(base, 0), old) && unify(arg(base, 1), s.handle))
+
+// `'$capture_end'(Old, S, Text)`: memory stream `S` closed, the string it holds `Text`, and `Old`
+// the current output again -- or `user_output`, should `Old` have been closed meanwhile.
+private pl_capture_end(base: usize) -> Result[Answer, Fault]
+    val v = io_ready()?
+    var text = ""
+
+    deref(arg(base, 1)) match
+        Handle(p) ->
+            for i in 0..<v.pl_io.streams.len()
+                val s = v.pl_io.streams.at(i)
+
+                if s.h == p && s.which == MemoryStream
+                    text = text_of_bytes(s.held.view())
+                    v.pl_io.streams.remove(i)
+                    break
+
+            close_handle(p)
+        _ -> ()
+
+    v.pl_io.output = deref(arg(base, 0))
+    unified(arg(base, 2), new_str(text)?)
+
+// `'$output_sink'(Out, Who, Kind)`: what `with_output_to/2` and `format/3` write to. `Kind` is
+// `memory` for `atom(A)`, `string(S)`, `codes(Cs)`, `codes(Cs, Tail)`, `chars(Cs)` and
+// `chars(Cs, Tail)`, and `stream` for a stream or an alias that may be written; anything else is
+// SWI-Prolog's error.
+private pl_output_sink(base: usize) -> Result[Answer, Fault]
+    val who = render(arg(base, 1))
+    val x = deref(arg(base, 0))
+
+    val kind = x match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound output"))
+        Compound(c) ->
+            val n = atom_name(c.functor)
+            val k = c.args.len()
+            val one = k == 1 && (n == "atom" || n == "string" || n == "codes" || n == "chars")
+            val two = k == 2 && (n == "codes" || n == "chars")
+
+            if !one && !two
+                return Err(type_error("output", x,
+                    s"$who wants a stream or one of atom(A), string(S), codes(Cs) and chars(Cs), and was given ${render(x)}"))
+
+            "memory"
+        _ ->
+            val s = stream_of(x, who)?
+
+            check_output(s, x, who, false)?
+            "stream"
+
+    unified(arg(base, 2), atom(kind))
+end pl_output_sink

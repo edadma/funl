@@ -88,7 +88,7 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
     val chunk = v.preds.get(key) match
         Some(p) -> if p.defined || lenient then p.chunk else return Err(unknown_procedure(name, n))
         None ->
-            if key == "catch/3" || native_id(key).is_some() || lenient
+            if machine_pred(key) || native_id(key).is_some() || lenient
                 predicate_chunk(name, n)
             else
                 return Err(unknown_procedure(name, n))

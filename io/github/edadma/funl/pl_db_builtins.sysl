@@ -59,7 +59,7 @@ private procedure(name: string, arity: usize) -> Proc
                 DynamicPred(i) -> Dyn(i)
                 Unclaimed -> Absent
                 _ -> Fixed
-        None -> if key == "catch/3" || native_id(key).is_some() then Fixed else Absent
+        None -> if machine_pred(key) || native_id(key).is_some() then Fixed else Absent
 
 private cannot_modify(name: string, arity: usize, who: string) -> Fault
     val pi = indicator(name, arity) match
