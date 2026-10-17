@@ -223,6 +223,102 @@ strings (by text), then atoms (by text), as SWI-Prolog orders them, then compoun
 right). FunL-only kinds come after compounds, in a fixed order by kind and then by identity, so a
 sort of mixed terms is total and repeatable.
 
+## Input and output: streams
+
+**Prolog's I/O is ISO's stream model (13211-1 §7.10, §8.11–8.13) built over `funl:fs`'s file
+handles.** A stream term *is* a `file` handle (`native_file.sysl`): opaque, written `<file handle>`
+(`<closed file handle>` once closed), unifying only with itself. ISO leaves the stream term to the
+implementation; SWI-Prolog's is `<stream>(0x…)`, equally unreadable. `user_input`, `user_output`
+and `user_error` are the machine's standard handles, the very ones FunL's `&input`, `&output` and
+`&errout` name, so Prolog and FunL output reach standard output in the order they were written, and
+`user_input`'s lookahead is the machine's own pending input, shared with FunL's `read()` and
+`reads(n)`. No second file layer: Prolog opens, reads, writes, flushes, seeks and closes through the
+handle's file; what Prolog keeps beside it is the stream's record (`pl_streams.sysl`) — aliases,
+mode, type, `eof_action`, whether it repositions, its file name, its position, whether it is past its
+end, and the characters (or the byte) read from the file and not yet taken.
+
+**A stream argument is a stream or an alias.** Unbound is `instantiation_error`; an atom that is no
+alias, a closed stream, or a `file` handle Prolog did not open is `existence_error(stream, S)`;
+anything else is `domain_error(stream_or_alias, S)`. Where ISO says *stream* and not *stream or
+alias* — `current_input/1`, `current_output/1`, `stream_property/2` — anything but a variable or a
+stream is `domain_error(stream, S)`, an alias atom included (SWI-Prolog takes the alias there and
+raises `existence_error` for any other atom; ISO is followed). The aliases `user_input`,
+`user_output` and `user_error` are permanent; `alias(A)` of `open/4` adds one, several are allowed,
+and `close` releases them.
+
+**`open(Source, Mode, S)` and `open/4`.** `Source` is an atom or a string naming a file (SWI-Prolog
+takes both; ISO leaves the sources to the implementation); `Mode` is `read`, `write` (made, or
+emptied) or `append`. The options are ISO's four: `type(text|binary)`, `reposition(Bool)`,
+`alias(Atom)` and `eof_action(error|eof_code|reset)`. Their defaults are implementation-defined, and
+are SWI-Prolog's: `type(text)`, `eof_action(eof_code)`, and `reposition(true)` for a file opened to
+read or write. A file opened to append does not reposition — every write goes at its end — so
+`reposition(true)` there is `permission_error(open, source_sink, reposition(true))`. The errors, all
+ISO's and checked before anything is opened: an unbound `Source`, `Mode`, option list, list tail or
+option is `instantiation_error`; a `Mode` that is no atom `type_error(atom, M)`, one that is no mode
+`domain_error(io_mode, M)`; options that are no list `type_error(list, O)`; anything else in it, an
+option of a known name with an argument it does not take included, `domain_error(stream_option, O)`
+(SWI-Prolog ignores an unknown option and type-checks the argument; ISO is followed); a bound `S`
+`uninstantiation_error(S)` (Cor. 2); a `Source` that is not an atom or string
+`domain_error(source_sink, Source)`; an alias already in use `permission_error(open, source_sink,
+alias(A))`; no such file `existence_error(source_sink, Source)`; a file that may not be opened
+`permission_error(open, source_sink, Source)`. `stream_property(S, file_name(F))` is the absolute
+path, as in SWI-Prolog.
+
+**`close(S)` and `close(S, Options)`** write out what the stream holds and close the handle. Closing
+the current input or output makes `user_input` or `user_output` current again; closing a standard
+stream does nothing, as ISO has it. The one option is `force(Bool)`; `force(true)` drops an error the
+close meets. Anything else is `domain_error(close_option, O)`.
+
+**Stream selection**: `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`,
+`flush_output/0-1`. `set_input` of an output stream is `permission_error(input, stream, S)`;
+`set_output` and `flush_output` of an input stream `permission_error(output, stream, S)`.
+
+**`stream_property(S, P)`** enumerates every open stream's properties, in the order `file_name(F)`
+(files only), `mode(M)`, `input` or `output`, each `alias(A)`, `position(P)`, `end_of_stream(E)`
+(input streams only), `eof_action(A)`, `reposition(B)`, `type(T)`. A `P` that is not one of these
+forms is `domain_error(stream_property, P)`. The standard streams are `type(text)`,
+`reposition(false)`, and `eof_action(reset)` for `user_input` — so a program reads on after the
+terminal's end-of-file, as SWI-Prolog's does — and `eof_action(eof_code)` for the other two.
+
+**Positions** are SWI-Prolog's term, `'$stream_position'(Chars, Line, LinePos, Bytes)`: characters
+and bytes taken from the start, the line counted from 1, and the characters into the line. Every
+stream keeps one; `set_stream_position(S, P)` moves a repositionable stream — a file's — back to a
+position its `position/1` property gave, dropping the lookahead and anything past its end. A `P`
+that is no position term is `domain_error(stream_position, P)`; a stream that does not reposition is
+`permission_error(reposition, stream, S)`.
+
+**End of stream is ISO's three states.** A stream is `not` at its end while it has more to give,
+`at` its end once the next read would find none, and `past` its end once a read has answered
+`end_of_file` (`-1` for a code or a byte). A file looks ahead to tell `at` from `not`; `user_input`
+says `not` until a read finds the end, since looking would wait for the terminal (ISO leaves when to
+look to the implementation; SWI-Prolog does not look either). `at_end_of_stream/0-1` does look, and
+waits. A read past the end does what the stream's `eof_action` says: `error` raises
+`permission_error(input, past_end_of_stream, S)`, `eof_code` answers the end again, `reset` reads on.
+`at_end_of_stream` of an output stream is `permission_error(input, stream, S)`, as in SWI-Prolog (ISO
+gives an output stream no `end_of_stream` property and says nothing of the call).
+
+**Characters are Unicode, read and written as UTF-8**, as the rest of FunL's Prolog is: `get_char`,
+`peek_char` and `put_char` take one-character atoms, `get_code`, `peek_code` and `put_code` code
+points. A text stream's bytes that are not UTF-8 are `representation_error(character)`. Bytes are
+`get_byte`, `peek_byte`, `put_byte` on a binary stream, `0..255`. A text read of a binary stream is
+`permission_error(input, binary_stream, S)`, a byte read of a text stream `permission_error(input,
+text_stream, S)`, and the same with `output` for the writes; reading an output stream is
+`permission_error(input, stream, S)` and writing an input stream `permission_error(output, stream,
+S)`. The argument checks are ISO's, stricter than SWI-Prolog's, which fails where ISO raises: an
+input argument that is neither unbound nor a character or `end_of_file` is `type_error(in_character,
+C)`; one neither unbound nor an integer `type_error(integer, C)`, and an integer that is neither a
+code nor `-1` `representation_error(in_character_code)`; a byte argument that is no byte or `-1`
+`type_error(in_byte, B)`. On the way out an unbound argument is `instantiation_error`; `put_char` of
+anything but a character `type_error(character, C)`; `put_code` of a non-integer `type_error(integer,
+C)` and of an integer that is no code `representation_error(character_code)`; `put_byte` of anything
+but a byte `type_error(byte, B)`.
+
+**The one-argument forms are the current streams'.** `write/1` and its family, `nl/0`, `tab/1`,
+`put_char/1`, `format/1-2` write to the current output; `read/1` and `read_term/2` read from the
+current input, a line at a time until the lines taken hold the `.` that ends a clause. The end
+token's layout character is taken with it, and the rest waits for the next read; a read that does
+not parse consumes what it took.
+
 ## The builtin set
 
 **ISO core first, then the SWI-Prolog library predicates programs actually reach for.** Grouped as
@@ -240,6 +336,8 @@ the standard groups them:
 | atoms and strings | `atom_codes/2`, `atom_chars/2`, `char_code/2`, `atom_length/2`, `atom_concat/3`, `sub_atom/5`, `atom_number/2`, `number_codes/2`, `atom_string/2`, `string_concat/3`, `string_chars/2`, `string_codes/2`, `split_string/4`, `sub_string/5`, `upcase_atom/2`, `term_to_atom/2` |
 | lists (library) | `append/3`, `member/2`, `memberchk/2`, `length/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `msort/2`, `sort/2`, `sort/4`, `predsort/3`, `sum_list/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `maplist/2-5`, `foldl/4-6`, `nb_getval/2`, `b_getval/2` |
 | input and output | `write/1`, `writeln/1`, `print/1`, `write_canonical/1`, `writeq/1`, `nl/0`, `tab/1`, `format/1-2`, `read_term/2`, `read/1` |
+| streams | `open/3-4`, `close/1-2`, `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`, `flush_output/0-1`, `stream_property/2`, `at_end_of_stream/0-1`, `set_stream_position/2` |
+| character and byte I/O | `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `put_char/1-2`, `put_code/1-2`, `nl/1`, `get_byte/1-2`, `peek_byte/1-2`, `put_byte/1-2` |
 | flags and operators | `op/3`, `current_op/3`, `set_prolog_flag/2`, `current_prolog_flag/2` |
 | grammar rules | `-->` translation at load time, `phrase/2-3` |
 

@@ -44,17 +44,17 @@ private struct Pen
 
 private pl_format(fmt: Value, args: Value) -> Result[Value, Fault]
     val cs = format_chars(fmt)?
-    var p = Pen("", "", buf(), char_count(current().line), args_list(args)?, 0)
+    var p = Pen("", "", buf(), output_column()?, args_list(args)?, 0)
 
     // What was made before a directive failed is written before the error is raised, as in
     // SWI-Prolog.
     run(&p, cs) match
         Ok(_) -> ()
         Err(e) ->
-            put_text(p.done + p.seg)
+            put_text(p.done + p.seg)?
             return Err(e)
 
-    put_text(p.done + p.seg)
+    put_text(p.done + p.seg)?
 
     if p.next < p.args.len() then return Err(format_error("too many arguments"))
 

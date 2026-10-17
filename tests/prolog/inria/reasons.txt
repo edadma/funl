@@ -1,10 +1,6 @@
 # Every INRIA entry FunL does not meet, with why: file<TAB>line<TAB>reason.
 # The test fails on an entry not met and not here, and on a line here that is met or is no entry.
 
-# -- Not built: there are no streams. ------------------------------------------------------------
-current_input	3	no streams: current_input/1 does not exist
-current_output	3	no streams: current_output/1 does not exist
-
 # -- Semantic choices (prolog.md). -----------------------------------------------------------------
 atom_codes	13	characters are Unicode, so 1000 is a code ('Ϩ'); the suite assumes 8-bit characters
 number_codes	18	characters are Unicode, so 1000 is a character, and "12Ϩ" is a syntax error rather than a bad code

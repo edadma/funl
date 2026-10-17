@@ -8,10 +8,12 @@ import sysl.text.{Search, from_utf8, from_utf8_unchecked, str_builder}
 // `atom_to_term/3`; and the operator
 // table as `current_op/3` enumerates it.
 //
-// **Input is lines, from the machine's `input`**: the top level's own line source in the `prolog`
-// executable, so a `read/1` in a query takes the lines typed after it, and standard input otherwise.
-// A term is read once the lines taken hold the `.` that ends a clause; whatever follows that `.`
-// waits for the next read. At the end of the input the term read is `end_of_file`, as ISO has it.
+// **Input is lines, from the current input stream** (`pl_streams.sysl`): `user_input` is the
+// machine's `input` -- the top level's own line source in the `prolog` executable, so a `read/1` in a
+// query takes the lines typed after it, and standard input otherwise -- and a file is read a line at
+// a time. A term is read once the lines taken hold the `.` that ends a clause; the layout character
+// after that `.` goes with it, and whatever follows waits for the next read. At the end of the input
+// the term read is `end_of_file`, as ISO has it.
 //
 // **Text that does not read raises `syntax_error(Message)`**, the message the reader's first
 // refusal gave, with the reader's whole diagnostic -- where, and what was expected -- as the error's
@@ -56,34 +58,24 @@ private read_error(report: Report, src: Source) -> Fault =
 // `read_term(T, Options)` and `read(T)`: the next term of the input.
 private read_term_from_input(t: Value, options: Value, who: string) -> Result[Answer, Fault]
     val wanted = read_options(options, who)?
-    val v = current()
-    var text = v.pending
+    val s = current_text_input(who)?
+    val text = clause_ahead(s, who)?
 
-    while !holds_clause_end(text)
-        val line = v.input("|: ") match
-            Some(l) -> l
-            None -> break
-
-        if take_malformed_input()
-            v.pending = ""
-            return Err(malformed_input_error(who))
-
-        text = if text.is_empty() then line else text + "\n" + line
-
-    val one = read_one("user_input", text, false) match
+    val one = read_one(stream_label(s), text, false) match
         Ok(o) -> o
         Err(f) ->
-            v.pending = ""
+            take_ahead(s, text.bytes.len)
             return Err(f)
-
-    v.pending = copied(text.bytes[one.used..<text.bytes.len])
 
     val c = one.got match
         Some(c) -> c
         None ->
-            v.pending = ""
+            take_ahead(s, text.bytes.len)
+            mark_past(s)
             return answer(unify(t, atom("end_of_file")) && no_variables(wanted)?)
 
+    take_ahead(s, one.used)
+    take_layout(s)
     bind_read(t, c, wanted)
 
 // The options of a `read_term/2`, each checked: `variable_names(V)`, `variables(V)` and

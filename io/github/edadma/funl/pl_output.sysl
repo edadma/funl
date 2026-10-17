@@ -2,9 +2,9 @@ module io.github.edadma.funl
 
 import sysl.text.chars_of
 
-// Prolog's output: the `write` family, `nl/0`, `tab/1` and `put_char/1`. Text goes to standard
-// output as it is written, through the same sink as FunL's `write` (`io.sysl`'s `put_out`), so the
-// two keep the order they ran in.
+// Prolog's output: the `write` family, `nl/0` and `tab/1`. Text goes to the current output stream
+// (`pl_streams.sysl`) as it is written; standard output's goes through the same sink as FunL's
+// `write` (`io.sysl`'s `put_out`), so the two keep the order they ran in.
 
 install_prolog_output(v: *Vm)
     register(v, "write/1", 1, (b, n) -> written(b, write_opts(false, false, true)))
@@ -15,20 +15,19 @@ install_prolog_output(v: *Vm)
     register(v, "writeln/1", 1, pl_writeln)
     register(v, "nl/0", 0, pl_nl)
     register(v, "tab/1", 1, pl_tab)
-    register(v, "put_char/1", 1, pl_put_char)
 
-private out(text: string) = put_out(current(), text)
+private out(text: string) -> Result[unit, Fault] = put_current(text)
 
-// `t` onto standard output, each newline in it ending the line as `nl/0` does.
-put_text(t: string) = put_out(current(), t)
+// `t` onto the current output, each newline in it ending the line as `nl/0` does.
+put_text(t: string) -> Result[unit, Fault] = put_current(t)
 
 // The first argument, written with options `o`.
 private written(base: usize, o: WriteOpts) -> Result[Value, Fault]
-    out(term_text(arg(base, 0), o))
+    out(term_text(arg(base, 0), o))?
     Ok(Unit)
 
 private pl_nl(base: usize, argc: usize) -> Result[Value, Fault]
-    out("\n")
+    out("\n")?
     Ok(Unit)
 
 private pl_writeln(base: usize, argc: usize) -> Result[Value, Fault]
@@ -108,24 +107,8 @@ private pl_tab(base: usize, argc: usize) -> Result[Value, Fault]
     for i in 0..<n
         spaces = spaces + " "
 
-    out(spaces)
+    out(spaces)?
     Ok(Unit)
-
-// `put_char(C)`: the one character atom `C` is.
-private pl_put_char(base: usize, argc: usize) -> Result[Value, Fault]
-    val x = deref(arg(base, 0))
-
-    x match
-        Atom(id) ->
-            val name = atom_name(id)
-
-            if one_char(name)
-                out(name)
-                return Ok(Unit)
-        Var(_) -> return Err(instantiation_error("instantiation error: put_char/1 was given an unbound variable"))
-        _ -> ()
-
-    Err(type_error("character", x, s"put_char/1 wants a one-character atom, and was given ${described(x)}"))
 
 // Whether `s` is exactly one character.
 one_char(s: string) -> bool

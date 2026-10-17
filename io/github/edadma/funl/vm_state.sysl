@@ -357,6 +357,12 @@ struct Vm
     // Promises a parked builtin waits on, each followed by the promise its call awaits, which is
     // settled when the first is. A root.
     relays: Buf[Value]
+
+    // -- Prolog's streams (`pl_streams.sysl`) -------------------------------------------------------
+
+    // Every stream Prolog has open, and which are the current input and output. Their handles are
+    // roots.
+    pl_io: PlIo
 end Vm
 
 // A scan state saved while a scan replaces it.
@@ -389,7 +395,7 @@ new_vm(heap_bytes: usize, floor: usize, growth: usize) -> Vm
         rng(0, 0), false, 0, (prompt) -> stdin_line(), "", false, false, buf(), buf(),
         null, NoMachine, buf(), buf(), 0, NoMachine, buf(), None, 0, NoMachine, 0, null, None, None, None, None, buf(),
         buf(), buf(), buf(), None, (t) -> to_stderr(t), buf(), map(), "", 0, 0, 0, heap_bytes, buf(), buf(), null, null, 0, Undefined,
-        no_event_keys(), buf(), (wait) -> terminal_key(wait), "", false, buf())
+        no_event_keys(), buf(), (wait) -> terminal_key(wait), "", false, buf(), pl_io())
 
     // The booleans' ids are the constants `FalseAtom` and `TrueAtom`, so they are interned first.
     v.atom_names.push("false")

@@ -292,6 +292,11 @@ private library_text() -> string = raw"""
         '$ops'(P, T, Op, Ops),
         member(op(P, T, Op), Ops).
 
+    % stream_property/2: each open stream's properties (pl_streams.sysl), its arguments checked first.
+    stream_property(S, P) :-
+        '$stream_properties'(S, P, Ps),
+        member(S-P, Ps).
+
     % -- Text -----------------------------------------------------------------------------------
 
     % string_to_atom/2: SWI-Prolog's older spelling of atom_string/2, its arguments the other way.

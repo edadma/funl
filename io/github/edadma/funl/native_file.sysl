@@ -523,3 +523,124 @@ private do_close(base: usize, argc: usize) -> Result[Option[Value], Fault]
             if which == 1 then flush()
 
             Ok(Some(Unit))
+
+// -- Prolog's streams ------------------------------------------------------------------------------
+//
+// A Prolog stream is a file handle (`pl_streams.sysl`); these are the operations it is built from.
+
+// The file at `path` opened for Prolog's `open/4` in `mode` -- `read`, `write` (made, or emptied) or
+// `append` -- as a file handle. The errors are ISO's, naming `culprit`, the source the program gave.
+prolog_open_file(path: string, mode: string, culprit: Value) -> Result[Value, Fault]
+    val got = if mode == "read" then sfs.open(path) else if mode == "write" then sfs.create(path) else sfs.append(path)
+
+    val f = got match
+        Ok(f) -> f
+        Err(e) ->
+            if e == NotFound then return Err(existence_error("source_sink", culprit, s"open/4: there is no file `$path`"))
+
+            if e == PermissionDenied || e == NotPermitted
+                return Err(permission_error("open", "source_sink", culprit, s"open/4 may not open `$path`: ${e.message()}"))
+
+            return Err(system_error(s"open/4 cannot open `$path`: ${e.message()}"))
+
+    val h = new_handle(file_kind())?
+
+    h.n = keep_file(OnDisk(f, mode == "read", mode != "read", mode == "append"))
+    Ok(Handle(h))
+
+// The next byte of file handle `h`, or -1 at its end: a file on disk, or a pipe.
+file_next_byte(h: *HandleObj) -> Result[int, Fault]
+    val f = opened_of(h) match
+        Some(OnDisk(f, _, _, _)) -> f
+        Some(Piped(f, _, _)) -> f
+        _ -> return Ok(-1)
+
+    var g = f
+    var one: []u8 = [0; 1]
+    val got = g.read(one)
+
+    if got.len == 0
+        if g.failed() then return Err(system_error("could not read the file"))
+
+        return Ok(-1)
+
+    Ok(int(got[0]))
+
+// `text` written to file handle `h`: standard output or error through the machine's sinks, a file
+// through its buffer, at its end where it appends.
+file_write_text(h: *HandleObj, text: string) -> Result[unit, Fault]
+    opened_of(h) match
+        Some(Standard(which)) ->
+            if which == 2 then put_err(current(), text) else put_out(current(), text)
+
+            Ok(())
+        Some(o) -> file_write_bytes(o, text.bytes)
+        None -> Err(Broken("a stream's file is gone"))
+
+// One byte written to file handle `h`.
+file_write_byte(h: *HandleObj, b: u8) -> Result[unit, Fault]
+    val one: [1]u8 = [b]
+
+    opened_of(h) match
+        Some(o) -> file_write_bytes(o, one)
+        None -> Err(Broken("a stream's file is gone"))
+
+private file_write_bytes(o: Opened, bytes: []const u8) -> Result[unit, Fault]
+    val f = o match
+        OnDisk(f, _, _, appends) ->
+            var g = f
+
+            if appends
+                g.size() match
+                    Ok(end) -> g.seek(end)
+                    Err(e) -> return Err(system_error(s"cannot find the end of the file: ${e.message()}"))
+
+            f
+        Piped(f, _, _) -> f
+        Standard(_) -> return Err(Broken("bytes written to a standard stream"))
+
+    var g = f
+
+    g.write(bytes)
+
+    if g.failed() then Err(system_error("could not write to the file")) else Ok(())
+
+// What file handle `h` holds back, written out now.
+file_flush_handle(h: *HandleObj) -> Result[unit, Fault]
+    val f = opened_of(h) match
+        Some(Standard(which)) ->
+            if which == 1 then flush()
+
+            return Ok(())
+        Some(OnDisk(f, _, _, _)) -> f
+        Some(Piped(f, _, _)) -> f
+        None -> return Ok(())
+
+    var g = f
+
+    g.flush() match
+        Ok(_) -> Ok(())
+        Err(e) -> Err(system_error(s"could not write out the file: ${e.message()}"))
+
+// File handle `h` moved to byte `at` from its start; false where it is no file on disk or will not
+// move.
+file_seek_to(h: *HandleObj, at: long) -> bool
+    val f = opened_of(h) match
+        Some(OnDisk(f, _, _, _)) -> f
+        _ -> return false
+
+    var g = f
+
+    g.seek(at) match
+        Ok(_) -> true
+        Err(_) -> false
+
+// Whether file handle `h` is one of the standard streams.
+file_is_standard(h: *HandleObj) -> bool = opened_of(h) match
+    Some(Standard(_)) -> true
+    _ -> false
+
+// Whether `x` is a handle of the file kind.
+is_file_handle(x: Value) -> bool = x match
+    Handle(p) -> p.kind == file_kind()
+    _ -> false

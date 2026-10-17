@@ -1,0 +1,654 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{read_bytes, read_text, set_permissions}
+import sysl.text.join
+
+// Prolog's streams (`pl_streams.sysl`, `prolog.md` § "Input and output: streams"): opening and
+// closing files, the current input and output, stream properties, positions, the end of a stream,
+// and character and byte input and output -- each with the errors ISO gives them. A file a test reads
+// is written to a scratch directory first.
+
+private ok(text: string) -> string = text + "\nsucceeded"
+
+// `Goal` run in a directive: `yes` when it succeeds, `no` when it fails, and the formal term of an
+// error it raises.
+private holds(goal: string) -> string =
+    ran_prolog(s":- catch(($goal -> write(yes) ; write(no)), error(E, _), print(E)), nl.\n")
+
+// `Goal` run in a directive, then a newline: for a goal that writes what it found.
+private shown(goal: string) -> string = ran_prolog(s":- $goal, nl.\n")
+
+// -- reading characters -----------------------------------------------------------------------------
+
+@test
+GET_CHAR_AND_PEEK_CHAR_READ_A_FILE_AND_ANSWER_END_OF_FILE_AT_ITS_END()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "ab\nc")
+
+    assert_eq(shown(s"open('$f', read, S), get_char(S, A), peek_char(S, B), get_char(S, C), get_char(S, D), " +
+        "get_char(S, E), get_char(S, F), get_char(S, G), close(S), writeq([A, B, C, D, E, F, G])"),
+        ok("[a,b,b,'\\n',c,end_of_file,end_of_file]"))
+
+    // An empty file is at its end at once.
+    val e = put(d, "empty.txt", "")
+
+    assert_eq(shown(s"open('$e', read, S), peek_char(S, A), get_char(S, B), writeq(A/B)"), ok("end_of_file/end_of_file"))
+
+@test
+GET_CODE_AND_PEEK_CODE_READ_UNICODE_CODE_POINTS()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "é€x")
+
+    assert_eq(shown(s"open('$f', read, S), get_code(S, A), peek_code(S, B), get_code(S, C), get_char(S, D), " +
+        "get_code(S, E), peek_code(S, F), writeq([A, B, C, D, E, F])"), ok("[233,8364,8364,x,-1,-1]"))
+
+    assert_eq(shown(s"open('$f', read, S), get_char(S, A), get_char(S, B), write(A/B)"), ok("é/€"))
+
+@test
+A_READ_ARGUMENT_THAT_IS_BOUND_IS_UNIFIED_WITH_WHAT_IS_READ()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "ab")
+
+    assert_eq(holds(s"open('$f', read, S), get_char(S, a), get_char(S, b), get_char(S, end_of_file)"), ok("yes"))
+    assert_eq(holds(s"open('$f', read, S), get_char(S, b)"), ok("no"))
+    // A failed read has still taken the character.
+    assert_eq(holds(s"open('$f', read, S), \\+ get_code(S, 0'z), get_char(S, b)"), ok("yes"))
+    assert_eq(holds(s"open('$f', read, S), \\+ peek_char(S, z), get_char(S, a)"), ok("yes"))
+
+@test
+TEXT_THAT_IS_NOT_UTF8_IS_A_REPRESENTATION_ERROR()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/bad.txt"
+
+    assert_eq(holds(s"open('$f', write, W, [type(binary)]), put_byte(W, 255), close(W), open('$f', read, S), get_char(S, _)"),
+        ok("representation_error(character)"))
+
+// -- writing characters -----------------------------------------------------------------------------
+
+@test
+PUT_CHAR_PUT_CODE_AND_NL_WRITE_A_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.txt"
+
+    assert_eq(holds(s"open('$f', write, S), put_char(S, h), put_code(S, 0'i), nl(S), put_char(S, 'é'), put_code(S, 8364), close(S)"),
+        ok("yes"))
+    assert_eq(read_text(f).unwrap(), "hi\né€")
+
+@test
+WRITE_EMPTIES_A_FILE_AND_APPEND_WRITES_AT_ITS_END()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/log.txt"
+
+    // The program runs twice, once on each heap, so it writes the first line itself.
+    assert_eq(holds(s"open('$f', write, F), put_char(F, a), nl(F), close(F), open('$f', append, S), put_char(S, x), nl(S), close(S)"), ok("yes"))
+    assert_eq(read_text(f).unwrap(), "a\nx\n")
+    assert_eq(holds(s"open('$f', write, S), put_char(S, y), close(S)"), ok("yes"))
+    assert_eq(read_text(f).unwrap(), "y")
+
+@test
+THE_STANDARD_STREAMS_ARE_WRITTEN_BY_ALIAS()
+    assert_eq(holds("put_char(user_output, a), put_code(user_output, 0'b), nl(user_output), put_char(user_error, e), nl(user_error)"),
+        ok("ab\nstderr: e\nyes"))
+
+// -- the current input and output --------------------------------------------------------------------
+
+@test
+SET_OUTPUT_SENDS_WRITE_FORMAT_AND_PUT_CHAR_TO_THE_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.txt"
+
+    assert_eq(shown(s"open('$f', write, S), set_output(S), write(f(x, 'a b')), nl, writeq('a b'), tab(2), print(x), put_char(!), " +
+        "format(\"~n~a~t~8|~a\", [ab, cd]), current_output(C), set_output(user_output), close(S), (C == S -> write(same) ; write(other))"),
+        ok("same"))
+    assert_eq(read_text(f).unwrap(), "f(x,a b)\n'a b'  x!\nab      cd")
+
+@test
+SET_OUTPUT_TO_STANDARD_ERROR_WRITES_THERE()
+    assert_eq(shown("set_output(user_error), write(hi), nl, set_output(user_output), write(back)"), ok("stderr: hi\nback"))
+
+@test
+CLOSING_THE_CURRENT_OUTPUT_MAKES_USER_OUTPUT_CURRENT_AGAIN()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.txt"
+
+    assert_eq(shown(s"open('$f', write, S), set_output(S), close(S), current_output(C), stream_property(C, alias(A)), write(A)"),
+        ok("user_output"))
+
+@test
+SET_INPUT_MAKES_READ_AND_GET_CHAR_READ_THE_FILE()
+    val d = scratch()
+    defer scrap(d)
+
+    // The layout character after a clause's `.` goes with the term; the rest waits.
+    val f = put(d, "terms.txt", "foo(x, y).  'b c'.\nnext.\n")
+
+    assert_eq(shown(s"open('$f', read, S), set_input(S), read(A), get_char(C1), read(B), read_term(T, []), read(E), " +
+        "stream_property(S, end_of_stream(P)), close(S), current_input(I), stream_property(I, alias(N)), writeq([A, C1, B, T, E, P, N])"),
+        ok("[foo(x,y),' ','b c',next,end_of_file,past,user_input]"))
+
+@test
+A_READ_FROM_A_FILE_THAT_DOES_NOT_PARSE_IS_A_SYNTAX_ERROR_AND_TAKES_THE_CLAUSE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "terms.txt", "foo(.\nbar.\n")
+
+    assert_eq(shown(s"open('$f', read, S), set_input(S), catch(read(_), error(syntax_error(_), _), write(refused)), read(B), write(B)"),
+        ok("refusedbar"))
+
+@test
+CURRENT_INPUT_AND_CURRENT_OUTPUT_ARE_THE_STANDARD_STREAMS_AT_FIRST()
+    assert_eq(shown("current_input(I), current_output(O), stream_property(I, alias(A)), stream_property(O, alias(B)), writeq(A/B)"),
+        ok("user_input/user_output"))
+
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "x")
+
+    // A stream that is not the current input is not unified with it.
+    assert_eq(holds(s"open('$f', read, S), current_input(S)"), ok("no"))
+
+@test
+CURRENT_INPUT_AND_CURRENT_OUTPUT_TAKE_ONLY_A_VARIABLE_OR_A_STREAM()
+    assert_eq(holds("current_input(foo)"), ok("domain_error(stream,foo)"))
+    assert_eq(holds("current_output(1)"), ok("domain_error(stream,1)"))
+    // ISO's stream is not an alias.
+    assert_eq(holds("current_input(user_input)"), ok("domain_error(stream,user_input)"))
+    assert_eq(holds("current_output(f(x))"), ok("domain_error(stream,f(x))"))
+
+@test
+SET_INPUT_AND_SET_OUTPUT_REFUSE_A_STREAM_OF_THE_OTHER_DIRECTION()
+    assert_eq(holds("set_input(user_output)"), ok("permission_error(input,stream,user_output)"))
+    assert_eq(holds("set_output(user_input)"), ok("permission_error(output,stream,user_input)"))
+    assert_eq(holds("set_input(_)"), ok("instantiation_error"))
+    assert_eq(holds("set_output(foo)"), ok("existence_error(stream,foo)"))
+    assert_eq(holds("set_input(1)"), ok("domain_error(stream_or_alias,1)"))
+
+@test
+FLUSH_OUTPUT_WRITES_OUT_A_FILE_AND_REFUSES_AN_INPUT_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.txt"
+
+    assert_eq(holds(s"open('$f', write, S, [alias(o)]), put_char(o, z), flush_output(o), set_output(o), flush_output, set_output(user_output)"),
+        ok("yes"))
+    assert_eq(read_text(f).unwrap(), "z")
+    assert_eq(holds("flush_output(user_input)"), ok("permission_error(output,stream,user_input)"))
+    assert_eq(holds("flush_output(_)"), ok("instantiation_error"))
+    assert_eq(holds("flush_output(nosuch)"), ok("existence_error(stream,nosuch)"))
+    assert_eq(holds("flush_output(\"s\")"), ok("domain_error(stream_or_alias,\"s\")"))
+
+// -- open/3 and open/4 ------------------------------------------------------------------------------
+
+@test
+OPEN_TAKES_AN_ATOM_OR_A_STRING_AND_GIVES_A_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "q")
+
+    assert_eq(shown(s"open(\"$f\", read, S), get_char(S, C), write(C)"), ok("q"))
+    assert_eq(shown(s"open('$f', read, S), write(S), close(S), write(' '), write(S)"), ok("<file handle> <closed file handle>"))
+
+@test
+OPEN_REFUSES_UNBOUND_AND_MISTYPED_ARGUMENTS_AS_ISO_DOES()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "q")
+
+    assert_eq(holds("open(_, read, _)"), ok("instantiation_error"))
+    assert_eq(holds(s"open('$f', _, _)"), ok("instantiation_error"))
+    assert_eq(holds(s"open('$f', read, _, _)"), ok("instantiation_error"))
+    assert_eq(holds(s"open('$f', read, _, [_])"), ok("instantiation_error"))
+    assert_eq(holds(s"open('$f', read, _, [type(text)|_])"), ok("instantiation_error"))
+    assert_eq(holds(s"open('$f', read, _, [type(_)])"), ok("instantiation_error"))
+    assert_eq(holds(s"open('$f', 1, _)"), ok("type_error(atom,1)"))
+    assert_eq(holds(s"open('$f', update, _)"), ok("domain_error(io_mode,update)"))
+    assert_eq(holds(s"open('$f', read, _, foo)"), ok("type_error(list,foo)"))
+    assert_eq(holds(s"open('$f', read, _, [type(text)|foo])"), ok("type_error(list,[type(text)|foo])"))
+    assert_eq(holds(s"open('$f', read, x)"), ok("uninstantiation_error(x)"))
+    assert_eq(holds("open(f(x), read, _)"), ok("domain_error(source_sink,f(x))"))
+    assert_eq(holds("open(12, read, _)"), ok("domain_error(source_sink,12)"))
+
+@test
+OPEN_REFUSES_AN_OPTION_IT_DOES_NOT_TAKE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "q")
+
+    assert_eq(holds(s"open('$f', read, _, [foo])"), ok("domain_error(stream_option,foo)"))
+    assert_eq(holds(s"open('$f', read, _, [type(foo)])"), ok("domain_error(stream_option,type(foo))"))
+    assert_eq(holds(s"open('$f', read, _, [alias(1)])"), ok("domain_error(stream_option,alias(1))"))
+    assert_eq(holds(s"open('$f', read, _, [eof_action(foo)])"), ok("domain_error(stream_option,eof_action(foo))"))
+    assert_eq(holds(s"open('$f', read, _, [reposition(foo)])"), ok("domain_error(stream_option,reposition(foo))"))
+    assert_eq(holds(s"open('$f', read, _, [encoding(utf8)])"), ok("domain_error(stream_option,encoding(utf8))"))
+    assert_eq(holds(s"open('$f', read, _, [type(text, binary)])"), ok("domain_error(stream_option,type(text,binary))"))
+
+@test
+OPEN_OF_A_FILE_THAT_IS_NOT_THERE_OR_MAY_NOT_BE_OPENED_IS_ISOS_ERROR()
+    val d = scratch()
+    defer scrap(d)
+
+    assert_eq(holds(s"open('$d/nosuch.txt', read, _)"), ok(s"existence_error(source_sink,'$d/nosuch.txt')"))
+
+    val f = put(d, "locked.txt", "secret")
+
+    set_permissions(f, 0).unwrap()
+    assert_eq(holds(s"open('$f', read, _)"), ok(s"permission_error(open,source_sink,'$f')"))
+    set_permissions(f, 0o644).unwrap()
+
+@test
+AN_ALIAS_NAMES_THE_STREAM_AND_ONLY_ONE_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "xy")
+
+    assert_eq(shown(s"open('$f', read, S, [alias(src)]), get_char(src, A), get_char(S, B), stream_property(T, alias(src)), " +
+        "(T == S -> write(A/B) ; write(different))"), ok("x/y"))
+    assert_eq(holds(s"open('$f', read, _, [alias(src)]), open('$f', read, _, [alias(src)])"), ok("permission_error(open,source_sink,alias(src))"))
+    assert_eq(holds(s"open('$f', read, _, [alias(user_output)])"), ok("permission_error(open,source_sink,alias(user_output))"))
+    // A closed stream's alias is free again.
+    assert_eq(holds(s"open('$f', read, _, [alias(src)]), close(src), open('$f', read, _, [alias(src)])"), ok("yes"))
+    // A stream may have several.
+    assert_eq(shown(s"open('$f', read, S, [alias(one), alias(two)]), findall(A, stream_property(S, alias(A)), As), write(As)"),
+        ok("[one,two]"))
+
+// -- close/1 and close/2 ----------------------------------------------------------------------------
+
+@test
+CLOSE_ENDS_A_STREAM_AND_A_CLOSED_STREAM_IS_GONE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "x")
+
+    assert_eq(holds(s"open('$f', read, S), close(S), get_char(S, _)"), ok("existence_error(stream,<closed file handle>)"))
+    assert_eq(holds(s"open('$f', read, S), close(S), close(S)"), ok("existence_error(stream,<closed file handle>)"))
+    assert_eq(holds(s"open('$f', read, S), close(S, [force(true)]), \\+ stream_property(S, _)"), ok("yes"))
+    assert_eq(holds(s"open('$f', read, S), close(S, [force(false)])"), ok("yes"))
+
+@test
+CLOSING_A_STANDARD_STREAM_DOES_NOTHING()
+    assert_eq(holds("close(user_output), put_char(user_output, k), close(user_input), close(user_error, [])"), ok("kyes"))
+
+@test
+CLOSING_THE_CURRENT_INPUT_MAKES_USER_INPUT_CURRENT_AGAIN()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "x")
+
+    assert_eq(shown(s"open('$f', read, S), set_input(S), close(S), current_input(C), stream_property(C, alias(A)), write(A)"),
+        ok("user_input"))
+
+@test
+CLOSE_REFUSES_WHAT_IS_NO_STREAM_AND_WHAT_IS_NO_OPTION()
+    assert_eq(holds("close(_)"), ok("instantiation_error"))
+    assert_eq(holds("close(nosuch)"), ok("existence_error(stream,nosuch)"))
+    assert_eq(holds("close(1)"), ok("domain_error(stream_or_alias,1)"))
+    assert_eq(holds("close(user_input, [foo])"), ok("domain_error(close_option,foo)"))
+    assert_eq(holds("close(user_input, [force(maybe)])"), ok("domain_error(close_option,force(maybe))"))
+    assert_eq(holds("close(user_input, foo)"), ok("type_error(list,foo)"))
+    assert_eq(holds("close(user_input, [_])"), ok("instantiation_error"))
+    assert_eq(holds("close(user_input, [force(_)])"), ok("instantiation_error"))
+    assert_eq(holds("close(user_input, _)"), ok("instantiation_error"))
+
+// -- stream_property/2 ------------------------------------------------------------------------------
+
+@test
+STREAM_PROPERTY_GIVES_A_FILES_PROPERTIES_IN_ORDER()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "x")
+
+    assert_eq(shown(s"open('$f', read, S, [alias(src)]), findall(P, stream_property(S, P), Ps), writeq(Ps)"),
+        ok(s"[file_name('$f'),mode(read),input,alias(src),position('$$stream_position'(0,1,0,0)),end_of_stream(not)," +
+            "eof_action(eof_code),reposition(true),type(text)]"))
+    assert_eq(shown(s"open('$f', append, S, [type(binary), eof_action(error)]), findall(P, stream_property(S, P), Ps), writeq(Ps)"),
+        ok(s"[file_name('$f'),mode(append),output,position('$$stream_position'(0,1,0,0)),eof_action(error),reposition(false),type(binary)]"))
+
+@test
+STREAM_PROPERTY_GIVES_THE_STANDARD_STREAMS_PROPERTIES()
+    assert_eq(shown("stream_property(S, alias(user_input)), findall(P, stream_property(S, P), Ps), writeq(Ps)"),
+        ok("[mode(read),input,alias(user_input),position('$stream_position'(0,1,0,0)),end_of_stream(not),eof_action(reset),reposition(false),type(text)]"))
+    assert_eq(shown("stream_property(S, alias(user_error)), findall(P, stream_property(S, P), Ps), writeq(Ps)"),
+        ok("[mode(write),output,alias(user_error),position('$stream_position'(0,1,0,0)),eof_action(eof_code),reposition(false),type(text)]"))
+    assert_eq(shown("findall(A, stream_property(_, alias(A)), As), writeq(As)"), ok("[user_input,user_output,user_error]"))
+
+@test
+STREAM_PROPERTY_ENUMERATES_THE_OPEN_STREAMS_AND_NOT_A_CLOSED_ONE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "x")
+
+    assert_eq(shown(s"open('$f', read, S), open('$f', read, T), close(T), findall(M, stream_property(_, mode(M)), Ms), " +
+        "findall(x, stream_property(_, input), Is), length(Is, N), writeq(Ms/N)"), ok("[read,write,write,read]/2"))
+
+@test
+STREAM_PROPERTY_REFUSES_WHAT_IS_NO_STREAM_AND_NO_PROPERTY()
+    assert_eq(holds("stream_property(foo, _)"), ok("domain_error(stream,foo)"))
+    assert_eq(holds("stream_property(user_input, _)"), ok("domain_error(stream,user_input)"))
+    assert_eq(holds("stream_property(_, foo)"), ok("domain_error(stream_property,foo)"))
+    assert_eq(holds("stream_property(_, colour(red))"), ok("domain_error(stream_property,colour(red))"))
+    assert_eq(holds("stream_property(_, mode(update))"), ok("no"))
+
+@test
+THE_POSITION_COUNTS_CHARACTERS_LINES_AND_BYTES()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "ab\né")
+
+    assert_eq(shown(s"open('$f', read, S), get_char(S, _), get_char(S, _), get_char(S, _), stream_property(S, position(P)), " +
+        "get_char(S, _), stream_property(S, position(Q)), writeq(P/Q)"), ok("'$stream_position'(3,2,0,3)/'$stream_position'(4,2,1,5)"))
+
+    val g = s"$d/out.txt"
+
+    assert_eq(shown(s"open('$g', write, S), set_output(S), write('x\\nyz'), set_output(user_output), stream_property(S, position(P)), writeq(P)"),
+        ok("'$stream_position'(4,2,2,4)"))
+
+// -- the end of a stream ----------------------------------------------------------------------------
+
+@test
+END_OF_STREAM_IS_NOT_THEN_AT_THEN_PAST()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "a")
+
+    assert_eq(shown(s"open('$f', read, S), stream_property(S, end_of_stream(A)), get_char(S, _), stream_property(S, end_of_stream(B)), " +
+        "get_char(S, _), stream_property(S, end_of_stream(C)), writeq([A, B, C])"), ok("[not,at,past]"))
+
+    val e = put(d, "empty.txt", "")
+
+    assert_eq(shown(s"open('$e', read, S), stream_property(S, end_of_stream(A)), writeq(A)"), ok("at"))
+    // A peek at the end leaves the stream at it, not past it.
+    assert_eq(shown(s"open('$e', read, S), peek_char(S, _), stream_property(S, end_of_stream(A)), writeq(A)"), ok("at"))
+
+@test
+AT_END_OF_STREAM_LOOKS_AHEAD()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "a")
+
+    assert_eq(shown(s"open('$f', read, S), (at_end_of_stream(S) -> write(y) ; write(n)), get_char(S, _), " +
+        "(at_end_of_stream(S) -> write(y) ; write(n)), set_input(S), (at_end_of_stream -> write(y) ; write(n))"), ok("nyy"))
+    // The suite's standard input has ended.
+    assert_eq(holds("at_end_of_stream"), ok("yes"))
+    assert_eq(holds("at_end_of_stream(user_input)"), ok("yes"))
+
+@test
+AT_END_OF_STREAM_REFUSES_WHAT_IS_NO_INPUT_STREAM()
+    assert_eq(holds("at_end_of_stream(_)"), ok("instantiation_error"))
+    assert_eq(holds("at_end_of_stream(nosuch)"), ok("existence_error(stream,nosuch)"))
+    assert_eq(holds("at_end_of_stream(1)"), ok("domain_error(stream_or_alias,1)"))
+    assert_eq(holds("at_end_of_stream(user_output)"), ok("permission_error(input,stream,user_output)"))
+
+@test
+EOF_ACTION_ERROR_REFUSES_A_READ_PAST_THE_END()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "")
+
+    assert_eq(holds(s"open('$f', read, _, [eof_action(error), alias(s)]), get_char(s, end_of_file), get_char(s, _)"),
+        ok("permission_error(input,past_end_of_stream,s)"))
+    assert_eq(holds(s"open('$f', read, _, [eof_action(error), alias(s)]), get_code(s, -1), peek_code(s, _)"),
+        ok("permission_error(input,past_end_of_stream,s)"))
+    assert_eq(holds(s"open('$f', read, _, [eof_action(error), alias(s), type(binary)]), get_byte(s, -1), get_byte(s, _)"),
+        ok("permission_error(input,past_end_of_stream,s)"))
+    assert_eq(holds(s"open('$f', read, _, [eof_action(error), alias(s)]), set_input(s), read(end_of_file), read(_)"),
+        ok("permission_error(input,past_end_of_stream,s)"))
+
+@test
+EOF_ACTION_EOF_CODE_ANSWERS_THE_END_AGAIN()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "")
+
+    assert_eq(shown(s"open('$f', read, S, [eof_action(eof_code)]), get_char(S, A), get_char(S, B), get_code(S, C), " +
+        "stream_property(S, end_of_stream(E)), writeq([A, B, C, E])"), ok("[end_of_file,end_of_file,-1,past]"))
+
+@test
+EOF_ACTION_RESET_READS_ON_PAST_THE_END()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "")
+
+    // What is written to the file after the end was found is read. The program runs once on each
+    // heap, so it empties the file first.
+    assert_eq(shown(s"open('$f', write, E0), close(E0), open('$f', read, S, [eof_action(reset)]), get_char(S, A), stream_property(S, end_of_stream(E)), " +
+        s"open('$f', append, W), put_char(W, z), close(W), get_char(S, B), writeq([A, E, B])"), ok("[end_of_file,past,z]"))
+    // Standard input resets, and the suite's has ended for good.
+    assert_eq(shown("get_char(A), stream_property(S, alias(user_input)), stream_property(S, end_of_stream(E)), get_char(B), writeq([A, E, B])"),
+        ok("[end_of_file,past,end_of_file]"))
+
+// -- set_stream_position/2 --------------------------------------------------------------------------
+
+@test
+SET_STREAM_POSITION_MOVES_A_FILE_BACK_TO_A_POSITION_IT_GAVE()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "ab\ncd")
+
+    assert_eq(shown(s"open('$f', read, S), get_char(S, _), stream_property(S, position(P)), get_char(S, _), get_char(S, _), " +
+        "get_char(S, C), set_stream_position(S, P), get_char(S, D), stream_property(S, position(Q)), writeq(C/D/Q)"),
+        ok("c/b/'$stream_position'(2,1,2,2)"))
+    // Past the end and back.
+    assert_eq(shown(s"open('$f', read, S), stream_property(S, position(P)), get_code(S, _), get_code(S, _), get_code(S, _), " +
+        "get_code(S, _), get_code(S, _), get_code(S, E), set_stream_position(S, P), stream_property(S, end_of_stream(N)), get_char(S, A), writeq(E/N/A)"),
+        ok("-1/not/a"))
+
+    // A written file is moved back over what it wrote.
+    val g = s"$d/out.txt"
+
+    assert_eq(holds(s"open('$g', write, S), put_char(S, a), stream_property(S, position(P)), put_char(S, b), put_char(S, c), " +
+        "set_stream_position(S, P), put_char(S, x), close(S)"), ok("yes"))
+    assert_eq(read_text(g).unwrap(), "axc")
+
+@test
+SET_STREAM_POSITION_REFUSES_WHAT_CANNOT_BE_REPOSITIONED()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "ab")
+
+    assert_eq(holds("set_stream_position(_, '$stream_position'(0,1,0,0))"), ok("instantiation_error"))
+    assert_eq(holds("set_stream_position(user_input, _)"), ok("instantiation_error"))
+    assert_eq(holds("set_stream_position(nosuch, '$stream_position'(0,1,0,0))"), ok("existence_error(stream,nosuch)"))
+    assert_eq(holds("set_stream_position(1, '$stream_position'(0,1,0,0))"), ok("domain_error(stream_or_alias,1)"))
+    assert_eq(holds("set_stream_position(user_input, foo)"), ok("domain_error(stream_position,foo)"))
+    assert_eq(holds(s"open('$f', read, S), set_stream_position(S, '$$stream_position'(a,1,0,0))"),
+        ok("domain_error(stream_position,'$stream_position'(a,1,0,0))"))
+    assert_eq(holds("set_stream_position(user_input, '$stream_position'(0,1,0,0))"), ok("permission_error(reposition,stream,user_input)"))
+    assert_eq(holds(s"open('$f', read, _, [reposition(false), alias(s)]), set_stream_position(s, '$$stream_position'(0,1,0,0))"),
+        ok("permission_error(reposition,stream,s)"))
+    assert_eq(holds(s"open('$f', append, _, [reposition(true)])"), ok("permission_error(open,source_sink,reposition(true))"))
+
+// -- bytes ------------------------------------------------------------------------------------------
+
+@test
+GET_BYTE_AND_PEEK_BYTE_READ_A_BINARY_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.bin", "aé")
+
+    assert_eq(shown(s"open('$f', read, S, [type(binary)]), get_byte(S, A), peek_byte(S, B), get_byte(S, C), get_byte(S, D), " +
+        "get_byte(S, E), stream_property(S, end_of_stream(P)), writeq([A, B, C, D, E, P])"), ok("[97,195,195,169,-1,past]"))
+    assert_eq(holds(s"open('$f', read, S, [type(binary)]), get_byte(S, 97), \\+ peek_byte(S, 0), get_byte(S, 195)"), ok("yes"))
+
+@test
+PUT_BYTE_WRITES_A_BINARY_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = s"$d/out.bin"
+
+    assert_eq(holds(s"open('$f', write, S, [type(binary)]), put_byte(S, 0), put_byte(S, 255), set_output(S), put_byte(7), set_output(user_output), close(S)"),
+        ok("yes"))
+
+    val got = read_bytes(f).unwrap()
+
+    assert_eq(got.len, 3)
+    assert_eq(got[0], 0)
+    assert_eq(got[1], 255)
+    assert_eq(got[2], 7)
+
+@test
+BYTES_AND_TEXT_DO_NOT_MIX_ON_ONE_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.bin", "ab")
+
+    assert_eq(holds("get_byte(user_input, _)"), ok("permission_error(input,text_stream,user_input)"))
+    assert_eq(holds("peek_byte(_)"), ok("permission_error(input,text_stream,user_input)"))
+    assert_eq(holds("put_byte(user_output, 1)"), ok("permission_error(output,text_stream,user_output)"))
+    assert_eq(holds("put_byte(1)"), ok("permission_error(output,text_stream,user_output)"))
+    assert_eq(holds(s"open('$f', read, _, [type(binary), alias(b)]), get_char(b, _)"), ok("permission_error(input,binary_stream,b)"))
+    assert_eq(holds(s"open('$f', read, _, [type(binary), alias(b)]), peek_code(b, _)"), ok("permission_error(input,binary_stream,b)"))
+    assert_eq(holds(s"open('$f', read, _, [type(binary), alias(b)]), set_input(b), read(_)"), ok("permission_error(input,binary_stream,b)"))
+
+    val g = s"$d/out.bin"
+
+    assert_eq(holds(s"open('$g', write, _, [type(binary), alias(b)]), put_char(b, x)"), ok("permission_error(output,binary_stream,b)"))
+    assert_eq(holds(s"open('$g', write, _, [type(binary), alias(b)]), nl(b)"), ok("permission_error(output,binary_stream,b)"))
+    // The error is written once standard output is current again.
+    assert_eq(ran_prolog(s":- open('$g', write, _, [type(binary), alias(b)]), set_output(b), " +
+        "catch(write(x), error(E, _), (set_output(user_output), print(E), nl)).\n"), ok("permission_error(output,binary_stream,b)"))
+
+@test
+A_BYTE_ARGUMENT_IS_CHECKED_AS_ISO_CHECKS_IT()
+    assert_eq(holds("get_byte(user_input, 256)"), ok("type_error(in_byte,256)"))
+    assert_eq(holds("get_byte(user_input, -2)"), ok("type_error(in_byte,-2)"))
+    assert_eq(holds("peek_byte(user_input, a)"), ok("type_error(in_byte,a)"))
+    assert_eq(holds("put_byte(user_output, _)"), ok("instantiation_error"))
+    assert_eq(holds("put_byte(user_output, 256)"), ok("type_error(byte,256)"))
+    assert_eq(holds("put_byte(user_output, -1)"), ok("type_error(byte,-1)"))
+    assert_eq(holds("put_byte(a)"), ok("type_error(byte,a)"))
+
+// -- the errors of character input and output -------------------------------------------------------
+
+@test
+A_CHARACTER_ARGUMENT_IS_CHECKED_AS_ISO_CHECKS_IT()
+    assert_eq(holds("get_char(user_input, 1)"), ok("type_error(in_character,1)"))
+    assert_eq(holds("get_char(ab)"), ok("type_error(in_character,ab)"))
+    assert_eq(holds("peek_char(f(x))"), ok("type_error(in_character,f(x))"))
+    assert_eq(holds("get_code(user_input, a)"), ok("type_error(integer,a)"))
+    assert_eq(holds("peek_code(1.0)"), ok("type_error(integer,1.0)"))
+    assert_eq(holds("get_code(-2)"), ok("representation_error(in_character_code)"))
+    assert_eq(holds("peek_code(user_input, 1114112)"), ok("representation_error(in_character_code)"))
+    assert_eq(holds("put_char(_)"), ok("instantiation_error"))
+    assert_eq(holds("put_char(user_output, 1)"), ok("type_error(character,1)"))
+    assert_eq(holds("put_char(ab)"), ok("type_error(character,ab)"))
+    assert_eq(holds("put_code(_)"), ok("instantiation_error"))
+    assert_eq(holds("put_code(a)"), ok("type_error(integer,a)"))
+    assert_eq(holds("put_code(user_output, -1)"), ok("representation_error(character_code)"))
+    assert_eq(holds("put_code(55296)"), ok("representation_error(character_code)"))
+
+@test
+CHARACTER_IO_REFUSES_A_STREAM_OF_THE_OTHER_DIRECTION()
+    assert_eq(holds("get_char(user_output, _)"), ok("permission_error(input,stream,user_output)"))
+    assert_eq(holds("peek_char(user_error, _)"), ok("permission_error(input,stream,user_error)"))
+    assert_eq(holds("get_code(user_output, _)"), ok("permission_error(input,stream,user_output)"))
+    assert_eq(holds("peek_code(user_output, _)"), ok("permission_error(input,stream,user_output)"))
+    assert_eq(holds("put_char(user_input, a)"), ok("permission_error(output,stream,user_input)"))
+    assert_eq(holds("put_code(user_input, 97)"), ok("permission_error(output,stream,user_input)"))
+    assert_eq(holds("nl(user_input)"), ok("permission_error(output,stream,user_input)"))
+    assert_eq(holds("put_byte(user_input, 1)"), ok("permission_error(output,stream,user_input)"))
+
+@test
+A_STREAM_ARGUMENT_IS_A_STREAM_OR_AN_ALIAS()
+    assert_eq(holds("get_char(_, _)"), ok("instantiation_error"))
+    assert_eq(holds("put_char(_, a)"), ok("instantiation_error"))
+    assert_eq(holds("nl(_)"), ok("instantiation_error"))
+    assert_eq(holds("get_char(nosuch, _)"), ok("existence_error(stream,nosuch)"))
+    assert_eq(holds("put_code(nosuch, 97)"), ok("existence_error(stream,nosuch)"))
+    assert_eq(holds("peek_byte([], _)"), ok("existence_error(stream,[])"))
+    assert_eq(holds("get_char(1, _)"), ok("domain_error(stream_or_alias,1)"))
+    assert_eq(holds("nl(f(x))"), ok("domain_error(stream_or_alias,f(x))"))
+
+@test
+A_FILE_HANDLE_PROLOG_DID_NOT_OPEN_IS_NO_STREAM()
+    val d = scratch()
+    defer scrap(d)
+
+    val f = put(d, "in.txt", "x")
+    val lib = put(d, "lib.funl", s"import { open } from funl:fs\nexport def opened() = open( \"$f\" )\n")
+
+    assert_eq(ran_prolog(s":- import(\"$lib\").\n:- opened(H), catch(get_char(H, _), error(E, _), (print(E), nl)).\n"),
+        ok("existence_error(stream,<file handle>)"))
+
+// -- standard input at the top level ----------------------------------------------------------------
+
+private struct Session
+    script: Buf[string]
+    at: usize
+    said: Buf[string]
+
+// The transcript of a top-level session reading `lines`, each written after the prompt it was read
+// under, and its status.
+private session(files: []string, lines: []string) -> string
+    var script: Buf[string] = buf()
+
+    for l in lines
+        script.push(l)
+
+    val s: &Session = Session(script, 0, buf())
+    val status = toplevel(files, (prompt) -> next_line(s, prompt), (text) -> s.said.push(text))
+
+    s.said.push(s"status: $status")
+    join(s.said.view(), "")
+
+private next_line(s: &Session, prompt: string) -> Option[string]
+    if s.at >= s.script.len() then return None
+
+    val l = s.script.at(s.at)
+
+    s.at += 1
+    s.said.push(prompt + l + "\n")
+    Some(l)
+
+@test
+GET_CHAR_AT_THE_TOP_LEVEL_READS_THE_LINES_TYPED_AFTER_THE_QUERY()
+    assert_eq(session([], ["get_char(A), peek_char(B), get_char(C), get_char(D).", "hi", "X = 1."]),
+        "?- get_char(A), peek_char(B), get_char(C), get_char(D).\n|: hi\nA = h,\nB = C, C = i,\nD = '\\n'.\n?- X = 1.\nX = 1.\nstatus: 0")
+
+@test
+A_READ_AFTER_GET_CHAR_READS_THE_REST_OF_THE_LINE()
+    assert_eq(session([], ["get_char(C), read(T), get_char(E).", "xfoo(bar).", "y"]),
+        "?- get_char(C), read(T), get_char(E).\n|: xfoo(bar).\n|: y\nC = x,\nT = foo(bar),\nE = y.\nstatus: 0")
+
+@test
+GET_CHAR_AT_THE_END_OF_THE_TOP_LEVELS_INPUT_IS_END_OF_FILE()
+    assert_eq(session([], ["get_code(C)."]), "?- get_code(C).\nC = -1.\nstatus: 0")

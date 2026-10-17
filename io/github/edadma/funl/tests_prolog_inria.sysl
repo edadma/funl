@@ -448,10 +448,11 @@ private runner_text() -> string = raw"""
         N1 is N + 1,
         inria_number(Vs, N1).
 
-    % exists(Name/Arity): the suite's test that a builtin is there, by calling it.
+    % exists(Name/Arity): the suite's test that a builtin is there, by calling it -- once, since a
+    % builtin that succeeds with its arguments unbound (current_input/1) is still one answer.
     exists(P/I) :-
         functor(G, P, I),
-        catch((G ; true), E, true),
+        once(catch((G ; true), E, true)),
         (   nonvar(E), E = error(existence_error(procedure, P/I), _)
         ->  fail
         ;   true

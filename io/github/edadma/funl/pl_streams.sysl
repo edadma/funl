@@ -1,0 +1,969 @@
+module io.github.edadma.funl
+
+import sysl.buf.{Buf, buf}
+import sysl.text.{Search, char_from_u32, chars_of, from_utf8, from_utf8_unchecked, str_builder}
+
+// Prolog's streams (`prolog.md` § "Input and output: streams"): `open/3-4`, `close/1-2`, the
+// current input and output, `stream_property/2`, `at_end_of_stream/0-1`, `set_stream_position/2`,
+// and character and byte input and output.
+//
+// **A stream is a `funl:fs` file handle** (`native_file.sysl`), and Prolog reads and writes it
+// through the handle's file. What Prolog keeps beside the handle is the stream's record, `PlStream`:
+// its aliases, mode, type, `eof_action`, whether it repositions, its file's name, its position,
+// whether a read has gone past its end, and what has been read from the file and not yet taken -- a
+// line's characters for a text stream, a byte for a binary one. `user_input`'s are the machine's own
+// pending input (`Vm.pending`), which FunL's `read()` and `reads(n)` take from too.
+//
+// **The records live on the machine**, `Vm.pl_io`, the standard streams' first, made the first time
+// Prolog reaches for a stream; a stream's handle is a root while its record is there.
+
+// One stream Prolog has open. `which` is the standard stream it is -- 0 input, 1 output, 2 error --
+// or -1 for a file Prolog opened. The position is `chars` and `bytes` taken or written from the
+// start, the line `lines`, counted from 1, and `line_pos` characters into it.
+struct PlStream
+    handle: Value
+    h: *HandleObj
+    which: int
+    aliases: Buf[u32]
+    file_name: string
+    mode: string
+    binary: bool
+    reposition: bool
+    eof_action: string
+    past: bool
+    ahead: string
+    ahead_byte: int
+    chars: long
+    lines: long
+    line_pos: long
+    bytes: long
+
+// Every stream Prolog has open, and the handles of the current input and output (`Undefined` until
+// the standard streams are made).
+struct PlIo
+    streams: Buf[&PlStream]
+    input: Value
+    output: Value
+
+pl_io() -> PlIo = PlIo(buf(), Undefined, Undefined)
+
+install_prolog_streams(v: *Vm)
+    register_generator(v, "open/3", 3, (b, n, c) -> pl_open(b, false))
+    register_generator(v, "open/4", 4, (b, n, c) -> pl_open(b, true))
+    register(v, "close/1", 1, (b, n) -> pl_close(arg(b, 0), Nil, "close/1"))
+    register(v, "close/2", 2, (b, n) -> pl_close(arg(b, 0), arg(b, 1), "close/2"))
+    register_generator(v, "current_input/1", 1, (b, n, c) -> current_stream(arg(b, 0), true))
+    register_generator(v, "current_output/1", 1, (b, n, c) -> current_stream(arg(b, 0), false))
+    register(v, "set_input/1", 1, (b, n) -> set_current(arg(b, 0), true))
+    register(v, "set_output/1", 1, (b, n) -> set_current(arg(b, 0), false))
+    register(v, "flush_output/0", 0, (b, n) -> pl_flush(b, n))
+    register(v, "flush_output/1", 1, (b, n) -> pl_flush(b, n))
+    register_generator(v, "$stream_properties/3", 3, (b, n, c) -> pl_stream_properties(b))
+    register_generator(v, "at_end_of_stream/0", 0, (b, n, c) -> pl_at_end(b, n))
+    register_generator(v, "at_end_of_stream/1", 1, (b, n, c) -> pl_at_end(b, n))
+    register(v, "set_stream_position/2", 2, (b, n) -> pl_set_position(arg(b, 0), arg(b, 1)))
+    register_generator(v, "get_char/1", 1, (b, n, c) -> char_in(b, n, "get_char", false, false))
+    register_generator(v, "get_char/2", 2, (b, n, c) -> char_in(b, n, "get_char", false, false))
+    register_generator(v, "peek_char/1", 1, (b, n, c) -> char_in(b, n, "peek_char", false, true))
+    register_generator(v, "peek_char/2", 2, (b, n, c) -> char_in(b, n, "peek_char", false, true))
+    register_generator(v, "get_code/1", 1, (b, n, c) -> char_in(b, n, "get_code", true, false))
+    register_generator(v, "get_code/2", 2, (b, n, c) -> char_in(b, n, "get_code", true, false))
+    register_generator(v, "peek_code/1", 1, (b, n, c) -> char_in(b, n, "peek_code", true, true))
+    register_generator(v, "peek_code/2", 2, (b, n, c) -> char_in(b, n, "peek_code", true, true))
+    register_generator(v, "get_byte/1", 1, (b, n, c) -> byte_in(b, n, "get_byte", false))
+    register_generator(v, "get_byte/2", 2, (b, n, c) -> byte_in(b, n, "get_byte", false))
+    register_generator(v, "peek_byte/1", 1, (b, n, c) -> byte_in(b, n, "peek_byte", true))
+    register_generator(v, "peek_byte/2", 2, (b, n, c) -> byte_in(b, n, "peek_byte", true))
+    register(v, "put_char/1", 1, (b, n) -> pl_put_char(b, n))
+    register(v, "put_char/2", 2, (b, n) -> pl_put_char(b, n))
+    register(v, "put_code/1", 1, (b, n) -> pl_put_code(b, n))
+    register(v, "put_code/2", 2, (b, n) -> pl_put_code(b, n))
+    register(v, "put_byte/1", 1, (b, n) -> pl_put_byte(b, n))
+    register(v, "put_byte/2", 2, (b, n) -> pl_put_byte(b, n))
+    register(v, "nl/1", 1, (b, n) -> pl_nl_to(b, n))
+end install_prolog_streams
+
+// -- the records ------------------------------------------------------------------------------------
+
+// The machine, its standard streams' records made if they are not yet.
+private io_ready() -> Result[*Vm, Fault]
+    val v = current()
+
+    if v.pl_io.streams.len() >= 3 then return Ok(v)
+
+    v.pl_io.streams.push(standard_record(0, "user_input", "read", "reset")?)
+    v.pl_io.streams.push(standard_record(1, "user_output", "write", "eof_code")?)
+    v.pl_io.streams.push(standard_record(2, "user_error", "write", "eof_code")?)
+    v.pl_io.input = v.pl_io.streams.at(0).handle
+    v.pl_io.output = v.pl_io.streams.at(1).handle
+    Ok(v)
+
+private standard_record(which: int, alias: string, mode: string, eof: string) -> Result[&PlStream, Fault]
+    val x = standard_stream(which)?
+
+    val p = x match
+        Handle(p) -> p
+        _ -> return Err(Broken("a standard stream is not a handle"))
+
+    var names: Buf[u32] = buf()
+
+    names.push(intern(alias))
+
+    val s: &PlStream = PlStream(x, p, which, names, "", mode, false, false, eof, false, "", -1, 0, 1, 0, 0)
+
+    Ok(s)
+
+private has_alias(s: &PlStream, id: u32) -> bool
+    for a in s.aliases.view()
+        if a == id then return true
+
+    false
+
+// The record of open handle `p`, or `None`: a handle that has been closed since -- by FunL's
+// `close()` -- has its record dropped.
+private record_of(v: *Vm, p: *HandleObj) -> Option[&PlStream]
+    for i in 0..<v.pl_io.streams.len()
+        val s = v.pl_io.streams.at(i)
+
+        if s.h == p
+            if p.closed && s.which < 0
+                v.pl_io.streams.remove(i)
+                return None
+
+            return Some(s)
+
+    None
+
+// Which stream `x` names, a stream or an alias, for `who`; the error ISO raises where it names none.
+private stream_of(x: Value, who: string) -> Result[&PlStream, Fault]
+    val v = io_ready()?
+    val t = deref(x)
+
+    t match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound stream"))
+        Atom(id) ->
+            for s in v.pl_io.streams.view()
+                if has_alias(s, id) then return Ok(s)
+        Nil -> ()
+        Handle(p) ->
+            if !is_file_handle(t) then return Err(not_stream_or_alias(t, who))
+
+            record_of(v, p) match
+                Some(s) -> return Ok(s)
+                None -> ()
+        _ -> return Err(not_stream_or_alias(t, who))
+
+    Err(existence_error("stream", t, s"$who was given ${described(t)}, which is no open stream"))
+
+private not_stream_or_alias(t: Value, who: string) -> Fault =
+    domain_error("stream_or_alias", t, s"$who wants a stream or an alias, and was given ${described(t)}")
+
+// What an error names a stream by when the program did not: its first alias, or the stream.
+private culprit_of(s: &PlStream) -> Value = if s.aliases.len() > 0 then Atom(s.aliases.at(0)) else s.handle
+
+// The current input's record; `user_input`'s where the current input has been closed.
+private current_in() -> Result[&PlStream, Fault]
+    val v = io_ready()?
+
+    v.pl_io.input match
+        Handle(p) ->
+            record_of(v, p) match
+                Some(s) -> if !p.closed then return Ok(s)
+                None -> ()
+        _ -> ()
+
+    v.pl_io.input = v.pl_io.streams.at(0).handle
+    Ok(v.pl_io.streams.at(0))
+
+// The current output's record; `user_output`'s where the current output has been closed.
+private current_out() -> Result[&PlStream, Fault]
+    val v = io_ready()?
+
+    v.pl_io.output match
+        Handle(p) ->
+            record_of(v, p) match
+                Some(s) -> if !p.closed then return Ok(s)
+                None -> ()
+        _ -> ()
+
+    v.pl_io.output = v.pl_io.streams.at(1).handle
+    Ok(v.pl_io.streams.at(1))
+
+// A stream `who` reads from: one it may read, and of the type it reads -- binary for bytes.
+private check_input(s: &PlStream, culprit: Value, who: string, binary: bool) -> Result[unit, Fault]
+    if s.mode != "read" then return Err(permission_error("input", "stream", culprit, s"$who cannot read from an output stream"))
+
+    if s.binary && !binary then return Err(permission_error("input", "binary_stream", culprit, s"$who reads text, and the stream is binary"))
+
+    if !s.binary && binary then return Err(permission_error("input", "text_stream", culprit, s"$who reads bytes, and the stream is text"))
+
+    Ok(())
+
+// A stream `who` writes to: one it may write, and of the type it writes.
+private check_output(s: &PlStream, culprit: Value, who: string, binary: bool) -> Result[unit, Fault]
+    if s.mode == "read" then return Err(permission_error("output", "stream", culprit, s"$who cannot write to an input stream"))
+
+    if s.binary && !binary then return Err(permission_error("output", "binary_stream", culprit, s"$who writes text, and the stream is binary"))
+
+    if !s.binary && binary then return Err(permission_error("output", "text_stream", culprit, s"$who writes bytes, and the stream is text"))
+
+    Ok(())
+
+// The stream a builtin of `argc` arguments reads from -- its first argument when it has two, else
+// the current input -- checked, and what an error names it by.
+private in_stream(base: usize, argc: usize, who: string, binary: bool) -> Result[(&PlStream, Value), Fault]
+    if argc == 2
+        val x = arg(base, 0)
+        val s = stream_of(x, who)?
+
+        check_input(s, deref(x), who, binary)?
+        return Ok((s, deref(x)))
+
+    val s = current_in()?
+
+    check_input(s, culprit_of(s), who, binary)?
+    Ok((s, culprit_of(s)))
+
+// The stream a builtin of `argc` arguments writes to, as `in_stream` finds one to read.
+private out_stream(base: usize, argc: usize, who: string, binary: bool) -> Result[(&PlStream, Value), Fault]
+    if argc == 2
+        val x = arg(base, 0)
+        val s = stream_of(x, who)?
+
+        check_output(s, deref(x), who, binary)?
+        return Ok((s, deref(x)))
+
+    val s = current_out()?
+
+    check_output(s, culprit_of(s), who, binary)?
+    Ok((s, culprit_of(s)))
+
+// -- the position -----------------------------------------------------------------------------------
+
+// The position moved past `b`, bytes taken from or written to `s`.
+private advance(s: &PlStream, b: []const u8)
+    for c in b
+        s.bytes += 1
+
+        if (c & 192) != 128
+            s.chars += 1
+
+            if c == u8('\n')
+                s.lines += 1
+                s.line_pos = 0
+            else
+                s.line_pos += 1
+
+// -- reading text -----------------------------------------------------------------------------------
+
+// What `s` has read from its source and not yet given.
+private ahead_of(s: &PlStream) -> string = if s.which == 0 then current().pending else s.ahead
+
+private set_ahead(s: &PlStream, t: string)
+    if s.which == 0 then current().pending = t else s.ahead = t
+
+// Bytes as a string of their own. They are UTF-8.
+private text_of_bytes(b: []const u8) -> string
+    var out = str_builder()
+
+    out.push(from_utf8_unchecked(b))
+    out.finish()
+
+// How many bytes the UTF-8 character that begins with `lead` takes.
+private width_of(lead: u8) -> usize =
+    if lead >= 240 then 4
+    else if lead >= 224 then 3
+    else if lead >= 192 then 2
+    else 1
+
+// Bytes of a text stream that are not UTF-8: for a read of a term, the syntax error a read of
+// standard input has always raised; for a character, ISO's `representation_error(character)`.
+private bad_text(who: string, term: bool) -> Fault =
+    if term then malformed_input_error(who) else representation_error("character", s"$who: the input is not valid UTF-8")
+
+// One more line of `s`'s source -- its newline included -- after what it holds ahead; false where
+// the source has ended. A line of standard input is the machine's `input`, as the top level's are.
+private more(s: &PlStream, who: string, term: bool) -> Result[bool, Fault]
+    if s.which == 0
+        val v = current()
+
+        val line = v.input("|: ") match
+            Some(l) -> l
+            None -> return Ok(false)
+
+        if take_malformed_input()
+            v.pending = ""
+            return Err(bad_text(who, term))
+
+        v.pending = v.pending + line + "\n"
+        return Ok(true)
+
+    var bytes: Buf[u8] = buf()
+
+    loop
+        val b = file_next_byte(s.h)?
+
+        if b < 0 then break
+
+        bytes.push(u8(b))
+
+        if b == 10 then break
+
+    if bytes.len() == 0 then return Ok(false)
+
+    if from_utf8(bytes.view()).is_err()
+        s.ahead = ""
+        return Err(bad_text(who, term))
+
+    s.ahead = s.ahead + text_of_bytes(bytes.view())
+    Ok(true)
+
+// Whether `s` holds a character ahead, a line read if it holds none; false at the end.
+private fill(s: &PlStream, who: string) -> Result[bool, Fault]
+    if ahead_of(s).bytes.len > 0 then return Ok(true)
+
+    more(s, who, false)
+
+// The first `n` bytes of what `s` holds ahead taken, the position moved past them.
+take_ahead(s: &PlStream, n: usize)
+    val t = ahead_of(s)
+    val m = if n > t.bytes.len then t.bytes.len else n
+
+    advance(s, t.bytes[0..<m])
+    set_ahead(s, text_of_bytes(t.bytes[m..<t.bytes.len]))
+
+// Whether a read of `s` may go on, once it is past its end, as its `eof_action` says: `error` raises
+// ISO's error, `eof_code` answers the end again (false), `reset` reads on.
+private past_ok(s: &PlStream, culprit: Value, who: string) -> Result[bool, Fault]
+    if !s.past then return Ok(true)
+
+    if s.eof_action == "error"
+        return Err(permission_error("input", "past_end_of_stream", culprit, s"$who read past the end of the stream"))
+
+    if s.eof_action == "eof_code" then return Ok(false)
+
+    s.past = false
+    Ok(true)
+
+// The next character of text stream `s`, or `None` at its end; with `peek` it stays to be read.
+private next_char(s: &PlStream, culprit: Value, who: string, peek: bool) -> Result[Option[string], Fault]
+    if !past_ok(s, culprit, who)? then return Ok(None)
+
+    if !fill(s, who)?
+        if !peek then s.past = true
+
+        return Ok(None)
+
+    val t = ahead_of(s)
+    val w = width_of(t.bytes[0])
+    val c = text_of_bytes(t.bytes[0..<w])
+
+    if !peek then take_ahead(s, w)
+
+    Ok(Some(c))
+
+// The next byte of binary stream `s`, or -1 at its end; with `peek` it stays to be read.
+private next_byte(s: &PlStream, culprit: Value, who: string, peek: bool) -> Result[int, Fault]
+    if !past_ok(s, culprit, who)? then return Ok(-1)
+
+    if s.ahead_byte < 0 then s.ahead_byte = file_next_byte(s.h)?
+
+    val b = s.ahead_byte
+
+    if b < 0
+        if !peek then s.past = true
+
+        return Ok(-1)
+
+    if !peek
+        s.ahead_byte = -1
+        s.bytes += 1
+        s.chars += 1
+
+    Ok(b)
+
+// -- reading terms ----------------------------------------------------------------------------------
+
+// The current input, for `who`, which reads text from it.
+current_text_input(who: string) -> Result[&PlStream, Fault]
+    val s = current_in()?
+
+    check_input(s, culprit_of(s), who, false)?
+    Ok(s)
+
+// What `s` holds ahead once it holds the `.` that ends a clause, or the source has ended: the text
+// a read of a term reads. Past its end, `eof_action` says what happens, as for a character.
+clause_ahead(s: &PlStream, who: string) -> Result[string, Fault]
+    if !past_ok(s, culprit_of(s), who)? then return Ok("")
+
+    while !holds_clause_end(ahead_of(s))
+        if !more(s, who, true)? then break
+
+    Ok(ahead_of(s))
+
+// After a term: the layout character that ends its end token taken too.
+take_layout(s: &PlStream)
+    val t = ahead_of(s)
+
+    if t.bytes.len > 0
+        val c = t.bytes[0]
+
+        if c == u8(' ') || c == u8('\t') || c == u8('\n') || c == u8('\r') then take_ahead(s, 1)
+
+// A read that found the end: the stream is past it.
+mark_past(s: &PlStream)
+    s.past = true
+
+// What a diagnostic of a read from `s` names it by: its alias, or its file.
+stream_label(s: &PlStream) -> string = if s.aliases.len() > 0 then atom_name(s.aliases.at(0)) else s.file_name
+
+// -- writing ----------------------------------------------------------------------------------------
+
+// `text` written to `s`, the position moved past it.
+private emit_text(s: &PlStream, text: string) -> Result[unit, Fault]
+    file_write_text(s.h, text)?
+    advance(s, text.bytes)
+    Ok(())
+
+// `text` onto the current output, as `write/1` and its family put it.
+put_current(text: string) -> Result[unit, Fault]
+    val s = current_out()?
+
+    check_output(s, culprit_of(s), "writing", false)?
+    emit_text(s, text)
+
+// How many characters the current output's line holds: what `format/2`'s column stops count from.
+// Standard output's is the machine's own line, which FunL's writes go on too.
+output_column() -> Result[usize, Fault]
+    val s = current_out()?
+
+    if s.which == 1 then return Ok(char_count(current().line))
+
+    Ok(usize(s.line_pos))
+
+// -- open and close ---------------------------------------------------------------------------------
+
+// What `open/4`'s options ask for. `reposition` is -1 where they do not say.
+private struct OpenOptions
+    binary: bool
+    reposition: int
+    aliases: Buf[u32]
+    eof_action: string
+
+// The items of list `x`, for `who`: ISO's errors for a list that is partial, holds an unbound item, or
+// is no list.
+private option_items(x: Value, who: string) -> Result[Buf[Value], Fault]
+    if !is_partial_list(x) then return Err(type_error("list", deref(x), s"$who wants a list of options, and was given ${described(x)}"))
+
+    val items = list_items(x, who)?
+
+    for o in items.view()
+        if is_unbound(o) then return Err(instantiation_error(s"instantiation error: $who was given an unbound option"))
+
+    Ok(items)
+
+private open_options(x: Value, who: string) -> Result[OpenOptions, Fault]
+    var o = OpenOptions(false, -1, buf(), "eof_code")
+
+    for item in option_items(x, who)?.view()
+        open_option(&o, deref(item), who)?
+
+    Ok(o)
+
+private open_option(o: *OpenOptions, x: Value, who: string) -> Result[unit, Fault]
+    val (f, args) = compound_parts(x) match
+        Some(parts) -> parts
+        None -> return Err(bad_open_option(x, who))
+
+    if args.len() != 1 then return Err(bad_open_option(x, who))
+
+    val a = deref(args.at(0))
+
+    if is_unbound(a) then return Err(instantiation_error(s"instantiation error: $who was given an option with an unbound argument"))
+
+    val name = atom_name(f)
+
+    val word = a match
+        Atom(id) -> atom_name(id)
+        _ -> return Err(bad_open_option(x, who))
+
+    if name == "type" && (word == "text" || word == "binary")
+        o.binary = word == "binary"
+    elif name == "reposition" && (word == "true" || word == "false")
+        o.reposition = if word == "true" then 1 else 0
+    elif name == "alias"
+        o.aliases.push(intern(word))
+    elif name == "eof_action" && (word == "error" || word == "eof_code" || word == "reset")
+        o.eof_action = word
+    else
+        return Err(bad_open_option(x, who))
+
+    Ok(())
+
+private bad_open_option(x: Value, who: string) -> Fault =
+    domain_error("stream_option", x, s"$who: ${term_text(x, write_opts(true, false, false))} is not a stream option")
+
+// `Name(Arg)`, a term an error names.
+private term_of(name: string, a: Value) -> Result[Value, Fault]
+    var args: Buf[Value] = buf()
+
+    args.push(a)
+    build_compound(intern(name), args)
+
+// The absolute path of `path`, as SWI-Prolog's `file_name/1` property has it.
+private absolute(path: string) -> string = if path.starts_with("/") then path else s"${working_dir()}/$path"
+
+// `open(Source, Mode, S)` and `open(Source, Mode, S, Options)`.
+private pl_open(base: usize, four: bool) -> Result[Answer, Fault]
+    val who = if four then "open/4" else "open/3"
+    val src = deref(arg(base, 0))
+    val mx = deref(arg(base, 1))
+    val target = deref(arg(base, 2))
+
+    if is_unbound(src) then return Err(instantiation_error(s"instantiation error: $who was given an unbound source"))
+
+    if is_unbound(mx) then return Err(instantiation_error(s"instantiation error: $who was given an unbound mode"))
+
+    val mode = mx match
+        Atom(id) -> atom_name(id)
+        Nil -> "[]"
+        _ -> return Err(type_error("atom", mx, s"$who wants a mode, an atom, and was given ${described(mx)}"))
+
+    val o = if four then open_options(arg(base, 3), who)? else OpenOptions(false, -1, buf(), "eof_code")
+
+    if !is_unbound(target) then return Err(uninstantiation_error(target, s"$who wants an unbound variable for the stream, and was given ${described(target)}"))
+
+    val path = src match
+        Atom(id) -> atom_name(id)
+        Str(p) -> p.s
+        _ -> return Err(domain_error("source_sink", src, s"$who wants a file's name, and was given ${described(src)}"))
+
+    if mode != "read" && mode != "write" && mode != "append"
+        return Err(domain_error("io_mode", mx, s"$who takes the modes read, write and append, and was given $mode"))
+
+    val v = io_ready()?
+
+    for a in o.aliases.view()
+        for s in v.pl_io.streams.view()
+            if has_alias(s, a)
+                return Err(permission_error("open", "source_sink", term_of("alias", Atom(a))?, s"$who: the alias ${atom_name(a)} is another stream's"))
+
+    if o.reposition == 1 && mode == "append"
+        return Err(permission_error("open", "source_sink", term_of("reposition", atom("true"))?, s"$who: a file opened to append cannot be repositioned"))
+
+    val x = prolog_open_file(path, mode, src)?
+
+    val p = x match
+        Handle(p) -> p
+        _ -> return Err(Broken("an opened file is not a handle"))
+
+    val repositions = if o.reposition < 0 then mode != "append" else o.reposition == 1
+    val s: &PlStream = PlStream(x, p, -1, o.aliases, absolute(path), mode, o.binary, repositions, o.eof_action, false, "", -1, 0, 1, 0, 0)
+
+    v.pl_io.streams.push(s)
+    unified(target, x)
+
+// `close(S)` and `close(S, Options)`: what `S` holds written out and its file closed. A standard stream
+// is not closed.
+private pl_close(x: Value, options: Value, who: string) -> Result[Value, Fault]
+    if is_unbound(x) then return Err(instantiation_error(s"instantiation error: $who was given an unbound stream"))
+
+    var force = false
+
+    for item in option_items(options, who)?.view()
+        val o = deref(item)
+
+        compound_parts(o) match
+            Some((f, args)) ->
+                if atom_name(f) == "force" && args.len() == 1
+                    val a = deref(args.at(0))
+
+                    if is_unbound(a) then return Err(instantiation_error(s"instantiation error: $who was given force/1 with an unbound argument"))
+
+                    val word = a match
+                        Atom(id) -> atom_name(id)
+                        _ -> ""
+
+                    if word == "true"
+                        force = true
+                        continue
+
+                    if word == "false" then continue
+            None -> ()
+
+        return Err(domain_error("close_option", o, s"$who: ${term_text(o, write_opts(true, false, false))} is not a close option"))
+
+    val s = stream_of(x, who)?
+
+    if s.which >= 0 then return Ok(Unit)
+
+    val v = current()
+
+    for i in 0..<v.pl_io.streams.len()
+        if v.pl_io.streams.at(i).h == s.h
+            v.pl_io.streams.remove(i)
+            break
+
+    if same_handle(v.pl_io.input, s.h) then v.pl_io.input = v.pl_io.streams.at(0).handle
+
+    if same_handle(v.pl_io.output, s.h) then v.pl_io.output = v.pl_io.streams.at(1).handle
+
+    val flushed = if s.mode == "read" then Ok(()) else file_flush_handle(s.h)
+
+    close_handle(s.h)
+
+    flushed match
+        Ok(_) -> Ok(Unit)
+        Err(e) -> if force then Ok(Unit) else Err(e)
+
+private same_handle(x: Value, p: *HandleObj) -> bool = x match
+    Handle(q) -> q == p
+    _ -> false
+
+// -- selection --------------------------------------------------------------------------------------
+
+// `current_input(S)` and `current_output(S)`: `S` unbound or a stream.
+private current_stream(x: Value, input: bool) -> Result[Answer, Fault]
+    val t = deref(x)
+    val who = if input then "current_input/1" else "current_output/1"
+
+    t match
+        Var(_) -> ()
+        Handle(_) -> if !is_file_handle(t) then return Err(not_a_stream(t, who))
+        _ -> return Err(not_a_stream(t, who))
+
+    val s = if input then current_in()? else current_out()?
+
+    unified(t, s.handle)
+
+private not_a_stream(t: Value, who: string) -> Fault = domain_error("stream", t, s"$who wants a stream, and was given ${described(t)}")
+
+// `set_input(S)` and `set_output(S)`.
+private set_current(x: Value, input: bool) -> Result[Value, Fault]
+    val who = if input then "set_input/1" else "set_output/1"
+    val s = stream_of(x, who)?
+
+    if input
+        if s.mode != "read" then return Err(permission_error("input", "stream", deref(x), s"$who was given an output stream"))
+
+        current().pl_io.input = s.handle
+    else
+        if s.mode == "read" then return Err(permission_error("output", "stream", deref(x), s"$who was given an input stream"))
+
+        current().pl_io.output = s.handle
+
+    Ok(Unit)
+
+// `flush_output` and `flush_output(S)`.
+private pl_flush(base: usize, argc: usize) -> Result[Value, Fault]
+    val s = if argc == 1
+        val x = arg(base, 0)
+        val got = stream_of(x, "flush_output/1")?
+
+        if got.mode == "read" then return Err(permission_error("output", "stream", deref(x), "flush_output/1 was given an input stream"))
+
+        got
+    else
+        current_out()?
+
+    file_flush_handle(s.h)?
+    Ok(Unit)
+
+// -- properties -------------------------------------------------------------------------------------
+
+private val PropertyNames: [8]string = ["file_name", "mode", "alias", "position", "end_of_stream", "eof_action", "reposition", "type"]
+
+// Whether `p` is unbound or one of the stream properties' forms; and the name it asks for, `""` for
+// any.
+private property_wanted(p: Value) -> Option[string]
+    p match
+        Var(_) -> return Some("")
+        Atom(id) ->
+            val n = atom_name(id)
+
+            if n == "input" || n == "output" then return Some(n)
+        _ ->
+            compound_parts(p) match
+                Some((f, args)) ->
+                    if args.len() == 1
+                        val n = atom_name(f)
+
+                        for k in PropertyNames
+                            if k == n then return Some(n)
+                None -> ()
+
+    None
+
+// `'$stream_properties'(S, P, L)`: `S` and `P` checked as ISO checks `stream_property/2`'s, and `L`
+// every `S-P` pair of the open streams -- only `S`'s where it is bound, and only properties of `P`'s
+// name where that is bound.
+private pl_stream_properties(base: usize) -> Result[Answer, Fault]
+    val x = deref(arg(base, 0))
+    val p = deref(arg(base, 1))
+
+    x match
+        Var(_) -> ()
+        Handle(_) -> if !is_file_handle(x) then return Err(not_a_stream(x, "stream_property/2"))
+        _ -> return Err(not_a_stream(x, "stream_property/2"))
+
+    val want = property_wanted(p) match
+        Some(w) -> w
+        None -> return Err(domain_error("stream_property", p, s"stream_property/2: ${term_text(p, write_opts(true, false, false))} is not a stream property"))
+
+    val v = io_ready()?
+    var open: Buf[&PlStream] = buf()
+
+    for s in v.pl_io.streams.view()
+        if !s.h.closed then open.push(s)
+
+    var pairs: Buf[Value] = buf()
+
+    for s in open.view()
+        val take = x match
+            Handle(q) -> q == s.h
+            _ -> true
+
+        if take then properties(s, want, &pairs)?
+
+    unified(arg(base, 2), list_of(&pairs, Nil)?)
+
+// Each property of `s` named `want` (every one, for `""`), as an `S-P` pair onto `out`.
+private properties(s: &PlStream, want: string, out: *Buf[Value]) -> Result[unit, Fault]
+    if s.file_name.bytes.len > 0 && wants(want, "file_name") then pair(s, term_of("file_name", atom(s.file_name))?, out)?
+
+    if wants(want, "mode") then pair(s, term_of("mode", atom(s.mode))?, out)?
+
+    val dir = if s.mode == "read" then "input" else "output"
+
+    if wants(want, dir) then pair(s, atom(dir), out)?
+
+    if wants(want, "alias")
+        for a in s.aliases.view()
+            pair(s, term_of("alias", Atom(a))?, out)?
+
+    if wants(want, "position") then pair(s, term_of("position", position_term(s)?)?, out)?
+
+    if s.mode == "read" && wants(want, "end_of_stream") then pair(s, term_of("end_of_stream", atom(end_state(s)?))?, out)?
+
+    if wants(want, "eof_action") then pair(s, term_of("eof_action", atom(s.eof_action))?, out)?
+
+    if wants(want, "reposition") then pair(s, term_of("reposition", atom(if s.reposition then "true" else "false"))?, out)?
+
+    if wants(want, "type") then pair(s, term_of("type", atom(if s.binary then "binary" else "text"))?, out)?
+
+    Ok(())
+
+private wants(want: string, name: string) -> bool = want == "" || want == name
+
+private pair(s: &PlStream, p: Value, out: *Buf[Value]) -> Result[unit, Fault]
+    var args: Buf[Value] = buf()
+
+    args.push(s.handle)
+    args.push(p)
+    out.push(build_compound(intern("-"), args)?)
+    Ok(())
+
+// `'$stream_position'(Chars, Line, LinePos, Bytes)`, SWI-Prolog's position term.
+private position_term(s: &PlStream) -> Result[Value, Fault]
+    var args: Buf[Value] = buf()
+
+    args.push(Int(s.chars))
+    args.push(Int(s.lines))
+    args.push(Int(s.line_pos))
+    args.push(Int(s.bytes))
+    build_compound(intern("$stream_position"), args)
+
+// Where input stream `s` is: `past` its end, `at` it, or `not`. A file is looked ahead in; standard
+// input is `not` until a read finds its end, since looking would wait for the terminal.
+private end_state(s: &PlStream) -> Result[string, Fault]
+    if s.past then return Ok("past")
+
+    if s.binary
+        if s.ahead_byte < 0 then s.ahead_byte = file_next_byte(s.h)?
+
+        return Ok(if s.ahead_byte < 0 then "at" else "not")
+
+    if ahead_of(s).bytes.len > 0 || s.which == 0 then return Ok("not")
+
+    Ok(if more(s, "stream_property/2", false)? then "not" else "at")
+
+// `at_end_of_stream` and `at_end_of_stream(S)`: the stream is at or past its end, looked ahead in --
+// waiting, for a terminal -- to see.
+private pl_at_end(base: usize, argc: usize) -> Result[Answer, Fault]
+    val (s, culprit) = if argc == 1
+        val x = arg(base, 0)
+
+        (stream_of(x, "at_end_of_stream/1")?, deref(x))
+    else
+        val c = current_in()?
+
+        (c, culprit_of(c))
+
+    if s.mode != "read" then return Err(permission_error("input", "stream", culprit, "at_end_of_stream/1 was given an output stream"))
+
+    if s.past then return answer(true)
+
+    if s.binary
+        if s.ahead_byte < 0 then s.ahead_byte = file_next_byte(s.h)?
+
+        return answer(s.ahead_byte < 0)
+
+    answer(!fill(s, "at_end_of_stream/1")?)
+
+// `set_stream_position(S, P)`: `S` moved to position `P`, which its `position/1` property gave.
+private pl_set_position(x: Value, p: Value) -> Result[Value, Fault]
+    val who = "set_stream_position/2"
+
+    if is_unbound(x) then return Err(instantiation_error(s"instantiation error: $who was given an unbound stream"))
+
+    if is_unbound(p) then return Err(instantiation_error(s"instantiation error: $who was given an unbound position"))
+
+    val s = stream_of(x, who)?
+    val at = deref(p)
+    var n: [4]long = [0, 0, 0, 0]
+    var good = false
+
+    compound_parts(at) match
+        Some((f, args)) ->
+            if atom_name(f) == "$stream_position" && args.len() == 4
+                good = true
+
+                for i in 0..<args.len()
+                    deref(args.at(i)) match
+                        Int(k) -> if k >= 0 then n[i] = k else good = false
+                        _ -> good = false
+        None -> ()
+
+    if !good then return Err(domain_error("stream_position", at, s"$who wants a position a stream's position/1 property gave, and was given ${described(at)}"))
+
+    if !s.reposition then return Err(permission_error("reposition", "stream", deref(x), s"$who was given a stream that cannot be repositioned"))
+
+    if s.mode != "read" then file_flush_handle(s.h)?
+
+    if !file_seek_to(s.h, n[3]) then return Err(system_error(s"$who could not move the stream"))
+
+    s.chars = n[0]
+    s.lines = n[1]
+    s.line_pos = n[2]
+    s.bytes = n[3]
+    s.ahead = ""
+    s.ahead_byte = -1
+    s.past = false
+    Ok(Unit)
+
+// -- characters and bytes ---------------------------------------------------------------------------
+
+// The code of one-character text `c`.
+private code_of(c: string) -> long = long(u32(chars_of(c.bytes).peek().unwrap()))
+
+// Whether `k` is a character code.
+private is_code(k: long) -> bool = k >= 0 && k <= 1114111 && char_from_u32(u32(k)).is_some()
+
+// `get_char`, `peek_char`, `get_code` and `peek_code`, of one argument or two: the next character of
+// the stream as an atom, or with `codes` as its code; `end_of_file` or -1 at the end.
+private char_in(base: usize, argc: usize, name: string, codes: bool, peek: bool) -> Result[Answer, Fault]
+    val who = s"$name/$argc"
+    val t = deref(arg(base, argc - 1))
+
+    if codes
+        t match
+            Var(_) -> ()
+            Int(k) ->
+                if k != -1 && !is_code(k)
+                    return Err(representation_error("in_character_code", s"$who was given $k, which is neither a character code nor -1"))
+            _ -> return Err(type_error("integer", t, s"$who wants a character code, and was given ${described(t)}"))
+    else
+        val fits = t match
+            Var(_) -> true
+            Atom(id) -> one_char(atom_name(id)) || atom_name(id) == "end_of_file"
+            _ -> false
+
+        if !fits then return Err(type_error("in_character", t, s"$who wants a character or end_of_file, and was given ${described(t)}"))
+
+    val (s, culprit) = in_stream(base, argc, who, false)?
+
+    val got = next_char(s, culprit, who, peek)? match
+        Some(c) -> if codes then Int(code_of(c)) else atom(c)
+        None -> if codes then Int(-1) else atom("end_of_file")
+
+    unified(t, got)
+
+// `get_byte` and `peek_byte`, of one argument or two: the next byte of a binary stream, -1 at the end.
+private byte_in(base: usize, argc: usize, name: string, peek: bool) -> Result[Answer, Fault]
+    val who = s"$name/$argc"
+    val t = deref(arg(base, argc - 1))
+
+    val fits = t match
+        Var(_) -> true
+        Int(k) -> k >= -1 && k <= 255
+        _ -> false
+
+    if !fits then return Err(type_error("in_byte", t, s"$who wants a byte or -1, and was given ${described(t)}"))
+
+    val (s, culprit) = in_stream(base, argc, who, true)?
+
+    unified(t, Int(long(next_byte(s, culprit, who, peek)?)))
+
+// `put_char(C)` and `put_char(S, C)`.
+private pl_put_char(base: usize, argc: usize) -> Result[Value, Fault]
+    val who = s"put_char/$argc"
+    val t = deref(arg(base, argc - 1))
+
+    val c = t match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable"))
+        Atom(id) ->
+            val name = atom_name(id)
+
+            if !one_char(name) then return Err(type_error("character", t, s"$who wants a one-character atom, and was given ${described(t)}"))
+
+            name
+        _ -> return Err(type_error("character", t, s"$who wants a one-character atom, and was given ${described(t)}"))
+
+    val (s, _) = out_stream(base, argc, who, false)?
+
+    emit_text(s, c)?
+    Ok(Unit)
+
+// `put_code(C)` and `put_code(S, C)`.
+private pl_put_code(base: usize, argc: usize) -> Result[Value, Fault]
+    val who = s"put_code/$argc"
+    val t = deref(arg(base, argc - 1))
+
+    val k = t match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable"))
+        Int(k) -> k
+        _ -> return Err(type_error("integer", t, s"$who wants a character code, and was given ${described(t)}"))
+
+    if !is_code(k) then return Err(representation_error("character_code", s"$who was given $k, which is not a character code"))
+
+    val (s, _) = out_stream(base, argc, who, false)?
+    var b = str_builder()
+
+    b.push_char(char_from_u32(u32(k)).unwrap())
+    emit_text(s, b.finish())?
+    Ok(Unit)
+
+// `put_byte(B)` and `put_byte(S, B)`.
+private pl_put_byte(base: usize, argc: usize) -> Result[Value, Fault]
+    val who = s"put_byte/$argc"
+    val t = deref(arg(base, argc - 1))
+
+    val k = t match
+        Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable"))
+        Int(k) -> if k >= 0 && k <= 255 then k else return Err(type_error("byte", t, s"$who wants a byte, and was given $k"))
+        _ -> return Err(type_error("byte", t, s"$who wants a byte, and was given ${described(t)}"))
+
+    val (s, _) = out_stream(base, argc, who, true)?
+
+    file_write_byte(s.h, u8(k))?
+    s.bytes += 1
+    s.chars += 1
+    Ok(Unit)
+
+// `nl(S)`.
+private pl_nl_to(base: usize, argc: usize) -> Result[Value, Fault]
+    // Its one argument is the stream, so it is taken as the first of two.
+    val (s, _) = out_stream(base, 2, "nl/1", false)?
+
+    emit_text(s, "\n")?
+    Ok(Unit)

@@ -311,6 +311,10 @@ roots(h: *gc.Heap)
 
     // The standard streams' handles, which every reach for one answers.
     mark_values(h, v.streams)
+
+    // Every stream Prolog has open, which it reaches by alias or as the current input or output.
+    for s in v.pl_io.streams.view()
+        mark_value(h, s.handle)
 end roots
 
 // What one machine can still reach: its operands, its control stack and the cells it saved, its scan

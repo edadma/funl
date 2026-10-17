@@ -332,10 +332,11 @@ a term was expected here
 
 ### Reading terms
 
-`read(T)` reads the next term from the input, up to the `.` that ends it, and `read_term(T, Options)`
-does the same with the options `variable_names(Vs)`, `variables(Vs)` and `singletons(Vs)`. At the
-`prolog` top level the input is the lines typed after the query; elsewhere it is standard input. At
-the end of the input the term read is `end_of_file`.
+`read(T)` reads the next term from the current input, up to the `.` that ends it, and
+`read_term(T, Options)` does the same with the options `variable_names(Vs)`, `variables(Vs)` and
+`singletons(Vs)`. The current input is `user_input` unless `set_input/1` has changed it (see
+[Streams](#streams)): at the `prolog` top level that is the lines typed after the query, and elsewhere
+standard input. At the end of the input the term read is `end_of_file`.
 
 `term_to_atom(T, A)` reads atom `A` as a term, its `.` optional, or, when `A` is unbound, writes `T`
 as `writeq/1` does. Text that does not read raises `syntax_error(What)`, whose message says where
@@ -1333,6 +1334,104 @@ one
 format(not enough arguments)
 ```
 
+## Streams
+
+Prolog reads and writes **streams**, as ISO has them. `user_input`, `user_output` and `user_error`
+are always there; `open(File, Mode, S)` opens a file -- `Mode` is `read`, `write` (made, or emptied)
+or `append` -- and `close(S)` closes it. A stream is a `funl:fs` file handle, written `<file
+handle>`. Each predicate that reads or writes takes the stream, or an alias for it, as its first
+argument; the form without it uses the **current input** or **current output**, which are
+`user_input` and `user_output` until `set_input/1` or `set_output/1` changes them. `write/1` and its
+family, `nl/0`, `tab/1`, `format/1-2`, `read/1` and `read_term/2` are all of the current streams.
+
+Characters are Unicode, read and written as UTF-8: `get_char`, `peek_char` and `put_char` take
+one-character atoms, `get_code`, `peek_code` and `put_code` their codes, and `nl(S)` ends a line. At
+the end of a stream a read answers `end_of_file`, or `-1` for a code.
+
+```prolog
+:- open('docs/reference/prolog/notes.txt', write, S),
+   put_char(S, h), put_char(S, i), put_code(S, 0'.), nl(S),
+   close(S).
+:- open('docs/reference/prolog/notes.txt', read, S),
+   get_char(S, A), peek_char(S, B), get_char(S, C), get_code(S, D), get_char(S, E), get_char(S, F),
+   close(S),
+   writeq([A, B, C, D, E, F]), nl.
+```
+
+```output
+[h,i,i,46,'\n',end_of_file]
+```
+
+`open/4` takes options: `type(text)` or `type(binary)`, `alias(A)`, which names the stream `A` until
+it is closed, `eof_action(error|eof_code|reset)`, what a read past the end does (`eof_code`, answer
+the end again, unless said), and `reposition(Bool)`. `stream_property(S, P)` gives each open stream's
+properties -- `file_name/1`, `mode/1`, `input` or `output`, `alias/1`, `position/1`,
+`end_of_stream/1` (`not`, `at`, or `past` once a read has answered the end), `eof_action/1`,
+`reposition/1` and `type/1`. `at_end_of_stream(S)` succeeds at the end, and
+`set_stream_position(S, P)` moves a file back to a position its `position/1` property gave.
+
+```prolog
+:- open('docs/reference/prolog/notes.txt', read, _, [alias(notes)]),
+   stream_property(S, alias(notes)), stream_property(S, mode(M)),
+   set_input(notes), read(T), stream_property(S, end_of_stream(E1)),
+   read(U), stream_property(S, end_of_stream(E2)),
+   set_input(user_input), close(notes),
+   writeq(M/T/E1/U/E2), nl.
+:- open('docs/reference/prolog/notes.txt', read, S),
+   get_char(S, _), stream_property(S, position(P)), get_char(S, C1),
+   set_stream_position(S, P), get_char(S, C2), close(S),
+   writeq(P/C1/C2), nl.
+```
+
+```output
+read/hi/at/end_of_file/past
+'$stream_position'(1,1,1,1)/i/i
+```
+
+A binary stream is read and written a byte at a time, with `get_byte`, `peek_byte` and `put_byte`.
+
+```prolog
+:- open('docs/reference/prolog/notes.txt', read, S, [type(binary), eof_action(error)]),
+   get_byte(S, A), get_byte(S, B), get_byte(S, C), get_byte(S, D), get_byte(S, E),
+   catch(get_byte(S, _), error(Err, _), true),
+   close(S),
+   writeq([A, B, C, D, E]), nl, print(Err), nl.
+```
+
+```output
+[104,105,46,10,-1]
+permission_error(input,past_end_of_stream,<file handle>)
+```
+
+The errors are ISO's: a stream argument that is neither a stream nor an alias, a stream used the way
+it does not go -- read from when it is written, or text on a binary stream -- and an argument of the
+wrong kind each raise their own.
+
+```prolog
+try(G) :- catch(G, error(E, _), (print(E), nl)).
+
+:- try(open('docs/reference/prolog/missing.txt', read, _)).
+:- try(open('docs/reference/prolog/notes.txt', read, _, [colour(red)])).
+:- try(get_char(nosuch, _)).
+:- try(get_char(user_output, _)).
+:- try(get_byte(user_input, _)).
+:- try(put_char(user_output, ab)).
+:- try(current_input(user_input)).
+```
+
+```output
+existence_error(source_sink,'docs/reference/prolog/missing.txt')
+domain_error(stream_option,colour(red))
+existence_error(stream,nosuch)
+permission_error(input,stream,user_output)
+permission_error(input,text_stream,user_input)
+type_error(character,ab)
+domain_error(stream,user_input)
+```
+
+`current_input(S)` and `stream_property(S, P)` take a stream, as ISO has them, and not an alias:
+`stream_property(S, alias(user_input))` finds the stream an alias names.
+
 ## The builtin set
 
 Every predicate there is, by group. Those marked *(library)* are written in Prolog and loaded into
@@ -1353,8 +1452,9 @@ replaces the library's. Every other one is built in, and a program cannot redefi
 | lists *(library)* | `append/2`, `append/3`, `member/2`, `memberchk/2`, `nth0/3`, `nth1/3`, `reverse/2`, `last/2`, `delete/3`, `select/3`, `selectchk/3`, `subtract/3`, `intersection/3`, `union/3`, `permutation/2`, `flatten/2`, `numlist/3`, `sum_list/2`, `sumlist/2`, `max_list/2`, `min_list/2`, `list_to_set/2`, `exclude/3`, `include/3`, `partition/4`, `maplist/2-5`, `foldl/4-6`, `sort/4`, `predsort/3` |
 | lists, built in | `length/2`, `msort/2`, `sort/2`, `keysort/2` |
 | global variables | `nb_setval/2`, `nb_getval/2`, `b_setval/2`, `b_getval/2` |
-| output | `write/1`, `writeln/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2`, `nl/0`, `tab/1`, `put_char/1`, `format/1`, `format/2` |
-| input | `read/1`, `read_term/2` |
+| output | `write/1`, `writeln/1`, `print/1`, `writeq/1`, `write_canonical/1`, `write_term/2`, `nl/0`, `nl/1`, `tab/1`, `put_char/1-2`, `put_code/1-2`, `put_byte/1-2`, `format/1`, `format/2` |
+| input | `read/1`, `read_term/2`, `get_char/1-2`, `get_code/1-2`, `peek_char/1-2`, `peek_code/1-2`, `get_byte/1-2`, `peek_byte/1-2` |
+| streams | `open/3`, `open/4`, `close/1`, `close/2`, `current_input/1`, `current_output/1`, `set_input/1`, `set_output/1`, `flush_output/0-1`, `stream_property/2` *(library)*, `at_end_of_stream/0-1`, `set_stream_position/2` |
 | flags and operators | `op/3`, `current_op/3` *(library)*, `set_prolog_flag/2`, `current_prolog_flag/2` *(library)* |
 | grammar rules | `phrase/2`, `phrase/3` *(library)*, `dcg_translate_rule/2` |
 | loading | `consult/1` |
