@@ -93,8 +93,8 @@ private keep_running(r: Running) -> long
 
 // A database handle's release: every query still running over it finalized, then the connection
 // closed, as the last reference to it goes.
-private release_database(h: *HandleObj)
-    val at = usize(h.n)
+private[funl] release_database(h: *HandleObj)
+    val at = usize.wrap(h.n)
 
     for i in 0..<running.len()
         running.at(i) match
@@ -103,8 +103,8 @@ private release_database(h: *HandleObj)
 
     if at < databases.len() then databases.set(at, None)
 
-private release_rows(h: *HandleObj)
-    val at = usize(h.n)
+private[funl] release_rows(h: *HandleObj)
+    val at = usize.wrap(h.n)
 
     if at < running.len() then running.set(at, None)
 
@@ -113,7 +113,7 @@ private release_rows(h: *HandleObj)
 // Argument 0 of a method, an open database, and the connection it holds.
 private database_arg(base: usize, name: string) -> Result[&sqlite.Db, Fault]
     val h = open_handle(base, 0, kind_named(DatabaseKind), s"'$name'")?
-    val at = usize(h.n)
+    val at = usize.wrap(h.n)
 
     if at < databases.len()
         databases.at(at) match
@@ -224,15 +224,15 @@ private do_run(base: usize, argc: usize) -> Result[Option[Value], Fault]
 // `db.query(sql, params...)`: the statement compiled and bound, its state a rows handle.
 private start_query(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val (_, q) = prepared(base, argc, "query")?
-    val db_at = usize(open_handle(base, 0, kind_named(DatabaseKind), "'query'")?.n)
+    val db_at = usize.wrap(open_handle(base, 0, kind_named(DatabaseKind), "'query'")?.n)
     val h = new_handle(kind_named(RowsKind))?
 
     h.n = keep_running(Running(db_at, q))
     Ok(Some(Handle(h)))
 
 // The next row of a running query, or nothing when it has run out or its database was closed.
-private step_query(h: *HandleObj) -> Result[Option[Value], Fault]
-    val at = usize(h.n)
+private[funl] step_query(h: *HandleObj) -> Result[Option[Value], Fault]
+    val at = usize.wrap(h.n)
 
     if at >= running.len() then return Ok(None)
 

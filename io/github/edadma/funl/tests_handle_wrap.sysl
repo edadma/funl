@@ -1,0 +1,56 @@
+module io.github.edadma.funl
+@tests
+
+import sysl.buf.buf
+
+// A handle's `n` is a table index or a cursor held as a signed `long`. A handle whose `n` is negative
+// is no entry of any table and no cursor in range, so every native that reads it answers "gone" or
+// "exhausted" rather than trapping on the signed-to-unsigned conversion. These tests hand each module's
+// natives such a handle directly, on both heaps.
+
+// A handle of no registered kind with `n` set to -1 and `text` as its first value.
+private negative_handle(text: string) -> HandleObj
+    var h = HandleObj(0, false, null, -1, buf())
+
+    h.vals.push(new_str(text).unwrap())
+    h
+
+private exercised(check: () -> unit) -> string
+    ran(() ->
+        check()
+        compiled_text("write( 1 )\n"))
+
+@test
+A_NEGATIVE_CURSOR_ENDS_THE_LINES_AND_ENTRIES_OF_FUNL_FS()
+    exercised(() ->
+        var h = negative_handle("a\nb\n")
+        assert(step_lines(&h).unwrap().is_none())
+        assert(step_read_dir(&h).unwrap().is_none()))
+
+@test
+A_NEGATIVE_CURSOR_ENDS_THE_LINES_OF_A_FUNL_PROCESS_RUN()
+    exercised(() ->
+        var h = negative_handle("a\nb\n")
+        assert(step_run_lines(&h).unwrap().is_none()))
+
+@test
+A_NEGATIVE_FILE_HANDLE_HOLDS_NO_FILE()
+    exercised(() ->
+        var h = negative_handle("")
+        release_file(&h))
+
+@test
+A_NEGATIVE_SQLITE_HANDLE_HOLDS_NO_DATABASE_AND_NO_QUERY()
+    exercised(() ->
+        var h = negative_handle("")
+        assert(step_query(&h).unwrap().is_none())
+        release_rows(&h)
+        release_database(&h))
+
+@test
+A_NEGATIVE_GRAPHICS_HANDLE_IS_ON_NO_CANVAS()
+    exercised(() ->
+        var h = negative_handle("")
+        h.vals.push(Int(-1))
+        assert(!canvas_live(&h))
+        detach_window(&h))

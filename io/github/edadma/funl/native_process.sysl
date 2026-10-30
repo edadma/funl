@@ -141,12 +141,12 @@ private start_run_lines(base: usize, argc: usize) -> Result[Option[Value], Fault
     h.vals = vals
     Ok(Some(Handle(h)))
 
-private step_run_lines(h: *HandleObj) -> Result[Option[Value], Fault]
+private[funl] step_run_lines(h: *HandleObj) -> Result[Option[Value], Fault]
     val text = h.vals.at(0) match
         Str(p) -> p.s
         _ -> return Ok(None)
 
-    val from = usize(h.n)
+    val from = usize.wrap(h.n)
 
     if from >= text.len then return Ok(None)
 

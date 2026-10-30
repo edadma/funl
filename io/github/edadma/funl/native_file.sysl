@@ -107,7 +107,7 @@ private opened_of(h: *HandleObj) -> Option[Opened]
 
 // A file handle's release: the file closed, what it buffered written out. A pipe the program wrote
 // to is waited for, its command having been told its input has ended; one it read from is stopped.
-private release_file(h: *HandleObj)
+private[funl] release_file(h: *HandleObj)
     val at = usize.wrap(h.n)
 
     if at >= files.len() then return

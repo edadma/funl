@@ -267,7 +267,7 @@ small(x: Value) -> long = x match
 canvas_live(h: *HandleObj) -> bool
     if h.vals.len() < 2 then return false
 
-    val at = usize(h.n)
+    val at = usize.wrap(h.n)
 
     at < canvases.len() && canvases.at(at).is_some() && generations.at(at) == small(h.vals.at(0))
 
@@ -294,7 +294,7 @@ free_canvas(at: usize)
 private drop_context(h: *HandleObj)
     if h.vals.len() < 2 then return
 
-    val k = usize(small(h.vals.at(1)))
+    val k = usize.wrap(small(h.vals.at(1)))
 
     if k >= contexts.len() then return
 
@@ -310,7 +310,7 @@ private drop_context(h: *HandleObj)
 
 // `close()`: the canvas, and so every handle on it, then this handle's context.
 private close_canvas(h: *HandleObj)
-    if canvas_live(h) then free_canvas(usize(h.n))
+    if canvas_live(h) then free_canvas(usize.wrap(h.n))
 
     drop_context(h)
 
@@ -318,7 +318,7 @@ private close_canvas(h: *HandleObj)
 // canvas and of its context, the canvas closing with its last handle.
 detach_window(h: *HandleObj)
     if canvas_live(h)
-        val at = usize(h.n)
+        val at = usize.wrap(h.n)
         var c = canvas_at(at)
 
         if c.handles <= 1
@@ -346,7 +346,7 @@ window_arg(base: usize, i: usize, name: string) -> Result[Win, Fault]
         retire_handle(h, detach_window)
         return Err(existence_error("handle", Handle(h), s"'$name' was called on ${described(Handle(h))}"))
 
-    Ok(Win(h, usize(h.n), usize(small(h.vals.at(1)))))
+    Ok(Win(h, usize.wrap(h.n), usize.wrap(small(h.vals.at(1)))))
 
 // Argument `i`, a map of attributes.
 map_arg(base: usize, i: usize, name: string) -> Result[*MapObj, Fault]

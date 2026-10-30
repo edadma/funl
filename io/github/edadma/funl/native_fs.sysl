@@ -200,12 +200,12 @@ private start_lines(base: usize, argc: usize) -> Result[Option[Value], Fault]
     vals.push(new_str(text)?)
     Ok(Some(listing(vals)?))
 
-private step_lines(h: *HandleObj) -> Result[Option[Value], Fault]
+private[funl] step_lines(h: *HandleObj) -> Result[Option[Value], Fault]
     val text = h.vals.at(0) match
         Str(p) -> p.s
         _ -> return Ok(None)
 
-    val from = usize(h.n)
+    val from = usize.wrap(h.n)
 
     if from >= text.len then return Ok(None)
 
@@ -261,8 +261,8 @@ private start_read_dir(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     Ok(Some(listing(vals)?))
 
-private step_read_dir(h: *HandleObj) -> Result[Option[Value], Fault]
-    val i = usize(h.n)
+private[funl] step_read_dir(h: *HandleObj) -> Result[Option[Value], Fault]
+    val i = usize.wrap(h.n)
 
     if i >= h.vals.len() then return Ok(None)
 
