@@ -448,6 +448,7 @@ private caret_seen(text: string, label: string) -> string
 
     var v = new_vm(RoomyHeap, RoomyFloor, 2)
     val was = enter(&v)
+    defer leave(was)
     val streams = capture_streams(&v)
 
     assert_eq(outcome_text(run(&v, compiled_text(text).unwrap())), "succeeded", transcript(streams))
@@ -497,7 +498,6 @@ private caret_seen(text: string, label: string) -> string
     seen.release()
     free_canvas(at)
     dispose_vm(&v)
-    leave(was)
     b.finish()
 end caret_seen
 

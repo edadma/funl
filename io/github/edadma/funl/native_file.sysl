@@ -116,13 +116,13 @@ private release_file(h: *HandleObj)
         Some(OnDisk(f, _, _, _)) ->
             var g = f
 
-            g.close()
+            _ = g.close()
         Some(Piped(f, child, reads)) ->
             var g = f
 
-            g.close()
+            _ = g.close()
 
-            if !reads then child.wait()
+            if !reads then _ = child.wait()
         _ -> ()
 
     files.set(at, None)
@@ -145,7 +145,7 @@ private do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
                     Ok(f) ->
                         var g = f
 
-                        g.close()
+                        _ = g.close()
                     Err(e) -> return refused(e, path)
 
             sfs.open_update(path)
@@ -229,15 +229,15 @@ private open_pipe(command: string, m: OpenMode) -> Result[Answer, Fault]
     val child = started match
         Ok(c) -> c
         Err(e) ->
-            rr.close()
-            ww.close()
+            _ = rr.close()
+            _ = ww.close()
             return Err(system_error(s"'open' cannot run `$command`: ${e.message()}"))
 
     if m.writes
-        rr.close()
+        _ = rr.close()
         handle_for(Piped(w, child, false))
     else
-        ww.close()
+        _ = ww.close()
         handle_for(Piped(r, child, true))
 
 // `$input`, `$output`, `$errout`: the handle of standard stream `which` -- 0 input, 1 output, 2 error
@@ -414,7 +414,7 @@ private put_method(base: usize, argc: usize, name: string) -> Result[Option[Valu
 
             if appends
                 g.size() match
-                    Ok(end) -> g.seek(end)
+                    Ok(end) -> _ = g.seek(end)
                     Err(e) -> return Err(system_error(s"'$name' cannot find the end of the file: ${e.message()}"))
 
             file_put(g, text, name)?
@@ -512,7 +512,7 @@ private do_close(base: usize, argc: usize) -> Result[Option[Value], Fault]
         Piped(f, child, _) ->
             var g = f
 
-            g.close()
+            _ = g.close()
 
             child.wait() match
                 Ok(Exited(c)) -> Ok(Some(Int(long(c))))
@@ -592,7 +592,7 @@ private file_write_bytes(o: Opened, bytes: []const u8) -> Result[unit, Fault]
 
             if appends
                 g.size() match
-                    Ok(end) -> g.seek(end)
+                    Ok(end) -> _ = g.seek(end)
                     Err(e) -> return Err(system_error(s"cannot find the end of the file: ${e.message()}"))
 
             f

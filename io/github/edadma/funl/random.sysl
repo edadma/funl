@@ -32,7 +32,7 @@ seed_if_needed()
     val v = current()
 
     if !v.rng_seeded
-        reseed(long(seed_from_os().unwrap_or(0)))
+        reseed(long.wrap(seed_from_os().unwrap_or(0)))
 
 reseed(seed: long)
     val v = current()

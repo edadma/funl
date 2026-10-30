@@ -88,7 +88,7 @@ private serving(reply: []const u8, count: int) -> (&Job, Thread)
 
     (j, t)
 
-private url_of(j: &Job, path: string) -> string = "http://127.0.0.1:" + str(j.port.load()) + path
+private url_of(j: &Job, path: string) -> string = "http://127.0.0.1:" + j.port.load().to_string() + path
 
 // The first request the server was sent.
 private request_text(j: &Job) -> string = from_utf8_unchecked(j.request[0..<j.request_len])

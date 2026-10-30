@@ -18,13 +18,13 @@ import sh.sysl.parsing.{full_report, source_of}
 // Load the library into `v`, which is being made.
 install_library(v: *Vm)
     val was = enter(v)
+    defer leave(was)
     val src = source_of("library", library_text())
     var report = full_report()
 
     if load_prolog(src, &report).is_err() then panic(s"the Prolog library does not load:\n${report.render(src)}")
 
     mark_library()
-    leave(was)
 
 install_prolog_lib(v: *Vm)
     register(v, "$must_be/3", 3, pl_must_be)

@@ -213,6 +213,7 @@ private char_code_end(s: []const u8, i: usize) -> usize
 private inria_run(name: string, heap: usize, floor: usize, growth: usize) -> string
     var v = new_vm(heap, floor, growth)
     val was = enter(&v)
+    defer leave(was)
     var out = str_builder()
     var seen: usize = 0
     val c = capture_streams(&v)
@@ -255,7 +256,6 @@ private inria_run(name: string, heap: usize, floor: usize, growth: usize) -> str
                 out.push(s"${e.line} unreadable: $why\n")
 
     dispose_vm(&v)
-    leave(was)
     out.finish()
 end inria_run
 

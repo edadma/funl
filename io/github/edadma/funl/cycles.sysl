@@ -142,7 +142,7 @@ get_at(t: *AddrTable, a: usize, b: usize) -> Option[usize]
 // The slot holding `a`, `b`, or the empty one where it would go.
 private slot_for(t: *AddrTable, a: usize, b: usize) -> usize
     val mask = (usize(1) << usize(t.bits)) - 1
-    val h = (u64(a) ^ (u64(b) * 0xc2b2ae3d27d4eb4fu64)) * 0x9e3779b97f4a7c15u64
+    val h = (u64(a) ^ (u64(b) *% 0xc2b2ae3d27d4eb4fu64)) *% 0x9e3779b97f4a7c15u64
     var i = usize(h >> (64 - t.bits))
 
     loop
