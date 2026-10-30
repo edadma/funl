@@ -40,7 +40,7 @@ type StartGo = &Fn(usize, usize) -> Result[Option[Value], Fault]
 
 // How a generator over a handle steps: the next value from the state handle `start` made, or `None`
 // when it has run out, which is failure.
-type StepGo = &Fn(*HandleObj) -> Result[Option[Value], Fault]
+type StepGo = &Fn(@keeps *HandleObj) -> Result[Option[Value], Fault]
 
 // How a builtin is run.
 enum Impl
