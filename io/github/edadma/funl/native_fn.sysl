@@ -97,7 +97,7 @@ enum Turn
     Answered(x: Value)
     Calls(f: Value, args: Buf[Value])
 
-type TurnGo = &Fn(*FrameObj, Called) -> Result[Turn, Fault]
+type TurnGo = &Fn(*FrameObj, @keeps Called) -> Result[Turn, Fault]
 
 // The arity of a builtin that takes any number of arguments.
 const Variadic: usize = 4294967295

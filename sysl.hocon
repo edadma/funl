@@ -22,7 +22,7 @@ package {
   // A container field in zeroed `gc` storage reads as empty and `release()` on it is a no-op, which
   // the collector's finalizers rely on; the heap objects' makers assign their container fields, as
   // containers are reference types.
-  sysl = "0.8.3"
+  sysl = "0.8.5"
 }
 
 workspace = ["funl"]

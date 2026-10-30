@@ -37,7 +37,7 @@ seed_if_needed()
 reseed(seed: long)
     val v = current()
 
-    v.rng = rng(u64(seed), 0)
+    v.rng = rng(u64.wrap(seed), 0)
     v.rng_seed = seed
     v.rng_seeded = true
 

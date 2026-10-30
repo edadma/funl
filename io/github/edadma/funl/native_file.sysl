@@ -101,14 +101,14 @@ private keep_file(o: Opened) -> long
 
 // What the file handle `h` holds, or `None` once it is gone.
 private opened_of(h: *HandleObj) -> Option[Opened]
-    val at = usize(h.n)
+    val at = usize.wrap(h.n)
 
     if at < files.len() then files.at(at) else None
 
 // A file handle's release: the file closed, what it buffered written out. A pipe the program wrote
 // to is waited for, its command having been told its input has ended; one it read from is stopped.
 private release_file(h: *HandleObj)
-    val at = usize(h.n)
+    val at = usize.wrap(h.n)
 
     if at >= files.len() then return
 

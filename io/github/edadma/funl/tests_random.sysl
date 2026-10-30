@@ -82,6 +82,10 @@ RANDOM_IS_A_REAL_BELOW_ONE_AND_A_SEEDED_RUN_REPEATS()
     assert_eq(ran_funl("write(random_seed(99), random_seed())\n"), "99, 99\nsucceeded")
 
 @test
+A_NEGATIVE_SEED_IS_ACCEPTED_AND_REPEATS()
+    assert_eq(ran_funl("random_seed(-5)\na = [?1000, ?1000]\nrandom_seed(-5)\nb = [?1000, ?1000]\nwrite(if a == b then 'same' else 'differ', random_seed())\n"), "same, -5\nsucceeded")
+
+@test
 THE_SEED_REFUSES_A_NON_INTEGER()
     faults_with("random_seed(1.5)\n", "'random_seed' wants a 64-bit integer and was given")
     assert(ran_funl("random_seed(1, 2)\n").contains("`random_seed` takes 0 or 1 arguments, and this call gives 2"))
