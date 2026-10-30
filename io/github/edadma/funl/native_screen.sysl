@@ -10,6 +10,7 @@ import sh.sysl.plutovg as pv
 #if feature_graphics
 import sh.sysl.sdl3 as sdl
 import sh.sysl.sdl3.c as sc
+import sysl.raw.ptr_cast
 import sysl.slices.as_ptr
 import sysl.text.{cstring, from_utf8_unchecked}
 #endif

@@ -8,6 +8,7 @@ import sysl.text.str_builder
 import sh.sysl.sdl3 as sdl
 import sh.sysl.sdl3.c as sc
 import sysl.posix.time.sleep
+import sysl.raw.ptr_cast
 import sysl.threads.spawn
 import sysl.time.micros
 #endif

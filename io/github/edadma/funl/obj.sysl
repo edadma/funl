@@ -3,6 +3,7 @@ module io.github.edadma.funl
 import sh.sysl.dal.Number
 import sh.sysl.gc
 import sysl.buf.{Buf, buf}
+import sysl.raw.ptr_cast
 
 // The collected objects, and how one is made.
 //

@@ -19,12 +19,10 @@ package {
   name    = "funl-vm"
   version = "0.0.11"
 
-  // alpha.4 is the first compiler where a container field in zeroed `gc` storage reads as empty
-  // and `release()` on it is a no-op, which the collector's finalizers rely on; the heap objects'
-  // makers assign their container fields, as containers are reference types from alpha.3 on. The
-  // floor moves only when something here genuinely needs a newer compiler, never to track the
-  // newest release.
-  sysl = "0.1.1"
+  // A container field in zeroed `gc` storage reads as empty and `release()` on it is a no-op, which
+  // the collector's finalizers rely on; the heap objects' makers assign their container fields, as
+  // containers are reference types.
+  sysl = "0.8.1"
 }
 
 workspace = ["funl"]
@@ -52,35 +50,35 @@ workspace = ["funl"]
 // machine a `funl` is built on, and a link directive is never pruned, so bound in the core it would
 // sit on the link line of every `funl` build whether a program fetched anything or not.
 dependencies {
-  dal     { git = "github.com/sysl-lang/dal", version = "0.1.1" }
-  gc      { git = "github.com/sysl-lang/gc", version = "0.2.7" }
-  json    { git = "github.com/sysl-lang/json", version = "0.2.0" }
-  parsing { git = "github.com/sysl-lang/parsing", version = "0.13.0" }
+  dal     { git = "github.com/sysl-lang/dal", version = "0.1.3" }
+  gc      { git = "github.com/sysl-lang/gc", version = "0.2.8" }
+  json    { git = "github.com/sysl-lang/json", version = "0.2.2" }
+  parsing { git = "github.com/sysl-lang/parsing", version = "0.13.3" }
 
   // `funl:sqlite`. Not a feature: SQLite is the system's own library on macOS and a standard
   // package elsewhere, so every `funl` carries it.
-  sqlite3 { git = "github.com/sysl-lang/sqlite3", version = "0.7.0" }
+  sqlite3 { git = "github.com/sysl-lang/sqlite3", version = "0.7.1" }
 
   // `funl:graphics`. Not a feature: plutovg's C is carried in the package and links nothing, so a
   // hidden canvas -- drawing into memory, read back with `pixel` -- is in every build, tests included.
-  plutovg { git = "github.com/sysl-lang/plutovg", version = "0.2.4" }
+  plutovg { git = "github.com/sysl-lang/plutovg", version = "0.2.6" }
 
   // `async`'s loop. Its timers and its host driver need no library, so kairos itself is not behind a
   // feature; its libuv driver is, through `async` below.
-  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.7" }
+  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.16" }
 
-  curl   { git = "github.com/sysl-lang/curl", version = "0.1.1", optional = true }
+  curl   { git = "github.com/sysl-lang/curl", version = "0.1.3", optional = true }
 
   // `funl:async`'s `run` starts its child with libuv directly, kairos wrapping no process, and
   // `fetch` waits for libcurl on libuv's thread pool -- so libuv is named here as well as under
   // kairos, behind the same feature.
-  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.9", optional = true }
+  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.19", optional = true }
 
   // `funl:graphics`'s windows on screen, behind the `graphics` feature: SDL is a library the machine
   // has to have installed, where a hidden canvas needs nothing, so a build without the feature keeps
   // every hidden canvas and links no SDL. Its `kairos` feature is the pump that lets the event loop
   // wait on SDL's queue beside its timers and libuv, turned on by the `graphics` feature below.
-  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.10", optional = true }
+  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.12", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`
@@ -97,13 +95,11 @@ dependencies {
 // faults and names it. **It turns on sdl3's own `kairos` feature**, the SDL pump: with a window on
 // screen the loop waits on SDL's queue as well as on its timers and libuv (`events.sysl`).
 features {
-  default = [http, async, graphics]
+  http { default = true, enables = [curl] }
 
-  http = [curl]
+  async { default = true, enables = ["kairos/uv", libuv] }
 
-  async = ["kairos/uv", libuv]
-
-  graphics = [sdl3, "sdl3/kairos"]
+  graphics { default = true, enables = [sdl3, "sdl3/kairos"] }
 
   // **`profile` counts the instructions a run executes** (`profile.sysl`), and it is not in
   // `default`: the count is a branch in the instruction loop, and a build without the feature has

@@ -5,12 +5,12 @@
 package {
   name    = "funl"
   version = "0.0.11"
-  sysl    = "0.1.1"
+  sysl    = "0.8.1"
 }
 
 dependencies {
   funl-vm   { workspace = true, default_features = false }
-  linenoise { git = "github.com/sysl-lang/linenoise", version = "0.3.0" }
+  linenoise { git = "github.com/sysl-lang/linenoise", version = "0.3.1" }
 }
 
 // **The member owns its features and forwards them to the machine's**, because the machine is taken
@@ -20,10 +20,9 @@ dependencies {
 // `sysl build -p funl --features profile` builds a `funl` that counts the instructions a run
 // executes; `FUNL_PROFILE=1` then has it write the table to standard error when the program ends.
 features {
-  default  = [http, async, graphics]
-  http     = ["funl-vm/http"]
-  async    = ["funl-vm/async"]
-  graphics = ["funl-vm/graphics"]
+  http     { default = true, enables = ["funl-vm/http"] }
+  async    { default = true, enables = ["funl-vm/async"] }
+  graphics { default = true, enables = ["funl-vm/graphics"] }
   profile  = ["funl-vm/profile"]
 }
 

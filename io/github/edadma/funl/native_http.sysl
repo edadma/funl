@@ -195,7 +195,7 @@ private header_lines(x: Value) -> Result[Buf[string], Fault]
 
         val value = v match
             Str(p) -> p.s
-            Int(n) -> str(n)
+            Int(n) -> n.to_string()
             _ -> return Err(type_error("string", v, s"'fetch' wants the header `$name` to be a string, and was given ${described(v)}"))
 
         out.push(name + ": " + value)
