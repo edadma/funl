@@ -731,7 +731,7 @@ private identity(x: Value) -> usize = x match
     _ -> 0
 
 // Push each pair of parts of two terms whose heads already agree (`heads`) and whose arity does.
-private both(work: *Buf[Value], heads: bool, xs: []Value, ys: []Value) -> bool
+private both(work: *Buf[Value], heads: bool, xs: []const Value, ys: []const Value) -> bool
     if !heads || xs.len != ys.len then return false
 
     for i in 0..<xs.len

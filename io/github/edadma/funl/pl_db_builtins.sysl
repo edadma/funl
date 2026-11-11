@@ -364,7 +364,7 @@ private pl_user_predicates(base: usize, argc: usize, cursor: long) -> Result[Ans
                 if user then items.push(indicator(key_name(k), key_arity(k))?)
             None -> break
 
-    sort_by(items.view(), (a, b) -> compare_terms(a, b) < 0)
+    sort_by(items.view_mut(), (a, b) -> compare_terms(a, b) < 0)
 
     var out = Nil
     var i = items.len()

@@ -91,7 +91,7 @@ private ranked() -> Buf[Row]
             None -> break
             Some(pair) -> out.push(Row(pair.0, pair.1))
 
-    sort_by(out.view(), (a, b) -> a.count > b.count || (a.count == b.count && a.name < b.name))
+    sort_by(out.view_mut(), (a, b) -> a.count > b.count || (a.count == b.count && a.name < b.name))
     out
 end ranked
 

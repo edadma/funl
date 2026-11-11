@@ -2,8 +2,8 @@ module io.github.edadma.funl
 
 import sysl.buf.Buf
 import sysl.posix.time.{local_offset, sleep}
-import sysl.time.{Instant, LocalDateTime, Offset, at_offset, checked_date, day_of, from_offset, hour_of, micros,
-    minute_of, month_of, monotonic, now, parse_timestamp, second_of, time_at, timestamp_text, us_of, wall_of,
+import sysl.time.{Instant, Offset, at_offset, DateTime, checked_date, day_of, from_offset, hour_of, micros,
+    minute_of, month_of, monotonic, now, parse_timestamp, second_of, time, timestamp_text, us_of, wall_of,
     whole_micros, year_of}
 
 // `funl:time`: the clocks, waiting, and ISO 8601 timestamps, over sysl's `sysl.time`.
@@ -157,7 +157,7 @@ private do_make(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     checked_date(int(y), int(mo), int(d)) match
         Some(date) ->
-            val t = from_offset(LocalDateTime(date, time_at(int(h), int(mi), int(s))), o)
+            val t = from_offset(DateTime(date, time(int(h), int(mi), int(s))), o)
 
             Ok(Gives(Int(ms_of(t))))
         None -> Ok(Refuses)

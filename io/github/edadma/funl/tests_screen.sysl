@@ -669,8 +669,8 @@ NEXT_EVENT_ON_WINDOWS_ON_SCREEN_IS_SETTLED_WHILE_THE_LOOP_WAITS_ON_SDL()
     assert(sdl.push_event(button_event(one, 1, true, 3.0, 4.0, 1000000)), "a click on one")
     assert(sdl.push_event(button_event(two, 1, true, 5.0, 6.0, 1000000)), "a click on two")
 
-    var job = Later(150, key_event(two, 4, sdl.KMOD_LSHIFT, true, 9000000), window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, one, 0, 0))
-    val t = spawn(&later, &job).unwrap()
+    val job: &sync Later = Later(150, key_event(two, 4, sdl.KMOD_LSHIFT, true, 9000000), window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, one, 0, 0))
+    val t = spawn(&later, &*job).unwrap()
 
     assert_eq(outcome_text(run(&v, compiled_text(Watching).unwrap())), "succeeded", transcript(streams))
     assert(t.join())

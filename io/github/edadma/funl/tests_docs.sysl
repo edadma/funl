@@ -122,7 +122,7 @@ private pages_in(dir: string, out: *Buf[string])
 
     var names = entries(dir).unwrap()
 
-    sort_by(names.view(), (a, b) -> a < b)
+    sort_by(names.view_mut(), (a, b) -> a < b)
 
     for i in 0..<names.len()
         val page = s"$dir/${names[i]}"

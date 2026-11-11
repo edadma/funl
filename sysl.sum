@@ -6,6 +6,7 @@ github.com/sysl-lang/dal v0.1.3 sha256:232ee36bd8b12e682e2c662bcab5363192771ba51
 github.com/sysl-lang/gc v0.2.7 sha256:dca67017de693ee9c839b59b6afca52ee94b81c206d648f5adc83b025c33e27b
 github.com/sysl-lang/gc v0.2.8 sha256:aab19dd49f6acdc50e3dbf14af4f20d3164f717d465fd5748ef5d93801e2ea96
 github.com/sysl-lang/gc v0.3.1 sha256:7f711f12df1d90608fa382c7a08a8f3e269e2b0f4c5bda101b2b89e95426e70c
+github.com/sysl-lang/gc v0.3.2 sha256:ad69f3beadb28d8e822983f4c5d6bd793b689dc631e2ba70af101771ae7e4cee
 github.com/sysl-lang/json v0.2.0 sha256:bd268e798ae1c7ef715f4f96f74ed8115a7bbc3ac21cc7584e0bfe2210e46a48
 github.com/sysl-lang/json v0.2.2 sha256:cba72e9b66a63223cdcc4e18ffed3dff0366ffa3521dd3ca13ff2e6c5c2d6b1f
 github.com/sysl-lang/json v0.2.4 sha256:9dbc05db3559ebac3286fda5f4ab0c3991ba748c3b82f982b930168f049bc40d
@@ -29,6 +30,7 @@ github.com/sysl-lang/plutovg v0.2.4 sha256:6d501ebbff14ec19caa345fdba90ef3a8a9f2
 github.com/sysl-lang/plutovg v0.2.6 sha256:daef22f6d3f1cf301052abc013ffa5634f2b9b3601dd5001a82ef25be4a584e2
 github.com/sysl-lang/plutovg v0.2.8 sha256:9f0ff7c5a277fbcedacb7734339d564813577bbec346bd1731be4a1f819b1532
 github.com/sysl-lang/png v0.2.3 sha256:dfca3904935431bf4a72eb3335971b4944ee02489d443b064b507f610f0e6ebe
+github.com/sysl-lang/png v0.2.4 sha256:5cc0bad5b1aebba8e4a2c6a6a3523d9262843e21d45672a426826406ca1cb63b
 github.com/sysl-lang/sdl3 v0.3.6 sha256:b0e094232e35075c641427e1e46b5f6924b16322b6fa52e0cbf9b47e77a357f2
 github.com/sysl-lang/sdl3 v0.3.7 sha256:64556c1b84f9d5885b8b92ccff215cf61fb3c29c7a7924a2bc6032620c8196eb
 github.com/sysl-lang/sdl3 v0.3.8 sha256:efce036ab74ee6bbbf6d4d776d900a46a2216afcdd7df285938f4c0f4721fcfe
@@ -36,5 +38,6 @@ github.com/sysl-lang/sdl3 v0.3.9 sha256:844a6e82a90b8a36c25186056bfa4e770dc24d76
 github.com/sysl-lang/sdl3 v0.3.10 sha256:80a5abf2ab683f7e75cb1b8e610d826e93f2d83b0e962e84f7ec9173661c34d2
 github.com/sysl-lang/sdl3 v0.3.12 sha256:9c8d6c353b186bcd16e37d6e6a9c381d7fc78f1e6bc1bcdde9b4d95f63bd60e1
 github.com/sysl-lang/sdl3 v0.3.24 sha256:ebc146f3729c58e3c8a1bdac7d4849d1f667f410eeb3027b1cd9cbb625540e98
+github.com/sysl-lang/sdl3 v0.3.25 sha256:a3b370f7b3919c82fbe71e69a9bd848a308c82c45c23cef9bdfe963d775f2405
 github.com/sysl-lang/sqlite3 v0.7.0 sha256:5ad09d7ce307300ae132220e49b911a351a4b7074417f99ff068a892226b97e5
 github.com/sysl-lang/sqlite3 v0.7.1 sha256:d99158392c6e124266e84f03261b05bf7a5111f8f38633b170681fed5b091a27

@@ -508,14 +508,12 @@ tree_hash(dir: string) -> Option[string]
 
     if !gather_files(dir, "", &files) then return None
 
-    var names = files.view()
-
-    sort(names)
+    sort(files.view_mut())
 
     var h = new_sha256()
 
-    for i in 0..<names.len
-        val rel = names[i]
+    for i in 0..<files.len()
+        val rel = files[i]
 
         read_bytes(s"$dir/$rel") match
             Err(_) -> return None

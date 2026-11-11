@@ -86,9 +86,9 @@ private sorted(base: usize, who: string, keyed: bool, unique: bool) -> Result[An
         scratch.push(Undefined)
 
     if keyed
-        sort_stable_by(items.view(), scratch.view(), (a, b) -> compare_terms(key_of(a), key_of(b)) < 0)
+        sort_stable_by(items.view_mut(), scratch.view_mut(), (a, b) -> compare_terms(key_of(a), key_of(b)) < 0)
     else
-        sort_stable_by(items.view(), scratch.view(), (a, b) -> compare_terms(a, b) < 0)
+        sort_stable_by(items.view_mut(), scratch.view_mut(), (a, b) -> compare_terms(a, b) < 0)
 
     var kept: Buf[Value] = buf()
 

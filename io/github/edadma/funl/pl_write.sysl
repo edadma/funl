@@ -389,7 +389,7 @@ private put_list(w: *Writer, first: *ConsObj, depth: long)
 end put_list
 
 // `name(a1,...,an)`.
-private put_canonical(w: *Writer, name: string, args: []Value, depth: long)
+private put_canonical(w: *Writer, name: string, args: []const Value, depth: long)
     put_atom(w, name, true)
     emit(w, "(")
 

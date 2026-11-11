@@ -240,7 +240,7 @@ private dir_names(path: string, name: string) -> Result[Option[Buf[string]], Fau
         Ok(names) ->
             var sorted = names
 
-            sort(sorted.view())
+            sort(sorted.view_mut())
             Ok(Some(sorted))
         Err(e) -> if e == NotFound then Ok(None) else Err(fs_fault(e, name, "access", path))
 

@@ -223,7 +223,7 @@ private sorted_unique(xs: Value) -> Value
                 at = p.tail
             _ -> break
 
-    sort_by(items.view(), (a, b) -> compare_terms(a, b) < 0)
+    sort_by(items.view_mut(), (a, b) -> compare_terms(a, b) < 0)
 
     var cell = xs
     var last = xs

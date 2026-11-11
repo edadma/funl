@@ -217,7 +217,7 @@ private write_range(out: *StrBuilder, r: *RangeObj)
         out.push(" by ")
         out.push_int(r.step)
 
-private write_items(out: *StrBuilder, n: *Named, items: []Value, depth: usize, open: string, close: string)
+private write_items(out: *StrBuilder, n: *Named, items: []const Value, depth: usize, open: string, close: string)
     out.push(open)
 
     for i in 0..<items.len

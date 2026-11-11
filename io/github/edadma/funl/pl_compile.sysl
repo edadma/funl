@@ -184,7 +184,7 @@ compile_query(name: string, c: ReadClause) -> Result[Emit, PlError]
 // `catch(G, Ball, true)`, then `Ball` and the variable of each index in `shown` pushed, and `Halt`.
 // So every solution stops the run with what it answers on the operand stack -- the ball first,
 // unbound unless `G` raised it -- and failing back into the run (`resume`) looks for the next.
-compile_toplevel(c: ReadClause, shown: []usize) -> Result[Emit, PlError]
+compile_toplevel(c: ReadClause, shown: []const usize) -> Result[Emit, PlError]
     val at = c.t.span
     val ball = term(TVar(c.names.len()), at)
     var catch_args: Buf[&Term] = buf()

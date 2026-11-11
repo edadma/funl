@@ -642,7 +642,7 @@ private pl_visible_heads(base: usize) -> Result[Answer, Fault]
                 if shown && !name.starts_with("$") then keys.push(indicator(name, arity_of_key(k))?)
             None -> break
 
-    sort_by(keys.view(), (a, b) -> compare_terms(a, b) < 0)
+    sort_by(keys.view_mut(), (a, b) -> compare_terms(a, b) < 0)
 
     var heads: Buf[Value] = buf()
 

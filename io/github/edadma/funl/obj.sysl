@@ -144,7 +144,7 @@ struct ArrayObj
         self.cells[self.head + i] = x
 
     // The elements, front to back.
-    view(self) -> []Value = self.cells.view()[self.head..]
+    view(self) -> []const Value = self.cells.view()[self.head..]
 
     // Add `x` at the back.
     push(self, x: Value) = self.cells.push(x)
