@@ -92,8 +92,8 @@ private entry_of_map(m: &Expr, key: string) -> Option[&Expr] = m.kind match
 // The value written beside key `key`.
 private entry_of(keys: Buf[&Expr], vals: Buf[&Expr], key: string) -> Option[&Expr]
     for i in 0..<keys.len()
-        keys.at(i).kind match
-            StrE(k) -> if k == key then return Some(vals.at(i))
+        keys[i].kind match
+            StrE(k) -> if k == key then return Some(vals[i])
             _ -> ()
 
     None
@@ -103,7 +103,7 @@ private inserted(text: string, map: &Expr, keys: Buf[&Expr], vals: Buf[&Expr], e
     // An empty map is written whole: `{ entry }`.
     if keys.len() == 0 then return text.slice(0, map.span.start) + s"{ $entry }" + text.slice(map.span.end, text.bytes.len)
 
-    val last = vals.at(vals.len() - 1).span.end
+    val last = vals[vals.len() - 1].span.end
     val comma = comma_after(text, last)
     val close = map.span.end - 1
 
@@ -180,7 +180,7 @@ private line_end_before(text: string, from: usize, close: usize) -> usize
 private indent_of_entries(text: string, map: &Expr, keys: Buf[&Expr]) -> Option[string]
     if keys.len() == 0 then return None
 
-    val key = keys.at(keys.len() - 1).span.start
+    val key = keys[keys.len() - 1].span.start
     val b = text.bytes
     var start = key
 

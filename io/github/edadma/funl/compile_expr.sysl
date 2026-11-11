@@ -84,7 +84,7 @@ leave_scans(e: *Emit, n: usize)
 private push_meaning(e: *Emit, c: Ctx, m: Meaning, n: string) -> Result[unit, string]
     m match
         Local(depth, slot, _) -> e.op(LoadSlot(depth, slot))
-        Function(r, up) -> e.op(MakeClosure(c.res.rels.at(r).chunk, up))
+        Function(r, up) -> e.op(MakeClosure(c.res.rels[r].chunk, up))
         Gone -> e.op(PushConst(e.constant(Undefined)))
         // One with no fields is its atom; any other is a value that makes records, and a name with
         // constructors of several field counts is the family of them.
@@ -103,7 +103,7 @@ private push_meaning(e: *Emit, c: Ctx, m: Meaning, n: string) -> Result[unit, st
 // Push builtin `id`'s value: a builtin that names a value is made once, into the chunk's constants,
 // and one of a fixed arity is a function value over its `value_chunk`.
 push_builtin(e: *Emit, id: usize, n: string) -> Result[unit, string]
-    current().natives.at(id).how match
+    current().natives[id].how match
         Constant(go) ->
             val made = go(0, 0) match
                 Ok(x) -> x
@@ -120,7 +120,7 @@ push_builtin(e: *Emit, id: usize, n: string) -> Result[unit, string]
 // Push the map a module of FunL's own is as a value: each export that is a value under its name, the
 // natives and the functions its FunL source defines alike. That source exports each name at one arity.
 private push_module_map(e: *Emit, index: usize) -> Result[unit, string]
-    val md = current().modules.at(index)
+    val md = current().modules[index]
     var count: usize = 0
 
     for x in md.exports.view()
@@ -243,7 +243,7 @@ private value_of(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
         BlockE(id, stmts) -> block(e, c.in_block(id)?, stmts)?
         LambdaE(id, _) ->
             c.res.lambdas.get(id) match
-                Some(r) -> e.op(MakeClosure(c.res.rels.at(r).chunk, 0))
+                Some(r) -> e.op(MakeClosure(c.res.rels[r].chunk, 0))
                 None -> return Err(s"lambda $id was never resolved")
         ReturnE(v) ->
             v match
@@ -354,11 +354,11 @@ private value_of(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
                 i -= 1
 
                 if back
-                    val v = variable(c, targets.at(i).value, x.span.end)?
+                    val v = variable(c, targets[i].value, x.span.end)?
 
                     e.op(StoreBack(v.depth, v.slot))
                 else
-                    e.op(store_to(c, targets.at(i).value, x.span.end)?)
+                    e.op(store_to(c, targets[i].value, x.span.end)?)
 
             e.op(PushUnit)
         ConsE(h, t) -> binary(e, c, h, t, MakeCons)?
@@ -648,7 +648,7 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
 
     m match
         Function(r, up) ->
-            val rel = c.res.rels.at(r)
+            val rel = c.res.rels[r]
 
             if !rel.variadic && args.len() == rel.arity + 1
                 function_as_relation(e, c, rel.chunk, up, args)?
@@ -691,11 +691,11 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
     m match
         Local(_, _, _) -> e.op(if tail then TailCallValue(argc) else CallValue(argc))
         Function(r, up) ->
-            val chunk = c.res.rels.at(r).chunk
+            val chunk = c.res.rels[r].chunk
 
             e.op(if tail then TailCallFn(chunk, argc, up) else CallFn(chunk, argc, up))
         Relation(r) ->
-            val chunk = c.res.rels.at(r).chunk
+            val chunk = c.res.rels[r].chunk
 
             e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
         Predicate(name) ->
@@ -703,7 +703,7 @@ call_meaning(e: *Emit, c: Ctx, m: Meaning, n: string, args: Buf[&Expr], tail: bo
 
             e.op(if tail then TailCall(chunk, argc) else Call(chunk, argc))
         Builtin(id) ->
-            if current().natives.at(id).name == "consult"
+            if current().natives[id].name == "consult"
                 e.op(Consult)
             elif is_generator(id)
                 e.op(PushInt(0))
@@ -725,10 +725,10 @@ private function_as_relation(e: *Emit, c: Ctx, chunk: usize, up: usize, args: Bu
     val n = args.len() - 1
 
     for i in 0..<n
-        compile_value(e, c, args.at(i))?
+        compile_value(e, c, args[i])?
 
     e.op(CallFn(chunk, n, up))
-    compile_value(e, c, args.at(n))?
+    compile_value(e, c, args[n])?
     e.op(Unify)
     e.op(Pop)
     e.op(PushUnit)
@@ -744,9 +744,9 @@ private all_solutions(e: *Emit, c: Ctx, n: string, args: Buf[&Expr]) -> Result[u
 
     e.op(PushNil)
     e.op(Mark(done))
-    compile_value(e, c, args.at(1))?
+    compile_value(e, c, args[1])?
     e.op(Pop)
-    compile_value(e, c, args.at(0))?
+    compile_value(e, c, args[0])?
     e.op(CollectCopy)
     e.op(Fail)
     e.place(done)
@@ -781,7 +781,7 @@ thrown_away(e: *Emit, x: &Expr)
 // A block's statements, each bounded but the last, whose value is the block's.
 private block(e: *Emit, c: Ctx, stmts: Buf[Stmt]) -> Result[unit, string]
     for i in 0..<stmts.len()
-        val s = stmts.at(i)
+        val s = stmts[i]
 
         if i + 1 < stmts.len()
             compile_stmt(e, c, s)?
@@ -822,7 +822,7 @@ compile_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
             // `name(k) = x` with `name` a variable writes into an element, as the resolver decided.
             if !fixed && writes_element(pat, c.meaning(call_name(pat), pat.span.start))
                 pat.kind match
-                    CallE(n, at, args) -> compile_store(e, c, expr(Ref(n), at), args.at(0), x, false)?
+                    CallE(n, at, args) -> compile_store(e, c, expr(Ref(n), at), args[0], x, false)?
                     _ -> ()
             else
                 compile_value(e, c, x)?
@@ -880,6 +880,6 @@ private settled_stmt(e: *Emit, c: Ctx, s: Stmt) -> Result[unit, string]
     Ok(())
 
 // The slot the block being compiled declares `n` in.
-slot_of_name(c: Ctx, n: string) -> Result[usize, string] = c.res.scopes.at(c.sc).declared(c.blk, n) match
+slot_of_name(c: Ctx, n: string) -> Result[usize, string] = c.res.scopes[c.sc].declared(c.blk, n) match
     Some(s) -> Ok(s)
     None -> Err(s"'$n' was resolved and has no slot")

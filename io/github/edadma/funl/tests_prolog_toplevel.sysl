@@ -41,7 +41,7 @@ private transcript_of(said: Buf[string]) -> string = join(said.view(), "")
 private next_line(s: &Session, prompt: string) -> Option[string]
     if s.at >= s.script.len() then return None
 
-    val l = s.script.at(s.at)
+    val l = s.script[s.at]
 
     s.at += 1
     s.said.push(prompt + l + "\n")

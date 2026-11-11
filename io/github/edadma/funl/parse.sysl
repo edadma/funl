@@ -345,7 +345,7 @@ private exported(p: *Parser, clauses: *Buf[Clause], stmts: *Buf[Stmt], exports: 
         if promised then async_definition(p, clauses) else definition(p, clauses)
 
         for i in before..<clauses.len()
-            val c = clauses.at(i)
+            val c = clauses[i]
 
             exports.push(Spanned(c.name, c.head))
 
@@ -357,7 +357,7 @@ private exported(p: *Parser, clauses: *Buf[Clause], stmts: *Buf[Stmt], exports: 
         ValS(pat, _, _) -> pattern_names(pat, exports)
         VarS(n, at, _) -> exports.push(Spanned(n, at))
         DataS(ctors, typ) ->
-            if typ != "" && ctors.len() > 0 then exports.push(Spanned(typ, ctors.at(0).at))
+            if typ != "" && ctors.len() > 0 then exports.push(Spanned(typ, ctors[0].at))
 
             for c in ctors.view()
                 exports.push(Spanned(c.name, c.at))

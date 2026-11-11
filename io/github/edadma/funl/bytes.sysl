@@ -74,8 +74,8 @@ bytes_order(p: *BytesObj, q: *BytesObj) -> int
     var i: usize = 0
 
     while i < m && i < n
-        val a = p.b.at(i)
-        val c = q.b.at(i)
+        val a = p.b[i]
+        val c = q.b[i]
 
         if a != c then return if a < c then -1 else 1
 
@@ -96,6 +96,6 @@ bytes_slice(p: *BytesObj, first: long, count: long, step: long) -> Result[Value,
     var out: Buf[u8] = buf()
 
     for k in 0..<count
-        out.push(p.b.at(usize(first + k * step)))
+        out.push(p.b[usize(first + k * step)])
 
     new_bytes(out)

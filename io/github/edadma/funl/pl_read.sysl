@@ -211,7 +211,7 @@ private text_list(s: string, how: string, at: Span) -> &Term
 
     while i > 0
         i -= 1
-        list = term(TCons(items.at(i), list), at)
+        list = term(TCons(items[i], list), at)
 
     list
 
@@ -278,7 +278,7 @@ private list(r: *PlReader, open: Span) -> Rd
 
     while i > 0
         i -= 1
-        tail = term(TCons(items.at(i), tail), items.at(i).span.to(whole))
+        tail = term(TCons(items[i], tail), items[i].span.to(whole))
 
     Rd(term(tail.kind, whole), 0)
 end list
@@ -385,7 +385,7 @@ private clash(r: *PlReader, at: Span, name: string, left: Rd) -> Rd
 private variable(r: *PlReader, name: string) -> usize
     if name != "_"
         for i in 0..<r.names.len()
-            if r.names.at(i) == name then return i
+            if r.names[i] == name then return i
 
     r.names.push(name)
     r.names.len() - 1

@@ -93,7 +93,7 @@ private sorted(base: usize, who: string, keyed: bool, unique: bool) -> Result[An
     var kept: Buf[Value] = buf()
 
     for x in items.view()
-        if unique && kept.len() > 0 && compare_terms(kept.at(kept.len() - 1), x) == 0 then continue
+        if unique && kept.len() > 0 && compare_terms(kept[kept.len() - 1], x) == 0 then continue
 
         kept.push(x)
 
@@ -113,5 +113,5 @@ private pair_key(x: Value, who: string) -> Result[unit, Fault]
         _ -> Err(type_error("pair", y, s"$who wants Key-Value pairs, and was given ${described(y)}"))
 
 private key_of(x: Value) -> Value = deref(x) match
-    Compound(c) -> c.args.at(0)
+    Compound(c) -> c.args[0]
     y -> y

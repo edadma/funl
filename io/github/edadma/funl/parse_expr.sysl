@@ -368,11 +368,11 @@ private map_entry(e: &Expr) -> Option[KeyValue] = e.kind match
     LambdaE(id, cs) ->
         if cs.len() != 1 then return None
 
-        val c = cs.at(0)
+        val c = cs[0]
 
         if c.params.len() != 1 then return None
 
-        val head = c.params.at(0)
+        val head = c.params[0]
 
         head.kind match
             ConsE(k, v) ->
@@ -993,7 +993,7 @@ private stmt_span(s: Stmt, whole: Span) -> Span = s match
 private clause_pattern(p: *Parser, c: Clause) -> &Expr
     val n = c.params.len()
 
-    if n == 1 then return value_patterns(p, c.params.at(0))
+    if n == 1 then return value_patterns(p, c.params[0])
 
     if n == 0 then return expr(TupleE(buf()), c.head)
 
@@ -1002,7 +1002,7 @@ private clause_pattern(p: *Parser, c: Clause) -> &Expr
     for x in c.params.view()
         items.push(value_patterns(p, x))
 
-    expr(TupleE(items), c.params.at(0).span.to(c.params.at(n - 1).span))
+    expr(TupleE(items), c.params[0].span.to(c.params[n - 1].span))
 
 // `x`, a pattern, with each parenthesized expression in it made the value it compares with: `(limit)`,
 // `(f(y))`, `(n + 1)`. Parentheses that only group a pattern -- around `h:t`, `p | q` or `n@p` -- keep
@@ -1169,7 +1169,7 @@ private partial_function(stmts: Buf[Stmt], span: Span) -> Option[&Expr]
     var id: usize = 0
 
     for i in 0..<stmts.len()
-        stmts.at(i) match
+        stmts[i] match
             ExprS(e) ->
                 e.kind match
                     LambdaE(k, cs) ->

@@ -23,7 +23,7 @@ private struct Pending
 // Every key of `m` an attribute that may be set: a fault for the first that is not.
 private settable(m: *MapObj, name: string) -> Result[unit, Fault]
     for i in 0..<m.keys.len()
-        val key = m.keys.at(i)
+        val key = m.keys[i]
 
         val k = key_text(key) match
             Some(k) -> k
@@ -44,12 +44,12 @@ private settable(m: *MapObj, name: string) -> Result[unit, Fault]
 applied(at: usize, ctx: WinContext, m: *MapObj, name: string, fresh: bool) -> Result[Option[WinContext], Fault]
     settable(m, name)?
 
-    canvases.set(at, Some(live_state(canvas_at(at))))
+    canvases[at] = Some(live_state(canvas_at(at)))
 
     var p = Pending(canvas_at(at), ctx, None)
 
     for i in 0..<m.keys.len()
-        p = assigned(p, key_text(m.keys.at(i)).unwrap(), deref(m.vals.at(i)), name)? match
+        p = assigned(p, key_text(m.keys[i]).unwrap(), deref(m.vals[i]), name)? match
             Some(q) -> q
             None -> return Ok(None)
 
@@ -74,8 +74,8 @@ applied(at: usize, ctx: WinContext, m: *MapObj, name: string, fresh: bool) -> Re
         Some(img) -> lay_image(kept, img, 0, 0, Area(0, 0, kept.width, kept.height))
         None -> ()
 
-    canvases.set(at, Some(kept))
-    canvases.set(at, Some(onto_screen(kept, now, name)?))
+    canvases[at] = Some(kept)
+    canvases[at] = Some(onto_screen(kept, now, name)?)
     Ok(Some(p.ctx))
 
 // The window at `at` asked to be in `state`, and the state it is in afterwards.
@@ -157,7 +157,7 @@ private paired(k: string, base: string, was: (long, long), x: Value) -> Option[(
 
         if items.len() != 2 then return None
 
-        return Some((whole(deref(items.at(0)))?, whole(deref(items.at(1)))?))
+        return Some((whole(deref(items[0]))?, whole(deref(items[1]))?))
 
     val n = whole(x)?
 
@@ -206,10 +206,10 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
 
         if items.len() != 2 then return Ok(None)
 
-        q.cv.width = side(deref(items.at(0))) match
+        q.cv.width = side(deref(items[0])) match
             Some(n) -> n
             None -> return Ok(None)
-        q.cv.height = side(deref(items.at(1))) match
+        q.cv.height = side(deref(items[1])) match
             Some(n) -> n
             None -> return Ok(None)
     else if k == "width"
@@ -383,8 +383,8 @@ attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fault]
     if k == "size"
         val t = new_tuple(2)?
 
-        t.items.set(0, Int(c.width))
-        t.items.set(1, Int(c.height))
+        t.items[0] = Int(c.width)
+        t.items[1] = Int(c.height)
         return Ok(Tuple(t))
 
     if is_text_attribute(k) then return text_attribute(c, ctx, k)
@@ -444,7 +444,7 @@ private pair_value(p: Option[(long, long)]) -> Result[Value, Fault]
 
     val t = new_tuple(2)?
 
-    t.items.set(0, Int(x))
-    t.items.set(1, Int(y))
+    t.items[0] = Int(x)
+    t.items[1] = Int(y)
     Ok(Tuple(t))
 

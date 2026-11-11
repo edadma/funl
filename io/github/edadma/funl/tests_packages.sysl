@@ -346,8 +346,8 @@ FUNL_SUM_IS_READ_A_LINE_A_VERSION()
     val sums = read_sums(d)
 
     assert_eq(sums.len(), 2)
-    assert_eq(sum_line(sums.at(0)), s"$TabularGit v0.2.0 sha256:aa")
-    assert_eq(sums.at(1).version, "0.10.1")
+    assert_eq(sum_line(sums[0]), s"$TabularGit v0.2.0 sha256:aa")
+    assert_eq(sums[1].version, "0.10.1")
     assert_eq(read_sums(s"$d/nowhere").len(), 0)
 
 @test

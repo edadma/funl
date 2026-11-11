@@ -92,7 +92,7 @@ private do_map(base: usize, argc: usize) -> Result[Value, Fault]
                     Tuple(t) ->
                         if t.items.len() != 2 then return Err(not_a_pair(e))
 
-                        map_put(m, t.items.at(0), t.items.at(1))?
+                        map_put(m, t.items[0], t.items[1])?
                     _ -> return Err(not_a_pair(e))
 
     Ok(MutMap(m))
@@ -117,7 +117,7 @@ private do_set(base: usize, argc: usize) -> Result[Value, Fault]
 
 copy_entries(m: *MapObj, p: *MapObj) -> Result[unit, Fault]
     for i in 0..<p.keys.len()
-        map_put(m, p.keys.at(i), p.vals.at(i))?
+        map_put(m, p.keys[i], p.vals[i])?
 
     Ok(())
 
@@ -144,7 +144,7 @@ private do_seq(base: usize, argc: usize) -> Result[Value, Fault]
     val t = new_tuple(items.len())?
 
     for i in 0..<items.len()
-        t.items.set(i, items.at(i))
+        t.items[i] = items[i]
 
     Ok(Tuple(t))
 

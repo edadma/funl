@@ -142,7 +142,7 @@ private start_run_lines(base: usize, argc: usize) -> Result[Option[Value], Fault
     Ok(Some(Handle(h)))
 
 private[funl] step_run_lines(h: *HandleObj) -> Result[Option[Value], Fault]
-    val text = h.vals.at(0) match
+    val text = h.vals[0] match
         Str(p) -> p.s
         _ -> return Ok(None)
 
@@ -160,7 +160,7 @@ private output_kind() -> u32
     val kinds = current().handle_kinds
 
     for i in 0..<kinds.len()
-        if kinds.at(i).name == OutputKind then return u32(i)
+        if kinds[i].name == OutputKind then return u32(i)
 
     panic("funl:process is not installed on this VM")
 
@@ -219,8 +219,8 @@ private options(x: Value, name: string, a: *Asked) -> Result[unit, Fault]
         y -> return Err(kind_error(y, "map", s"'$name' wants its options as a map, and was given ${described(y)}"))
 
     for i in 0..<m.keys.len()
-        val k = word_of(m.keys.at(i), name, "an option's name")?
-        val opt = deref(m.vals.at(i))
+        val k = word_of(m.keys[i], name, "an option's name")?
+        val opt = deref(m.vals[i])
 
         if k == "cwd"
             a.dir = word_of(opt, name, "the `cwd` option")?
@@ -239,7 +239,7 @@ private options(x: Value, name: string, a: *Asked) -> Result[unit, Fault]
                 y -> return Err(kind_error(y, "map", s"'$name' wants its `env` option as a map of names to strings, and was given ${described(y)}"))
 
             for j in 0..<e.keys.len()
-                a.env.push(Var(word_of(e.keys.at(j), name, "a variable's name")?, word_of(e.vals.at(j), name, "a variable's value")?))
+                a.env.push(Var(word_of(e.keys[j], name, "a variable's name")?, word_of(e.vals[j], name, "a variable's value")?))
         elif k == "inherit_env"
             opt match
                 Atom(id) ->
@@ -253,7 +253,7 @@ private options(x: Value, name: string, a: *Asked) -> Result[unit, Fault]
                         return Err(kind_error(opt, "boolean", s"'$name' wants its `inherit_env` as true or false, and was given ${described(opt)}"))
                 _ -> return Err(kind_error(opt, "boolean", s"'$name' wants its `inherit_env` as true or false, and was given ${described(opt)}"))
         else
-            return Err(domain_error("process_option", m.keys.at(i), s"'$name' has no option `$k`: its options are `cwd`, `env`, `inherit_env` and `timeout`"))
+            return Err(domain_error("process_option", m.keys[i], s"'$name' has no option `$k`: its options are `cwd`, `env`, `inherit_env` and `timeout`"))
 
     Ok(())
 

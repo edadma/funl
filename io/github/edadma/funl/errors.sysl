@@ -47,10 +47,10 @@ error_message(ball: Value) -> Option[string]
     deref(ball) match
         Compound(e) ->
             if atom_name(e.functor) == "error" && e.args.len() == 2
-                deref(e.args.at(1)) match
+                deref(e.args[1]) match
                     Compound(c) ->
                         if atom_name(c.functor) == "context" && c.args.len() == 2
-                            deref(c.args.at(1)) match
+                            deref(c.args[1]) match
                                 Str(m) -> return Some(m.s)
                                 _ -> ()
                     _ -> ()
@@ -63,22 +63,22 @@ error_message(ball: Value) -> Option[string]
 private term1(name: string, a: Value) -> Result[Value, string]
     val c = new_compound(intern(name), 1)?
 
-    c.args.set(0, a)
+    c.args[0] = a
     Ok(Compound(c))
 
 private term2(name: string, a: Value, b: Value) -> Result[Value, string]
     val c = new_compound(intern(name), 2)?
 
-    c.args.set(0, a)
-    c.args.set(1, b)
+    c.args[0] = a
+    c.args[1] = b
     Ok(Compound(c))
 
 private term3(name: string, a: Value, b: Value, c: Value) -> Result[Value, string]
     val t = new_compound(intern(name), 3)?
 
-    t.args.set(0, a)
-    t.args.set(1, b)
-    t.args.set(2, c)
+    t.args[0] = a
+    t.args[1] = b
+    t.args[2] = c
     Ok(Compound(t))
 
 // `Name/Arity`, the way a predicate or a function is named in an error.

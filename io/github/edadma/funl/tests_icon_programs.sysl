@@ -30,7 +30,7 @@ private fed_lines(text: string, lines: []string) -> string
 private next_line(f: &Lines) -> Option[string]
     if f.at >= f.lines.len() then return None
 
-    val l = f.lines.at(f.at)
+    val l = f.lines[f.at]
 
     f.at += 1
     Some(l)

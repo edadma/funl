@@ -97,8 +97,8 @@ private pl_must_be(base: usize, argc: usize) -> Result[Value, Fault]
         val ok = x match
             Compound(c) ->
                 if c.args.len() == 2 && atom_name(c.functor) == "/"
-                    val n = deref(c.args.at(0))
-                    val a = deref(c.args.at(1))
+                    val n = deref(c.args[0])
+                    val a = deref(c.args[1])
 
                     (is_unbound(n) || is_atom(n)) && (is_unbound(a) || is_int_value(a))
                 else

@@ -62,14 +62,14 @@ check_combinator(w: *Walk, n: string, at: Span, args: Buf[&Expr])
     if n == "string" || n == "ccls" then return
 
     if n == "repn"
-        val count = args.at(0)
+        val count = args[0]
 
         count.kind match
             IntE(k) -> if k < 0 then w.report.add(error(count.span, "`repn` repeats a pattern a number of times that is not negative"))
             _ -> w.report.add(error(count.span, "`repn` takes its count as an integer written in the program")
                 .with_note("the pattern is built when the program is compiled, so its count is fixed then"))
 
-    val p = args.at(want - 1)
+    val p = args[want - 1]
 
     if !is_pattern(w, p)
         w.report.add(error(p.span, s"`$n` repeats a pattern, and this is not one")
@@ -90,20 +90,20 @@ pattern_of(c: Ctx, x: &Expr) -> Result[Parsed, string]
 
 // The pattern combinator `n` builds from `args`.
 combinator(c: Ctx, n: string, args: Buf[&Expr]) -> Result[Parsed, string]
-    if n == "string" then return Ok(Parsed(pat(PExprString(args.at(0))), 0))
+    if n == "string" then return Ok(Parsed(pat(PExprString(args[0])), 0))
 
-    if n == "ccls" then return Ok(Parsed(pat(PExprSet(args.at(0))), 0))
+    if n == "ccls" then return Ok(Parsed(pat(PExprSet(args[0])), 0))
 
     if n == "repn"
-        val count = args.at(0).kind match
+        val count = args[0].kind match
             IntE(k) -> usize(k)
             _ -> return Err("`repn` was given a count the resolver should have refused")
 
-        val inner = pattern_of(c, args.at(1))?
+        val inner = pattern_of(c, args[1])?
 
         return Ok(Parsed(pat(PRepeat(inner.pat, count, count, Greedy)), inner.groups))
 
-    val inner = pattern_of(c, args.at(0))?
+    val inner = pattern_of(c, args[0])?
     val lazy = n == "rrep" || n == "rrep1" || n == "ropt"
     val lo: usize = if n == "rep1" || n == "rrep1" then 1 else 0
     val hi: usize = if n == "opt" || n == "ropt" then 1 else Unbounded
@@ -152,7 +152,7 @@ compile_pat(e: *Emit, c: Option[Ctx], p: &Pat, back: bool) -> Result[unit, strin
         PAnchor(a) -> e.op(Assert(a))
         PSeq(items) ->
             for i in 0..<items.len()
-                compile_pat(e, c, items.at(if back then items.len() - 1 - i else i), back)?
+                compile_pat(e, c, items[if back then items.len() - 1 - i else i], back)?
         PAlt(items) ->
             val end = e.label()
 
@@ -161,11 +161,11 @@ compile_pat(e: *Emit, c: Option[Ctx], p: &Pat, back: bool) -> Result[unit, strin
                     val next = e.label()
 
                     e.op(Choice(next))
-                    compile_pat(e, c, items.at(i), back)?
+                    compile_pat(e, c, items[i], back)?
                     e.op(Branch(end))
                     e.place(next)
                 else
-                    compile_pat(e, c, items.at(i), back)?
+                    compile_pat(e, c, items[i], back)?
 
             e.place(end)
         PGroup(n, body) ->
@@ -224,7 +224,7 @@ private first_group(p: &Pat) -> usize
 
 private first_group_of(items: Buf[&Pat]) -> usize
     for i in 0..<items.len()
-        val n = first_group(items.at(i))
+        val n = first_group(items[i])
 
         if n != 0 then return n
 
@@ -247,7 +247,7 @@ private last_group_of(items: Buf[&Pat]) -> usize
     var last: usize = 0
 
     for i in 0..<items.len()
-        val n = last_group(items.at(i))
+        val n = last_group(items[i])
 
         if n > last then last = n
 
@@ -262,12 +262,12 @@ private never_empty(p: &Pat) -> bool
         PExprSet(_) -> true
         PSeq(items) ->
             for i in 0..<items.len()
-                if never_empty(items.at(i)) then return true
+                if never_empty(items[i]) then return true
 
             false
         PAlt(items) ->
             for i in 0..<items.len()
-                if !never_empty(items.at(i)) then return false
+                if !never_empty(items[i]) then return false
 
             items.len() > 0
         PGroup(_, body) -> never_empty(body)

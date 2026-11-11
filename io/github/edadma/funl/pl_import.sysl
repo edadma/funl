@@ -34,7 +34,7 @@ import_directive(src: Source, report: *Report, named: &Term, goals: *Buf[LoadSte
 
             if a.starts_with("funl:") then a else return package_directive(src, report, named, a, goals, why)
         TComp(f, args) ->
-            val (pkg, m) = if atom_name(f) == "/" && args.len() == 2 then (args.at(0).kind, args.at(1).kind) else (TNil, TNil)
+            val (pkg, m) = if atom_name(f) == "/" && args.len() == 2 then (args[0].kind, args[1].kind) else (TNil, TNil)
 
             (pkg, m) match
                 (TAtom(a), TAtom(b)) -> return package_directive(src, report, named, s"${atom_name(a)}/${atom_name(b)}", goals, why)
@@ -58,7 +58,7 @@ private funl_import(file: string, named: &Term, report: *Report, goals: *Buf[Loa
 
     load_module(file, named.span, report) match
         Ok(l) ->
-            if l.fresh then goals.push(RunChunk(current().modules.at(l.index).chunk))
+            if l.fresh then goals.push(RunChunk(current().modules[l.index].chunk))
 
             prolog_exports(l.index, named.span, report, why)
         Err(r) -> if had then why else r

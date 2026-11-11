@@ -82,13 +82,13 @@ register_handle_kind_forgetting(v: *Vm, name: string, release: ReleaseGo, forgot
 // so `!h` is not restartable the way `!` over a list is: a file's lines are read as they are taken,
 // and a second `!h` goes on from where the first stopped.
 register_each(v: *Vm, kind: u32, step: StepGo)
-    var k = v.handle_kinds.at(usize(kind))
+    var k = v.handle_kinds[usize(kind)]
 
     k.each = Some(step)
-    v.handle_kinds.set(usize(kind), k)
+    v.handle_kinds[usize(kind)] = k
 
 // What `!h` generates for handle `h`, if its kind says.
-handle_each(h: *HandleObj) -> Option[StepGo] = current().handle_kinds.at(usize(h.kind)).each
+handle_each(h: *HandleObj) -> Option[StepGo] = current().handle_kinds[usize(h.kind)].each
 
 // Give kind `kind` the method `name`, taking `arity` arguments besides the handle (`Variadic` for any
 // number). `go` sees the handle as argument 0, so it is called with `arity + 1`.
@@ -101,20 +101,20 @@ register_stepping_method(v: *Vm, kind: u32, name: string, arity: usize, start: S
     add_method(v, kind, Method(name, arity, Steps(start, step)))
 
 private add_method(v: *Vm, kind: u32, m: Method)
-    var k = v.handle_kinds.at(usize(kind))
+    var k = v.handle_kinds[usize(kind)]
 
     k.methods.push(m)
-    v.handle_kinds.set(usize(kind), k)
+    v.handle_kinds[usize(kind)] = k
 
 // The name of the kind of handle `h`.
-handle_kind_name(h: *HandleObj) -> string = current().handle_kinds.at(usize(h.kind)).name
+handle_kind_name(h: *HandleObj) -> string = current().handle_kinds[usize(h.kind)].name
 
 // Close `h`: run its kind's release hook, once. Closing a closed handle does nothing.
 close_handle(h: *HandleObj)
     if h.closed then return
 
     h.closed = true
-    current().handle_kinds.at(usize(h.kind)).release(h)
+    current().handle_kinds[usize(h.kind)].release(h)
     h.res = null
     h.vals.release()
 
@@ -131,7 +131,7 @@ retire_handle(h: *HandleObj, hook: ReleaseGo)
 // The collector's backstop for `h`, a handle nothing reaches: its kind's `forgotten` hook where it has
 // one, and otherwise exactly what `close()` would have done.
 forget_handle(h: *HandleObj)
-    current().handle_kinds.at(usize(h.kind)).forgotten match
+    current().handle_kinds[usize(h.kind)].forgotten match
         Some(hook) -> retire_handle(h, hook)
         None -> close_handle(h)
 
@@ -144,7 +144,7 @@ open_handle(base: usize, i: usize, kind: u32, what: string) -> Result[*HandleObj
         _ -> return Err(kind_error(x, "handle", s"$what wants a handle and was given ${described(x)}"))
 
     if h.kind != kind
-        return Err(type_error(current().handle_kinds.at(usize(kind)).name, x, s"$what wants a ${current().handle_kinds.at(usize(kind)).name} handle and was given ${described(x)}"))
+        return Err(type_error(current().handle_kinds[usize(kind)].name, x, s"$what wants a ${current().handle_kinds[usize(kind)].name} handle and was given ${described(x)}"))
 
     if h.closed then return Err(closed_handle(x, what))
 
@@ -172,7 +172,7 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool, spread: bool) -> Result[
     if argc + 2 > n then return Err(Broken(s"a method call wants two cells and $argc arguments and the operand stack holds $n"))
 
     val first = n - argc - 2
-    val recv = deref(v.stack.at(first))
+    val recv = deref(v.stack[first])
 
     val h = recv match
         Handle(p) -> p
@@ -180,20 +180,20 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool, spread: bool) -> Result[
             // Not a handle: the field `MethodOf` read is called as `CallValue` would call it, once the
             // `()` under it is gone.
             for i in first + 1..<n
-                v.stack.set(i - 1, v.stack.at(i))
+                v.stack[i - 1] = v.stack[i]
 
             v.stack.truncate(n - 1)
             return call_value(v, argc, tail)
 
     val text = atom_name(name)
 
-    deref(v.stack.at(first + 1)) match
+    deref(v.stack[first + 1]) match
         Handle(owner) ->
             if owner.closed
                 close_handle(h)
                 return Ok(false)
 
-            val m = method_named(owner, name, deref(v.stack.at(first + 1)))?
+            val m = method_named(owner, name, deref(v.stack[first + 1]))?
 
             return m.how match
                 Steps(start, step) ->
@@ -213,7 +213,7 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool, spread: bool) -> Result[
         var said: Result[Option[Value], Fault] = Ok(None)
 
         if !h.closed
-            for m in current().handle_kinds.at(usize(h.kind)).methods.view()
+            for m in current().handle_kinds[usize(h.kind)].methods.view()
                 if m.name == "close"
                     m.how match
                         Answers(go) -> said = go(first, 1)
@@ -236,8 +236,8 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool, spread: bool) -> Result[
     val go = m.how match
         Answers(go) -> go
         Steps(start, step) ->
-            v.stack.set(first + 1, v.stack.at(first))
-            v.stack.set(first, Int(0))
+            v.stack[first + 1] = v.stack[first]
+            v.stack[first] = Int(0)
 
             if spread then v.stack.push(Int(long(argc)))
 
@@ -245,7 +245,7 @@ call_method(v: *Vm, name: u32, argc: usize, tail: bool, spread: bool) -> Result[
 
     // The `()` goes; the handle becomes argument 0.
     for i in first + 2..<n
-        v.stack.set(i - 1, v.stack.at(i))
+        v.stack[i - 1] = v.stack[i]
 
     v.stack.truncate(n - 1)
 
@@ -264,7 +264,7 @@ end call_method
 private method_named(h: *HandleObj, name: u32, recv: Value) -> Result[Method, Fault]
     val text = atom_name(name)
 
-    for m in current().handle_kinds.at(usize(h.kind)).methods.view()
+    for m in current().handle_kinds[usize(h.kind)].methods.view()
         if m.name == text then return Ok(m)
 
     Err(existence_error("method", Atom(name), s"${described(recv)} has no method '$text'"))
@@ -282,13 +282,13 @@ private method_named(h: *HandleObj, name: u32, recv: Value) -> Result[Method, Fa
 // A state handle closed from outside -- by the handle it came from -- has nothing more to give.
 // The cells from the lower of `base` and `cell` up give way to the value. False where the call fails.
 call_stepping(v: *Vm, name: string, start: StartGo, step: StepGo, base: usize, argc: usize, cell: usize) -> Result[bool, Fault]
-    val state = v.stack.at(cell) match
+    val state = v.stack[cell] match
         Int(_) ->
             val made = start(base, argc)? match
                 Some(x) -> x
                 None -> return Ok(false)
 
-            v.stack.set(cell, made)
+            v.stack[cell] = made
             made
         x -> x
 

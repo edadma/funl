@@ -60,7 +60,7 @@ dcg_rule(rule: &Term, fresh: *usize) -> Result[&Term, DcgFault]
         TComp(f, args) ->
             if args.len() != 2 || atom_name(f) != "-->" then return Err(dcg_fault("callable", rule, "a grammar rule is `Head --> Body`"))
 
-            (args.at(0), args.at(1))
+            (args[0], args[1])
         _ -> return Err(dcg_fault("callable", rule, "a grammar rule is `Head --> Body`"))
 
     var nt = head
@@ -69,8 +69,8 @@ dcg_rule(rule: &Term, fresh: *usize) -> Result[&Term, DcgFault]
     head.kind match
         TComp(f, args) ->
             if args.len() == 2 && atom_name(f) == ","
-                nt = args.at(0)
-                pushback = Some(args.at(1))
+                nt = args[0]
+                pushback = Some(args[1])
         _ -> ()
 
     val s0 = dcg_fresh(fresh, rule.span)
@@ -132,7 +132,7 @@ dcg_body(b: &Term, s0: &Term, s: &Term, fresh: *usize) -> Result[&Term, DcgFault
             var l = s
 
             for i in 0..<codes.len()
-                l = term(TCons(codes.at(codes.len() - 1 - i), l), at)
+                l = term(TCons(codes[codes.len() - 1 - i], l), at)
 
             Ok(dcg_unify(s0, l, at))
         TAtom(id) ->
@@ -145,29 +145,29 @@ dcg_body(b: &Term, s0: &Term, s: &Term, fresh: *usize) -> Result[&Term, DcgFault
 
             if n == 2 && name == ","
                 val mid = dcg_fresh(fresh, at)
-                val first = dcg_body(args.at(0), s0, mid, fresh)?
+                val first = dcg_body(args[0], s0, mid, fresh)?
 
-                return Ok(dcg_and(first, dcg_body(args.at(1), mid, s, fresh)?, at))
+                return Ok(dcg_and(first, dcg_body(args[1], mid, s, fresh)?, at))
 
             if n == 2 && (name == ";" || name == "|")
-                val left = dcg_body(args.at(0), s0, s, fresh)?
+                val left = dcg_body(args[0], s0, s, fresh)?
 
-                return Ok(dcg_pair(";", left, dcg_body(args.at(1), s0, s, fresh)?, at))
+                return Ok(dcg_pair(";", left, dcg_body(args[1], s0, s, fresh)?, at))
 
             if n == 2 && name == "->"
                 val mid = dcg_fresh(fresh, at)
-                val cond = dcg_body(args.at(0), s0, mid, fresh)?
+                val cond = dcg_body(args[0], s0, mid, fresh)?
 
-                return Ok(dcg_pair("->", cond, dcg_body(args.at(1), mid, s, fresh)?, at))
+                return Ok(dcg_pair("->", cond, dcg_body(args[1], mid, s, fresh)?, at))
 
             if n == 1 && name == "\\+"
                 var neg: Buf[&Term] = buf()
 
-                neg.push(dcg_body(args.at(0), s0, dcg_fresh(fresh, at), fresh)?)
+                neg.push(dcg_body(args[0], s0, dcg_fresh(fresh, at), fresh)?)
                 return Ok(dcg_and(dcg_compound("\\+", neg, at), dcg_unify(s0, s, at), at))
 
             if n == 1 && name == "{}"
-                val g = args.at(0)
+                val g = args[0]
 
                 // A variable, or a value handed to `phrase/2-3` that is not callable, is called through
                 // `call/1`, so the error names it rather than the conjunction the body became. One
@@ -212,7 +212,7 @@ private dcg_terminals(l: &Term, s0: &Term, s: &Term, what: string) -> Result[&Te
     var out = s
 
     for i in 0..<items.len()
-        out = term(TCons(items.at(items.len() - 1 - i), out), l.span)
+        out = term(TCons(items[items.len() - 1 - i], out), l.span)
 
     Ok(dcg_unify(s0, out, l.span))
 
@@ -310,8 +310,8 @@ private head_term(x: Value, vars: *Buf[Value]) -> &Term
             var args: Buf[&Term] = buf()
 
             if c.args.len() == 2 && atom_name(c.functor) == ","
-                args.push(head_term(c.args.at(0), vars))
-                args.push(list_term(c.args.at(1), vars))
+                args.push(head_term(c.args[0], vars))
+                args.push(list_term(c.args[1], vars))
             else
                 for a in c.args.view()
                     args.push(term(TConst(a), at))
@@ -354,7 +354,7 @@ private pl_dcg_translate_rule(base: usize) -> Result[Answer, Fault]
         Compound(c) ->
             if c.args.len() != 2 || atom_name(c.functor) != "-->" then return Ok(Refuses)
 
-            (c.args.at(0), c.args.at(1))
+            (c.args[0], c.args[1])
         _ -> return Ok(Refuses)
 
     var vars: Buf[Value] = buf()

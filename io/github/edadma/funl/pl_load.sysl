@@ -368,10 +368,10 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
 
         by_key.get(key) match
             Some(i) ->
-                var g = groups.at(i)
+                var g = groups[i]
 
                 g.clauses.push(cl)
-                groups.set(i, g)
+                groups[i] = g
             None ->
                 var cs: Buf[ReadClause] = buf()
 
@@ -392,7 +392,7 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
 
     for g in groups.view()
         val key = pred_key(g.name, g.arity)
-        val head = g.clauses.at(0).t
+        val head = g.clauses[0].t
         val origin = Origin(src.name, s"the Prolog predicate `$key` at ${located(src, head.span.start)}")
 
         clash(key, origin) match
@@ -420,15 +420,15 @@ private load_file(src: Source, report: *Report) -> Result[usize, Refusal]
     if report.has_errors() then return Err(why)
 
     for i in 0..<groups.len()
-        val g = groups.at(i)
+        val g = groups[i]
         val key = pred_key(g.name, g.arity)
 
         dynamic_index(key) match
             Some(p) ->
-                claim(key, origins.at(i))
+                claim(key, origins[i])
                 load_dynamic(report, p, g.clauses, src.name)
             None ->
-                define_predicate(key, codes.at(i), origins.at(i)).unwrap()
+                define_predicate(key, codes[i], origins[i]).unwrap()
                 current().pl_clauses.put(key, g.clauses.len())
 
     if report.has_errors() then return Err(why)
@@ -489,7 +489,7 @@ private directive_goal(t: &Term) -> Option[&Term]
         TComp(f, args) ->
             val n = atom_name(f)
 
-            if args.len() == 1 && (n == ":-" || n == "?-") then return Some(args.at(0))
+            if args.len() == 1 && (n == ":-" || n == "?-") then return Some(args[0])
         _ -> ()
 
     None
@@ -509,14 +509,14 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
                 return why
 
             if n == "initialization" && (args.len() == 1 || args.len() == 2)
-                inits.push(ReadClause(args.at(0), c.names))
+                inits.push(ReadClause(args[0], c.names))
                 current().has_initialization = true
                 return why
 
             // Only where the FunL front end is linked in: on the standalone Prolog's machine an
             // `import/1` directive is a goal like any other, and fails as an unknown procedure.
             if n == "import" && args.len() == 1 && current().funl_front_end
-                return import_directive(src, report, args.at(0), goals, why)
+                return import_directive(src, report, args[0], goals, why)
 
             // `set_prolog_flag(double_quotes, _)` and `set_prolog_flag(back_quotes, _)` are carried
             // out now as well, so they govern the clauses read after them. **Every flag is also set
@@ -524,12 +524,12 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
             // flag as it was, and one after it sees the new value -- `load_file` puts the reader's
             // flags back once the file is read.
             if n == "set_prolog_flag" && args.len() == 2 &&
-                    (is_atom_named(args.at(0), "double_quotes") || is_atom_named(args.at(0), "back_quotes") ||
-                        is_atom_named(args.at(0), "char_conversion"))
+                    (is_atom_named(args[0], "double_quotes") || is_atom_named(args[0], "back_quotes") ||
+                        is_atom_named(args[0], "char_conversion"))
                 var vars: Buf[Value] = buf()
 
-                val flag = term_value(args.at(0), &vars)
-                val value = term_value(args.at(1), &vars)
+                val flag = term_value(args[0], &vars)
+                val value = term_value(args[1], &vars)
 
                 if flag.is_err() || value.is_err()
                     report.add(error(t.span, "set_prolog_flag/2 could not be read as a flag and a value"))
@@ -547,8 +547,8 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
             if n == "char_conversion" && args.len() == 2
                 var vars: Buf[Value] = buf()
 
-                val from = term_value(args.at(0), &vars)
-                val to = term_value(args.at(1), &vars)
+                val from = term_value(args[0], &vars)
+                val to = term_value(args[1], &vars)
 
                 if from.is_ok() && to.is_ok() then set_conversion(from.unwrap(), to.unwrap())
 
@@ -557,7 +557,7 @@ private directive(src: Source, report: *Report, c: ReadClause, goals: *Buf[LoadS
             if n == "dynamic" && args.len() == 1
                 var vars: Buf[Value] = buf()
 
-                val spec = term_value(args.at(0), &vars) match
+                val spec = term_value(args[0], &vars) match
                     Ok(x) -> x
                     Err(m) ->
                         report.add(error(t.span, m))
@@ -579,7 +579,7 @@ private rereads(g: &Term) -> bool = g.kind match
         val n = atom_name(f)
 
         (n == "char_conversion" && args.len() == 2) ||
-            (n == "set_prolog_flag" && args.len() == 2 && is_atom_named(args.at(0), "char_conversion"))
+            (n == "set_prolog_flag" && args.len() == 2 && is_atom_named(args[0], "char_conversion"))
     _ -> false
 
 // Whether `t` is the atom `name`.
@@ -589,20 +589,20 @@ private is_atom_named(t: &Term, name: string) -> bool = t.kind match
 
 // `:- op(P, T, Names)`, where `Names` is a name or a list of them.
 private op_directive(report: *Report, t: &Term, args: Buf[&Term])
-    val p = args.at(0).kind match
+    val p = args[0].kind match
         TInt(n) -> n
         _ ->
-            report.add(error(args.at(0).span, "an operator's priority is an integer from 0 to 1200"))
+            report.add(error(args[0].span, "an operator's priority is an integer from 0 to 1200"))
             return
 
-    val kind = args.at(1).kind match
+    val kind = args[1].kind match
         TAtom(id) -> atom_name(id)
         _ ->
-            report.add(error(args.at(1).span, "an operator's type is an atom: xfx, xfy, yfx, fy, fx, xf or yf"))
+            report.add(error(args[1].span, "an operator's type is an atom: xfx, xfy, yfx, fy, fx, xf or yf"))
             return
 
     var names: Buf[&Term] = buf()
-    var at = args.at(2)
+    var at = args[2]
 
     loop
         at.kind match

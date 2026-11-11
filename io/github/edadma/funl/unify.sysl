@@ -262,7 +262,7 @@ private unify_args(p: *CompoundObj, q: *CompoundObj) -> bool
 
     while i > 0
         i -= 1
-        unify_later(p.args.at(i), q.args.at(i))
+        unify_later(p.args[i], q.args[i])
 
     true
 
@@ -285,7 +285,7 @@ private unify_maps(p: *MapObj, q: *MapObj) -> bool
 
     while i > 0
         i -= 1
-        unify_later(p.vals.at(i), q.vals.at(at.at(i)))
+        unify_later(p.vals[i], q.vals[at[i]])
 
     true
 
@@ -296,7 +296,7 @@ private unify_items(p: *TupleObj, q: *TupleObj) -> bool
 
     while i > 0
         i -= 1
-        unify_later(p.items.at(i), q.items.at(i))
+        unify_later(p.items[i], q.items[i])
 
     true
 
@@ -309,7 +309,7 @@ private unify_tuple_compound(p: *TupleObj, q: *CompoundObj) -> bool
 
     while i > 0
         i -= 1
-        unify_later(p.items.at(i), q.args.at(i))
+        unify_later(p.items[i], q.args[i])
 
     true
 
@@ -328,7 +328,7 @@ private source(v: *Vm, src: Src) -> Result[Value, string]
 
             if i >= args.len() then return Err(s"argument $i of a call that passed ${args.len()}")
 
-            Ok(args.at(i))
+            Ok(args[i])
         Popped ->
             v.stack.pop() match
                 Some(x) -> Ok(x)
@@ -348,11 +348,11 @@ get_value(v: *Vm, slot: usize, src: Src) -> Result[bool, string]
 // exactly unification with the constant.
 get_const(v: *Vm, k: usize, src: Src) -> Result[bool, string]
     val x = source(v, src)?
-    val consts = v.chunks.at(v.code).consts
+    val consts = v.chunks[v.code].consts
 
     if k >= consts.len() then return Err(s"constant $k of a chunk with ${consts.len()}")
 
-    Ok(unify(consts.at(k), x))
+    Ok(unify(consts[k], x))
 
 // A compound in the head. **This is the half of head unification a function's parameters never
 // have**: an unbound argument is bound to a term built here, so the caller learns the shape.
@@ -364,7 +364,7 @@ get_compound(v: *Vm, functor: u32, n: usize, src: Src) -> Result[bool, string]
             val c = new_compound(functor, n)?
 
             for i in 0..<n
-                c.args.set(i, Var(new_var()?))
+                c.args[i] = Var(new_var()?)
 
             if !bind(p, Compound(c)) then return Ok(false)
 
@@ -424,7 +424,7 @@ private push_args(v: *Vm, c: *CompoundObj)
 
     while i > 0
         i -= 1
-        v.stack.push(c.args.at(i))
+        v.stack.push(c.args[i])
 
 // Push a tuple's items as `push_args` pushes a compound's: the tuple is the compound `tuple(...)`.
 private push_items(v: *Vm, t: *TupleObj)
@@ -432,7 +432,7 @@ private push_items(v: *Vm, t: *TupleObj)
 
     while i > 0
         i -= 1
-        v.stack.push(t.items.at(i))
+        v.stack.push(t.items[i])
 
 // -- equality ------------------------------------------------------------------------------------
 
@@ -698,8 +698,8 @@ private term_name(x: Value) -> string = x match
     _ -> "."
 
 private term_arg(x: Value, i: usize) -> Value = x match
-    Compound(p) -> p.args.at(i)
-    Tuple(p) -> p.items.at(i)
+    Compound(p) -> p.args[i]
+    Tuple(p) -> p.items[i]
     Cons(p) -> if i == 0 then p.head else p.tail
     _ -> Undefined
 

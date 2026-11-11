@@ -132,7 +132,7 @@ private query(v: *Vm, text: string, line: &Fn(string) -> Option[string], say: &F
     var shown: Buf[usize] = buf()
 
     for i in 0..<c.names.len()
-        if c.names.at(i) != "_" then shown.push(i)
+        if c.names[i] != "_" then shown.push(i)
 
     solve(v, c, shown, line, say, false)
 end query
@@ -165,7 +165,7 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
             Succeeded ->
                 val top = v.stack.len()
                 val base = top - shown.len() - 1
-                val ball = deref(v.stack.at(base))
+                val ball = deref(v.stack[base])
 
                 ball match
                     Var(_) -> ()
@@ -179,8 +179,8 @@ private solve(v: *Vm, c: ReadClause, shown: Buf[usize], line: &Fn(string) -> Opt
                 var vals: Buf[Value] = buf()
 
                 for j in 0..<shown.len()
-                    names.push(c.names.at(shown.at(j)))
-                    vals.push(deref(v.stack.at(base + 1 + j)))
+                    names.push(c.names[shown[j]])
+                    vals.push(deref(v.stack[base + 1 + j]))
 
                 val answer = answer_of(names, vals)
 
@@ -231,7 +231,7 @@ private answer_of(names: Buf[string], vals: Buf[Value]) -> string
         var g = j
 
         for k in 0..<j
-            if group.at(k) == k && same_value(vals.at(k), vals.at(j))
+            if group[k] == k && same_value(vals[k], vals[j])
                 g = k
                 break
 
@@ -240,16 +240,16 @@ private answer_of(names: Buf[string], vals: Buf[Value]) -> string
     var vn = var_names()
 
     for g in 0..<vals.len()
-        if group.at(g) == g
-            vals.at(g) match
+        if group[g] == g
+            vals[g] match
                 Var(p) ->
                     var last = g
 
                     for j in g..<vals.len()
-                        if group.at(j) == g then last = j
+                        if group[j] == g then last = j
 
                     vn.ids.push(p.id)
-                    vn.names.push(names.at(last))
+                    vn.names.push(names[last])
                 _ -> ()
 
     // Written once to see how often each unnamed variable appears, then named and written again.
@@ -258,13 +258,13 @@ private answer_of(names: Buf[string], vals: Buf[Value]) -> string
     var made: long = 0
 
     for i in 0..<vn.unnamed.len()
-        val id = vn.unnamed.at(i)
+        val id = vn.unnamed[i]
 
         if var_named(&vn, id).is_none()
             var times = 0
 
             for k in 0..<vn.unnamed.len()
-                if vn.unnamed.at(k) == id then times += 1
+                if vn.unnamed[k] == id then times += 1
 
             if times == 1
                 vn.ids.push(id)
@@ -310,36 +310,36 @@ private answer_text_of(names: Buf[string], vals: Buf[Value], group: Buf[usize], 
     var factored = Factored(buf(), buf())
 
     for g in 0..<vals.len()
-        if group.at(g) != g then continue
+        if group[g] != g then continue
 
         var chain: Buf[usize] = buf()
         var last = g
 
         for j in g..<vals.len()
-            if group.at(j) == g
+            if group[j] == g
                 last = j
 
-                if !names.at(j).starts_with("_") then chain.push(j)
+                if !names[j].starts_with("_") then chain.push(j)
 
         if chain.len() == 0 then continue
 
         var text = ""
 
-        vals.at(g) match
+        vals[g] match
             Var(_) ->
-                if names.at(last).starts_with("_") then chain.push(last)
+                if names[last].starts_with("_") then chain.push(last)
 
                 if chain.len() < 2 then continue
 
                 for i in 0..<chain.len() - 1
                     if i > 0 then text += ", "
 
-                    text += s"${names.at(chain.at(i))} = ${names.at(chain.at(i + 1))}"
+                    text += s"${names[chain[i]]} = ${names[chain[i + 1]]}"
             _ ->
                 for i in 0..<chain.len() - 1
-                    text += s"${names.at(chain.at(i))} = ${names.at(chain.at(i + 1))}, "
+                    text += s"${names[chain[i]]} = ${names[chain[i + 1]]}, "
 
-                text += binding_text(names.at(chain.at(chain.len() - 1)), vals.at(g), &factored, vn)
+                text += binding_text(names[chain[chain.len() - 1]], vals[g], &factored, vn)
 
         parts.push(text)
 
@@ -357,7 +357,7 @@ private struct Factored
 // The name the answer gave node `a`, if it has.
 private factored_name(f: *Factored, a: usize) -> Option[string]
     for i in 0..<f.nodes.len()
-        if f.nodes.at(i) == a then return Some(f.names.at(i))
+        if f.nodes[i] == a then return Some(f.names[i])
 
     None
 
@@ -390,7 +390,7 @@ private binding_text(name: string, x: Value, factored: *Factored, vn: *VarNames)
     var own = false
 
     for i in 0..<c.heads.len()
-        val a = node_of(c.heads.at(i))
+        val a = node_of(c.heads[i])
 
         factored_name(factored, a) match
             Some(earlier) ->
@@ -414,9 +414,9 @@ private binding_text(name: string, x: Value, factored: *Factored, vn: *VarNames)
     if spelled.len() > 0 then text += ", % where"
 
     for j in 0..<spelled.len()
-        val i = spelled.at(j)
+        val i = spelled[j]
 
-        text += s"\n    ${names.at(i)} = ${term_text_vars(c.heads.at(i), o, c, names, true, 699, vn)}"
+        text += s"\n    ${names[i]} = ${term_text_vars(c.heads[i], o, c, names, true, 699, vn)}"
 
         if j + 1 < spelled.len() then text += ","
 
@@ -429,11 +429,11 @@ private exception_text(ball: Value) -> string
     deref(ball) match
         Compound(e) ->
             if atom_name(e.functor) == "error" && e.args.len() == 2
-                val formal = s"error(${answer_text(e.args.at(0))},_)"
+                val formal = s"error(${answer_text(e.args[0])},_)"
 
                 // Text that did not read says where, and what was expected there: the reader's
                 // diagnostic, which the term's message carries.
-                if is_syntax_error(e.args.at(0))
+                if is_syntax_error(e.args[0])
                     error_message(ball) match
                         Some(m) -> return s"$formal\n${m.trim()}"
                         None -> ()
@@ -452,7 +452,7 @@ private is_syntax_error(formal: Value) -> bool
 // somewhere to go, is still on the control stack.
 private resumable(v: *Vm) -> bool
     for i in 0..<v.control.len()
-        val k = v.control.at(i).kind
+        val k = v.control[i].kind
 
         if k == Choice || k == Mark then return true
 

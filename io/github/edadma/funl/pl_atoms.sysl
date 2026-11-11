@@ -351,7 +351,7 @@ private char_offsets(s: string) -> Buf[usize]
     at
 
 private between_chars(s: string, at: *Buf[usize], from: usize, to: usize) -> string =
-    from_utf8_unchecked(s.bytes[at.at(from)..<at.at(to)])
+    from_utf8_unchecked(s.bytes[at[from]..<at[to]])
 
 // `atom_concat(A, B, C)` and `string_concat(A, B, C)`: `C` is `A` followed by `B`; with only `C`
 // given, each way of cutting it in two, in turn. A given part, or a given whole, is compared by its
@@ -787,7 +787,7 @@ private pl_string_code(base: usize, argc: usize, cursor: long) -> Result[Answer,
 
             if k == 0 || k > long(codes.len()) then return Ok(Refuses)
 
-            return unified(arg(base, 2), Int(codes.at(usize(k - 1))))
+            return unified(arg(base, 2), Int(codes[usize(k - 1)]))
         Var(_) -> ()
         _ -> return Err(type_error("integer", i, s"$who wants an integer index, and was given ${described(i)}"))
 
@@ -795,17 +795,17 @@ private pl_string_code(base: usize, argc: usize, cursor: long) -> Result[Answer,
     val c = deref(arg(base, 2))
     var k = usize(cursor)
 
-    while k < codes.len() && !code_fits(c, codes.at(k))
+    while k < codes.len() && !code_fits(c, codes[k])
         k += 1
 
     if k >= codes.len() then return Ok(Refuses)
 
     unify_on_answer(arg(base, 0), Int(long(k + 1)))
-    unify_on_answer(arg(base, 2), Int(codes.at(k)))
+    unify_on_answer(arg(base, 2), Int(codes[k]))
 
     var next = k + 1
 
-    while next < codes.len() && !code_fits(c, codes.at(next))
+    while next < codes.len() && !code_fits(c, codes[next])
         next += 1
 
     Ok(if next >= codes.len() then Gives(Unit) else GivesMore(Unit, long(next)))

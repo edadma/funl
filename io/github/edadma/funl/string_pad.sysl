@@ -52,7 +52,7 @@ private enum Place
 private pad_char(pad: *Buf[char], k: usize, len: usize, from_left: bool) -> char
     val m = pad.len()
 
-    if from_left then pad.at(k % m) else pad.at((m - (len - k) % m) % m)
+    if from_left then pad[k % m] else pad[(m - (len - k) % m) % m]
 
 // `left(s, n, p)`, `center(s, n, p)` and `right(s, n, p)`: `s` in a field `n` characters wide, the
 // rest made of the pad string `p` (a space when none is given) replicated. **A value that is not a
@@ -89,7 +89,7 @@ private fitted(base: usize, argc: usize, name: string, place: Place) -> Result[V
             Back -> extra
 
         for i in from..<(from + width)
-            out.push_char(cs.at(i))
+            out.push_char(cs[i])
 
         return Ok(new_str(out.finish())?)
 
@@ -141,13 +141,13 @@ private struct Stops
         val n = self.cols.len()
 
         for i in 0..<n
-            val s = self.cols.at(i)
+            val s = self.cols[i]
 
             if s > c then return s
 
             prev = s
 
-        val step = if n >= 2 then self.cols.at(n - 1) - self.cols.at(n - 2) else prev - 1
+        val step = if n >= 2 then self.cols[n - 1] - self.cols[n - 2] else prev - 1
         val last = prev
         val beyond = c - last
 

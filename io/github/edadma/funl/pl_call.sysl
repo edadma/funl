@@ -17,10 +17,10 @@ saved_height(v: *Vm, slot: usize) -> Result[usize, string]
 soft_cut(v: *Vm, h: usize)
     if h >= v.control.len() then return
 
-    var e = v.control.at(h)
+    var e = v.control[h]
 
     e.kind = MarkThrough
-    v.control.set(h, e)
+    v.control[h] = e
 
 // `CallGoal(extra)`: the goal under the top `extra` values, with them added as its last arguments,
 // called in a frame of its own -- so a cut inside it cuts no further than that frame.
@@ -30,7 +30,7 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
     if extra + 1 > top then return Err(Broken(s"call/${extra + 1} wants ${extra + 1} operands and the stack holds $top"))
 
     val base = top - extra - 1
-    val g = deref(v.stack.at(base))
+    val g = deref(v.stack[base])
     var args: Buf[Value] = buf()
 
     val f = g match
@@ -47,7 +47,7 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
         return Err(type_error("callable", g, s"type error: call/1 was given ${render(g)}, a goal with a part that is not callable"))
 
     for i in base + 1..<top
-        args.push(v.stack.at(i))
+        args.push(v.stack[i])
 
     v.stack.truncate(base)
 
@@ -55,9 +55,9 @@ call_goal(v: *Vm, extra: usize) -> Result[unit, Fault]
 
     // `M:G`, qualified by an atom: the goal `G` under the name `M:g` (`qualified_goal`).
     if name == ":" && args.len() == 2
-        deref(args.at(0)) match
+        deref(args[0]) match
             Atom(m) ->
-                deref(args.at(1)) match
+                deref(args[1]) match
                     Atom(id) ->
                         name = s"${atom_name(m)}:${atom_name(id)}"
                         args = buf()
@@ -109,7 +109,7 @@ private body_callable(x: Value) -> bool = deref(x) match
         val n = atom_name(c.functor)
 
         if c.args.len() == 2 && (n == "," || n == ";" || n == "|" || n == "->" || n == "*->")
-            body_callable(c.args.at(0)) && body_callable(c.args.at(1))
+            body_callable(c.args[0]) && body_callable(c.args[1])
         else
             true
     _ -> false

@@ -234,7 +234,7 @@ kind_named(name: string) -> u32
     val kinds = current().handle_kinds
 
     for i in 0..<kinds.len()
-        if kinds.at(i).name == name then return u32(i)
+        if kinds[i].name == name then return u32(i)
 
     panic("funl:graphics is not installed on this VM")
 
@@ -242,8 +242,8 @@ kind_named(name: string) -> u32
 
 keep_canvas(c: WinCanvas) -> usize
     for i in 0..<canvases.len()
-        if canvases.at(i).is_none()
-            canvases.set(i, Some(c))
+        if canvases[i].is_none()
+            canvases[i] = Some(c)
             return i
 
     canvases.push(Some(c))
@@ -252,8 +252,8 @@ keep_canvas(c: WinCanvas) -> usize
 
 keep_context(c: WinContext) -> usize
     for i in 0..<contexts.len()
-        if contexts.at(i).is_none()
-            contexts.set(i, Some(c))
+        if contexts[i].is_none()
+            contexts[i] = Some(c)
             return i
 
     contexts.push(Some(c))
@@ -269,11 +269,11 @@ canvas_live(h: *HandleObj) -> bool
 
     val at = usize.wrap(h.n)
 
-    at < canvases.len() && canvases.at(at).is_some() && generations.at(at) == small(h.vals.at(0))
+    at < canvases.len() && canvases[at].is_some() && generations[at] == small(h.vals[0])
 
-canvas_at(at: usize) -> WinCanvas = canvases.at(at).unwrap()
+canvas_at(at: usize) -> WinCanvas = canvases[at].unwrap()
 
-context_at(at: usize) -> WinContext = contexts.at(at).unwrap()
+context_at(at: usize) -> WinContext = contexts[at].unwrap()
 
 // The canvas closed: its place freed and its generation moved on, so every other handle on it finds
 // it gone.
@@ -283,29 +283,29 @@ free_canvas(at: usize)
 
     c.queue.release()
     c.wins.release()
-    canvases.set(at, None)
+    canvases[at] = None
     canvas_waits_closed(at)
 
     if screen >= 0 then screen_close(usize(screen))
 
-    generations.set(at, generations.at(at) + 1)
+    generations[at] = generations[at] + 1
 
 // One handle's share of its context given back.
 private drop_context(h: *HandleObj)
     if h.vals.len() < 2 then return
 
-    val k = usize.wrap(small(h.vals.at(1)))
+    val k = usize.wrap(small(h.vals[1]))
 
     if k >= contexts.len() then return
 
-    contexts.at(k) match
+    contexts[k] match
         Some(c) ->
             if c.refs <= 1
-                contexts.set(k, None)
+                contexts[k] = None
             else
                 var d = c
                 d.refs -= 1
-                contexts.set(k, Some(d))
+                contexts[k] = Some(d)
         None -> ()
 
 // `close()`: the canvas, and so every handle on it, then this handle's context.
@@ -327,11 +327,11 @@ detach_window(h: *HandleObj)
             c.handles -= 1
 
             for i in 0..<c.wins.len()
-                if c.wins.at(i) == h
+                if c.wins[i] == h
                     c.wins.remove(i)
                     break
 
-            canvases.set(at, Some(c))
+            canvases[at] = Some(c)
 
     drop_context(h)
 
@@ -346,7 +346,7 @@ window_arg(base: usize, i: usize, name: string) -> Result[Win, Fault]
         retire_handle(h, detach_window)
         return Err(existence_error("handle", Handle(h), s"'$name' was called on ${described(Handle(h))}"))
 
-    Ok(Win(h, usize.wrap(h.n), usize.wrap(small(h.vals.at(1)))))
+    Ok(Win(h, usize.wrap(h.n), usize.wrap(small(h.vals[1]))))
 
 // Argument `i`, a map of attributes.
 map_arg(base: usize, i: usize, name: string) -> Result[*MapObj, Fault]

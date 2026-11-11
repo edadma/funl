@@ -85,15 +85,15 @@ private file_kind() -> u32
     val kinds = current().handle_kinds
 
     for i in 0..<kinds.len()
-        if kinds.at(i).name == FileKind then return u32(i)
+        if kinds[i].name == FileKind then return u32(i)
 
     panic("funl:fs's files are not installed on this VM")
 
 // The first free place in `files`, holding `o`.
 private keep_file(o: Opened) -> long
     for i in 0..<files.len()
-        if files.at(i).is_none()
-            files.set(i, Some(o))
+        if files[i].is_none()
+            files[i] = Some(o)
             return long(i)
 
     files.push(Some(o))
@@ -103,7 +103,7 @@ private keep_file(o: Opened) -> long
 private opened_of(h: *HandleObj) -> Option[Opened]
     val at = usize.wrap(h.n)
 
-    if at < files.len() then files.at(at) else None
+    if at < files.len() then files[at] else None
 
 // A file handle's release: the file closed, what it buffered written out. A pipe the program wrote
 // to is waited for, its command having been told its input has ended; one it read from is stopped.
@@ -112,7 +112,7 @@ private[funl] release_file(h: *HandleObj)
 
     if at >= files.len() then return
 
-    files.at(at) match
+    files[at] match
         Some(OnDisk(f, _, _, _)) ->
             var g = f
 
@@ -125,7 +125,7 @@ private[funl] release_file(h: *HandleObj)
             if !reads then _ = child.wait()
         _ -> ()
 
-    files.set(at, None)
+    files[at] = None
 
 // -- opening ---------------------------------------------------------------------------------------
 
@@ -248,14 +248,14 @@ standard_stream(which: int) -> Result[Value, Fault]
     while v.streams.len() < 3
         v.streams.push(Undefined)
 
-    v.streams.at(usize(which)) match
-        Handle(_) -> return Ok(v.streams.at(usize(which)))
+    v.streams[usize(which)] match
+        Handle(_) -> return Ok(v.streams[usize(which)])
         _ -> ()
 
     val h = new_handle(file_kind())?
 
     h.n = keep_file(Standard(which))
-    v.streams.set(usize(which), Handle(h))
+    v.streams[usize(which)] = Handle(h)
     Ok(Handle(h))
 
 // -- the methods -----------------------------------------------------------------------------------
@@ -318,7 +318,7 @@ private file_line(f: File, name: string) -> Result[Option[string], Fault]
 
     if !any then return Ok(None)
 
-    if bytes.len() > 0 && bytes.at(bytes.len() - 1) == 13 then bytes.truncate(bytes.len() - 1)
+    if bytes.len() > 0 && bytes[bytes.len() - 1] == 13 then bytes.truncate(bytes.len() - 1)
 
     text_of(bytes, name)
 

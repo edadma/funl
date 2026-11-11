@@ -79,7 +79,7 @@ delete_key(m: *MapObj, k: Value) -> Result[unit, Fault]
 // Take the one element `x` out of mutable set `s`, where it is.
 private delete_element(s: *SetObj, x: Value) -> Result[unit, Fault]
     for i in 0..<s.items.len()
-        if equal_values(x, s.items.at(i), "delete")?
+        if equal_values(x, s.items[i], "delete")?
             s.items.remove(i)
             return Ok(())
 

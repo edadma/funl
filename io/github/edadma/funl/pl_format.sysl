@@ -139,7 +139,7 @@ private list_chars(l: Value, who: string) -> Result[string, Fault]
 private take(p: *Pen) -> Result[Value, Fault]
     if p.next >= p.args.len() then return Err(format_error("not enough arguments"))
 
-    val x = p.args.at(p.next)
+    val x = p.args[p.next]
 
     p.next += 1
     Ok(deref(x))
@@ -150,7 +150,7 @@ private run(p: *Pen, cs: Buf[char]) -> Result[unit, Fault]
     var i: usize = 0
 
     while i < cs.len()
-        val c = cs.at(i)
+        val c = cs[i]
 
         i += 1
 
@@ -163,7 +163,7 @@ private run(p: *Pen, cs: Buf[char]) -> Result[unit, Fault]
         // The numeric argument.
         var have = false
         var num: long = 0
-        val first = cs.at(i)
+        val first = cs[i]
 
         if first == '*'
             val x = take(p)?
@@ -180,23 +180,23 @@ private run(p: *Pen, cs: Buf[char]) -> Result[unit, Fault]
         elif first == '`'
             if i + 1 >= cs.len() then return Err(no_directive('\0'))
 
-            num = long(u32(cs.at(i + 1)))
+            num = long(u32(cs[i + 1]))
             have = true
             i += 2
         elif is_digit(first)
-            while i < cs.len() && is_digit(cs.at(i))
-                num = num * 10 + long(u32(cs.at(i))) - 48
+            while i < cs.len() && is_digit(cs[i])
+                num = num * 10 + long(u32(cs[i])) - 48
                 i += 1
 
             have = true
 
             // Digits that end the format name their last digit as the missing directive, as
             // SWI-Prolog reports it.
-            if i >= cs.len() then return Err(no_directive(cs.at(i - 1)))
+            if i >= cs.len() then return Err(no_directive(cs[i - 1]))
 
         if i >= cs.len() then return Err(no_directive('\0'))
 
-        val d = cs.at(i)
+        val d = cs[i]
 
         i += 1
         directive(p, d, have, num)?
@@ -331,7 +331,7 @@ private padded(seg: string, fills: Buf[Fill], pad: usize) -> string
 
     while extra > 0
         k -= 1
-        widths.set(k, widths.at(k) + 1)
+        widths[k] = widths[k] + 1
         extra -= 1
 
     var out = str_builder()
@@ -339,13 +339,13 @@ private padded(seg: string, fills: Buf[Fill], pad: usize) -> string
 
     for c in chars_of(seg.bytes)
         for k in 0..<n
-            if fills.at(k).at == at then out.push(repeated(fills.at(k).ch, widths.at(k)))
+            if fills[k].at == at then out.push(repeated(fills[k].ch, widths[k]))
 
         out.push_char(c)
         at += 1
 
     for k in 0..<n
-        if fills.at(k).at >= at then out.push(repeated(fills.at(k).ch, widths.at(k)))
+        if fills[k].at >= at then out.push(repeated(fills[k].ch, widths[k]))
 
     out.finish()
 

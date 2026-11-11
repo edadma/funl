@@ -20,8 +20,8 @@ import sysl.buf.Buf
 // `{k: v, ...}`.
 compile_map(e: *Emit, c: Ctx, keys: Buf[&Expr], vals: Buf[&Expr]) -> Result[unit, string]
     for i in 0..<keys.len()
-        compile_value(e, c, keys.at(i))?
-        compile_value(e, c, vals.at(i))?
+        compile_value(e, c, keys[i])?
+        compile_value(e, c, vals[i])?
 
     e.op(MakeMap(keys.len()))
     Ok(())
@@ -104,8 +104,8 @@ private compile_key(e: *Emit, c: Ctx, key: &Expr) -> Result[unit, string]
 compile_swap(e: *Emit, c: Ctx, args: Buf[&Expr]) -> Result[unit, string]
     if args.len() != 2 then return Err("a swap the resolver refused reached the compiler")
 
-    place(e, c, args.at(0))?
-    place(e, c, args.at(1))?
+    place(e, c, args[0])?
+    place(e, c, args[1])?
 
     e.op(SwapElems)
     Ok(())
@@ -115,11 +115,11 @@ private place(e: *Emit, c: Ctx, a: &Expr) -> Result[unit, string]
     a.kind match
         CallE(n, at, args) ->
             compile_value(e, c, expr(Ref(n), at))?
-            compile_value(e, c, args.at(0))?
+            compile_value(e, c, args[0])?
             Ok(())
         ApplyE(f, args) ->
             compile_value(e, c, f)?
-            compile_value(e, c, args.at(0))?
+            compile_value(e, c, args[0])?
             Ok(())
         FieldE(coll, n) ->
             compile_value(e, c, coll)?

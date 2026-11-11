@@ -51,8 +51,8 @@ struct Emit
         val at = u32(self.code.len())
         val n = self.lines.len()
 
-        if n > 0 && self.lines.at(n - 1).start == at
-            self.lines.set(n - 1, LineMark(at, line))
+        if n > 0 && self.lines[n - 1].start == at
+            self.lines[n - 1] = LineMark(at, line)
         else
             self.lines.push(LineMark(at, line))
 
@@ -63,7 +63,7 @@ struct Emit
 
     // Point `l` at the next instruction emitted.
     place(*self, l: usize)
-        self.labels.set(l, self.code.len())
+        self.labels[l] = self.code.len()
 
     op(*self, o: Op)
         self.code.push(o)
@@ -101,7 +101,7 @@ install(e: Emit, at: usize) -> Result[unit, string]
     for o in e.code.view()
         code.push(resolved(e, o)?)
 
-    v.chunks.set(at, Chunk(e.name, code, e.consts, e.arity, e.is_async, e.file, e.line, e.clauses, e.traced))
+    v.chunks[at] = Chunk(e.name, code, e.consts, e.arity, e.is_async, e.file, e.line, e.clauses, e.traced)
 
     // The line table is kept beside the chunks rather than in them: the instruction loop reads its
     // chunk on every step, and a field more there is a cost on every step for a table read only by
@@ -109,7 +109,7 @@ install(e: Emit, at: usize) -> Result[unit, string]
     while v.chunk_lines.len() <= at
         v.chunk_lines.push(buf())
 
-    v.chunk_lines.set(at, e.lines)
+    v.chunk_lines[at] = e.lines
 
     // The statics, beside the chunks for the same reason; a chunk installed again over one that had
     // some loses them.
@@ -117,7 +117,7 @@ install(e: Emit, at: usize) -> Result[unit, string]
         while v.chunk_statics.len() <= at
             v.chunk_statics.push((0, NoHome))
 
-        v.chunk_statics.set(at, (e.statics, e.home))
+        v.chunk_statics[at] = (e.statics, e.home)
 
     Ok(())
 
@@ -153,7 +153,7 @@ private resolved(e: Emit, o: Op) -> Result[Op, string]
 private target(e: Emit, l: usize) -> Result[usize, string]
     if l >= e.labels.len() then return Err(s"'${e.name}' jumps to label $l, which was never made")
 
-    val at = e.labels.at(l)
+    val at = e.labels[l]
 
     if at == Unplaced then return Err(s"'${e.name}' jumps to label $l, which was never placed")
 

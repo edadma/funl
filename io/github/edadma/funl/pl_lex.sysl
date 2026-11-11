@@ -78,9 +78,9 @@ pl_lex_from(src: Source, report: *Report, from: usize) -> Tokens[PlTok]
     var out = cut(source(src.name, c.text.bytes), &said, from)
 
     for i in 0..<out.len()
-        val t = out.at(i)
+        val t = out[i]
 
-        out.set(i, Spanned(t.value, written_span(c, t.span)))
+        out[i] = Spanned(t.value, written_span(c, t.span))
 
     for i in 0..<said.len()
         val d = said.at(i)

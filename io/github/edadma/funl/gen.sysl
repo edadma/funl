@@ -32,7 +32,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
 
     if top == 0 then return Err(Broken("the operand stack is empty"))
 
-    var c = deref(v.stack.at(top - 1))
+    var c = deref(v.stack[top - 1])
 
     var first: long = 0
     val whole = c match
@@ -43,7 +43,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
         _ -> false
 
     if draw && whole
-        v.stack.set(top - 1, new_cons(c, Nil)?)
+        v.stack[top - 1] = new_cons(c, Nil)?
         v.stack.push(Int(0))
         return Ok(())
 
@@ -82,7 +82,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
         _ ->
             if draw
                 c = new_cons(c, Nil)?
-                v.stack.set(top - 1, c)
+                v.stack[top - 1] = c
                 v.stack.push(Int(0))
                 return Ok(())
 
@@ -90,7 +90,7 @@ gen_start(v: *Vm, draw: bool) -> Result[unit, Fault]
 
             return Err(type_error("collection", c, msg))
 
-    v.stack.set(top - 1, c)
+    v.stack[top - 1] = c
     v.stack.push(Int(first))
     Ok(())
 
@@ -100,7 +100,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
 
     if top < 2 then return Err(Broken("a cursor is two cells and the operand stack holds fewer"))
 
-    val at = v.stack.at(top - 1) match
+    val at = v.stack[top - 1] match
         Int(n) -> n
         _ -> return Err(Broken("a cursor's position is not an integer"))
 
@@ -110,7 +110,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
     var next: long = 0
     var spent = false
 
-    deref(v.stack.at(top - 2)) match
+    deref(v.stack[top - 2]) match
         Nil | Unit ->
             v.stack.truncate(top - 2)
             return Ok(false)
@@ -128,8 +128,8 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = t.items.at(usize(at))
-            rest = v.stack.at(top - 2)
+            elem = t.items[usize(at)]
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next == n
         Set(s) ->
@@ -139,8 +139,8 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = s.items.at(usize(at))
-            rest = v.stack.at(top - 2)
+            elem = s.items[usize(at)]
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next == n
         MutSet(s) ->
@@ -149,8 +149,8 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = s.items.at(usize(at))
-            rest = v.stack.at(top - 2)
+            elem = s.items[usize(at)]
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next >= long(s.items.len())
         Array(a) ->
@@ -159,7 +159,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 return Ok(false)
 
             elem = a.at(usize(at))
-            rest = v.stack.at(top - 2)
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next >= long(a.len())
         Buffer(a) ->
@@ -168,7 +168,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 return Ok(false)
 
             elem = a.at(usize(at))
-            rest = v.stack.at(top - 2)
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next >= long(a.len())
         Map(m) ->
@@ -177,7 +177,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 return Ok(false)
 
             elem = entry(m, usize(at))?
-            rest = v.stack.at(top - 2)
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next >= long(m.keys.len())
         MutMap(m) ->
@@ -186,7 +186,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 return Ok(false)
 
             elem = entry(m, usize(at))?
-            rest = v.stack.at(top - 2)
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next >= long(m.keys.len())
         Range(r) ->
@@ -195,7 +195,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 return Ok(false)
 
             elem = Int(at)
-            rest = v.stack.at(top - 2)
+            rest = v.stack[top - 2]
 
             checked_add(at, r.step) match
                 Some(k) ->
@@ -216,7 +216,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 end += 1
 
             elem = new_str(from_utf8_unchecked(bytes[usize(at)..<end]))?
-            rest = v.stack.at(top - 2)
+            rest = v.stack[top - 2]
             next = long(end)
             spent = end == n
         Bytes(p) ->
@@ -226,19 +226,19 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = Int(long(p.b.at(usize(at))))
-            rest = v.stack.at(top - 2)
+            elem = Int(long(p.b[usize(at)]))
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next == n
         CSet(p) ->
-            val n = long(cset_count(deref(v.stack.at(top - 2)), p.set, "cannot be listed")?)
+            val n = long(cset_count(deref(v.stack[top - 2]), p.set, "cannot be listed")?)
 
             if at >= n
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = cset_nth(deref(v.stack.at(top - 2)), p.set, usize(at))?
-            rest = v.stack.at(top - 2)
+            elem = cset_nth(deref(v.stack[top - 2]), p.set, usize(at))?
+            rest = v.stack[top - 2]
             next = at + 1
             spent = next == n
         Handle(h) ->
@@ -257,14 +257,14 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                     v.stack.truncate(top - 2)
                     return Ok(false)
 
-            rest = v.stack.at(top - 2)
+            rest = v.stack[top - 2]
             next = 0
         Var(_) -> return Err(instantiation_error("instantiation error: `!` reached an unbound tail of a list"))
         x -> return Err(type_error("list", x, s"`!` reached the end of a list that ends in ${described(x)} rather than `[]`"))
 
     if !spent
-        v.stack.set(top - 2, rest)
-        v.stack.set(top - 1, Int(next))
+        v.stack[top - 2] = rest
+        v.stack[top - 1] = Int(next)
         push_choice(v, v.ip - 1)
 
     v.stack.truncate(top - 2)
@@ -290,10 +290,10 @@ gen_range(v: *Vm, inclusive: bool) -> Result[bool, Fault]
     if top < 4 then return Err(Broken("a range's cursor is four cells and the operand stack holds fewer"))
 
     val word = if inclusive then "to" else "until"
-    val c = bound(v.stack.at(top - 4), word)?
-    val l = bound(v.stack.at(top - 3), word)?
-    val s = bound(v.stack.at(top - 2), word)?
-    val n = v.stack.at(top - 1) match
+    val c = bound(v.stack[top - 4], word)?
+    val l = bound(v.stack[top - 3], word)?
+    val s = bound(v.stack[top - 2], word)?
+    val n = v.stack[top - 1] match
         Int(k) -> k
         _ -> return Err(Broken("a range's count is not an integer"))
 
@@ -316,10 +316,10 @@ private int_range(v: *Vm, top: usize, word: string, cur: long, last: long, step:
     checked_add(cur, step) match
         Some(next) ->
             if !past(next, last, step, inclusive)
-                v.stack.set(top - 4, Int(next))
-                v.stack.set(top - 3, Int(last))
-                v.stack.set(top - 2, Int(step))
-                v.stack.set(top - 1, Int(0))
+                v.stack[top - 4] = Int(next)
+                v.stack[top - 3] = Int(last)
+                v.stack[top - 2] = Int(step)
+                v.stack[top - 1] = Int(0)
                 push_choice(v, v.ip - 1)
         None -> ()
 
@@ -357,10 +357,10 @@ private num_range(v: *Vm, top: usize, word: string, c: Value, last: Value, step:
     val next = nth_value(start, step, n + 1)?
 
     if !num_past(num_of(next).unwrap(), l, s, inclusive)
-        v.stack.set(top - 4, c)
-        v.stack.set(top - 3, last)
-        v.stack.set(top - 2, step)
-        v.stack.set(top - 1, Int(n + 1))
+        v.stack[top - 4] = c
+        v.stack[top - 3] = last
+        v.stack[top - 2] = step
+        v.stack[top - 1] = Int(n + 1)
         push_choice(v, v.ip - 1)
 
     v.stack.truncate(top - 4)
@@ -383,8 +383,8 @@ private nth_value(start: Value, step: Value, n: long) -> Result[Value, Fault]
 private entry(m: *MapObj, i: usize) -> Result[Value, string]
     val t = new_tuple(2)?
 
-    t.items.set(0, m.keys.at(i))
-    t.items.set(1, m.vals.at(i))
+    t.items[0] = m.keys[i]
+    t.items[1] = m.vals[i]
     Ok(Tuple(t))
 
 // A range's start, end or step, which must be a number.
@@ -424,9 +424,9 @@ change_mark(v: *Vm, to: usize) -> Result[unit, string]
     if v.mark == NoMark then return Err("ChangeMark with no mark open")
 
     val at = v.mark
-    val m = v.control.at(at)
+    val m = v.control[at]
 
-    v.control.set(at, Entry(Mark, to, m.code, m.frame, m.mark, m.floor, m.saved_at, m.trail, m.stamp))
+    v.control[at] = Entry(Mark, to, m.code, m.frame, m.mark, m.floor, m.saved_at, m.trail, m.stamp)
     v.mark = m.mark
     push_entry(v, Restore, 0, floor_of(v, v.mark))
     Ok(())

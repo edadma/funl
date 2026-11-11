@@ -125,7 +125,7 @@ profile_report() -> string
     out.push(s"  kinds         ${rows.len()}\n\n")
 
     for i in 0..<rows.len()
-        val r = rows.at(i)
+        val r = rows[i]
 
         out.push(s"  ${padded(r.name, 14, false)} ${padded(s"${r.count}", 12, true)} ${padded(share(r.count, profile_total), 5, true)}%\n")
 

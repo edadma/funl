@@ -140,12 +140,12 @@ came_back(v: *Vm, p: *PromiseObj, how: Settling)
     val n = v.timed.len()
 
     for i in 0..<n
-        val here = v.timed.at(i) match
+        val here = v.timed[i] match
             Promise(q) -> q == p
             _ -> false
 
         if here
-            v.timed.set(i, v.timed.at(n - 1))
+            v.timed[i] = v.timed[n - 1]
             v.timed.truncate(n - 1)
             break
 
@@ -181,8 +181,8 @@ events_owed(v: *Vm) -> bool = !v.fired.is_empty() || !v.timed.is_empty()
 next_event(v: *Vm) -> bool
     if !v.fired.is_empty()
         for i in 0..<v.fired.len()
-            v.fired.at(i) match
-                Promise(p) -> settled_by(v, p, v.owed.at(i))
+            v.fired[i] match
+                Promise(p) -> settled_by(v, p, v.owed[i])
                 _ -> ()
 
         v.fired.clear()

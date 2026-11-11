@@ -100,8 +100,8 @@ stored_clause(x: Value, who: string) -> Result[(Value, string, usize), Fault]
         Var(_) -> return Err(instantiation_error(s"instantiation error: $who was given an unbound variable as its clause"))
         Compound(c) ->
             if c.args.len() == 2 && atom_name(c.functor) == ":-"
-                head = c.args.at(0)
-                body = c.args.at(1)
+                head = c.args[0]
+                body = c.args[1]
         _ -> ()
 
     // **A cyclic term cannot be a clause**, as in SWI-Prolog: compiled, it would have no end.
@@ -115,8 +115,8 @@ stored_clause(x: Value, who: string) -> Result[(Value, string, usize), Fault]
 
     val rule = new_compound(intern(":-"), 2)?
 
-    rule.args.set(0, head)
-    rule.args.set(1, goal)
+    rule.args[0] = head
+    rule.args[1] = goal
     Ok((copy_term(Compound(rule))?, name, arity))
 end stored_clause
 
@@ -129,7 +129,7 @@ private as_body(x: Value) -> Result[Option[Value], string]
         Var(_) ->
             val c = new_compound(intern("call"), 1)?
 
-            c.args.set(0, y)
+            c.args[0] = y
             Ok(Some(Compound(c)))
         Atom(_) -> Ok(Some(y))
         Compound(c) ->
@@ -137,18 +137,18 @@ private as_body(x: Value) -> Result[Option[Value], string]
 
             if c.args.len() != 2 || !(n == "," || n == ";" || n == "|" || n == "->" || n == "*->") then return Ok(Some(y))
 
-            val a = as_body(c.args.at(0))? match
+            val a = as_body(c.args[0])? match
                 Some(g) -> g
                 None -> return Ok(None)
 
-            val b = as_body(c.args.at(1))? match
+            val b = as_body(c.args[1])? match
                 Some(g) -> g
                 None -> return Ok(None)
 
             val d = new_compound(c.functor, 2)?
 
-            d.args.set(0, a)
-            d.args.set(1, b)
+            d.args[0] = a
+            d.args[1] = b
             Ok(Some(Compound(d)))
         _ -> Ok(None)
 
@@ -178,7 +178,7 @@ private db_walk(base: usize, cursor: long, retracting: bool) -> Result[Answer, F
 
     val v = current()
     var g = v.db.gen
-    var at = v.db.preds.at(p).first
+    var at = v.db.preds[p].first
 
     if cursor != 0
         g = cursor_gen(cursor)
@@ -192,7 +192,7 @@ private db_walk(base: usize, cursor: long, retracting: bool) -> Result[Answer, F
 
     if c == NoClause then return Ok(Refuses)
 
-    val found = v.db.clauses.at(c)
+    val found = v.db.clauses[c]
     val after = next_visible(found.next, g, k)
     val copy = copy_term(found.term)?
 
@@ -215,7 +215,7 @@ private pl_erase(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault
 
     if slot >= v.db.clauses.len() then return Ok(Refuses)
 
-    val c = v.db.clauses.at(slot)
+    val c = v.db.clauses[slot]
 
     c.term match
         Undefined -> return Ok(Refuses)
@@ -246,7 +246,7 @@ private indicated(x: Value, who: string) -> Result[(string, usize), Fault]
         Compound(c) ->
             if c.args.len() != 2 || atom_name(c.functor) != "/" then return Err(not_indicator(pi, who))
 
-            (deref(c.args.at(0)), deref(c.args.at(1)))
+            (deref(c.args[0]), deref(c.args[1]))
         _ -> return Err(not_indicator(pi, who))
 
     val name = n match
@@ -278,10 +278,10 @@ private pl_abolish(base: usize, argc: usize) -> Result[Value, Fault]
             erase_all(p)
 
             val v = current()
-            var d = v.db.preds.at(p)
+            var d = v.db.preds[p]
 
             d.abolished = true
-            v.db.preds.set(p, d)
+            v.db.preds[p] = d
             v.preds.put(pred_key(name, arity), PredInfo(d.chunk, false, DynamicPred(p), nowhere()))
         Fixed -> return Err(cannot_modify(name, arity, "abolish/1"))
         Absent -> ()
@@ -329,8 +329,8 @@ indicators_of(spec: Value, who: string) -> Result[Buf[(string, usize)], Fault]
         x match
             Compound(c) ->
                 if c.args.len() == 2 && atom_name(c.functor) == ","
-                    work.push(c.args.at(1))
-                    work.push(c.args.at(0))
+                    work.push(c.args[1])
+                    work.push(c.args[0])
                     continue
             Cons(c) ->
                 work.push(c.tail)
@@ -371,7 +371,7 @@ private pl_user_predicates(base: usize, argc: usize, cursor: long) -> Result[Ans
 
     while i > 0
         i -= 1
-        out = new_cons(items.at(i), out)?
+        out = new_cons(items[i], out)?
 
     unified(arg(base, 0), out)
 end pl_user_predicates
@@ -419,7 +419,7 @@ private set_global(k: Value, x: Value, back: bool, who: string) -> Result[Value,
         v.pl_globals match
             MutMap(m) ->
                 map_find(m, key)? match
-                    Some(i) -> v.trail.push(Global(key, m.vals.at(i), true))
+                    Some(i) -> v.trail.push(Global(key, m.vals[i], true))
                     None -> v.trail.push(Global(key, Undefined, false))
             _ -> ()
 
@@ -434,7 +434,7 @@ private get_global(k: Value, x: Value, who: string) -> Result[Answer, Fault]
     current().pl_globals match
         MutMap(m) ->
             map_find(m, key)? match
-                Some(i) -> return unified(x, m.vals.at(i))
+                Some(i) -> return unified(x, m.vals[i])
                 None -> ()
         _ -> ()
 
@@ -483,8 +483,8 @@ variant(a: Value, b: Value) -> bool
                 if f != g || xs.len() != ys.len() then return false
 
                 for i in 0..<xs.len()
-                    work.push(xs.at(i))
-                    work.push(ys.at(i))
+                    work.push(xs[i])
+                    work.push(ys[i])
             None ->
                 if compound_parts(y).is_some() || compare_terms(x, y) != 0 then return false
 

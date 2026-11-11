@@ -210,8 +210,8 @@ private read_top(m: *Manifest, map: &Expr, keys: Buf[&Expr], vals: Buf[&Expr], r
     var versioned = false
 
     for i in 0..<keys.len()
-        val key = keys.at(i)
-        val v = vals.at(i)
+        val key = keys[i]
+        val v = vals[i]
 
         val k = key.kind match
             StrE(k) -> k
@@ -259,11 +259,11 @@ end read_top
 // Where `devDependencies` writes key `name`, for the refusal of a name in both sections.
 private dev_key_span(keys: Buf[&Expr], vals: Buf[&Expr], name: string) -> Span
     for i in 0..<keys.len()
-        keys.at(i).kind match
+        keys[i].kind match
             StrE(k) ->
                 if k != "devDependencies" then continue
 
-                vals.at(i).kind match
+                vals[i].kind match
                     MapE(ks, _) ->
                         for x in ks.view()
                             x.kind match
@@ -322,13 +322,13 @@ private read_modules(m: *Manifest, v: &Expr, r: *Report)
     v.kind match
         MapE(keys, vals) ->
             for i in 0..<keys.len()
-                val name = entry_name(keys.at(i), "a module", r) match
+                val name = entry_name(keys[i], "a module", r) match
                     Some(n) -> n
                     None -> continue
 
-                text_of(name, vals.at(i), r) match
+                text_of(name, vals[i], r) match
                     Some(file) ->
-                        if source_kind_ok(file, vals.at(i).span, s"the module `$name`", r) then m.modules.push(ModuleEntry(name, file))
+                        if source_kind_ok(file, vals[i].span, s"the module `$name`", r) then m.modules.push(ModuleEntry(name, file))
                     None -> ()
         _ -> if is_data(v) then r.add(error(v.span, "`modules` is a map of each module's name to its file"))
 
@@ -342,11 +342,11 @@ private read_dependencies(into: *Buf[Dependency], key: string, v: &Expr, r: *Rep
             return
 
     for i in 0..<keys.len()
-        val name = entry_name(keys.at(i), "a package", r) match
+        val name = entry_name(keys[i], "a package", r) match
             Some(n) -> n
             None -> continue
 
-        val entry = vals.at(i)
+        val entry = vals[i]
 
         val (eks, evs) = entry.kind match
             MapE(ks, vs) -> (ks, vs)
@@ -361,7 +361,7 @@ private read_dependencies(into: *Buf[Dependency], key: string, v: &Expr, r: *Rep
         var saw_version = false
 
         for j in 0..<eks.len()
-            val ek = eks.at(j)
+            val ek = eks[j]
 
             val k = ek.kind match
                 StrE(k) -> k
@@ -369,10 +369,10 @@ private read_dependencies(into: *Buf[Dependency], key: string, v: &Expr, r: *Rep
 
             if k == "git"
                 saw_git = true
-                git = text_of(k, evs.at(j), r)
+                git = text_of(k, evs[j], r)
             elif k == "version"
                 saw_version = true
-                version = text_of(k, evs.at(j), r)
+                version = text_of(k, evs[j], r)
             else
                 r.add(error(ek.span, s"`$k` is not a key of a dependency").with_note("a dependency is `{ git: \"...\", version: \"...\" }`"))
 

@@ -165,7 +165,7 @@ private name_list(names: Buf[string]) -> string
     for i in 0..<names.len()
         if i > 0 then out.push(", ")
 
-        out.push(names.at(i))
+        out.push(names[i])
 
     out.push("]")
     out.finish()
@@ -240,7 +240,7 @@ private inria_run(name: string, heap: usize, floor: usize, growth: usize) -> str
                 var reported = false
 
                 while seen < c.lines.len()
-                    val l = c.lines.at(seen)
+                    val l = c.lines[seen]
 
                     seen += 1
 
@@ -283,11 +283,11 @@ private inria_failures(files: []const string, reasons_text: string) -> string
             var excuse = false
 
             for i in 0..<excused.len()
-                val x = excused.at(i)
+                val x = excused[i]
 
                 if x.file == name && x.line == line
                     excuse = true
-                    excused.set(i, Excused(x.file, x.line, true))
+                    excused[i] = Excused(x.file, x.line, true)
 
             if verdict == "met"
                 if excuse then failures.push(s"stale: $name:$line is listed in reasons.txt and is met\n")

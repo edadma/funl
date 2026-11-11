@@ -93,10 +93,10 @@ eval(x: Value) -> Result[Value, Fault]
             val name = atom_name(c.functor)
 
             c.args.len() match
-                1 -> unary(name, eval(c.args.at(0))?)
+                1 -> unary(name, eval(c.args[0])?)
                 2 ->
-                    val a = eval(c.args.at(0))?
-                    val b = eval(c.args.at(1))?
+                    val a = eval(c.args[0])?
+                    val b = eval(c.args[1])?
 
                     binary(name, a, b)
                 n -> Err(not_evaluable(name, n))

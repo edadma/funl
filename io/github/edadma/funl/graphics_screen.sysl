@@ -17,7 +17,7 @@ import sysl.time.micros
 // The place of the canvas whose window SDL calls `id`.
 private canvas_of_screen(id: u32) -> Option[usize]
     for i in 0..<canvases.len()
-        canvases.at(i) match
+        canvases[i] match
             Some(c) -> if c.screen >= 0 && screen_id(usize(c.screen)) == id then return Some(i)
             None -> ()
 
@@ -51,7 +51,7 @@ private take_news(ms: long) = took_in(screen_news(ms))
 // Not `private`: the event loop's pump hands each SDL event it takes here (`native_screen.sysl`).
 took_in(news: Buf[ScreenNews])
     for i in 0..<news.len()
-        news.at(i) match
+        news[i] match
             Resized(id, w, h) ->
                 canvas_of_screen(id) match
                     Some(at) ->
@@ -61,7 +61,7 @@ took_in(news: Buf[ScreenNews])
                         if w != c.width || h != c.height
                             resized(c, w, h, c.fill) match
                                 Some(r) ->
-                                    canvases.set(at, Some(r))
+                                    canvases[at] = Some(r)
                                     queued(at, at_pointer(at, "resize"))
                                 None -> ()
                     None -> ()
@@ -75,7 +75,7 @@ took_in(news: Buf[ScreenNews])
                         var c = canvas_at(at)
 
                         c.pointer = Some((x, y))
-                        canvases.set(at, Some(c))
+                        canvases[at] = Some(c)
                     None -> ()
             Closing(id) ->
                 canvas_of_screen(id) match
@@ -100,7 +100,7 @@ show_screens()
 // caret drawn over it.
 private shown_with(caret: Option[(usize, ScreenCaret)])
     for i in 0..<canvases.len()
-        canvases.at(i) match
+        canvases[i] match
             Some(c) ->
                 if c.screen >= 0 && c.state != "hidden"
                     val k = caret match
@@ -161,7 +161,7 @@ private screens_left() -> bool
     if screens_quit_asked() then return false
 
     for i in 0..<canvases.len()
-        canvases.at(i) match
+        canvases[i] match
             Some(c) -> if c.screen >= 0 && c.state != "hidden" && !screen_close_asked(usize(c.screen)) then return true
             None -> ()
 
@@ -176,7 +176,7 @@ wait_for_screens()
         ended_screens_looked_at(100)
 
     for i in 0..<canvases.len()
-        canvases.at(i) match
+        canvases[i] match
             Some(c) -> if c.screen >= 0 then free_canvas(i)
             None -> ()
 
@@ -191,7 +191,7 @@ ended_screens_looked_at(ms: long)
     take_news(ms)
 
     for i in 0..<canvases.len()
-        canvases.at(i) match
+        canvases[i] match
             Some(c) -> if c.screen >= 0 && screen_close_asked(usize(c.screen)) then free_canvas(i)
             None -> ()
 

@@ -21,8 +21,8 @@ private state_asked(m: Option[*MapObj]) -> Result[Option[unit], Fault]
     m match
         Some(p) ->
             for i in 0..<p.keys.len()
-                if key_text(p.keys.at(i)).unwrap_or("") == "canvas"
-                    val id = one_of(deref(p.vals.at(i)), ["normal", "hidden", "maximal", "iconic"]) match
+                if key_text(p.keys[i]).unwrap_or("") == "canvas"
+                    val id = one_of(deref(p.vals[i]), ["normal", "hidden", "maximal", "iconic"]) match
                         Some(id) -> id
                         None -> return Ok(None)
 
@@ -38,13 +38,13 @@ private state_asked(m: Option[*MapObj]) -> Result[Option[unit], Fault]
 private applied_or_none(at: usize, ctx: WinContext, m: Option[*MapObj]) -> Result[Option[WinContext], Fault] = m match
     Some(p) -> applied(at, ctx, p, "open", true)
     None ->
-        canvases.set(at, Some(onto_screen(canvas_at(at), canvas_at(at), "open")?))
+        canvases[at] = Some(onto_screen(canvas_at(at), canvas_at(at), "open")?)
         Ok(Some(ctx))
 
 // Whether attribute map `m` sets any of `names`.
 private mentions(m: *MapObj, names: []const string) -> bool
     for i in 0..<m.keys.len()
-        val k = key_text(m.keys.at(i)).unwrap_or("")
+        val k = key_text(m.keys[i]).unwrap_or("")
 
         for n in names
             if k == n then return true
@@ -91,7 +91,7 @@ do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     val k = keep_context(start)
 
     h.n = long(at)
-    h.vals.push(Int(generations.at(at)))
+    h.vals.push(Int(generations[at]))
     h.vals.push(Int(long(k)))
 
     val ctx = applied_or_none(at, start, attrs) match
@@ -112,7 +112,7 @@ do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
         resized(canvas_at(at), fw, fh, ctx.bg_rgb) match
             Some(r) ->
-                canvases.set(at, Some(r))
+                canvases[at] = Some(r)
 
                 // A window already made for the canvas is made the same size.
                 if r.screen >= 0 then screen_size(usize(r.screen), fw, fh)
@@ -125,9 +125,9 @@ do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
         c.x = ctx.dx
         c.y = face_at(ctx.face).ascent + ctx.dy
-        canvases.set(at, Some(c))
+        canvases[at] = Some(c)
 
-    contexts.set(k, Some(ctx))
+    contexts[k] = Some(ctx)
     current().window = Handle(h)
     Ok(Gives(Handle(h)))
 
@@ -145,10 +145,10 @@ do_couple(base: usize, argc: usize) -> Result[Value, Fault]
     c.handles += 1
     c.wins.push(h)
     ctx.refs += 1
-    canvases.set(canvas.at, Some(c))
-    contexts.set(context.ctx, Some(ctx))
+    canvases[canvas.at] = Some(c)
+    contexts[context.ctx] = Some(ctx)
     h.n = long(canvas.at)
-    h.vals.push(Int(generations.at(canvas.at)))
+    h.vals.push(Int(generations[canvas.at]))
     h.vals.push(Int(long(context.ctx)))
     Ok(Handle(h))
 
@@ -161,7 +161,7 @@ do_set(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     applied(w.at, context_at(w.ctx), m, "set", false)? match
         Some(c) ->
-            contexts.set(w.ctx, Some(c))
+            contexts[w.ctx] = Some(c)
             Ok(Some(Handle(w.h)))
         None -> Ok(None)
 
@@ -217,9 +217,9 @@ do_clone(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     c.handles += 1
     c.wins.push(h)
-    canvases.set(w.at, Some(c))
+    canvases[w.at] = Some(c)
     h.n = long(w.at)
-    h.vals.push(Int(generations.at(w.at)))
+    h.vals.push(Int(generations[w.at]))
     h.vals.push(Int(long(keep_context(copy))))
     Ok(Some(Handle(h)))
 
@@ -303,7 +303,7 @@ step_pixel(h: *HandleObj) -> Result[Option[Value], Fault]
 
     if at >= h.vals.len() then return Ok(None)
 
-    val p = small(h.vals.at(at))
+    val p = small(h.vals[at])
 
     h.n += 1
 

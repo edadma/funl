@@ -26,7 +26,7 @@ import sysl.buf.{Buf, buf}
 is_variadic_clause(c: Clause) -> bool
     if c.params.len() == 0 then return false
 
-    c.params.at(c.params.len() - 1).kind match
+    c.params[c.params.len() - 1].kind match
         SpreadE(_) -> true
         _ -> false
 
@@ -46,7 +46,7 @@ gathered(c: Clause, report: *Report) -> Option[Clause]
     var ok = true
 
     for i in 0..<c.params.len()
-        val p = c.params.at(i)
+        val p = c.params[i]
 
         p.kind match
             SpreadE(x) ->
@@ -76,11 +76,11 @@ gathered(c: Clause, report: *Report) -> Option[Clause]
 // a different count -- may not join; the refusal is reported. A name has one variadic definition.
 second_variadic(res: *Resolved, rs: Buf[usize], c: Clause, report: *Report) -> bool
     for i in rs.view()
-        val r = res.rels.at(i)
+        val r = res.rels[i]
 
         if !r.variadic then continue
 
-        val first = r.clauses.at(0)
+        val first = r.clauses[0]
 
         report.add(error(c.head, s"`${c.name}` is variadic here from ${counted(c.params.len() - 1, "argument")} and already from ${counted(r.arity - 1, "argument")}")
             .with_note("a name has one variadic definition, which takes every count its fixed arities leave; define the counts between them as fixed arities"))
@@ -131,14 +131,14 @@ pack_rest(v: *Vm, fixed: usize) -> Result[unit, Fault]
     val n = args.len()
 
     if n < fixed
-        val name = v.chunks.at(v.code).name
+        val name = v.chunks[v.code].name
 
         return Err(wrong_count(name, n, s"'$name' takes ${counts_phrase(buf(), fixed)} and was given $n"))
 
     var rest: Buf[Value] = buf()
 
     for i in fixed..<n
-        rest.push(args.at(i))
+        rest.push(args[i])
 
     val list = list_of(&rest, Nil)?
 
@@ -154,10 +154,10 @@ args_add(v: *Vm, n: usize) -> Result[unit, Fault]
 
     var items: Buf[Value] = buf()
 
-    elements(v.stack.at(top - n - 1), "a spread call", &items)?
+    elements(v.stack[top - n - 1], "a spread call", &items)?
 
     for i in top - n..<top
-        items.push(v.stack.at(i))
+        items.push(v.stack[i])
 
     val list = list_of(&items, Nil)?
 
@@ -172,7 +172,7 @@ args_spread(v: *Vm) -> Result[unit, Fault]
 
     if top < 2 then return Err(Broken(s"wants 2 operands and the stack holds $top"))
 
-    val x = deref(v.stack.at(top - 1))
+    val x = deref(v.stack[top - 1])
 
     x match
         Nil -> ()
@@ -187,7 +187,7 @@ args_spread(v: *Vm) -> Result[unit, Fault]
 
     var items: Buf[Value] = buf()
 
-    elements(v.stack.at(top - 2), "a spread call", &items)?
+    elements(v.stack[top - 2], "a spread call", &items)?
     elements(x, "a spread argument", &items)?
 
     val list = list_of(&items, Nil)?
@@ -248,7 +248,7 @@ private do_arity(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault
 
     if i >= counts.len() then return Ok(Refuses)
 
-    val x = Int(counts.at(i))
+    val x = Int(counts[i])
 
     Ok(if i + 1 == counts.len() then Gives(x) else GivesMore(x, cursor + 1))
 
@@ -259,7 +259,7 @@ private arities(f: Value) -> Result[Buf[long], Fault]
 
     x match
         Func(p) -> chunk_arities(p.chunk, &out)
-        Ctor(id) -> out.push(long(current().ctors.at(usize(id)).fields.len()))
+        Ctor(id) -> out.push(long(current().ctors[usize(id)].fields.len()))
         Var(_) -> return Err(instantiation_error("instantiation error: 'arity' was given an unbound variable"))
         _ -> return Err(type_error("callable", x, s"'arity' wants a function and was given ${described(x)}"))
 
@@ -286,7 +286,7 @@ private arities(f: Value) -> Result[Buf[long], Fault]
 // The counts a call of chunk `target` takes: its arity; or, for a chunk that takes any count, each
 // member's of a family (`ArgsIn`), a variadic function's (`PackRest`), or a variadic builtin's.
 private chunk_arities(target: usize, out: *Buf[long])
-    val c = current().chunks.at(target)
+    val c = current().chunks[target]
 
     if c.arity != AnyArity
         out.push(long(c.arity))
@@ -314,11 +314,11 @@ private chunk_arities(target: usize, out: *Buf[long])
                 out.push(-long(fixed) - 1)
                 return
             Native(id, n) ->
-                if n == Variadic then out.push(-long(fewest(current().natives.at(id))) - 1)
+                if n == Variadic then out.push(-long(fewest(current().natives[id])) - 1)
 
                 return
             NativeGen(id, n) ->
-                if n == Variadic then out.push(-long(fewest(current().natives.at(id))) - 1)
+                if n == Variadic then out.push(-long(fewest(current().natives[id])) - 1)
 
                 return
             _ -> ()

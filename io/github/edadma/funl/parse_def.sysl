@@ -45,14 +45,14 @@ async_definition(p: *Parser, clauses: *Buf[Clause])
     definition(p, clauses)
 
     for i in before..<clauses.len()
-        var c = clauses.at(i)
+        var c = clauses[i]
 
         if !is_function(c.kind)
             p.report.add(error(c.head, s"`${c.name}` is a relation, and only a function is `async`")
                 .with_note("a fact or a `:-` rule answers by unifying, and has no value to promise"))
 
         c.is_async = true
-        clauses.set(i, c)
+        clauses[i] = c
 end async_definition
 
 // `name(args)`, then what makes it a fact, a rule or a function clause.

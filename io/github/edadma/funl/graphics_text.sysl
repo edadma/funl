@@ -97,7 +97,7 @@ private the_cache() -> &pv.FontCache
     cache = Some(c)
     c
 
-face_at(at: usize) -> Face = faces.at(at)
+face_at(at: usize) -> Face = faces[at]
 
 // The place of `"fixed"` at its default size, the face every context starts with.
 fixed_face() -> usize = font_face("fixed").unwrap()
@@ -197,7 +197,7 @@ font_face(spec: string) -> Option[usize]
     val key = s"$family,${fs.bold},${fs.italic},$size"
 
     for i in 0..<faces.len()
-        if faces.at(i).key == key then return Some(i)
+        if faces[i].key == key then return Some(i)
 
     val font = the_cache().get(family, fs.bold, fs.italic)?
 
@@ -378,7 +378,7 @@ private do_goto_rc(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     c.x = (col - 1) * f.fwidth + ctx.dx
     c.y = (r - 1) * ctx.leading + f.ascent + ctx.dy
-    canvases.set(w.at, Some(c))
+    canvases[w.at] = Some(c)
     Ok(Some(Handle(w.h)))
 
 // `w.goto_xy(x, y)`: the cursor to `(x, y)`, moved by the origin, each 0 when not given.
@@ -393,7 +393,7 @@ private do_goto_xy(base: usize, argc: usize) -> Result[Option[Value], Fault]
 
     c.x = x + ctx.dx
     c.y = y + ctx.dy
-    canvases.set(w.at, Some(c))
+    canvases[w.at] = Some(c)
     Ok(Some(Handle(w.h)))
 
 // `w.write(x…)` and `w.writes(x…)`: the arguments written at the cursor as `write` and `writes` print
@@ -410,7 +410,7 @@ private put(base: usize, argc: usize, name: string) -> Result[Option[Value], Fau
 
     if name == "write" then out.push("\n")
 
-    canvases.set(w.at, Some(typed(canvas_at(w.at), context_at(w.ctx), out.finish())))
+    canvases[w.at] = Some(typed(canvas_at(w.at), context_at(w.ctx), out.finish()))
     Ok(Some(Unit))
 
 // Canvas `c` with `t` typed at its cursor in context `ctx`, as a terminal shows it: a newline moves
@@ -506,7 +506,7 @@ private finishes(w: Win, n: long) -> bool
     var l: long = 0
 
     for i in 0..<q.len()
-        val ev = q.at(i)
+        val ev = q[i]
 
         if typed_key(ev)
             if is_rubout(ev.key)
@@ -569,17 +569,17 @@ private read_keys(base: usize, n: long, name: string) -> Result[Option[Value], F
 
             if is_rubout(k)
                 kept.pop() match
-                    Some(t) -> if c.echo && t.stretch == stretch && t.x < c.x then canvases.set(w.at, Some(rubbed(c, ctx, t.x)))
+                    Some(t) -> if c.echo && t.stretch == stretch && t.x < c.x then canvases[w.at] = Some(rubbed(c, ctx, t.x))
                     None -> ()
             else if n == 0 && is_line_end(k)
-                if c.echo then canvases.set(w.at, Some(typed(c, ctx, "\n")))
+                if c.echo then canvases[w.at] = Some(typed(c, ctx, "\n"))
 
                 break
             else
                 kept.push(Kept(k, c.x, stretch))
 
                 if c.echo
-                    canvases.set(w.at, Some(typed(c, ctx, if k == "\r" then "\r\n" else k)))
+                    canvases[w.at] = Some(typed(c, ctx, if k == "\r" then "\r\n" else k))
 
                     if is_line_end(k) then stretch += 1
 
@@ -588,7 +588,7 @@ private read_keys(base: usize, n: long, name: string) -> Result[Option[Value], F
     var out = str_builder()
 
     for i in 0..<kept.len()
-        out.push(kept.at(i).s)
+        out.push(kept[i].s)
 
     kept.release()
     Ok(Some(new_str(out.finish())?))

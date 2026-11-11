@@ -184,7 +184,7 @@ of_type(v: *Vm, x: Value, t: TypeTest) -> bool
             _ -> false
         CtorT(id) -> made_by(v, y, id)
         DataT(id) ->
-            for c in v.data_types.at(id).view()
+            for c in v.data_types[id].view()
                 if made_by(v, y, c) then return true
 
             false
@@ -193,7 +193,7 @@ end of_type
 // Whether `y` is what constructor `id` makes: a compound of its functor and number of fields, or,
 // when it has none, its atom.
 private made_by(v: *Vm, y: Value, id: usize) -> bool
-    val d = v.ctors.at(id)
+    val d = v.ctors[id]
 
     y match
         Atom(a) -> d.fields.len() == 0 && a == d.functor

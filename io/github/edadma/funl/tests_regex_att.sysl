@@ -99,7 +99,7 @@ private write_spans(base: usize, argc: usize) -> Result[Value, Fault]
     var out = str_builder()
 
     for i in 0..groups
-        val g = if i < v.captures.len() then v.captures.at(i) else GroupSpan(0, 0)
+        val g = if i < v.captures.len() then v.captures[i] else GroupSpan(0, 0)
 
         if g.start == 0 then out.push("(?,?)") else out.push(s"(${g.start - 1},${g.end - 1})")
 
@@ -151,11 +151,11 @@ private att(name: string) -> string
         var excuse = ""
 
         for i in 0..<excused.len()
-            val x = excused.at(i)
+            val x = excused[i]
 
             if x.file == name && x.line == line_no
                 excuse = x.tier
-                excused.set(i, Excused(x.file, x.line, x.tier, true))
+                excused[i] = Excused(x.file, x.line, x.tier, true)
 
         if want == "NOMATCH" || got == "NOMATCH" || got.bytes[0] != u8('(')
             if want != got then failures.push(s"tier 1: $here wants $want, got $got\n")

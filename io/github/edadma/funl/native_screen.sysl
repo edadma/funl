@@ -115,7 +115,7 @@ private video() -> Result[unit, string]
     video_up = true
     Ok(())
 
-private screen_at(at: usize) -> Screen = screens.at(at).unwrap()
+private screen_at(at: usize) -> Screen = screens[at].unwrap()
 
 // A window titled `title`, `w` by `h` points, resizable by the user when `resizable`, shown or kept
 // hidden: its place, or why SDL would not make it.
@@ -138,8 +138,8 @@ screen_open(title: string, w: long, h: long, resizable: bool, shown: bool) -> Re
     val s = Screen(win, Some(r), None, 0, 0, win.id(), false, 0, 0, 0)
 
     for i in 0..<screens.len()
-        if screens.at(i).is_none()
-            screens.set(i, Some(s))
+        if screens[i].is_none()
+            screens[i] = Some(s)
             return Ok(i)
 
     screens.push(Some(s))
@@ -150,11 +150,11 @@ end screen_open
 screen_close(at: usize)
     if at >= screens.len() then return
 
-    var s = screens.at(at) match
+    var s = screens[at] match
         Some(s) -> s
         None -> return
 
-    screens.set(at, None)
+    screens[at] = None
     s.texture = None
     s.renderer = None
 
@@ -186,7 +186,7 @@ screen_show(at: usize, surface: &pv.Surface, caret: Option[ScreenCaret])
             Some(t) -> t.set_blend_mode(sdl.BlendMode.Off)
             None -> ()
 
-        screens.set(at, Some(s))
+        screens[at] = Some(s)
 
     val t = s.texture match
         Some(t) -> t
@@ -313,7 +313,7 @@ screens_quit_answered()
 // The place of the window SDL calls `id`.
 private place_of(id: u32) -> Option[usize]
     for i in 0..<screens.len()
-        screens.at(i) match
+        screens[i] match
             Some(s) -> if s.id == id then return Some(i)
             None -> ()
 
@@ -352,7 +352,7 @@ private event_news(e: sdl.Event, out: *Buf[ScreenNews])
         quit_asked = true
 
         for i in 0..<screens.len()
-            screens.at(i) match
+            screens[i] match
                 Some(s) -> out.push(Closing(s.id))
                 None -> ()
     else
@@ -368,7 +368,7 @@ private news_of(at: usize, e: sdl.Event, out: *Buf[ScreenNews])
 
     if kind == sdl.EventKind.WindowCloseRequested
         s.close_asked = true
-        screens.set(at, Some(s))
+        screens[at] = Some(s)
         out.push(Closing(id))
         return
 
@@ -438,7 +438,7 @@ private news_of(at: usize, e: sdl.Event, out: *Buf[ScreenNews])
     val interval = if s.last == 0 || e.timestamp() < s.last then 0 else long((e.timestamp() - s.last) / 1000000)
 
     s.last = e.timestamp()
-    screens.set(at, Some(s))
+    screens[at] = Some(s)
     out.push(Input(id, key, sym, s.px, s.py, mods, interval))
 end news_of
 

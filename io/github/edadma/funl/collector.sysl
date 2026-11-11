@@ -44,7 +44,7 @@ private mark_values(h: *gc.Heap, vs: Buf[Value])
 trace_str(p: *u8, h: *gc.Heap)
     return
 
-finalize_str(p: *u8)
+finalize_str(p: *u8, h: *gc.Heap)
     val o: *StrObj = ptr_cast(p)
 
     o.s = ""
@@ -53,7 +53,7 @@ trace_num(p: *u8, h: *gc.Heap)
     return
 
 // An `Int` in the slot holds nothing counted, so assigning one releases the limbs.
-finalize_num(p: *u8)
+finalize_num(p: *u8, h: *gc.Heap)
     val o: *NumObj = ptr_cast(p)
 
     o.n = Number.Int(0)
@@ -61,7 +61,7 @@ finalize_num(p: *u8)
 trace_cset(p: *u8, h: *gc.Heap)
     return
 
-finalize_cset(p: *u8)
+finalize_cset(p: *u8, h: *gc.Heap)
     val o: *CSetObj = ptr_cast(p)
 
     o.set.wide.release()
@@ -69,7 +69,7 @@ finalize_cset(p: *u8)
 trace_bytes(p: *u8, h: *gc.Heap)
     return
 
-finalize_bytes(p: *u8)
+finalize_bytes(p: *u8, h: *gc.Heap)
     val o: *BytesObj = ptr_cast(p)
 
     o.b.release()
@@ -81,7 +81,7 @@ trace_handle(p: *u8, h: *gc.Heap)
 
 // The backstop for a handle the program never closed: its kind's release hook gives the resource
 // back, exactly as `close()` would have, unless the kind says a forgotten handle gives back less.
-finalize_handle(p: *u8)
+finalize_handle(p: *u8, h: *gc.Heap)
     val o: *HandleObj = ptr_cast(p)
 
     forget_handle(o)
@@ -93,7 +93,7 @@ trace_promise(p: *u8, h: *gc.Heap)
 
     mark_value(h, o.value)
 
-finalize_promise(p: *u8)
+finalize_promise(p: *u8, h: *gc.Heap)
     val o: *PromiseObj = ptr_cast(p)
 
     o.message = ""
@@ -111,17 +111,17 @@ trace_coexpr(p: *u8, h: *gc.Heap)
     if o.pristine != null then gc.mark(h, ptr_cast(o.pristine))
     if o.activator != null then gc.mark(h, ptr_cast(o.activator))
 
-finalize_coexpr(p: *u8)
+finalize_coexpr(p: *u8, h: *gc.Heap)
     val o: *CoExprObj = ptr_cast(p)
 
-    release_machine(o.machine)
+    release_machine(&o.machine)
 
 trace_tuple(p: *u8, h: *gc.Heap)
     val o: *TupleObj = ptr_cast(p)
 
     mark_values(h, o.items)
 
-finalize_tuple(p: *u8)
+finalize_tuple(p: *u8, h: *gc.Heap)
     val o: *TupleObj = ptr_cast(p)
 
     o.items.release()
@@ -131,7 +131,7 @@ trace_compound(p: *u8, h: *gc.Heap)
 
     mark_values(h, o.args)
 
-finalize_compound(p: *u8)
+finalize_compound(p: *u8, h: *gc.Heap)
     val o: *CompoundObj = ptr_cast(p)
 
     o.args.release()
@@ -150,7 +150,7 @@ trace_set(p: *u8, h: *gc.Heap)
 
     mark_values(h, o.items)
 
-finalize_set(p: *u8)
+finalize_set(p: *u8, h: *gc.Heap)
     val o: *SetObj = ptr_cast(p)
 
     o.items.release()
@@ -163,7 +163,7 @@ trace_map(p: *u8, h: *gc.Heap)
 
     if o.defaulted then mark_value(h, o.fallback)
 
-finalize_map(p: *u8)
+finalize_map(p: *u8, h: *gc.Heap)
     val o: *MapObj = ptr_cast(p)
 
     o.keys.release()
@@ -174,7 +174,7 @@ trace_array(p: *u8, h: *gc.Heap)
 
     mark_values(h, o.cells)
 
-finalize_array(p: *u8)
+finalize_array(p: *u8, h: *gc.Heap)
     val o: *ArrayObj = ptr_cast(p)
 
     o.cells.release()
@@ -200,7 +200,7 @@ trace_frame(p: *u8, h: *gc.Heap)
     mark_values(h, o.args)
     mark_values(h, o.slots)
 
-finalize_frame(p: *u8)
+finalize_frame(p: *u8, h: *gc.Heap)
     val o: *FrameObj = ptr_cast(p)
 
     o.args.release()

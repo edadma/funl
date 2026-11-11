@@ -139,7 +139,7 @@ private motion_event(id: u32, x: f32, y: f32) -> sdl.Event
 // The place of the canvas labelled `label` that has a window on screen.
 private shown_canvas(label: string) -> Option[usize]
     for i in 0..<canvases.len()
-        canvases.at(i) match
+        canvases[i] match
             Some(c) -> if c.screen >= 0 && c.label == label then return Some(i)
             None -> ()
 
@@ -155,14 +155,14 @@ WHAT_IS_SHOWN_IS_THE_CANVAS_COPIED_INTO_THE_WINDOW()
     s.clear(1.0, 0.0, 0.0)
     screen_show(at, s, None)
 
-    val r = screens.at(at).unwrap().renderer.expect("the window has its renderer")
+    val r = screens[at].unwrap().renderer.expect("the window has its renderer")
     val shot = r.read_pixels().expect("the renderer can be read back")
     val px = shot.read_pixel(2, 1).expect("a pixel inside the window")
 
     assert_eq(s"${px.r},${px.g},${px.b}", "255,0,0", "the canvas's red reached the window")
 
     screen_close(at)
-    assert(screens.at(at).is_none(), "and closing lets the window go")
+    assert(screens[at].is_none(), "and closing lets the window go")
 
 @test
 STARTING_THE_SCREEN_STOPS_SDL_FROM_QUITTING_WHEN_THE_LAST_WINDOW_CLOSES()
@@ -188,13 +188,13 @@ A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
 
     // The program has ended with its window open, as a program ends that leaves it for its user.
     val at = shown_canvas("user").expect("the program's window is still open")
-    val id = screen_id(usize(canvases.at(at).unwrap().screen))
+    val id = screen_id(usize(canvases[at].unwrap().screen))
 
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_RESIZED, id, 6, 5)), "the window system resizes it")
     assert(sdl.push_event(motion_event(id, 2.0, 1.0)), "and moves the pointer over it")
     show_screens()
 
-    val c = canvases.at(at).unwrap()
+    val c = canvases[at].unwrap()
 
     assert_eq(s"${c.width}x${c.height}", "6x5", "the canvas is resized with its window")
     assert_eq(surface_rgb(c.surface, 3, 2), "0,0,255", "what was there is kept")
@@ -205,11 +205,11 @@ A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
     // it as it is.
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_RESIZED, id, 6, 5)), "the same size again")
     show_screens()
-    assert_eq(surface_rgb(canvases.at(at).unwrap().surface, 3, 2), "0,0,255", "and nothing is repainted")
+    assert_eq(surface_rgb(canvases[at].unwrap().surface, 3, 2), "0,0,255", "and nothing is repainted")
 
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, id, 0, 0)), "its user closes it")
     wait_for_screens()
-    assert(canvases.at(at).is_none(), "the wait at the program's end is over, and the window closed")
+    assert(canvases[at].is_none(), "the wait at the program's end is over, and the window closed")
 
     dispose_vm(&v)
     leave(was)
@@ -229,7 +229,7 @@ private two_left_open(v: *Vm) -> (usize, usize)
     (shown_canvas("back").expect("the back window is still open"), shown_canvas("front").expect("and the front one"))
 
 // The SDL id of the window the canvas at `at` is shown in.
-private window_of(at: usize) -> u32 = screen_id(usize(canvases.at(at).unwrap().screen))
+private window_of(at: usize) -> u32 = screen_id(usize(canvases[at].unwrap().screen))
 
 // Window `first` closed from its title bar while the program's end waits, then window `second`: the
 // first leaves the screen at once while the wait goes on for the second, and the second's close ends
@@ -245,17 +245,17 @@ private closed_one_by_one(first: string, second: string)
 
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(one), 0, 0)), s"its user closes ${first}")
     ended_screens_looked_at(0)
-    assert(canvases.at(one).is_none(), s"${first} is closed at once, not when the wait is over")
-    assert(canvases.at(other).is_some(), s"${second} is still waited on")
+    assert(canvases[one].is_none(), s"${first} is closed at once, not when the wait is over")
+    assert(canvases[other].is_some(), s"${second} is still waited on")
     assert(!screens_quit_asked(), "closing one window is no quit")
 
     // The wait goes on: another look with nothing new leaves the second window open.
     ended_screens_looked_at(0)
-    assert(canvases.at(other).is_some(), s"${second} is still open after another look")
+    assert(canvases[other].is_some(), s"${second} is still open after another look")
 
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(other), 0, 0)), s"then ${second}")
     wait_for_screens()
-    assert(canvases.at(other).is_none(), "and with no window left the wait is over")
+    assert(canvases[other].is_none(), "and with no window left the wait is over")
 
     dispose_vm(&v)
     leave(was)
@@ -279,7 +279,7 @@ BOTH_WINDOWS_CLOSED_TOGETHER_END_THE_WAIT_AT_THE_PROGRAMS_END()
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(back), 0, 0)), "back closed")
     assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, window_of(front), 0, 0)), "front closed")
     wait_for_screens()
-    assert(canvases.at(back).is_none() && canvases.at(front).is_none(), "both windows are closed")
+    assert(canvases[back].is_none() && canvases[front].is_none(), "both windows are closed")
 
     dispose_vm(&v)
     leave(was)
@@ -294,7 +294,7 @@ QUIT_CLOSES_EVERY_WINDOW_LEFT_OPEN_AND_ENDS_THE_WAIT()
 
     assert(sdl.push_event(window_event(sdl.EVENT_QUIT, 0, 0, 0)), "the application is quit")
     wait_for_screens()
-    assert(canvases.at(back).is_none() && canvases.at(front).is_none(), "every window is closed")
+    assert(canvases[back].is_none() && canvases[front].is_none(), "every window is closed")
     assert(!screens_quit_asked(), "and the quit is answered, not kept for windows opened later")
 
     dispose_vm(&v)
@@ -330,11 +330,11 @@ private drag_event(id: u32, held: u32, x: f32, y: f32, ts: u64) -> sdl.Event
 
 // The events on the queue of the canvas at `at`, one a line: code, where, modifier bits, interval.
 private queue_text(at: usize) -> string
-    val q = canvases.at(at).unwrap().queue
+    val q = canvases[at].unwrap().queue
     var b = str_builder()
 
     for i in 0..<q.len()
-        val ev = q.at(i)
+        val ev = q[i]
 
         // A key is written as its character's code, since several are control characters.
         b.push(if ev.is_key then s"key ${ev.key.bytes[0]}" else atom_name(ev.sym))
@@ -354,7 +354,7 @@ THE_WINDOWS_KEYS_BUTTONS_WHEEL_RESIZE_AND_CLOSE_ARE_QUEUED_AS_ICONS_EVENTS()
     assert_eq(outcome_text(run(&v, chunk)), "succeeded", transcript(streams))
 
     val at = shown_canvas("typed").expect("the program's window is still open")
-    val id = screen_id(usize(canvases.at(at).unwrap().screen))
+    val id = screen_id(usize(canvases[at].unwrap().screen))
     val second: u64 = 1000000000
 
     // `a`, shifted; control with `c`; F1; a release; Return.
@@ -400,7 +400,7 @@ READ_WAITS_ON_A_WINDOW_ON_SCREEN_FOR_THE_KEYS_ITS_USER_TYPES()
     assert_eq(outcome_text(run(&v, opened)), "succeeded", transcript(streams))
 
     val at = shown_canvas("typed").expect("the program's window is still open")
-    val id = screen_id(usize(canvases.at(at).unwrap().screen))
+    val id = screen_id(usize(canvases[at].unwrap().screen))
 
     // `h`, `x`, backspace, a click, `i`, Return: typed before the program reads, so its canvas's queue is
     // still empty when `read` starts and the keys reach it only by `read` taking in the screen's news.
@@ -423,7 +423,7 @@ end READ_WAITS_ON_A_WINDOW_ON_SCREEN_FOR_THE_KEYS_ITS_USER_TYPES
 
 // The colour of the window at `at` at device pixel `x`, `y`, as eight-bit `"r,g,b"`.
 private window_rgb(at: usize, x: i32, y: i32) -> string
-    val r = screens.at(at).unwrap().renderer.expect("the window has its renderer")
+    val r = screens[at].unwrap().renderer.expect("the window has its renderer")
     val shot = r.read_pixels().expect("the renderer can be read back")
     val px = shot.read_pixel(x, y).expect("a pixel inside the window")
 
@@ -457,8 +457,8 @@ private caret_seen(text: string, label: string) -> string
     val c = canvas_at(at)
     val sat = usize(c.screen)
     val id = screen_id(sat)
-    val h = c.wins.at(0)
-    val ctx = h.vals.at(1) match
+    val h = c.wins[0]
+    val ctx = h.vals[1] match
         Int(k) -> usize(k)
         _ -> panic("a window handle holds its context's place")
     val w = Win(h, usize(h.n), ctx)
@@ -482,15 +482,15 @@ private caret_seen(text: string, label: string) -> string
     var same = after.len() == before.len()
 
     for i in 0..<before.len()
-        if same && before.at(i) != after.at(i) then same = false
+        if same && before[i] != after[i] then same = false
 
     seen.push(s"after ${window_rgb(sat, x, y)} ${window_rgb(sat, x, y - 2)}, canvas ${if same then "unchanged" else "changed"}")
 
     var b = str_builder()
 
     for i in 0..<seen.len()
-        if seen.at(i).starts_with("waiting") || seen.at(i).starts_with("after")
-            b.push(seen.at(i))
+        if seen[i].starts_with("waiting") || seen[i].starts_with("after")
+            b.push(seen[i])
             b.push("\n")
 
     before.release()
@@ -543,7 +543,7 @@ A_READ_WITH_CURSOR_ON_READS_AND_LEAVES_NO_CARET_BEHIND()
     var same = true
 
     for i in 0..<before.len()
-        if before.at(i) != after.at(i) then same = false
+        if before[i] != after[i] then same = false
 
     assert(same, "with echo off, the canvas is as it was")
     assert_eq(window_rgb(sat, 0, 10), "255,255,255", "and the window shows no caret at the cursor")
@@ -679,7 +679,7 @@ A_CANVAS_AT_DENSITY_2_DRAWS_IN_POINTS()
     c.surface = s
     c.drawn = d
     c.density = 2
-    canvases.set(at, Some(c))
+    canvases[at] = Some(c)
 
     val drawing = compiled_text("w = &window\nw.fill_rectangle( 1, 1, 2, 2 )\nwrite( w.get(\"density\"), w.get(\"size\") )\n").unwrap()
 
@@ -696,7 +696,7 @@ end A_CANVAS_AT_DENSITY_2_DRAWS_IN_POINTS
 // The place of the open canvas labelled `label`.
 private labelled(label: string) -> Option[usize]
     for i in 0..<canvases.len()
-        canvases.at(i) match
+        canvases[i] match
             Some(c) -> if c.label == label then return Some(i)
             None -> ()
 

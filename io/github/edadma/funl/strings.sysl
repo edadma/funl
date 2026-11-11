@@ -134,7 +134,7 @@ struct CharSet
 
                 left -= 1
 
-        char(self.wide.at(left))
+        char(self.wide[left])
 
     // The characters not in this set.
     complemented(self) -> CharSet = CharSet(self.lo, self.hi, wide_copy(self.wide), !self.inverted)
@@ -185,10 +185,10 @@ struct CharSet
 
         var i: usize = 0
 
-        while i < self.wide.len() && self.wide.at(i) < u
+        while i < self.wide.len() && self.wide[i] < u
             i += 1
 
-        if i < self.wide.len() && self.wide.at(i) == u then return
+        if i < self.wide.len() && self.wide[i] == u then return
 
         self.wide.insert(i, u)
 
@@ -212,7 +212,7 @@ struct CharSet
         if self.lo != other.lo || self.hi != other.hi || self.wide.len() != other.wide.len() then return false
 
         for i in 0..<self.wide.len()
-            if self.wide.at(i) != other.wide.at(i) then return false
+            if self.wide[i] != other.wide[i] then return false
 
         true
 end CharSet
@@ -238,16 +238,16 @@ private regions(a: CharSet, b: CharSet, only_a: bool, both: bool, only_b: bool, 
     var j: usize = 0
 
     while i < a.wide.len() || j < b.wide.len()
-        if j == b.wide.len() || (i < a.wide.len() && a.wide.at(i) < b.wide.at(j))
-            if only_a then wide.push(a.wide.at(i))
+        if j == b.wide.len() || (i < a.wide.len() && a.wide[i] < b.wide[j])
+            if only_a then wide.push(a.wide[i])
 
             i += 1
-        elif i == a.wide.len() || b.wide.at(j) < a.wide.at(i)
-            if only_b then wide.push(b.wide.at(j))
+        elif i == a.wide.len() || b.wide[j] < a.wide[i]
+            if only_b then wide.push(b.wide[j])
 
             j += 1
         else
-            if both then wide.push(a.wide.at(i))
+            if both then wide.push(a.wide[i])
 
             i += 1
             j += 1

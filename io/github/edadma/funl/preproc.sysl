@@ -92,11 +92,11 @@ resolve(m: SourceMap, at: usize) -> (usize, usize)
         if at >= p.from && at < p.to then return (p.file, p.local + at - p.from)
 
     for i in 0..<m.pieces.len()
-        val p = m.pieces.at(m.pieces.len() - 1 - i)
+        val p = m.pieces[m.pieces.len() - 1 - i]
 
         if at == p.to then return (p.file, p.local + at - p.from)
 
-    val last = m.pieces.at(m.pieces.len() - 1)
+    val last = m.pieces[m.pieces.len() - 1]
 
     (last.file, last.local + last.to - last.from)
 
@@ -126,7 +126,7 @@ private mark_at(marks: Buf[LineDirective], at: usize) -> Option[LineDirective]
 // `$line` numbers it, and the column its reader sees.
 placed(m: SourceMap, at: usize) -> string
     val (fi, local) = resolve(m, at)
-    val f = m.files.at(fi)
+    val f = m.files[fi]
     val loc = f.prog.locate(local)
     val col = loc.col + column_shift(f.prog.name)
 
@@ -170,7 +170,7 @@ end render_mapped
 // One diagnostic, moved onto the file its span came from.
 private render_placed(d: Diagnostic, doc0: Source, m: SourceMap) -> string
     val (fi, local) = resolve(m, d.span.start)
-    val f = m.files.at(fi)
+    val f = m.files[fi]
     val doc = if fi == 0 then doc0 else f.doc
     val prog = f.prog
     val start = if local > prog.bytes.len then prog.bytes.len else local
@@ -336,7 +336,7 @@ private copy_def(pre: *Pre, d: Definition, from: usize, to: usize, file: usize, 
 
 private find_def(pre: *Pre, name: string) -> Option[usize]
     for i in 0..<pre.defs.len()
-        if pre.defs.at(i).name == name then return Some(i)
+        if pre.defs[i].name == name then return Some(i)
 
     None
 
@@ -354,7 +354,7 @@ is_defined(pre: *Pre, name: string) -> bool
 // copy of the definition's text put at the end of the program for them to be placed in. A name in
 // the text that is itself defined is expanded in turn, in its place.
 expand(pre: *Pre, name: string, used: Span, out: *Tokens[Tok])
-    val d = pre.defs.at(find_def(pre, name).unwrap())
+    val d = pre.defs[find_def(pre, name).unwrap()]
 
     if d.toks.is_empty() then return
 
@@ -389,7 +389,7 @@ end expand
 
 // Whether the lines being read now are the program's -- no conditional is open, or the innermost
 // open one is on a branch that is taken.
-taking(conds: *Buf[Cond]) -> bool = conds.is_empty() || conds.at(conds.len() - 1).taking
+taking(conds: *Buf[Cond]) -> bool = conds.is_empty() || conds[conds.len() - 1].taking
 
 // Whether `s`, at a `$`, is at an `$include`.
 is_include(s: *Scanner) -> bool
@@ -455,7 +455,7 @@ directive_line(s: *Scanner, src: Source, pre: *Pre, file: usize, conds: *Buf[Con
         if conds.is_empty()
             report.add(error(at, "this `$else` has no `$ifdef` or `$ifndef` to belong to"))
         else
-            var c = conds.at(conds.len() - 1)
+            var c = conds[conds.len() - 1]
 
             if c.outer then ends_here(s, what, report)
 
@@ -464,12 +464,12 @@ directive_line(s: *Scanner, src: Source, pre: *Pre, file: usize, conds: *Buf[Con
             else
                 c.taking = c.outer && !c.taking
                 c.else_seen = true
-                conds.set(conds.len() - 1, c)
+                conds[conds.len() - 1] = c
     elif word == "endif"
         if conds.is_empty()
             report.add(error(at, "this `$endif` has no `$ifdef` or `$ifndef` to close"))
         else
-            if conds.at(conds.len() - 1).outer then ends_here(s, what, report)
+            if conds[conds.len() - 1].outer then ends_here(s, what, report)
 
             conds.pop()
     elif !live
@@ -532,9 +532,9 @@ private define_line(s: *Scanner, src: Source, pre: *Pre, file: usize, at: Span, 
     var local: usize = 0
 
     if line.len() > 0
-        local = line.items.at(0).span.start
+        local = line.items[0].span.start
 
-        val last = line.items.at(line.len() - 1).span.end
+        val last = line.items[line.len() - 1].span.end
 
         text = from_utf8_unchecked(src.text(Span(local, last)))
 
@@ -543,7 +543,7 @@ private define_line(s: *Scanner, src: Source, pre: *Pre, file: usize, at: Span, 
 
     find_def(pre, n.value) match
         Some(i) ->
-            if !same_text(pre.defs.at(i), text, toks)
+            if !same_text(pre.defs[i], text, toks)
                 report.add(error(n.span, s"`${n.value}` is defined already, as different text")
                     .with_note(s"`$$undef ${n.value}` ends the definition in force, and a `$$define` after it gives a new one"))
             return
@@ -558,8 +558,8 @@ private same_text(d: Definition, text: string, toks: Buf[Spanned[Tok]]) -> bool
     if d.toks.len() != toks.len() then return false
 
     for i in 0..<toks.len()
-        val x = d.toks.at(i).span
-        val y = toks.at(i).span
+        val x = d.toks[i].span
+        val y = toks[i].span
 
         if d.text.slice(x.start, x.end) != text.slice(y.start, y.end) then return false
 
@@ -569,19 +569,19 @@ private same_text(d: Definition, text: string, toks: Buf[Spanned[Tok]]) -> bool
 // file named already otherwise.
 private line_line(s: *Scanner, src: Source, pre: *Pre, file: usize, at: Span, report: *Report)
     val toks = line_tokens(s, src, report)
-    val f = pre.map.files.at(file)
+    val f = pre.map.files[file]
 
     var n: long = 0
     var named = ""
     var ok = toks.len() == 1 || toks.len() == 2
 
     if ok
-        toks.items.at(0).value match
+        toks.items[0].value match
             IntLit(v) -> n = v
             _ -> ok = false
 
     if ok && toks.len() == 2
-        toks.items.at(1).value match
+        toks.items[1].value match
             StrLit(t) -> named = t
             _ -> ok = false
 
@@ -626,7 +626,7 @@ include_line(s: *Scanner, src: Source, report: *Report) -> Option[Inc]
     var given = ""
 
     if toks.len() == 1
-        toks.items.at(0).value match
+        toks.items[0].value match
             StrLit(t) -> given = t
             _ -> ()
 
@@ -659,11 +659,11 @@ end include_line
 // would include it again, since that inclusion would never end.
 included(pre: *Pre, inc: Inc, file: usize) -> Tokens[Tok]
     for i in 0..<pre.reading.len()
-        if same_file(pre.reading.at(i), inc.path)
+        if same_file(pre.reading[i], inc.path)
             var chain = str_builder()
 
             for j in i..<pre.reading.len()
-                chain.push(s"`${pre.reading.at(j)}` includes ")
+                chain.push(s"`${pre.reading[j]}` includes ")
 
             chain.push(s"`${inc.path}`")
 

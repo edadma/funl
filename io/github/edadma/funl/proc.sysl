@@ -26,10 +26,10 @@ note_top_fn(name: string, arity: usize, chunk: usize, variadic: bool)
     val v = current()
 
     for i in 0..<v.top_fns.len()
-        val f = v.top_fns.at(i)
+        val f = v.top_fns[i]
 
         if f.name == name && f.arity == arity && f.variadic == variadic
-            v.top_fns.set(i, TopFn(name, arity, chunk, variadic))
+            v.top_fns[i] = TopFn(name, arity, chunk, variadic)
             return
 
     v.top_fns.push(TopFn(name, arity, chunk, variadic))
@@ -91,7 +91,7 @@ private do_proc(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     var members: Buf[Member] = buf()
 
     for i in 0..<v.top_fns.len()
-        val f = v.top_fns.at(i)
+        val f = v.top_fns[i]
 
         if f.name == name && !f.variadic && counted_as(want, f.arity) then members.push(FnMember(f.chunk, f.arity, TopUp))
 
@@ -99,7 +99,7 @@ private do_proc(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     // of them takes it.
     if want.is_none() || members.len() == 0
         for i in 0..<v.top_fns.len()
-            val f = v.top_fns.at(i)
+            val f = v.top_fns[i]
 
             if f.name == name && f.variadic && (want.is_none() || want.unwrap() + 1 >= f.arity)
                 members.push(RestMember(f.chunk, f.arity - 1, TopUp))
@@ -107,14 +107,14 @@ private do_proc(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     // The program's own definition hides a builtin or the prelude's of the same name.
     if members.len() == 0
         for id in 0..<v.natives.len()
-            val n = v.natives.at(id)
+            val n = v.natives[id]
 
             if n.name == name && plain_name(n) && is_function_value(id) && (want.is_none() || takes_count(n, want.unwrap()))
                 members.push(NativeMember(id))
 
         prelude_index() match
             Some(index) ->
-                val md = v.modules.at(index)
+                val md = v.modules[index]
 
                 for x in md.exports.view()
                     if x.name != name then continue
@@ -137,7 +137,7 @@ private counted_as(want: Option[usize], arity: usize) -> bool = want match
 // count of each call, as a family named without a call does. Made once for each set of members.
 private member_value(v: *Vm, name: string, members: Buf[Member]) -> Result[Value, Fault]
     if members.len() == 1
-        members.at(0) match
+        members[0] match
             FnMember(chunk, _, up) -> return Ok(new_closure(chunk, link(v, up)?)?)
             RestMember(chunk, _, up) -> return Ok(new_closure(chunk, link(v, up)?)?)
             NativeMember(id) -> return Ok(new_closure(value_chunk(id)?, v.globals)?)
@@ -173,12 +173,12 @@ private do_builtins(base: usize, argc: usize, cursor: long) -> Result[Answer, Fa
     var i = usize(cursor)
 
     while i < v.natives.len()
-        val n = v.natives.at(i)
+        val n = v.natives[i]
         var first = true
 
         if plain_name(n)
             for j in 0..<i
-                if v.natives.at(j).name == n.name
+                if v.natives[j].name == n.name
                     first = false
                     break
 
@@ -272,7 +272,7 @@ private operators_chunk(index: usize) -> usize
     var at: Option[usize] = None
 
     for i in 0..<v.modules.len()
-        if v.modules.at(i).file == OperatorsFile then at = Some(i)
+        if v.modules[i].file == OperatorsFile then at = Some(i)
 
     val home = at match
         Some(i) -> i
@@ -300,7 +300,7 @@ private operators_chunk(index: usize) -> usize
 
     val want = s"operator$index"
 
-    for x in v.modules.at(home).exports.view()
+    for x in v.modules[home].exports.view()
         if x.name == want
             x.kind match
                 ExFunction(chunk, _) -> return chunk

@@ -396,7 +396,7 @@ private draw_points(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val pen = began(w)?
 
     for i in 0..<xs.len()
-        pen.d.rect(f32(xs.at(i)), f32(ys.at(i)), 1.0, 1.0)
+        pen.d.rect(f32(xs[i]), f32(ys[i]), 1.0, 1.0)
 
     filled(pen)
     finished(pen)
@@ -420,10 +420,10 @@ private draw_path(base: usize, argc: usize, name: string) -> Result[Option[Value
     if name == "draw_curve"
         curve(d, xs, ys)
     else
-        d.move_to(f32(xs.at(0)), f32(ys.at(0)))
+        d.move_to(f32(xs[0]), f32(ys[0]))
 
         for i in 1..<xs.len()
-            d.line_to(f32(xs.at(i)), f32(ys.at(i)))
+            d.line_to(f32(xs[i]), f32(ys[i]))
 
         if name != "draw_line" then d.close_path()
 
@@ -440,10 +440,10 @@ private draw_path(base: usize, argc: usize, name: string) -> Result[Option[Value
 // a closed one, whose first point is its last, wraps around.
 private curve(d: &pv.Canvas, xs: Buf[real], ys: Buf[real])
     val n = xs.len()
-    val closed = n > 2 && xs.at(0) == xs.at(n - 1) && ys.at(0) == ys.at(n - 1)
+    val closed = n > 2 && xs[0] == xs[n - 1] && ys[0] == ys[n - 1]
     val m = long(if closed then n - 1 else n)
 
-    d.move_to(f32(xs.at(0)), f32(ys.at(0)))
+    d.move_to(f32(xs[0]), f32(ys[0]))
 
     for i in 0..<long(n - 1)
         val p0 = curve_point(i - 1, m, closed)
@@ -451,9 +451,9 @@ private curve(d: &pv.Canvas, xs: Buf[real], ys: Buf[real])
         val p2 = curve_point(i + 1, m, closed)
         val p3 = curve_point(i + 2, m, closed)
 
-        d.cubic_to(f32(xs.at(p1) + (xs.at(p2) - xs.at(p0)) / 6.0), f32(ys.at(p1) + (ys.at(p2) - ys.at(p0)) / 6.0),
-            f32(xs.at(p2) - (xs.at(p3) - xs.at(p1)) / 6.0), f32(ys.at(p2) - (ys.at(p3) - ys.at(p1)) / 6.0),
-            f32(xs.at(p2)), f32(ys.at(p2)))
+        d.cubic_to(f32(xs[p1] + (xs[p2] - xs[p0]) / 6.0), f32(ys[p1] + (ys[p2] - ys[p0]) / 6.0),
+            f32(xs[p2] - (xs[p3] - xs[p1]) / 6.0), f32(ys[p2] - (ys[p3] - ys[p1]) / 6.0),
+            f32(xs[p2]), f32(ys[p2]))
 
     if closed then d.close_path()
 
@@ -481,8 +481,8 @@ private draw_segments(base: usize, argc: usize) -> Result[Option[Value], Fault]
     var i: usize = 0
 
     while i + 1 < xs.len()
-        d.move_to(f32(xs.at(i)), f32(ys.at(i)))
-        d.line_to(f32(xs.at(i + 1)), f32(ys.at(i + 1)))
+        d.move_to(f32(xs[i]), f32(ys[i]))
+        d.line_to(f32(xs[i + 1]), f32(ys[i + 1]))
         i += 2
 
     stroked(pen)
@@ -524,10 +524,10 @@ private draw_boxes(base: usize, argc: usize, name: string) -> Result[Option[Valu
     val shift = if name == "draw_rectangle" || name == "draw_arc" then nudge(ctx) else 0.0
 
     for j in 0..<boxes.len()
-        val b = boxes.at(j)
+        val b = boxes[j]
 
         if arc
-            ellipse(d, b.x + b.wd / 2.0 + shift, b.y + b.ht / 2.0 + shift, b.wd / 2.0, b.ht / 2.0, thetas.at(j), alphas.at(j), name == "fill_arc")
+            ellipse(d, b.x + b.wd / 2.0 + shift, b.y + b.ht / 2.0 + shift, b.wd / 2.0, b.ht / 2.0, thetas[j], alphas[j], name == "fill_arc")
         else
             d.rect(f32(b.x + shift), f32(b.y + shift), f32(b.wd), f32(b.ht))
 
@@ -569,9 +569,9 @@ private draw_circles(base: usize, argc: usize, name: string) -> Result[Option[Va
     var j: usize = 0
 
     while j < circles.len()
-        val r = circles.at(j + 2)
+        val r = circles[j + 2]
 
-        ellipse(pen.d, circles.at(j), circles.at(j + 1), r, r, circles.at(j + 3), circles.at(j + 4), fill)
+        ellipse(pen.d, circles[j], circles[j + 1], r, r, circles[j + 3], circles[j + 4], fill)
         j += 5
 
     if fill then filled(pen) else stroked(pen)
@@ -695,7 +695,7 @@ private do_copy_area(base: usize, argc: usize) -> Result[Option[Value], Fault]
             val o = usize(y * to_stride + 4 * x)
 
             for k in 0..<4
-                to_data[o + usize(k)] = scratch.at(at)
+                to_data[o + usize(k)] = scratch[at]
                 at += 1
 
     scratch.release()
@@ -722,5 +722,5 @@ private do_clip(base: usize, argc: usize) -> Result[Option[Value], Fault]
         ctx.clipw = long(b.wd)
         ctx.cliph = long(b.ht)
 
-    contexts.set(w.ctx, Some(ctx))
+    contexts[w.ctx] = Some(ctx)
     Ok(Some(Handle(w.h)))

@@ -298,9 +298,9 @@ element_at(c: Value, index: Value) -> Result[Option[Value], Fault]
             e match
                 Some(n) -> Ok(Some(Int(n)))
                 None -> Err(evaluation_error("int_overflow", s"element $i of ${render(x)} does not fit in 64 bits"))
-        Tuple(t) -> Ok(Some(t.items.at(usize(i))))
+        Tuple(t) -> Ok(Some(t.items[usize(i)]))
         Str(p) -> Ok(Some(new_str(chars_between(p, usize(i), usize(i) + 1))?))
-        Bytes(p) -> Ok(Some(Int(long(p.b.at(usize(i))))))
+        Bytes(p) -> Ok(Some(Int(long(p.b[usize(i)]))))
         _ -> Err(type_error("indexable", x, s"${described(x)} cannot be indexed"))
 end element_at
 
@@ -386,7 +386,7 @@ private sliced(x: Value, first: long, count: long, step: long) -> Result[Value, 
             val o = new_tuple(usize(count))?
 
             for k in 0..<count
-                o.items.set(usize(k), t.items.at(usize(first + k * step)))
+                o.items[usize(k)] = t.items[usize(first + k * step)]
 
             Ok(Tuple(o))
         Unit -> Ok(Unit)
@@ -400,7 +400,7 @@ private sliced(x: Value, first: long, count: long, step: long) -> Result[Value, 
             var out: Buf[Value] = buf()
 
             for k in 0..<count
-                out.push(items.at(usize(first + k * step)))
+                out.push(items[usize(first + k * step)])
 
             Ok(list_of(&out, Nil)?)
 end sliced

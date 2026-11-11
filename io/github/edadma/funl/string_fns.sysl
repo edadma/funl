@@ -49,7 +49,7 @@ chars_in(s: string) -> Buf[char]
 private skip_from(cs: *Buf[char], t: CharTest, lo: usize, hi: usize) -> usize
     var k = lo
 
-    while k < hi && passes(t, cs.at(k))
+    while k < hi && passes(t, cs[k])
         k += 1
 
     k
@@ -58,7 +58,7 @@ private skip_from(cs: *Buf[char], t: CharTest, lo: usize, hi: usize) -> usize
 private skip_back(cs: *Buf[char], t: CharTest, lo: usize, hi: usize) -> usize
     var k = hi
 
-    while k > lo && passes(t, cs.at(k - 1))
+    while k > lo && passes(t, cs[k - 1])
         k -= 1
 
     k
@@ -68,7 +68,7 @@ spelled(cs: *Buf[char], from: usize, to: usize) -> string
     var out = str_builder()
 
     for i in from..<to
-        out.push_char(cs.at(i))
+        out.push_char(cs[i])
 
     out.finish()
 
@@ -84,7 +84,7 @@ split_text(s: string, sep: CharTest, pad: CharTest) -> Buf[string]
     loop
         var el = start
 
-        while el < end && !passes(sep, cs.at(el))
+        while el < end && !passes(sep, cs[el])
             el += 1
 
         pieces.push(spelled(&cs, start, skip_back(&cs, pad, start, el)))
@@ -132,7 +132,7 @@ private joined(pieces: *Buf[string], sep: string) -> string
     for i in 0..<pieces.len()
         if i > 0 then out.push(sep)
 
-        out.push(pieces.at(i))
+        out.push(pieces[i])
 
     out.finish()
 
@@ -141,7 +141,7 @@ string_list(pieces: *Buf[string]) -> Result[Value, Fault]
     var items: Buf[Value] = buf()
 
     for i in 0..<pieces.len()
-        items.push(new_str(pieces.at(i))?)
+        items.push(new_str(pieces[i])?)
 
     Ok(list_of(&items, Nil)?)
 
@@ -158,7 +158,7 @@ private do_split(base: usize, argc: usize) -> Result[Value, Fault]
     if argc == 1
         var words = split_text(s, Spaces, Spaces)
 
-        if words.len() == 1 && words.at(0) == "" then words = buf()
+        if words.len() == 1 && words[0] == "" then words = buf()
 
         return string_list(&words)
 
@@ -230,7 +230,7 @@ reversed_text(s: string) -> string
 
     while k > 0
         k -= 1
-        out.push_char(cs.at(k))
+        out.push_char(cs[k])
 
     out.finish()
 
@@ -254,8 +254,8 @@ private do_translate(base: usize, argc: usize) -> Result[Value, Fault]
         while k > 0
             k -= 1
 
-            if from.at(k) == c
-                mapped = to.at(k)
+            if from[k] == c
+                mapped = to[k]
                 k = 0
 
         out.push_char(mapped)

@@ -127,8 +127,8 @@ park(v: *Vm) -> usize
     val m = take_machine(v)
 
     for i in 0..<v.parked.len()
-        if !v.parked.at(i).live
-            v.parked.set(i, m)
+        if !v.parked[i].live
+            v.parked[i] = m
             return i
 
     v.parked.push(m)
@@ -137,9 +137,9 @@ end park
 
 // Put machine `id` back as the running one, whatever was running in its place gone.
 unpark(v: *Vm, id: usize)
-    val m = v.parked.at(id)
+    val m = v.parked[id]
 
-    v.parked.set(id, empty_machine())
+    v.parked[id] = empty_machine()
     put_machine(v, m)
 end unpark
 
@@ -174,7 +174,7 @@ start_async(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, F
     var args: Buf[Value] = buf()
 
     for i in n - argc..<n
-        args.push(v.stack.at(i))
+        args.push(v.stack[i])
 
     v.stack.truncate(n - argc)
     v.stack.push(Promise(pr))
@@ -218,7 +218,7 @@ await_top(v: *Vm) -> Result[bool, string]
 
     if top == 0 then return Err("`await` with nothing on the operand stack")
 
-    val x = deref(v.stack.at(top - 1))
+    val x = deref(v.stack[top - 1])
     val back = v.back_to
 
     v.back_to = NoMachine
@@ -315,7 +315,7 @@ private pass_on(v: *Vm, p: *PromiseObj)
     var i: usize = 0
 
     while i + 1 < v.relays.len()
-        val here = v.relays.at(i) match
+        val here = v.relays[i] match
             Promise(from) -> from == p
             _ -> false
 
@@ -323,11 +323,11 @@ private pass_on(v: *Vm, p: *PromiseObj)
             i += 2
             continue
 
-        val to = v.relays.at(i + 1)
+        val to = v.relays[i + 1]
         val n = v.relays.len()
 
-        v.relays.set(i, v.relays.at(n - 2))
-        v.relays.set(i + 1, v.relays.at(n - 1))
+        v.relays[i] = v.relays[n - 2]
+        v.relays[i + 1] = v.relays[n - 1]
         v.relays.truncate(n - 2)
 
         to match
@@ -352,7 +352,7 @@ orphan_top(v: *Vm) -> bool
 
     if top == 0 then return true
 
-    deref(v.stack.at(top - 1)) match
+    deref(v.stack[top - 1]) match
         Promise(p) ->
             if p.awaited then return true
 
@@ -385,7 +385,7 @@ private task_named(v: *Vm, task: u32, fn_chunk: usize) -> string
 
     if fn_chunk == NoMachine then return s"task $task"
 
-    s"task $task (`${v.chunks.at(fn_chunk).name}`)"
+    s"task $task (`${v.chunks[fn_chunk].name}`)"
 
 // The task numbered `task`, named from its parked machine where it is still waiting, by its number
 // alone where it is over.
@@ -450,17 +450,17 @@ next_ready(v: *Vm) -> Resumed
         Some(o) -> return Ends(o)
         None -> ()
 
-    val id = v.ready.at(v.ready_head)
+    val id = v.ready[v.ready_head]
 
     v.ready_head += 1
     unpark(v, id)
 
     val top = v.stack.len() - 1
 
-    deref(v.stack.at(top)) match
+    deref(v.stack[top]) match
         Promise(p) ->
             if p.state == PromiseKept
-                v.stack.set(top, p.value)
+                v.stack[top] = p.value
                 return Runs
 
             if p.state == PromiseFailed then return Misses

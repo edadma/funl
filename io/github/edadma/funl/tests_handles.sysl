@@ -61,7 +61,7 @@ private make_counter(base: usize, argc: usize) -> Result[Value, Fault] = new_cou
 private counter_next(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val h = open_handle(base, 0, counter_kind, "'next'")?
 
-    val limit = h.vals.at(0) match
+    val limit = h.vals[0] match
         Int(n) -> n
         _ -> 0
 
@@ -73,7 +73,7 @@ private counter_next(base: usize, argc: usize) -> Result[Option[Value], Fault]
 private counter_limit(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val h = open_handle(base, 0, counter_kind, "'limit'")?
 
-    Ok(Some(h.vals.at(0)))
+    Ok(Some(h.vals[0]))
 
 private counter_skip(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val h = open_handle(base, 0, counter_kind, "'skip'")?
@@ -97,7 +97,7 @@ private start_count(base: usize, argc: usize) -> Result[Option[Value], Fault]
 private start_upto(base: usize, argc: usize) -> Result[Option[Value], Fault]
     val h = open_handle(base, 0, counter_kind, "'upto'")?
 
-    val limit = h.vals.at(0) match
+    val limit = h.vals[0] match
         Int(n) -> n
         _ -> 0
 
@@ -112,7 +112,7 @@ private start_upto(base: usize, argc: usize) -> Result[Option[Value], Fault]
     Ok(Some(new_counter(Int(upto))?))
 
 private step_count(h: *HandleObj) -> Result[Option[Value], Fault]
-    val limit = h.vals.at(0) match
+    val limit = h.vals[0] match
         Int(n) -> n
         _ -> 0
 

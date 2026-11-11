@@ -97,15 +97,15 @@ private drive(v: *Vm) -> Outcome
                 // the whole chunk, every field it has, on every instruction.
                 val code = v.chunks.view()[v.code].code
 
-                if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks.at(v.code).name}'")
+                if at >= code.len() then return Faulted(s"ran off the end of chunk '${v.chunks[v.code].name}'")
 
                 v.ip = at + 1
 
                 // Counted only in a `--features profile` build, where `profile.sysl` says why the
                 // constant comes first: elsewhere this whole statement folds away.
-                if CountingInstructions && profile_on then profile_step(code.at(at))
+                if CountingInstructions && profile_on then profile_step(code[at])
 
-                val r = execute(v, code.at(at))
+                val r = execute(v, code[at])
 
                 // An instruction that tried to bind another task's variable is that fault, whatever
                 // it answered; a builtin that parked its task has its answer awaited.
@@ -225,7 +225,7 @@ private pop_into(v: *Vm, c: *CompoundObj, n: usize) -> Result[unit, string]
     if n > top then return Err(s"wants $n operands and the stack holds $top")
 
     for i in 0..<n
-        c.args.set(i, v.stack.at(top - n + i))
+        c.args[i] = v.stack[top - n + i]
 
     v.stack.truncate(top - n)
     Ok(())
@@ -269,11 +269,11 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             pop(v)?
             Ok(Next)
         PushConst(k) ->
-            val consts = v.chunks.at(v.code).consts
+            val consts = v.chunks[v.code].consts
 
             if k >= consts.len() then return Err(Broken(s"constant $k of a chunk with ${consts.len()}"))
 
-            v.stack.push(consts.at(k))
+            v.stack.push(consts[k])
             Ok(Next)
         PushNil ->
             v.stack.push(Nil)
@@ -342,7 +342,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             val args = v.frame.args
 
             for i in 0..<args.len()
-                v.stack.push(args.at(i))
+                v.stack.push(args[i])
 
             Ok(Next)
         GetVar(slot, src) -> Ok(fails_if(get_var(v, slot, src)?))
@@ -360,7 +360,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
             if n > top then return Err(Broken(s"wants $n operands and the stack holds $top"))
 
             for i in 0..<n
-                t.items.set(i, v.stack.at(top - n + i))
+                t.items[i] = v.stack[top - n + i]
 
             v.stack.truncate(top - n)
             v.stack.push(Tuple(t))
@@ -384,7 +384,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             if top == 0 then return Err(Broken("the operand stack is empty"))
 
-            deref(v.stack.at(top - 1)) match
+            deref(v.stack[top - 1]) match
                 Atom(id) -> Ok(fails_if(id != FalseAtom))
                 _ -> Ok(Next)
         Dup ->
@@ -392,14 +392,14 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             if top == 0 then return Err(Broken("the operand stack is empty"))
 
-            v.stack.push(v.stack.at(top - 1))
+            v.stack.push(v.stack[top - 1])
             Ok(Next)
         LoadArg(i) ->
             val args = v.frame.args
 
             if i >= args.len() then return Err(Broken(s"argument $i of a call that passed ${args.len()}"))
 
-            v.stack.push(args.at(i))
+            v.stack.push(args[i])
             Ok(Next)
         StoreSlot(slot) ->
             val x = pop(v)?
@@ -418,7 +418,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         CallValue(argc) ->
             Ok(fails_if(call_value(v, argc, false)?))
         KeepTop(file) ->
-            v.funl_tops.set(file, v.frame)
+            v.funl_tops[file] = v.frame
             Ok(Next)
         TailCallValue(argc) ->
             Ok(fails_if(call_value(v, argc, true)?))
@@ -507,7 +507,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             if top == 0 then return Err(Broken("the operand stack is empty"))
 
-            val undefined = deref(v.stack.at(top - 1)) match
+            val undefined = deref(v.stack[top - 1]) match
                 Undefined -> true
                 _ -> false
 
@@ -517,7 +517,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
 
             if top == 0 then return Err(Broken("the operand stack is empty"))
 
-            Ok(fails_if(of_type(v, v.stack.at(top - 1), t)))
+            Ok(fails_if(of_type(v, v.stack[top - 1], t)))
         Field(name) ->
             val x = pop(v)?
 
@@ -706,7 +706,7 @@ private execute(v: *Vm, op: Op) -> Result[Flow, Fault]
         Consult ->
             consult(v)?
             Ok(Next)
-        NoProcedure -> no_procedure(v.chunks.at(v.code).name) match
+        NoProcedure -> no_procedure(v.chunks[v.code].name) match
             Some(f) -> Err(f)
             None -> Ok(Fails)
         TryDynamic(p) -> Ok(fails_if(try_dynamic(v, p)?))
@@ -786,7 +786,7 @@ private push_parts(v: *Vm, parts: Buf[Value])
 
     while i > 0
         i -= 1
-        v.stack.push(parts.at(i))
+        v.stack.push(parts[i])
 
 // `TestEq` and `TestNe`: pop `b` and `a`, and push `b` when their equality is `want`.
 private compare(v: *Vm, want: bool, op: string) -> Result[Flow, Fault]
@@ -807,7 +807,7 @@ private passed(v: *Vm, argc: usize) -> usize = if argc == Variadic then v.frame.
 private native_called(v: *Vm, id: usize, argc: usize, extra: usize) -> Result[Native, string]
     if id >= v.natives.len() then return Err(s"builtin $id is not registered")
 
-    val n = v.natives.at(id)
+    val n = v.natives[id]
     val top = v.stack.len()
 
     if !takes_count(n, argc) then return Err(s"'${n.name}' takes ${takes_text(n)} and was given $argc")
@@ -839,10 +839,10 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
                     var i = top
 
                     while i > base
-                        v.stack.set(i, v.stack.at(i - 1))
+                        v.stack[i] = v.stack[i - 1]
                         i -= 1
 
-                    v.stack.set(base, f)
+                    v.stack[base] = f
                     return Ok(fails_if(call_value(v, argc, false)?))
         Calling(_, slots, _) ->
             val driver = driver_chunk(id)?
@@ -863,7 +863,7 @@ private call_native(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
 // result comes back to `CallbackReturns` with its choice points still to discard, and its failure
 // resumes at `CallbackMissed` with the frame's operands as they were.
 private callback_turn(v: *Vm, id: usize, failed: bool) -> Result[Flow, Fault]
-    val n = v.natives.at(id)
+    val n = v.natives[id]
 
     val go = n.how match
         Calling(g, _, _) -> g
@@ -905,7 +905,7 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
         Stepping(start, step) -> return Ok(fails_if(call_stepping(v, s"'${n.name}'", start, step, top - 1 - argc, argc, top - 1)?))
         _ -> return Err(Broken(s"'${n.name}' is not run by `NativeGen`"))
 
-    val cursor = v.stack.at(top - 1) match
+    val cursor = v.stack[top - 1] match
         Int(k) -> k
         _ -> return Err(Broken(s"'${n.name}' was run without a cursor above its arguments"))
 
@@ -917,7 +917,7 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
     var pairs: Buf[Value] = buf()
 
     for i in top..<v.stack.len()
-        pairs.push(v.stack.at(i))
+        pairs.push(v.stack[i])
 
     v.stack.truncate(top)
 
@@ -928,7 +928,7 @@ private call_generator(v: *Vm, id: usize, argc: usize) -> Result[Flow, Fault]
             Ok(if unified_pairs(pairs) then Next else Fails)
         Refuses -> Ok(Fails)
         GivesMore(x, next) ->
-            v.stack.set(top - 1, Int(next))
+            v.stack[top - 1] = Int(next)
             push_choice(v, v.ip - 1)
             v.stack.truncate(base)
             v.stack.push(x)
@@ -939,7 +939,7 @@ private unified_pairs(pairs: Buf[Value]) -> bool
     var i: usize = 0
 
     while i + 1 < pairs.len()
-        if !unify(pairs.at(i), pairs.at(i + 1)) then return false
+        if !unify(pairs[i], pairs[i + 1]) then return false
 
         i += 2
 
