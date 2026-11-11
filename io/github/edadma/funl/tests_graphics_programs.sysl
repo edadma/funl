@@ -7,92 +7,98 @@ module io.github.edadma.funl
 // by the pixels it leaves and the events it consumes, and by how it ends when its input is missing.
 
 // The sketcher: a press starts a stroke, a drag or release extends it to the pointer, and the loop ends
-// when the queue is empty.
+// when the queue is empty. `w.pending()` fails on an empty queue, so it is the loop's test as it is; a
+// pixel is read as a 1-by-1 rectangle, because `w.pixel(x, y)` alone generates every pixel to the
+// canvas's edge and a comparison with it would succeed on any of them.
 private const Sketcher: string =
     "import { open } from funl:graphics\n" +
     "w = open( \"sketch\", {canvas: #hidden, size: (40, 30)} )\n" +
     "def sketch( w ) =\n" +
-    "  lx = 0\n" +
-    "  ly = 0\n" +
-    "  n = 0\n" +
-    "  while w.pending() > 0 do\n" +
-    "    e = w.event()\n" +
-    "    if e == #lpress then\n" +
+    "  var lx = 0\n" +
+    "  var ly = 0\n" +
+    "  var n = 0\n" +
+    "  while w.pending()\n" +
+    "    val e = w.event()\n" +
+    "    if e == #lpress\n" +
     "      lx = &x\n" +
     "      ly = &y\n" +
-    "    else if e == #ldrag or e == #lrelease then\n" +
+    "    elif e == #ldrag or e == #lrelease\n" +
     "      w.draw_line( lx, ly, &x, &y )\n" +
     "      lx = &x\n" +
     "      ly = &y\n" +
     "      n += 1\n" +
     "  n\n" +
-    "def ink( w, x, y ) = if w.pixel( x, y ) == \"0,0,0\" then #ink else #blank\n"
+    "def ink( w, x, y ) = if w.pixel( x, y, 1, 1 ) == \"0,0,0\" then #ink else #blank\n"
 
 @test
 THE_SKETCHER_DRAWS_EACH_STROKE_FROM_ITS_PRESS_AND_NEVER_JOINS_TWO()
     assert_eq(ran_funl(Sketcher +
             "w.enqueue( #lpress, 2, 2 )\nw.enqueue( #ldrag, 8, 2 )\nw.enqueue( #ldrag, 8, 6 )\nw.enqueue( #lrelease, 8, 6 )\n" +
             "w.enqueue( #lpress, 20, 20 )\nw.enqueue( #ldrag, 30, 20 )\nw.enqueue( #lrelease, 30, 20 )\n" +
-            "write( sketch(w), w.pending() )\n" +
+            "write( sketch(w), w.pending() | #empty )\n" +
             "write( ink(w, 2, 2), ink(w, 5, 2), ink(w, 8, 2), ink(w, 8, 4), ink(w, 8, 6) )\n" +
             "write( ink(w, 20, 20), ink(w, 25, 20), ink(w, 30, 20) )\n" +
             "write( ink(w, 14, 13), ink(w, 8, 12), ink(w, 20, 6), ink(w, 5, 10), ink(w, 25, 22) )\n"),
-        "5, 0\nink, ink, ink, ink, ink\nink, ink, ink\nblank, blank, blank, blank, blank\nsucceeded")
+        "5, empty\nink, ink, ink, ink, ink\nink, ink, ink\nblank, blank, blank, blank, blank\nsucceeded")
 
+// A hidden canvas cannot be sent an event while its program waits, so `event()` on its empty queue
+// faults rather than wait for ever; the sketcher never reaches that, because `pending()` ends its loop.
 @test
 THE_SKETCHER_DRAWS_NOTHING_FROM_A_DRAG_WITH_NO_PRESS_BEHIND_IT_AND_STOPS_ON_AN_EMPTY_QUEUE()
     assert_eq(ran_funl(Sketcher +
-            "write( w.event() | #empty )\n" +
+            "write( w.event() catch error(e, _) -> e )\n" +
             "w.enqueue( #lpress, 4, 4 )\nw.enqueue( #rdrag, 20, 20 )\nw.enqueue( #move, 25, 25 )\nw.enqueue( #lrelease, 4, 4 )\n" +
-            "write( sketch(w), w.pending() )\n" +
+            "write( sketch(w), w.pending() | #empty )\n" +
             "write( ink(w, 4, 4), ink(w, 12, 12), ink(w, 20, 20) )\n" +
-            "write( sketch(w), w.event() | #empty )\n"),
-        "empty\n1, 0\nink, blank, blank\n0, empty\nsucceeded")
+            "write( sketch(w), w.pending() | #empty, w.event() catch error(e, _) -> e )\n"),
+        "system_error\n1, empty\nink, blank, blank\n0, empty, system_error\nsucceeded")
 
-// The annotator: reads the picture at `f`, rings and labels it, and writes it to `g`.
+// The annotator: reads the picture at `f`, rings and labels it, and writes it to `g`. A statement that
+// fails moves on to the next, so a picture that cannot be read fails the call with `return fail`, and
+// the call's value is the canvas only when the write succeeded.
 private const Annotator: string =
     "import { open } from funl:graphics\n" +
     "def annotate( f, g ) =\n" +
-    "  v = open( \"v\", {canvas: #hidden, size: (40, 30), bg: \"white\"} )\n" +
-    "  v.read_image( f, 0, 0 )\n" +
+    "  val v = open( \"v\", {canvas: #hidden, size: (40, 30), bg: \"white\"} )\n" +
+    "  if not v.read_image( f, 0, 0 ) then return fail\n" +
     "  v.set( {fg: \"blue\"} ).draw_rectangle( 0, 4, 20, 8 )\n" +
     "  v.set( {fg: \"black\"} ).draw_string( 2, 26, \"Hi\" )\n" +
-    "  v.write_image( g )\n" +
-    "  v\n"
+    "  v.write_image( g ) & v\n"
 
 @test
 THE_ANNOTATOR_KEEPS_THE_PICTURES_PIXELS_AND_ADDS_ITS_RECTANGLE_AND_TEXT()
     val d = scratch()
     defer scrap(d)
 
-    assert_eq(ran_funl("import { open } from funl:graphics\n" + Annotator + s"val d = \"$d\"\n" +
+    assert_eq(ran_funl(Annotator + s"val d = \"$d\"\n" +
             "p = open( \"p\", {canvas: #hidden, size: (4, 3)} )\np.draw_image( 0, 0, '4,c1,AJFD00066666' )\n" +
             "write( p.write_image(d + '/base.png') )\n" +
             "v = annotate( d + '/base.png', d + '/out.png' )\n" +
             "u = open( \"u\", {canvas: #hidden, image: d + '/out.png'} )\n" +
             "write( u.get(\"width\"), u.get(\"height\") )\n" +
-            "write( [q | q <- u.pixel(0, 0, 4, 3)] == [q | q <- p.pixel(0, 0, 4, 3)] )\n" +
+            "write( if [q | q <- u.pixel(0, 0, 4, 3)] == [q | q <- p.pixel(0, 0, 4, 3)] then #same else #different )\n" +
             "write( [q | q <- u.pixel(0, 0, 4, 3)] )\n" +
             "write( u.pixel(0, 4), u.pixel(20, 4), u.pixel(0, 12), u.pixel(20, 12), u.pixel(10, 4), u.pixel(10, 8) )\n" +
-            "write( if [q | q <- u.pixel(0, 14, 30, 14), not (q == \"65535,65535,65535\")].length > 0 then #text else #none )\n" +
-            "write( [q | q <- u.pixel(0, 13, 40, 1)] == [q | q <- v.pixel(0, 13, 40, 1)], u.pixel(39, 29), u.pixel(25, 8) )\n"),
-        "<window handle>\n40, 30\ntrue\n" +
+            "write( if [q | q <- u.pixel(0, 14, 30, 14) if q != \"65535,65535,65535\"].length > 0 then #text else #none )\n" +
+            "write( if [q | q <- u.pixel(0, 13, 40, 1)] == [q | q <- v.pixel(0, 13, 40, 1)] then #same else #different, u.pixel(39, 29), u.pixel(25, 8) )\n"),
+        "<window handle>\n40, 30\nsame\n" +
         "[\"65535,0,0\", \"0,0,65535\", \"0,65535,0\", \"65535,65535,0\", \"0,0,0\", \"0,0,0\", \"0,0,0\", \"65535,65535,65535\", " +
         "\"65535,65535,65535\", \"65535,65535,65535\", \"65535,65535,65535\", \"65535,65535,65535\"]\n" +
         "0,0,65535, 0,0,65535, 0,0,65535, 0,0,65535, 0,0,65535, 65535,65535,65535\ntext\n" +
-        "true, 65535,65535,65535, 65535,65535,65535\nsucceeded")
+        "same, 65535,65535,65535, 65535,65535,65535\nsucceeded")
 
 @test
 THE_ANNOTATOR_FAILS_ON_A_MISSING_OR_NON_IMAGE_FILE_AND_WRITES_NOTHING()
     val d = scratch()
     defer scrap(d)
 
-    assert_eq(ran_funl("import { open } from funl:graphics\nimport { write_file, exists } from funl:fs\n" + Annotator + s"val d = \"$d\"\n" +
+    assert_eq(ran_funl("import { write_file, exists } from funl:fs\n" + Annotator + s"val d = \"$d\"\n" +
             "write( annotate(d + '/nowhere.png', d + '/out.png') | #failed )\n" +
-            "write( exists(d + '/out.png') )\n" +
+            "write( exists(d + '/out.png') | #absent )\n" +
             "write_file( d + '/note.txt', 'not an image' )\n" +
             "write( annotate(d + '/note.txt', d + '/out.png') | #failed )\n" +
+            "write( exists(d + '/out.png') | #absent )\n" +
             "v = open( \"v\", {canvas: #hidden, size: (4, 3)} )\n" +
             "write( v.write_image(d + '/none/x.png') | #failed, v.read_image(d + '/nowhere.png') | #failed )\n" +
             "write( v.pixel(0, 0) )\n"),
-        "failed\nfalse\nfailed\nfailed, failed\n65535,65535,65535\nsucceeded")
+        "failed\nabsent\nfailed\nabsent\nfailed, failed\n65535,65535,65535\nsucceeded")
