@@ -77,7 +77,7 @@ EVERY_NAME_A_BUILT_IN_MODULE_EXPORTS_IS_A_REGISTERED_NATIVE()
 
         for x in xs.view()
             x.kind match
-                ExNative(id) -> assert_eq(current().natives.at(id).name, s"${p.name}.${x.name}")
+                ExNative(id) -> assert_eq(current().natives[id].name, s"${p.name}.${x.name}")
                 _ -> assert(false, s"funl:${p.name} exports `${x.name}`, which is not a native")
 
     dispose_vm(&v)

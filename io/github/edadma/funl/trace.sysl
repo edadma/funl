@@ -57,23 +57,23 @@ install_tracing(v: *Vm)
 // from the instruction `starts` placed it at.
 name_function(e: *Emit, res: *Resolved, r: Rel, starts: Buf[usize])
     e.file = res.src.name
-    e.line = if r.clauses.len() > 0 then long(res.src.locate(r.clauses.at(0).head.start).line) else 0
+    e.line = if r.clauses.len() > 0 then long(res.src.locate(r.clauses[0].head.start).line) else 0
     e.traced = true
 
     for i in 0..<r.clauses.len()
-        e.clauses.push(ClauseNames(e.labels.at(starts.at(i)), slot_names(res.scopes.at(r.scopes.at(i)))))
+        e.clauses.push(ClauseNames(e.labels[starts[i]], slot_names(res.scopes[r.scopes[i]])))
 
 // Name the file and line relation `r` was written at, so its line table can be read as places: a
 // relation keeps no slot names and is not traced.
 name_relation(e: *Emit, res: *Resolved, r: Rel)
     e.file = res.src.name
-    e.line = if r.clauses.len() > 0 then long(res.src.locate(r.clauses.at(0).head.start).line) else 0
+    e.line = if r.clauses.len() > 0 then long(res.src.locate(r.clauses[0].head.start).line) else 0
 
 // Fill a top level's name table: one clause, from the first instruction.
 name_top_level(e: *Emit, res: *Resolved)
     e.file = res.src.name
     e.line = 1
-    e.clauses.push(ClauseNames(0, slot_names(res.scopes.at(res.top))))
+    e.clauses.push(ClauseNames(0, slot_names(res.scopes[res.top])))
 
 // -- the line table ----------------------------------------------------------------------------------
 
@@ -81,11 +81,11 @@ name_top_level(e: *Emit, res: *Resolved)
 // by binary search; the line the chunk was written at where no mark reaches it, as for the dispatch
 // on a function's clauses ahead of the first. 0 for a chunk with no source.
 line_at(v: *Vm, code: usize, ip: usize) -> long
-    val c = v.chunks.at(code)
+    val c = v.chunks[code]
 
     if code >= v.chunk_lines.len() then return c.line
 
-    val marks = v.chunk_lines.at(code)
+    val marks = v.chunk_lines[code]
     var lo: usize = 0
     var hi = marks.len()
 
@@ -93,16 +93,16 @@ line_at(v: *Vm, code: usize, ip: usize) -> long
     while lo < hi
         val mid = lo + (hi - lo) / 2
 
-        if usize(marks.at(mid).start) <= ip then lo = mid + 1 else hi = mid
+        if usize(marks[mid].start) <= ip then lo = mid + 1 else hi = mid
 
-    if lo == 0 then c.line else long(marks.at(lo - 1).line)
+    if lo == 0 then c.line else long(marks[lo - 1].line)
 
 // `file:line` of instruction `ip` of chunk `code`, or None for a chunk with no source file -- a
 // Prolog clause's, a builtin's.
 place_of(v: *Vm, code: usize, ip: usize) -> Option[string]
     if code >= v.chunks.len() then return None
 
-    val c = v.chunks.at(code)
+    val c = v.chunks[code]
 
     if c.file == "" then return None
 
@@ -112,7 +112,7 @@ place_of(v: *Vm, code: usize, ip: usize) -> Option[string]
 // of instruction `at` of chunk `code`, `f at test.funl:4`; the function and the instruction's index,
 // `f@12`, for a chunk with no source.
 fault_place(v: *Vm, code: usize, at: usize) -> string
-    val name = if code < v.chunks.len() then v.chunks.at(code).name else "?"
+    val name = if code < v.chunks.len() then v.chunks[code].name else "?"
 
     place_of(v, code, at) match
         Some(p) -> s"$name at $p"
@@ -178,12 +178,12 @@ display_text(v: *Vm) -> string
 
     // A frame with no name table -- a builtin's own, entered through its function value -- is passed
     // over for the function that called it.
-    while f != null && v.chunks.at(f.chunk).clauses.len() == 0
+    while f != null && v.chunks[f.chunk].clauses.len() == 0
         ip = f.return_ip
         f = f.caller
 
     if f != null && f != v.globals
-        b.push(s"${v.chunks.at(f.chunk).name} local identifiers:\n")
+        b.push(s"${v.chunks[f.chunk].name} local identifiers:\n")
         frame_names(&b, v, f, ip)
         b.push("\n")
 
@@ -196,7 +196,7 @@ display_text(v: *Vm) -> string
 // `f`'s named slots, one line each, as the clause instruction `ip` (just past it) lies in names them.
 // A hidden slot -- one the compiler made, whose name begins with `$` -- is left out.
 private frame_names(b: *StrBuilder, v: *Vm, f: *FrameObj, ip: usize)
-    val c = v.chunks.at(f.chunk)
+    val c = v.chunks[f.chunk]
 
     if c.clauses.len() == 0 then return
 
@@ -204,16 +204,16 @@ private frame_names(b: *StrBuilder, v: *Vm, f: *FrameObj, ip: usize)
     var k: usize = 0
 
     for i in 0..<c.clauses.len()
-        if c.clauses.at(i).start <= at then k = i
+        if c.clauses[i].start <= at then k = i
 
-    val names = c.clauses.at(k).names
+    val names = c.clauses[k].names
 
     for s in 0..<names.len()
-        val n = names.at(s)
+        val n = names[s]
 
         if n.starts_with("$") then continue
 
-        val x = if s < f.slots.len() then f.slots.at(s) else Undefined
+        val x = if s < f.slots.len() then f.slots[s] else Undefined
 
         b.push(s"   $n = ${image_of(x)}\n")
 
@@ -237,7 +237,7 @@ frame_level(f: *FrameObj) -> long
 
     n
 
-private traced(v: *Vm, f: *FrameObj) -> bool = f != null && v.chunks.at(f.chunk).traced
+private traced(v: *Vm, f: *FrameObj) -> bool = f != null && v.chunks[f.chunk].traced
 
 // One trace line about frame `f`, counted down, while `&trace` is not zero, placed at instruction
 // `ip` of chunk `code`. Where that chunk has no source -- a Prolog clause called the function -- the
@@ -251,7 +251,7 @@ private trace_line(v: *Vm, f: *FrameObj, code: usize, ip: usize, event: string)
     place_of(v, code, ip) match
         Some(p) -> b.push(s"$p ")
         None ->
-            val c = v.chunks.at(f.chunk)
+            val c = v.chunks[f.chunk]
 
             b.push(s"${c.file}:${c.line} ")
 
@@ -276,16 +276,16 @@ trace_call(v: *Vm, f: *FrameObj, code: usize, ip: usize)
     for i in 0..<f.args.len()
         if i > 0 then b.push(", ")
 
-        b.push(image_of(f.args.at(i)))
+        b.push(image_of(f.args[i]))
 
-    trace_line(v, f, code, ip, s"${v.chunks.at(f.chunk).name}(${b.finish()})")
+    trace_line(v, f, code, ip, s"${v.chunks[f.chunk].name}(${b.finish()})")
 
 // Frame `f` is returning `value`, resumable afterwards when `suspends`, from the instruction just run:
 // the line names the `return` or `yield`, or the expression whose value is returned.
 trace_return(v: *Vm, f: *FrameObj, value: Value, suspends: bool)
     if !traced(v, f) then return
 
-    trace_line(v, f, v.code, before_ip(v.ip), s"${v.chunks.at(f.chunk).name} ${if suspends then "suspended" else "returned"} ${image_of(value)}")
+    trace_line(v, f, v.code, before_ip(v.ip), s"${v.chunks[f.chunk].name} ${if suspends then "suspended" else "returned"} ${image_of(value)}")
 
 // The instruction before `ip`: the one just run, when `ip` is where the machine goes next.
 before_ip(ip: usize) -> usize = if ip > 0 then ip - 1 else 0
@@ -307,7 +307,7 @@ trace_moved(v: *Vm, before: *FrameObj, code: usize, ip: usize, after: *FrameObj)
         var at_ip = ip
 
         while f != null && f != after
-            if traced(v, f) then trace_line(v, f, at_code, at_ip, s"${v.chunks.at(f.chunk).name} failed")
+            if traced(v, f) then trace_line(v, f, at_code, at_ip, s"${v.chunks[f.chunk].name} failed")
 
             if f.caller != null
                 at_code = f.caller.chunk
@@ -331,14 +331,14 @@ trace_moved(v: *Vm, before: *FrameObj, code: usize, ip: usize, after: *FrameObj)
     while i > 0
         i -= 1
 
-        val r = resumed.at(i)
+        val r = resumed[i]
 
         if !traced(v, r) then continue
 
         if r.caller == before || r.caller == null
-            trace_line(v, r, code, ip, s"${v.chunks.at(r.chunk).name} resumed")
+            trace_line(v, r, code, ip, s"${v.chunks[r.chunk].name} resumed")
         else
-            trace_line(v, r, r.caller.chunk, before_ip(r.return_ip), s"${v.chunks.at(r.chunk).name} resumed")
+            trace_line(v, r, r.caller.chunk, before_ip(r.return_ip), s"${v.chunks[r.chunk].name} resumed")
 
 // Whether `target` is `from` or a frame `from` will return to; `null` is beneath every frame.
 private on_chain(target: *FrameObj, from: *FrameObj) -> bool

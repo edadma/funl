@@ -96,7 +96,7 @@ private read_options(options: Value, who: string) -> Result[Buf[(string, Value)]
                 val n = atom_name(f)
 
                 if args.len() == 1 && (n == "variable_names" || n == "variables" || n == "singletons")
-                    out.push((n, args.at(0)))
+                    out.push((n, args[0]))
                     continue
             None -> ()
 
@@ -146,14 +146,14 @@ private named_variables(c: ReadClause, vars: *Buf[Value], singletons: bool) -> R
     var items: Buf[Value] = buf()
 
     for i in 0..<c.names.len()
-        val name = c.names.at(i)
+        val name = c.names[i]
 
-        if name == "_" || (singletons && counts.at(i) != 1) then continue
+        if name == "_" || (singletons && counts[i] != 1) then continue
 
         var args: Buf[Value] = buf()
 
         args.push(atom(name))
-        args.push(vars.at(i))
+        args.push(vars[i])
         items.push(build_compound(intern("="), args)?)
 
     Ok(list_of(&items, Nil)?)
@@ -161,7 +161,7 @@ private named_variables(c: ReadClause, vars: *Buf[Value], singletons: bool) -> R
 // How many times each variable of `t` is written.
 private count_uses(t: &Term, counts: *Buf[usize])
     t.kind match
-        TVar(n) -> counts.set(n, counts.at(n) + 1)
+        TVar(n) -> counts[n] += 1
         TCons(h, tl) ->
             count_uses(h, counts)
             count_uses(tl, counts)

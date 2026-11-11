@@ -120,8 +120,8 @@ request_of(base: usize, argc: usize) -> Result[Request, Fault]
         _ -> return Err(type_error("map", o, s"'fetch' wants its options as a map, and was given ${described(o)}"))
 
     for i in 0..<m.keys.len()
-        val k = deref(m.keys.at(i))
-        val x = deref(m.vals.at(i))
+        val k = deref(m.keys[i])
+        val x = deref(m.vals[i])
 
         val key = k match
             Str(p) -> p.s
@@ -186,8 +186,8 @@ private header_lines(x: Value) -> Result[Buf[string], Fault]
     var out: Buf[string] = buf()
 
     for i in 0..<m.keys.len()
-        val k = deref(m.keys.at(i))
-        val v = deref(m.vals.at(i))
+        val k = deref(m.keys[i])
+        val v = deref(m.vals[i])
 
         val name = k match
             Str(p) -> p.s
@@ -233,8 +233,8 @@ private header_map(hs: []const Header) -> Result[*MapObj, Fault]
         var found = false
 
         for i in 0..<names.len()
-            if names.at(i) == name
-                values.set(i, values.at(i) + ", " + h.value)
+            if names[i] == name
+                values[i] = values[i] + ", " + h.value
                 found = true
 
         if !found
@@ -244,7 +244,7 @@ private header_map(hs: []const Header) -> Result[*MapObj, Fault]
     val out = new_map()?
 
     for i in 0..<names.len()
-        map_put(out, new_str(names.at(i))?, new_str(values.at(i))?)?
+        map_put(out, new_str(names[i])?, new_str(values[i])?)?
 
     if cookies.len() > 0
         var items: Buf[Value] = buf()

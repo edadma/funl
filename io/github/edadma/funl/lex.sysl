@@ -187,7 +187,7 @@ lex_with(src: Source, report: *Report, pre: *Pre, file: usize) -> Tokens[Tok]
 
             // A name `$define` gave text is replaced by that text's tokens.
             if pre.on && out.len() == before + 1
-                out.items.at(before).value match
+                out.items[before].value match
                     Name(w) ->
                         if is_defined(pre, w)
                             to_program(&out, native_from, copied, resume)
@@ -228,9 +228,9 @@ private to_program(out: *Tokens[Tok], from: usize, copied: usize, resume: usize)
     if copied == resume then return
 
     for i in from..<out.len()
-        val t = out.items.at(i)
+        val t = out.items[i]
 
-        out.items.set(i, Spanned(t.value, Span(t.span.start + resume - copied, t.span.end + resume - copied)))
+        out.items[i] = Spanned(t.value, Span(t.span.start + resume - copied, t.span.end + resume - copied))
 
 // The tokens on the rest of the line `s` is on, up to its end or a comment, which is left unread:
 // what a directive is given. Each token's span is an offset into `src`.
@@ -306,7 +306,7 @@ private ends_line(s: *Scanner) -> bool
 private leaves_line_open(out: *Tokens[Tok]) -> Option[Spanned[Tok]]
     if out.len() == 0 then return None
 
-    val last = out.items.at(out.len() - 1)
+    val last = out.items[out.len() - 1]
 
     if !continues_line(last.value) then return None
 
@@ -321,13 +321,13 @@ private is_end_until(out: *Tokens[Tok]) -> bool
 
     if n < 2 then return false
 
-    val is_until = out.items.at(n - 1).value match
+    val is_until = out.items[n - 1].value match
         Until -> true
         _ -> false
 
     if !is_until then return false
 
-    val is_end = out.items.at(n - 2).value match
+    val is_end = out.items[n - 2].value match
         Name(w) -> w == "end"
         _ -> false
 
@@ -335,7 +335,7 @@ private is_end_until(out: *Tokens[Tok]) -> bool
 
     if n == 2 then return true
 
-    out.items.at(n - 3).value match
+    out.items[n - 3].value match
         Newline -> true
         Indent -> true
         Dedent -> true
@@ -389,8 +389,8 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         val sp = s.read_ident(is_ident_start, is_ident_cont).unwrap()
         val word = from_utf8_unchecked(src.text(sp))
 
-        if out.len() > 0 && ends_operand(out.items.at(out.len() - 1).value)
-            val left = out.items.at(out.len() - 1).value match
+        if out.len() > 0 && ends_operand(out.items[out.len() - 1].value)
+            val left = out.items[out.len() - 1].value match
                 Name(n) -> n
                 _ -> "a"
 
@@ -431,7 +431,7 @@ private one_token(s: *Scanner, src: Source, lay: *Layout, out: *Tokens[Tok], rep
         read_interpolated_named(s, c, "${".bytes, u8('}'), is_ident_start, is_ident_cont) match
             Ok(parts) ->
                 if parts.holes.len() == 0
-                    out.push(StrLit(parts.chunks.at(0)), Span(start, s.at))
+                    out.push(StrLit(parts.chunks[0]), Span(start, s.at))
                 else
                     out.push(InterpLit, Span(start, s.at))
             Err(e) ->

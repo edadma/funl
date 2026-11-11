@@ -125,7 +125,7 @@ private pages_in(dir: string, out: *Buf[string])
     sort_by(names.view(), (a, b) -> a < b)
 
     for i in 0..<names.len()
-        val page = s"$dir/${names.at(i)}"
+        val page = s"$dir/${names[i]}"
 
         if page.ends_with(".md") && page_runs_here(page) then out.push(page)
 
@@ -202,7 +202,7 @@ private blocks_of_text(page: string, text: string) -> Buf[Block]
     var out: Buf[Block] = buf()
 
     for i in 0..<fences.len()
-        val f = fences.at(i)
+        val f = fences[i]
 
         if is_program(f.lang)
             out.push(Block(page, f.lang, f.line, file_of(page, f), f.body, claim_after(fences, i + 1)))
@@ -224,7 +224,7 @@ private claim_after(fences: Buf[Fence], from: usize) -> Claim
     var warning = ""
 
     for i in from..<fences.len()
-        val f = fences.at(i)
+        val f = fences[i]
 
         if is_program(f.lang) then break
 
@@ -405,7 +405,7 @@ private check_page(page: string) -> string
     var b = str_builder()
 
     for i in 0..<blocks.len()
-        val said = check_block(blocks.at(i))
+        val said = check_block(blocks[i])
 
         if said != ""
             b.push(said)
@@ -423,7 +423,7 @@ private census_line(page: string, blocks: Buf[Block]) -> string
     var warned: usize = 0
 
     for i in 0..<blocks.len()
-        blocks.at(i).claim match
+        blocks[i].claim match
             Prints(_, warning) ->
                 runnable += 1
                 if warning.trim() != "" then warned += 1
@@ -469,12 +469,12 @@ EVERY_PROGRAM_IN_THE_REFERENCE_RUNS_AND_PRINTS_WHAT_THE_PAGE_SAYS()
     var checked: usize = 0
 
     for i in 0..<pages.len()
-        complaints.push(check_page(pages.at(i)))
+        complaints.push(check_page(pages[i]))
 
-        val blocks = blocks_of(pages.at(i))
+        val blocks = blocks_of(pages[i])
 
         for j in 0..<blocks.len()
-            blocks.at(j).claim match
+            blocks[j].claim match
                 Quoted -> ()
                 _ -> checked += 1
 
@@ -492,7 +492,7 @@ EVERY_PAGE_CARRIES_THE_BLOCKS_IT_IS_EXPECTED_TO()
     var b = str_builder()
 
     for i in 0..<pages.len()
-        b.push(census_line(pages.at(i), blocks_of(pages.at(i))))
+        b.push(census_line(pages[i], blocks_of(pages[i])))
         b.push("\n")
 
     assert_eq(b.finish(), DocBlockCensus)
@@ -624,7 +624,7 @@ A_LITERATE_BLOCK_RUNS_AS_A_DOCUMENT_AND_ITS_INNER_FENCE_IS_ITS_OWN()
     val blocks = blocks_of_text("page.md", text)
 
     assert_eq(census_line("page.md", blocks), "page.md 1 0 0 0")
-    assert_eq(blocks.at(0).file, "document.lfunl")
+    assert_eq(blocks[0].file, "document.lfunl")
     assert_eq(complaints_about(text), "")
 
 @test
@@ -668,7 +668,7 @@ A_CLAIM_BELONGS_TO_THE_PROGRAM_BEFORE_IT_AND_NEVER_TO_AN_EARLIER_ONE()
     val blocks = blocks_of_text("page.md", text)
 
     assert_eq(census_line("page.md", blocks), "page.md 1 0 1 0")
-    assert_eq(blocks.at(1).line, 5)
+    assert_eq(blocks[1].line, 5)
 
 // A program that compiles with a singleton warning, then prints `ran`.
 private val Warning: string = "```funl\ndef p(#a)\ndef q(x) :- p(y) & p(x)\nwrite( 'ran' )\n```\n\n"
@@ -751,8 +751,8 @@ A_PROGRAM_BLOCK_WHOSE_FENCE_NAMES_A_FILE_IS_COMPILED_AS_THAT_FILE_BESIDE_THE_PAG
 
     val blocks = blocks_of(page)
 
-    assert_eq(blocks.at(0).file, s"$d/proj/main.funl")
-    assert_eq(blocks.at(1).file, s"$d/proj/p.pl")
+    assert_eq(blocks[0].file, s"$d/proj/main.funl")
+    assert_eq(blocks[1].file, s"$d/proj/p.pl")
 
     // Without the name the import would be read beside the page, where there is no `lib.funl`.
     val plain = put(d, "plain.md", "```funl\nimport { answer } from \"lib.funl\"\nwrite( answer() )\n```\n\n```output\n42\n```\n")

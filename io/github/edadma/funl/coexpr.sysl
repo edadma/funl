@@ -172,8 +172,8 @@ activate(v: *Vm) -> Result[bool, Fault]
 
     if top < 2 then return Err(Broken("`Activate` wants a value and a co-expression, and the operand stack holds fewer"))
 
-    val o = coexpr_of(v.stack.at(top - 1), "`@`")?
-    val x = v.stack.at(top - 2)
+    val o = coexpr_of(v.stack[top - 1], "`@`")?
+    val x = v.stack[top - 2]
 
     v.stack.truncate(top - 2)
     activate_co(v, o, x)
@@ -244,12 +244,12 @@ co_over(v: *Vm) -> bool
 
     switch_co(v, me, handed_to(v, me))
     me.state = CoDone
-    release_machine(me.machine)
+    release_machine(&me.machine)
     me.machine = empty_machine()
     true
 
 // Give back the buffers of machine `m`, set aside and never to run again.
-release_machine(m: Machine)
+release_machine(m: *Machine)
     m.stack.release()
     m.control.release()
     m.saved.release()

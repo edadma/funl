@@ -331,30 +331,30 @@ private image_string(w: Win, codes: Buf[u32], x: long, y: long) -> bool
     var i: usize = 0
     val n = codes.len()
 
-    while i < n && codes.at(i) == u32(' ')
+    while i < n && codes[i] == u32(' ')
         i += 1
 
     var width: long = 0
 
-    while i < n && codes.at(i) >= u32('0') && codes.at(i) <= u32('9')
-        width = 10 * width + long(codes.at(i) - u32('0'))
+    while i < n && codes[i] >= u32('0') && codes[i] <= u32('9')
+        width = 10 * width + long(codes[i] - u32('0'))
         i += 1
 
         if width > 32767 then return false
 
-    while i < n && codes.at(i) == u32(' ')
+    while i < n && codes[i] == u32(' ')
         i += 1
 
-    if width == 0 || i >= n || codes.at(i) != u32(',') then return false
+    if width == 0 || i >= n || codes[i] != u32(',') then return false
 
     i += 1
 
-    while i < n && codes.at(i) == u32(' ')
+    while i < n && codes[i] == u32(' ')
         i += 1
 
     if i >= n then return false
 
-    val first = codes.at(i)
+    val first = codes[i]
 
     if first == u32('#') || first == u32('~') then return bi_level(w, codes, i + 1, width, first == u32('~'), x, y)
 
@@ -362,16 +362,16 @@ private image_string(w: Win, codes: Buf[u32], x: long, y: long) -> bool
 
     var number: long = 0
 
-    while i < n && codes.at(i) >= u32('0') && codes.at(i) <= u32('9')
-        number = 10 * number + long(codes.at(i) - u32('0'))
+    while i < n && codes[i] >= u32('0') && codes[i] <= u32('9')
+        number = 10 * number + long(codes[i] - u32('0'))
         i += 1
 
         if number > 1000 then return false
 
-    while i < n && codes.at(i) == u32(' ')
+    while i < n && codes[i] == u32(' ')
         i += 1
 
-    if i >= n || number == 0 || codes.at(i) != u32(',') then return false
+    if i >= n || number == 0 || codes[i] != u32(',') then return false
 
     val p = if first == u32('g') && number >= 2 && number <= 256
         -number
@@ -387,10 +387,10 @@ private bi_level(w: Win, codes: Buf[u32], from: usize, width: long, clear: bool,
     var digits: Buf[long] = buf()
 
     for i in from..<codes.len()
-        hex_value(codes.at(i)) match
+        hex_value(codes[i]) match
             Some(d) -> digits.push(d)
             None ->
-                if !is_punctuation(codes.at(i))
+                if !is_punctuation(codes[i])
                     digits.release()
                     return false
 
@@ -414,7 +414,7 @@ private bi_level(w: Win, codes: Buf[u32], from: usize, width: long, clear: bool,
             if tx < area.left || tx >= area.right || ty < area.top || ty >= area.bottom then continue
 
             // Pixel `px` is bit `px` of the row read as one number, the first digit the highest.
-            val d = digits.at(usize(r * row + row - 1 - px / 4))
+            val d = digits[usize(r * row + row - 1 - px / 4)]
             val on = ((d >> (px % 4)) & 1) == 1
 
             if on
@@ -439,9 +439,9 @@ private keyed(w: Win, codes: Buf[u32], from: usize, width: long, table: Buf[Opti
     var count: long = 0
 
     for i in from..<codes.len()
-        val k = codes.at(i)
+        val k = codes[i]
 
-        if k < 256 && table.at(usize(k)).is_some()
+        if k < 256 && table[usize(k)].is_some()
             count += 1
         else if k == u32('~') || k == 255
             count += 1
@@ -458,9 +458,9 @@ private keyed(w: Win, codes: Buf[u32], from: usize, width: long, table: Buf[Opti
     var at: long = 0
 
     for i in from..<codes.len()
-        val k = codes.at(i)
+        val k = codes[i]
 
-        val colour = if k < 256 then table.at(usize(k)) else None
+        val colour = if k < 256 then table[usize(k)] else None
 
         if colour.is_none() && k != u32('~') && k != 255 then continue
 
@@ -601,7 +601,7 @@ private palette_table(p: long) -> Buf[Option[Rgb]]
     var keys = palette_keys(p)
 
     for i in 0..<keys.len()
-        out.set(usize(keys.at(i)), Some(palette_entry(p, long(i))))
+        out[usize(keys[i])] = Some(palette_entry(p, long(i)))
 
     keys.release()
     out
@@ -621,7 +621,7 @@ private palette_char(p: long, i: long) -> u32
     if is_run(p) then return u32(i)
 
     var keys = palette_keys(p)
-    val k = keys.at(usize(i))
+    val k = keys[usize(i)]
 
     keys.release()
     k
@@ -634,7 +634,7 @@ private palette_index(p: long, k: u32) -> Option[long]
     var found: Option[long] = None
 
     for i in 0..<keys.len()
-        if keys.at(i) == k
+        if keys[i] == k
             found = Some(long(i))
             break
 
@@ -673,7 +673,7 @@ private nearest_key(p: long, c: Rgb) -> u32
     if p > 0 && c.r == c.g && c.g == c.b
         var grays = palette_gray_keys(p)
         val steps = if p == 1 then 6 else p * (p - 1)
-        val k = grays.at(usize(long(0.501 + real(steps) * (real(c.g) / 65535.0))))
+        val k = grays[usize(long(0.501 + real(steps) * (real(c.g) / 65535.0)))]
 
         grays.release()
         return k
@@ -700,7 +700,7 @@ private keys_text(codes: Buf[u32]) -> Result[Value, Fault]
     var out = str_builder()
 
     for i in 0..<codes.len()
-        out.push_char(char(codes.at(i)))
+        out.push_char(char(codes[i]))
 
     Ok(new_str(out.finish())?)
 

@@ -63,7 +63,7 @@ struct Walk
             None -> ()
 
         val up = self.sc.parent
-        val from = if up != NoScope && self.res.scopes.at(up).statics then pos else Anywhere
+        val from = if up != NoScope && self.res.scopes[up].statics then pos else Anywhere
         val m = self.res.meaning_above(up, self.sc.parent_block, from, 1, name)
 
         m match
@@ -97,12 +97,12 @@ private all_solutions(w: *Walk, n: string, at: Span, args: Buf[&Expr])
             .with_note(s"`$n( x, parent(#don, x) )` collects each `x` the goal gives"))
         return
 
-    walk(w, args.at(0))
+    walk(w, args[0])
 
     val was = w.goal
 
     w.goal = true
-    walk(w, args.at(1))
+    walk(w, args[1])
     w.goal = was
 
 // A statement's names.
@@ -121,7 +121,7 @@ walk_stmt(w: *Walk, s: Stmt)
 
                 // `s(i..j) = t` as a statement stores a new string in the variable `s`.
                 pat.kind match
-                    CallE(n, at, args) -> if is_section_key(args.at(0)) && stores_section(w.meaning(n, at.start)) then updated(w, n, pat.span.to(e.span))
+                    CallE(n, at, args) -> if is_section_key(args[0]) && stores_section(w.meaning(n, at.start)) then updated(w, n, pat.span.to(e.span))
                     _ -> ()
 
                 return
@@ -171,7 +171,7 @@ walk_stmt(w: *Walk, s: Stmt)
 
             if typ != ""
                 if w.res.imported_types.get(typ).is_some() && ctors.len() > 0
-                    w.report.add(error(ctors.at(0).at, s"the type `$typ` is imported, and this file cannot also declare it")
+                    w.report.add(error(ctors[0].at, s"the type `$typ` is imported, and this file cannot also declare it")
                         .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
                 else
                     w.res.own_types.put(typ, declare_data_type(ids))
@@ -196,22 +196,22 @@ walk_stmt(w: *Walk, s: Stmt)
                     return
                 None -> ()
 
-            var st = w.res.scopes.at(w.sc.parent)
+            var st = w.res.scopes[w.sc.parent]
 
             st.declare(w.sc.parent_block, n, at, from, false)
 
             if e.is_some() then st.declare(w.sc.parent_block, initial_flag(w.body), at, Anywhere, false)
 
-            w.res.scopes.set(w.sc.parent, st)
+            w.res.scopes[w.sc.parent] = st
         InitialS(x) ->
             walk(w, x)
 
             if !at_body_head(w, x.span, "initial") then return
 
-            var st = w.res.scopes.at(w.sc.parent)
+            var st = w.res.scopes[w.sc.parent]
 
             st.declare(w.sc.parent_block, initial_flag(w.body), x.span, Anywhere, false)
-            w.res.scopes.set(w.sc.parent, st)
+            w.res.scopes[w.sc.parent] = st
 
 // The hidden name of the "done" flag of the `static` initializers and `initial` statements of the
 // function body whose block is node `body`.
@@ -220,7 +220,7 @@ initial_flag(body: usize) -> string = "$initial #" + s"$body"
 // Whether a `static` or an `initial` written at `at` is at the head of a function's body: one of the
 // statements of the block that is the body, whose function has a statics scope. Refused otherwise.
 private at_body_head(w: *Walk, at: Span, word: string) -> bool
-    var head = w.body != NoScope && w.sc.parent != NoScope && w.res.scopes.at(w.sc.parent).statics
+    var head = w.body != NoScope && w.sc.parent != NoScope && w.res.scopes[w.sc.parent].statics
 
     if head
         head = w.res.blocks.get(w.body) match
@@ -391,18 +391,18 @@ private walk_entry_value(w: *Walk, k: &Expr, x: &Expr)
 // and each value a pattern. Two keys that are one constant are refused: no map has both.
 private declare_map(w: *Walk, keys: Buf[&Expr], vals: Buf[&Expr], from: usize, fixed: bool)
     for i in 0..<keys.len()
-        val k = keys.at(i)
+        val k = keys[i]
 
         if constant_key(k)
             for j in 0..<i
-                if same_constant_key(keys.at(j), k)
+                if same_constant_key(keys[j], k)
                     w.report.add(error(k.span, "this key is already in the map pattern")
                         .with_note("a map holds a key once, so a pattern names it once"))
                     break
         else
             walk(w, k)
 
-        declare_pattern(w, vals.at(i), from, fixed)
+        declare_pattern(w, vals[i], from, fixed)
 
 // Whether a map key is written as a constant, which a pattern compares without evaluating.
 constant_key(k: &Expr) -> bool = k.kind match
@@ -512,7 +512,7 @@ walk(w: *Walk, e: &Expr)
                 walk(w, x)
 
             for i in 0..<vals.len()
-                walk_entry_value(w, keys.at(i), vals.at(i))
+                walk_entry_value(w, keys[i], vals[i])
         SpreadE(x) ->
             w.report.add(error(e.span, "`..` spreads a call's arguments, `f(..xs)`, or gathers a function's last ones, `def f(a, ..rest)`")
                 .with_note("a list is joined to another with `+`: `xs + ys`"))
@@ -750,7 +750,7 @@ private called_not_used(w: *Walk, n: string, at: Span)
 // The atom a name is, where it means a constructor with no fields.
 nullary(m: Meaning) -> Option[u32] = m match
     Constructor(id) ->
-        val d = current().ctors.at(id)
+        val d = current().ctors[id]
 
         if d.fields.len() == 0 then Some(d.functor) else None
     _ -> None
@@ -856,10 +856,10 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
 
             return
         Function(r, _) ->
-            val n_params = w.res.rels.at(r).arity
+            val n_params = w.res.rels[r].arity
 
             // A variadic function takes every count from its fixed parameters up.
-            if w.res.rels.at(r).variadic
+            if w.res.rels[r].variadic
                 if argc + 1 < n_params
                     w.report.add(error(at, s"`$n` takes ${counts_phrase(buf(), n_params - 1)}, and this call gives $argc"))
 
@@ -869,12 +869,12 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
             if w.goal && argc == n_params + 1 then return
 
             n_params
-        Relation(r) -> w.res.rels.at(r).arity
+        Relation(r) -> w.res.rels[r].arity
         Builtin(id) ->
             // A constant is applied as its value is: the call indexes it, or calls it.
             if is_constant(id) then return
 
-            val nat = current().natives.at(id)
+            val nat = current().natives[id]
 
             if nat.least != nat.arity
                 if !takes_count(nat, argc)
@@ -890,7 +890,7 @@ private check_call(w: *Walk, m: Meaning, n: string, at: Span, argc: usize)
 
             return
         Constructor(id) ->
-            val fields = current().ctors.at(id).fields.len()
+            val fields = current().ctors[id].fields.len()
 
             if argc != fields && w.res.ctor_of(n, id, argc).is_none()
                 w.report.add(error(at, s"the constructor `$n` takes ${counted(fields, "field")}, and this call gives $argc"))
@@ -935,8 +935,8 @@ private global_names(r: *Resolved) -> Buf[string]
 //
 // A lambda is variadic as a `def` is, its last parameter `..rest`, and then every clause of it is.
 private queue_lambda(w: *Walk, id: usize, written: Buf[Clause], at: Span)
-    val arity = written.at(0).params.len()
-    val variadic = is_variadic_clause(written.at(0))
+    val arity = written[0].params.len()
+    val variadic = is_variadic_clause(written[0])
     var clauses: Buf[Clause] = buf()
 
     for c in written.view()
@@ -1133,11 +1133,11 @@ private hoist_clause(w: *Walk, written: Clause)
         None -> buf()
 
     for i in rs.view()
-        var r = w.res.rels.at(i)
+        var r = w.res.rels[i]
 
         if joins(r, written)
             r.clauses.push(c)
-            w.res.rels.set(i, r)
+            w.res.rels[i] = r
             return
 
     if variadic && second_variadic(w.res, rs, c, w.report) then return

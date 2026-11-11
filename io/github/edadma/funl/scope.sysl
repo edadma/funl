@@ -155,7 +155,7 @@ struct Scope
     // `name` declared by block `blk`, in scope from offset `from`: its slot, which is a new one unless
     // the block already declares the name.
     declare(*self, blk: usize, name: string, at: Span, from: usize, fixed: bool) -> usize
-        var b = self.blocks.at(blk)
+        var b = self.blocks[blk]
 
         b.decls.get(name) match
             Some(d) -> return d.slot
@@ -165,7 +165,7 @@ struct Scope
 
         self.names.push(Spanned(name, at))
         b.decls.put(name, Decl(s, from, fixed))
-        self.blocks.set(blk, b)
+        self.blocks[blk] = b
         s
     end declare
 
@@ -179,7 +179,7 @@ struct Scope
     slot(self, name: string) -> Option[usize] = self.declared(0, name)
 
     // The slot block `blk` itself gives `name`: where a declaration's names are stored.
-    declared(self, blk: usize, name: string) -> Option[usize] = self.blocks.at(blk).decls.get(name) match
+    declared(self, blk: usize, name: string) -> Option[usize] = self.blocks[blk].decls.get(name) match
         Some(d) -> Some(d.slot)
         None -> None
 
@@ -189,7 +189,7 @@ struct Scope
         var b = blk
 
         while b != NoScope
-            val k = self.blocks.at(b)
+            val k = self.blocks[b]
 
             k.decls.get(name) match
                 Some(d) -> if d.from <= pos then return Some(d)
@@ -370,14 +370,14 @@ struct Resolved
     // this file sees under `name`. `None` when there is none.
     ctor_of(self, name: string, id: usize, n: usize) -> Option[usize]
         val v = current()
-        val f = v.ctors.at(id).functor
+        val f = v.ctors[id].functor
 
-        if v.ctors.at(id).fields.len() == n then return Some(id)
+        if v.ctors[id].fields.len() == n then return Some(id)
 
         self.kin.get(name) match
             Some(ids) ->
                 for i in ids.view()
-                    val d = v.ctors.at(i)
+                    val d = v.ctors[i]
 
                     if d.functor == f && d.fields.len() == n then return Some(i)
             None -> ()
@@ -394,7 +394,7 @@ struct Resolved
     // name this file sees under it, whatever its number of fields.
     ctor_test(*self, name: string, id: usize) -> TypeTest
         val v = current()
-        val f = v.ctors.at(id).functor
+        val f = v.ctors[id].functor
         var same: Buf[usize] = buf()
 
         same.push(id)
@@ -402,7 +402,7 @@ struct Resolved
         self.kin.get(name) match
             Some(ids) ->
                 for i in ids.view()
-                    if i != id && v.ctors.at(i).functor == f then same.push(i)
+                    if i != id && v.ctors[i].functor == f then same.push(i)
             None -> ()
 
         if same.len() == 1 then return CtorT(id)
@@ -427,7 +427,7 @@ struct Resolved
         val m = self.meaning_above(sid, blk, pos, 0, name)
 
         m match
-            Unknown -> if self.scopes.at(sid).ended(name, pos) then Gone else Unknown
+            Unknown -> if self.scopes[sid].ended(name, pos) then Gone else Unknown
             _ -> m
 
     // What `name` means starting from block `blk` of scope `sid` at offset `pos`, the scope itself
@@ -442,7 +442,7 @@ struct Resolved
         while at != NoScope
             if at == self.top then reached_top = true
 
-            val s = self.scopes.at(at)
+            val s = self.scopes[at]
 
             s.find(b, name, p) match
                 Some(k) -> return s.named(d, k)
@@ -460,7 +460,7 @@ struct Resolved
 
             // A clause's statics are written in its own code, so they are looked up from where the
             // name is: a static is in scope from its declaration on, as a local is.
-            if at == NoScope || !self.scopes.at(at).statics then p = Anywhere
+            if at == NoScope || !self.scopes[at].statics then p = Anywhere
 
         // A relation clause has no parent, yet it sees what the top level's root block fixes: a
         // constructor, a `val`, and a function a `where` defines there (`logic.md` § "Variables in a
@@ -479,7 +479,7 @@ struct Resolved
 
     // What `name` means as the top level's root block fixes it, seen from a relation clause.
     top_fixed(self, name: string) -> Meaning
-        val s = self.scopes.at(self.top)
+        val s = self.scopes[self.top]
 
         s.find(0, name, Anywhere) match
             Some(d) ->
@@ -496,7 +496,7 @@ struct Resolved
 
     // The constructor the top level's root block declares as `name`, wherever it is written.
     top_constructor(self, name: string) -> Option[usize]
-        val s = self.scopes.at(self.top)
+        val s = self.scopes[self.top]
 
         s.find(0, name, Anywhere) match
             Some(d) -> return s.ctors.get(d.slot)
@@ -524,7 +524,7 @@ struct Resolved
                 var own: Buf[Meaning] = buf()
 
                 for i in rs.view()
-                    own.push(if self.rels.at(i).function then Function(i, self.top_up) else Relation(i))
+                    own.push(if self.rels[i].function then Function(i, self.top_up) else Relation(i))
 
                 return self.merged(name, own)
             None -> ()
@@ -631,11 +631,11 @@ struct Resolved
             Builtin(id) -> id
             _ -> return m
 
-        if takes_count(current().natives.at(id), argc) then return m
+        if takes_count(current().natives[id], argc) then return m
 
         self.prelude.get(name) match
             Some(p) -> p match
-                Function(r, _) -> if rel_takes(self.rels.at(r), argc) then p else m
+                Function(r, _) -> if rel_takes(self.rels[r], argc) then p else m
                 Family(_, ps) ->
                     for x in ps.view()
                         if self.takes(name, x, argc) then return x
@@ -648,9 +648,9 @@ struct Resolved
     // definition of that arity, a builtin that takes the count, or a predicate the program loaded
     // with it -- not the Prolog library's, which comes after the prelude.
     takes(self, name: string, x: Meaning, argc: usize) -> bool = x match
-        Function(r, _) -> rel_takes(self.rels.at(r), argc)
-        Relation(r) -> self.rels.at(r).arity == argc
-        Builtin(id) -> !is_constant(id) && takes_count(current().natives.at(id), argc)
+        Function(r, _) -> rel_takes(self.rels[r], argc)
+        Relation(r) -> self.rels[r].arity == argc
+        Builtin(id) -> !is_constant(id) && takes_count(current().natives[id], argc)
         Predicate(_) ->
             val key = pred_key(name, argc)
 
@@ -659,13 +659,13 @@ struct Resolved
 
     // Whether `m` is a variadic function.
     is_rest(self, m: Meaning) -> bool = m match
-        Function(r, _) -> self.rels.at(r).variadic
+        Function(r, _) -> self.rels[r].variadic
         _ -> false
 
     // Whether function `r`, called in a goal with `argc` arguments, is the relation of `argc`: a
     // function of one parameter fewer, by its Prolog key -- which a variadic one has none of.
     as_relation(self, r: usize, argc: usize) -> bool
-        val rel = self.rels.at(r)
+        val rel = self.rels[r]
 
         !rel.variadic && rel.arity + 1 == argc
 
@@ -682,7 +682,7 @@ struct Resolved
 
         native_id(name) match
             Some(id) ->
-                val nat = current().natives.at(id)
+                val nat = current().natives[id]
 
                 // A builtin stays only for a count the program leaves it.
                 var left = nat.arity == Variadic
@@ -696,22 +696,22 @@ struct Resolved
 
         self.prelude.get(name) match
             Some(p) -> p match
-                Function(r, _) -> if !self.defines(own, self.rels.at(r).arity) then ms.push(p)
+                Function(r, _) -> if !self.defines(own, self.rels[r].arity) then ms.push(p)
                 Family(_, ps) ->
                     for x in ps.view()
                         x match
-                            Function(r, _) -> if !self.defines(own, self.rels.at(r).arity) then ms.push(x)
+                            Function(r, _) -> if !self.defines(own, self.rels[r].arity) then ms.push(x)
                             _ -> ()
                 _ -> ()
             None -> ()
 
-        if ms.len() == 1 then ms.at(0) else Family(name, ms)
+        if ms.len() == 1 then ms[0] else Family(name, ms)
     end merged
 
     // Whether `x` is a definition this file wrote, rather than the prelude's or a builtin.
     is_own(self, x: Meaning) -> bool = x match
-        Function(r, _) -> self.rels.at(r).clauses.len() > 0
-        Relation(r) -> self.rels.at(r).clauses.len() > 0
+        Function(r, _) -> self.rels[r].clauses.len() > 0
+        Relation(r) -> self.rels[r].clauses.len() > 0
         _ -> false
 
     // Whether `x` is one of the file's top-level definitions of `name`: its own, or one an import
@@ -759,8 +759,8 @@ struct Resolved
                 var kept = ps
 
                 for i in 0..<kept.len()
-                    if kept.at(i).call == call
-                        kept.set(i, Pick(call, m))
+                    if kept[i].call == call
+                        kept[i] = Pick(call, m)
                         return
 
                 kept.push(Pick(call, m))
@@ -775,7 +775,7 @@ struct Resolved
         for x in ms.view()
             x match
                 Function(r, _) -> if self.as_relation(r, argc) then return true
-                Relation(r) -> if self.rels.at(r).arity == argc then return true
+                Relation(r) -> if self.rels[r].arity == argc then return true
                 _ -> ()
 
         false
@@ -785,9 +785,9 @@ struct Resolved
     defines(self, own: Buf[Meaning], arity: usize) -> bool
         for x in own.view()
             x match
-                Function(r, _) -> if rel_takes(self.rels.at(r), arity) then return true
-                Relation(r) -> if self.rels.at(r).arity == arity then return true
-                Builtin(id) -> if takes_count(current().natives.at(id), arity) then return true
+                Function(r, _) -> if rel_takes(self.rels[r], arity) then return true
+                Relation(r) -> if self.rels[r].arity == arity then return true
+                Builtin(id) -> if takes_count(current().natives[id], arity) then return true
                 _ -> ()
 
         false
@@ -806,7 +806,7 @@ struct Resolved
             Family(_, ms) ->
                 self.prelude.get(name) match
                     Some(p) -> p match
-                        Family(_, ps) -> return ms.len() == ps.len() && ms.len() > 0 && self.prelude_meant(name, ms.at(0))
+                        Family(_, ps) -> return ms.len() == ps.len() && ms.len() > 0 && self.prelude_meant(name, ms[0])
                         _ -> return false
                     None -> return false
             _ -> ()
@@ -832,7 +832,7 @@ end Resolved
 // What the functions `rs` of `name`, all defined by one scope, mean where they are written, `up`
 // naming that scope's frame: the one function, or the family of them.
 fns_meaning(name: string, rs: Buf[usize], up: usize) -> Meaning
-    if rs.len() == 1 then return Function(rs.at(0), up)
+    if rs.len() == 1 then return Function(rs[0], up)
 
     var ms: Buf[Meaning] = buf()
 
@@ -887,7 +887,7 @@ resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report)
     var pending: Buf[usize] = buf()
 
     for i in 0..<own
-        if res.rels.at(i).function then pending.push(i)
+        if res.rels[i].function then pending.push(i)
 
     var top = scope()
     var w = walker(&res, report, &pending, &top, res.top, false, false, true)
@@ -897,18 +897,18 @@ resolve(src: Source, prog: Program, top_up: usize, im: Imports, report: *Report)
     for s in prog.stmts.view()
         walk_stmt(&w, s)
 
-    res.scopes.set(res.top, top)
+    res.scopes[res.top] = top
 
     // A relation's clauses are read once the top level is complete, so they see its constructors.
     for i in 0..<res.rels.len()
-        val r = res.rels.at(i)
+        val r = res.rels[i]
 
         if !r.function && r.clauses.len() > 0 then resolve_relation(&res, i, &pending, report)
 
     var i: usize = 0
 
     while i < pending.len()
-        resolve_function(&res, pending.at(i), &pending, report)
+        resolve_function(&res, pending[i], &pending, report)
         i += 1
 
     split_lambda_notes(&res, report)
@@ -924,7 +924,7 @@ private split_lambda_notes(res: *Resolved, report: *Report)
 
         for (at, n) in res.split_lambdas.view()
             if d.message == s"`$n` is not defined" && d.span.start >= at.start && d.span.end <= at.end
-                report.items.set(i, d.with_note(s"`{$n:rest -> e}` is the key `$n` and the lambda `rest -> e`; a set holding a lambda over a cons is `{($n:rest -> e)}`"))
+                report.items[i] = d.with_note(s"`{$n:rest -> e}` is the key `$n` and the lambda `rest -> e`; a set holding a lambda over a cons is `{($n:rest -> e)}`")
                 break
 
 // A fresh scope id, its scope stored once it is complete.
@@ -954,11 +954,11 @@ private add_top_clause(res: *Resolved, written: Clause, report: *Report)
         None -> buf()
 
     for i in rs.view()
-        var r = res.rels.at(i)
+        var r = res.rels[i]
 
         if r.arity != n || r.variadic != variadic then continue
 
-        val first = r.clauses.at(0)
+        val first = r.clauses[0]
 
         if r.function != f
             report.add(error(c.head, s"`${c.name}` mixes a function clause with relation clauses")
@@ -968,7 +968,7 @@ private add_top_clause(res: *Resolved, written: Clause, report: *Report)
             return
 
         r.clauses.push(c)
-        res.rels.set(i, r)
+        res.rels[i] = r
         return
 
     if variadic && second_variadic(res, rs, c, report) then return
@@ -976,10 +976,10 @@ private add_top_clause(res: *Resolved, written: Clause, report: *Report)
     val key = if f then n + 1 else n
 
     for i in rs.view()
-        val r = res.rels.at(i)
+        val r = res.rels[i]
 
         if !variadic && !r.variadic && (if r.function then r.arity + 1 else r.arity) == key
-            val first = r.clauses.at(0)
+            val first = r.clauses[0]
 
             report.add(error(c.head, s"`${c.name}` is ${definition_text(f, n)} here and ${definition_text(r.function, r.arity)} already, and both are `${c.name}/$key` to Prolog")
                 .with_note(s"a function of n parameters is the Prolog predicate of n + 1 arguments, so the two would be one predicate; give one of them another name"))
@@ -1004,7 +1004,7 @@ private single(c: Clause) -> Buf[Clause]
 // Whether `i` is one of the top level's own definitions, rather than a local function, a lambda or
 // another module's definition.
 is_top_rel(res: *Resolved, i: usize) -> bool
-    res.by_name.get(res.rels.at(i).name) match
+    res.by_name.get(res.rels[i].name) match
         Some(rs) ->
             for j in rs.view()
                 if j == i then return true
@@ -1024,7 +1024,7 @@ private kind_text(k: ClauseKind) -> string = k match
 // The scopes of a relation's clauses: each head's variables first, then its body's, and a warning
 // for each written only once.
 private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report: *Report)
-    val r = res.rels.at(ri)
+    val r = res.rels[ri]
     var ids: Buf[usize] = buf()
     var clauses: Buf[Clause] = buf()
 
@@ -1059,14 +1059,14 @@ private resolve_relation(res: *Resolved, ri: usize, pending: *Buf[usize], report
                     .with_label("written once")
                     .with_note(s"a variable written once is usually a misspelling of another; `_$n` says the single occurrence is intended"))
 
-        res.scopes.set(sid, sc)
+        res.scopes[sid] = sc
         ids.push(sid)
 
-    var done = res.rels.at(ri)
+    var done = res.rels[ri]
 
     done.scopes = ids
     done.clauses = clauses
-    res.rels.set(ri, done)
+    res.rels[ri] = done
 end resolve_relation
 
 // A head argument with each name that means a constructor with no fields written as that
@@ -1076,7 +1076,7 @@ private head_atoms(res: *Resolved, p: &Expr, report: *Report) -> &Expr
     p.kind match
         Ref(n) ->
             res.top_constructor(n) match
-                Some(id) -> if current().ctors.at(id).fields.len() == 0 then expr(AtomE(n), p.span) else p
+                Some(id) -> if current().ctors[id].fields.len() == 0 then expr(AtomE(n), p.span) else p
                 None -> p
         CallE(n, at, args) -> expr(CallE(n, at, heads_atoms(res, args, report)), p.span)
         ListE(items) -> expr(ListE(heads_atoms(res, items, report)), p.span)
@@ -1163,32 +1163,32 @@ end walk_head
 // argument binds, and each value a head argument. One constant written twice is refused.
 private walk_head_map(sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], report: *Report)
     for i in 0..<keys.len()
-        val k = keys.at(i)
+        val k = keys[i]
 
         k.kind match
             Ref(n) -> sc.note(n, k.span)
             _ ->
                 if constant_key(k)
                     for j in 0..<i
-                        if same_constant_key(keys.at(j), k)
+                        if same_constant_key(keys[j], k)
                             report.add(error(k.span, "this key is already in the map pattern")
                                 .with_note("a map holds a key once, so a pattern names it once"))
                             break
                 else
                     report.add(error(k.span, "a key in a head is a constant or a variable in parentheses, `(k)`"))
 
-        walk_head(sc, vals.at(i), report)
+        walk_head(sc, vals[i], report)
 
 // The scopes of a function's clauses: its parameters, then its local functions, its `where`
 // values, and its guards and bodies.
 private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report: *Report)
-    val r = res.rels.at(ri)
+    val r = res.rels[ri]
     var ids: Buf[usize] = buf()
     val waits = is_async_rel(r)
     val statics = statics_scope(res, ri)
 
     for i in 0..<r.clauses.len()
-        val c = r.clauses.at(i)
+        val c = r.clauses[i]
         val sid = new_scope_id(res)
         var sc = if statics == NoScope then child_scope(r.outer, r.outer_block) else child_scope(statics, i + 1)
         var w = walker(res, report, pending, &sc, sid, false, true, waits)
@@ -1228,13 +1228,13 @@ private resolve_function(res: *Resolved, ri: usize, pending: *Buf[usize], report
                     w.body = NoScope
             _ -> ()
 
-        res.scopes.set(sid, sc)
+        res.scopes[sid] = sc
         ids.push(sid)
 
-    var done = res.rels.at(ri)
+    var done = res.rels[ri]
 
     done.scopes = ids
-    res.rels.set(ri, done)
+    res.rels[ri] = done
 end resolve_function
 
 // The statics scope of function `ri` (`functions.md` § "`static` and `initial`"), made when the body of one
@@ -1245,7 +1245,7 @@ end resolve_function
 // scope's root block, so its direct calls and its uses as a value share one statics frame; a
 // lambda's is made afresh each time the lambda is evaluated.
 private statics_scope(res: *Resolved, ri: usize) -> usize
-    val r = res.rels.at(ri)
+    val r = res.rels[ri]
     var found = false
 
     for c in r.clauses.view()
@@ -1263,13 +1263,13 @@ private statics_scope(res: *Resolved, ri: usize) -> usize
     for _ in r.clauses.view()
         st.open(0)
 
-    res.scopes.set(id, st)
+    res.scopes[id] = st
 
     if names_function(res, r.outer, r.name, ri)
-        var o = res.scopes.at(r.outer)
+        var o = res.scopes[r.outer]
 
-        o.declare(0, statics_home(r.chunk), r.clauses.at(0).head, Anywhere, true)
-        res.scopes.set(r.outer, o)
+        o.declare(0, statics_home(r.chunk), r.clauses[0].head, Anywhere, true)
+        res.scopes[r.outer] = o
 
     id
 end statics_scope
@@ -1293,7 +1293,7 @@ private body_declares_statics(b: FnBody) -> bool
 private names_function(res: *Resolved, sid: usize, name: string, ri: usize) -> bool
     if sid == NoScope then return false
 
-    if holds_rel(res.scopes.at(sid).fns.get(name), ri) then return true
+    if holds_rel(res.scopes[sid].fns.get(name), ri) then return true
 
     sid == res.top && holds_rel(res.by_name.get(name), ri)
 

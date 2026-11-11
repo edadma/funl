@@ -158,7 +158,7 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal
     var why: Refusal = Unreadable
 
     for i in 0..<res.rels.len()
-        val r = res.rels.at(i)
+        val r = res.rels[i]
 
         if !is_top_rel(res, i) then continue
 
@@ -171,7 +171,7 @@ private match_up(src: Source, res: *Resolved, report: *Report) -> Result[Refusal
 
         if is_builtin(key) then continue
 
-        val head = r.clauses.at(0).head
+        val head = r.clauses[0].head
         val at = placed(res.places, head.start)
 
         val what = if r.function
@@ -231,7 +231,7 @@ private compiled(res: *Resolved, loads: Buf[usize], out: ModuleOut) -> Result[us
     var loops: Buf[Looping] = buf()
     val c = context(res, res.top, &loops)
 
-    e.op(Frame(res.scopes.at(res.top).count()))
+    e.op(Frame(res.scopes[res.top].count()))
     name_top_level(&e, res)
 
     if !program then e.op(KeepTop(TopUp - 1 - res.top_up))
@@ -258,13 +258,13 @@ end compiled
 // map of every export that is a value -- functions, variables, constructors -- made into the map's.
 private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, string]
     for i in 0..<out.copy_from.len()
-        e.op(LoadSlot(0, out.copy_from.at(i)))
-        e.op(StoreSlot(out.copy_to.at(i)))
+        e.op(LoadSlot(0, out.copy_from[i]))
+        e.op(StoreSlot(out.copy_to[i]))
 
     var n: usize = 0
 
     for i in 0..<out.exports.len()
-        val x = out.exports.at(i)
+        val x = out.exports[i]
 
         val value = x.kind match
             ExFunction(_, _) -> true
@@ -280,7 +280,7 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
         var earlier = false
 
         for k in 0..<out.exports.len()
-            val y = out.exports.at(k)
+            val y = out.exports[k]
 
             if y.name != x.name then continue
 
@@ -293,7 +293,7 @@ private snapshot(e: *Emit, res: *Resolved, out: ModuleOut) -> Result[unit, strin
 
         // A variadic arity is the family's last member, taking the counts the others leave.
         for k in 0..<out.exports.len()
-            val y = out.exports.at(k)
+            val y = out.exports[k]
 
             if y.name != x.name then continue
 
@@ -348,16 +348,16 @@ private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
         None -> false
 
     for i in 0..<r.clauses.len()
-        val cl = r.clauses.at(i)
-        var sc = res.scopes.at(r.scopes.at(i))
+        val cl = r.clauses[i]
+        var sc = res.scopes[r.scopes[i]]
         var loops: Buf[Looping] = buf()
-        val c = context(res, r.scopes.at(i), &loops)
+        val c = context(res, r.scopes[i], &loops)
         val last = index || i + 1 == r.clauses.len()
         val next = e.label()
 
         if !last then e.op(Choice(next))
 
-        e.place(starts.at(i))
+        e.place(starts[i])
         e.at_line(line_of(c, cl.head.start))
         e.op(Frame(sc.count()))
 
@@ -367,7 +367,7 @@ private compile_relation(res: *Resolved, r: Rel) -> Result[unit, string]
             seen.push(false)
 
         for j in 0..<cl.params.len()
-            head_arg(&e, &sc, cl.params.at(j), Arg(j), &seen)?
+            head_arg(&e, &sc, cl.params[j], Arg(j), &seen)?
 
         for s in sc.head..<sc.count()
             e.op(NewVar(s))
@@ -390,10 +390,10 @@ private head_arg(e: *Emit, sc: *Scope, p: &Expr, src: Src, seen: *Buf[bool]) -> 
         Ref(n) ->
             val s = sc.slot(n).unwrap()
 
-            if seen.at(s)
+            if seen[s]
                 e.op(GetValue(s, src))
             else
-                seen.set(s, true)
+                seen[s] = true
                 e.op(GetVar(s, src))
         Anon ->
             src match
@@ -445,7 +445,7 @@ private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest:
             Ref(n) ->
                 val s = sc.slot(n).unwrap()
 
-                if seen.at(s)
+                if seen[s]
                     given = true
                     e.op(LoadSlot(0, s))
             _ -> ()
@@ -456,8 +456,8 @@ private head_map(e: *Emit, sc: *Scope, keys: Buf[&Expr], vals: Buf[&Expr], rest:
             Ref(n) ->
                 val s = sc.slot(n).unwrap()
 
-                if !seen.at(s)
-                    seen.set(s, true)
+                if !seen[s]
+                    seen[s] = true
                     e.op(NewVar(s))
 
                 e.op(LoadSlot(0, s))

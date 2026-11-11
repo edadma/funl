@@ -137,10 +137,11 @@ struct ArrayObj
     len(self) -> usize = self.cells.len() - self.head
 
     // Element `i`, counting from the front.
-    at(self, i: usize) -> Value = self.cells.at(self.head + i)
+    at(self, i: usize) -> Value = self.cells[self.head + i]
 
     // Store `x` as element `i`, counting from the front.
-    set(self, i: usize, x: Value) = self.cells.set(self.head + i, x)
+    set(self, i: usize, x: Value)
+        self.cells[self.head + i] = x
 
     // The elements, front to back.
     view(self) -> []Value = self.cells.view()[self.head..]
@@ -157,16 +158,16 @@ struct ArrayObj
         if self.head == 0 then self.regap(self.spare())
 
         self.head -= 1
-        self.cells.set(self.head, x)
+        self.cells[self.head] = x
 
     // The front element taken out, where there is one. The gap it leaves is closed once it is more
     // than twice the elements (and 16 cells), so a queue's storage stays proportional to what it holds.
     pop_front(*self) -> Option[Value]
         if self.len() == 0 then return None
 
-        val x = self.cells.at(self.head)
+        val x = self.cells[self.head]
 
-        self.cells.set(self.head, Undefined)
+        self.cells[self.head] = Undefined
         self.head += 1
 
         if self.head == self.cells.len()

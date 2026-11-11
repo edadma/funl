@@ -59,7 +59,7 @@ A_PROFILE_BUILD_COUNTS_EVERY_INSTRUCTION_A_RUN_EXECUTES_EXACTLY()
     assert_eq(profile_steps() - total10, 120u64)
 
     for j in 0..<kinds.len
-        assert_eq(profile_count(kinds[j]) - at10.at(j), each[j] * 10u64, kinds[j])
+        assert_eq(profile_count(kinds[j]) - at10[j], each[j] * 10u64, kinds[j])
 
     // What runs once whatever the length: the end of the program, and nothing the loop never reaches.
     assert_eq(profile_count("Halt"), 1u64)

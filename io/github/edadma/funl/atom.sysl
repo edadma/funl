@@ -31,4 +31,4 @@ boolean(b: bool) -> Value = Atom(if b then TrueAtom else FalseAtom)
 // Whether atom `id` is one of the two booleans.
 is_boolean_atom(id: u32) -> bool = id == FalseAtom || id == TrueAtom
 
-atom_name(id: u32) -> string = current().atom_names.at(usize(id))
+atom_name(id: u32) -> string = current().atom_names[usize(id)]

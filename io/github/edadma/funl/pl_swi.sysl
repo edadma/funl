@@ -70,7 +70,7 @@ private pl_atomic_list_concat(base: usize, sep: bool) -> Result[Answer, Fault]
             for i in 0..<texts.len()
                 if i > 0 then out.push(glue)
 
-                out.push(texts.at(i))
+                out.push(texts[i])
 
             return unified(target, atom(out.finish()))
 
@@ -408,14 +408,14 @@ private type_term(i: usize, a: long, codes: bool) -> Result[Value, Fault]
     val x = if weighs(i) then Int(a) else char_value(a, codes)
     val c = new_compound(intern(functor), 1)?
 
-    c.args.set(0, x)
+    c.args[0] = x
     Ok(Compound(c))
 
 // Which type `t` names, and its argument -- `Undefined` for a type with none.
 private type_of(t: Value, who: string) -> Result[(usize, Value), Fault]
     val (name, given) = t match
         Atom(id) -> (atom_name(id), Undefined)
-        Compound(c) -> if c.args.len() == 1 then (atom_name(c.functor) + "/1", c.args.at(0)) else ("", Undefined)
+        Compound(c) -> if c.args.len() == 1 then (atom_name(c.functor) + "/1", c.args[0]) else ("", Undefined)
         _ -> ("", Undefined)
 
     for i in 0..<CharTypes.len
@@ -481,9 +481,9 @@ private pl_setarg(base: usize, backtracks: bool) -> Result[Answer, Fault]
     val x = if backtracks then arg(base, 2) else copy_term(arg(base, 2))?
     val v = current()
 
-    if backtracks && v.control.len() > 0 then v.trail.push(Setarg(c, i, c.args.at(i)))
+    if backtracks && v.control.len() > 0 then v.trail.push(Setarg(c, i, c.args[i]))
 
-    c.args.set(i, x)
+    c.args[i] = x
     Ok(Gives(Unit))
 end pl_setarg
 
@@ -579,7 +579,7 @@ private pl_predicate_properties(base: usize) -> Result[Answer, Fault]
 
         p.kind match
             DynamicPred(i) ->
-                if v.db.preds.at(i).abolished then return Ok(Refuses)
+                if v.db.preds[i].abolished then return Ok(Refuses)
 
                 props.push(atom("dynamic"))
                 props.push(clause_count(live_clauses(v, i))?)
@@ -601,16 +601,16 @@ end pl_predicate_properties
 private clause_count(n: usize) -> Result[Value, Fault]
     val c = new_compound(intern("number_of_clauses"), 1)?
 
-    c.args.set(0, Int(long(n)))
+    c.args[0] = Int(long(n))
     Ok(Compound(c))
 
 // How many clauses dynamic predicate `i` has that a call starting now would see.
 private live_clauses(v: *Vm, i: usize) -> usize
     var n: usize = 0
-    var at = v.db.preds.at(i).first
+    var at = v.db.preds[i].first
 
     while at != NoClause
-        val c = v.db.clauses.at(at)
+        val c = v.db.clauses[at]
 
         if c.died == 0 then n += 1
 
@@ -633,7 +633,7 @@ private pl_visible_heads(base: usize) -> Result[Answer, Fault]
 
                 val shown = p.kind match
                     ProgramPred -> true
-                    DynamicPred(i) -> !v.db.preds.at(i).abolished
+                    DynamicPred(i) -> !v.db.preds[i].abolished
                     LibraryPred -> true
                     _ -> false
 
@@ -651,11 +651,11 @@ private pl_visible_heads(base: usize) -> Result[Answer, Fault]
             Compound(c) -> c
             _ -> continue
 
-        val name = deref(c.args.at(0)) match
+        val name = deref(c.args[0]) match
             Atom(id) -> id
             _ -> continue
 
-        val n = deref(c.args.at(1)) match
+        val n = deref(c.args[1]) match
             Int(n) -> usize(n)
             _ -> continue
 
@@ -665,7 +665,7 @@ private pl_visible_heads(base: usize) -> Result[Answer, Fault]
             val h = new_compound(name, n)?
 
             for j in 0..<n
-                h.args.set(j, Var(new_var()?))
+                h.args[j] = Var(new_var()?)
 
             heads.push(Compound(h))
 

@@ -218,7 +218,7 @@ private with_streams(text: string, lines: []const string) -> Result[usize, strin
             None
         else
             src.at += 1
-            Some(src.text.at(src.at - 1))
+            Some(src.text[src.at - 1])
 
     compiled_text(text)
 

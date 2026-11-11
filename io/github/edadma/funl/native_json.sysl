@@ -71,14 +71,14 @@ private funl_of_json(j: json.Json) -> Result[Value, Fault]
             var vals: Buf[Value] = buf()
 
             for i in 0..<items.len()
-                vals.push(funl_of_json(items.at(i))?)
+                vals.push(funl_of_json(items[i])?)
 
             Ok(list_of(&vals, Nil)?)
         json.Json.Obj(members) ->
             val m = new_map()?
 
             for i in 0..<members.len()
-                val mem = members.at(i)
+                val mem = members[i]
 
                 map_put(m, new_str(mem.key)?, funl_of_json(mem.value)?)?
 
@@ -163,14 +163,14 @@ private object_of(m: *MapObj, path: *Buf[usize]) -> Result[json.Json, Fault]
     var members: Buf[json.Member] = buf()
 
     for i in 0..<m.keys.len()
-        val k = deref(m.keys.at(i))
+        val k = deref(m.keys[i])
 
         val key = k match
             Str(p) -> p.s
             Atom(id) -> atom_name(id)
             _ -> return Err(type_error("json_key", k, s"'stringify' writes a map whose keys are strings, and this one has the key ${render(k)}"))
 
-        members.push(json.Member(key, json_of_funl(m.vals.at(i), path)?))
+        members.push(json.Member(key, json_of_funl(m.vals[i], path)?))
 
     Ok(json.Json.Obj(members))
 

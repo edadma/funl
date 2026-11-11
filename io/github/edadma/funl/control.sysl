@@ -55,7 +55,7 @@ struct Entry
     stamp: u64
 
 // The operand height the innermost mark guards: cells below it cannot change while the mark stands.
-floor_of(v: *Vm, mark: usize) -> usize = if mark == NoMark then 0 else v.control.at(mark).floor
+floor_of(v: *Vm, mark: usize) -> usize = if mark == NoMark then 0 else v.control[mark].floor
 
 // Push an entry, saving the operand cells from `floor` to the top.
 //
@@ -65,7 +65,7 @@ push_entry(v: *Vm, kind: EntryKind, ip: usize, floor: usize)
     val saved_at = v.saved.len()
 
     for i in floor..<v.stack.len()
-        v.saved.push(v.stack.at(i))
+        v.saved.push(v.stack[i])
 
     v.stamp += 1
     v.control.push(Entry(kind, ip, v.code, v.frame, v.mark, floor, saved_at, v.trail.len(), v.stamp))
@@ -125,7 +125,7 @@ restore(v: *Vm, e: Entry)
     v.stack.truncate(e.floor)
 
     for i in e.saved_at..<v.saved.len()
-        v.stack.push(v.saved.at(i))
+        v.stack.push(v.saved[i])
 
     v.saved.truncate(e.saved_at)
     v.frame = e.frame
@@ -143,7 +143,7 @@ cut_to(v: *Vm, h: usize, ends: bool)
 
     queue_cleanups(v, h)
 
-    val first = v.control.at(h)
+    val first = v.control[h]
 
     v.saved.truncate(first.saved_at)
     v.control.truncate(h)
@@ -155,7 +155,7 @@ unmark(v: *Vm) -> Result[unit, string]
     if v.mark == NoMark then return Err("Unmark with no mark open")
 
     val at = v.mark
-    val m = v.control.at(at)
+    val m = v.control[at]
 
     cut_to(v, at, true)
     v.stack.truncate(m.floor)
@@ -171,7 +171,7 @@ unmark_to(v: *Vm, recorded: Value) -> Result[unit, string]
 
     if at >= v.control.len() then return Err(s"a loop's mark $at is gone from a control stack of ${v.control.len()}")
 
-    val m = v.control.at(at)
+    val m = v.control[at]
 
     cut_to(v, at, true)
     v.stack.truncate(m.floor)

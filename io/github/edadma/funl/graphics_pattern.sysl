@@ -44,7 +44,7 @@ parse_pattern(spec: string) -> Option[Pattern]
 // Whether pixel `(x, y)` of the canvas is a one of pattern `p`, the pattern repeated from the
 // canvas's corner.
 pattern_bit(p: Pattern, x: long, y: long) -> bool
-    val row = p.rows.at(usize(y % long(p.rows.len())))
+    val row = p.rows[usize(y % long(p.rows.len()))]
 
     (row >> (x % p.width)) & 1 == 1
 
@@ -67,7 +67,7 @@ private bit_pattern(s: string) -> Option[Pattern]
     if rows.len() < 1 || long(rows.len()) > MaxPatternSide then return None
 
     for i in 0..<rows.len()
-        if rows.at(i) >> width != 0 then return None
+        if rows[i] >> width != 0 then return None
 
     Some(Pattern(width, rows))
 

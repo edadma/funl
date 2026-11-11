@@ -47,7 +47,7 @@ prelude_index() -> Option[usize]
     val v = current()
 
     for i in 0..<v.modules.len()
-        val md = v.modules.at(i)
+        val md = v.modules[i]
 
         if md.loaded && md.file == PreludeFile then return Some(i)
 
@@ -70,14 +70,14 @@ load_prelude() -> Option[usize]
         Ok(l) -> l
         Err(_) -> panic(s"the prelude does not compile:\n${report.render(source_of(PreludeFile, prelude_text()))}")
 
-    var md = v.modules.at(l.index)
+    var md = v.modules[l.index]
 
     for n in PreludeNatives
         native_id(n) match
             Some(id) -> md.exports.push(ModExport(n, ExNative(id), s"`$n` of `funl:prelude`"))
             None -> panic(s"the prelude claims `$n`, and no native `$n` is registered")
 
-    v.modules.set(l.index, md)
+    v.modules[l.index] = md
     Some(md.chunk)
 
 // What `name` means in a file `res` resolves, for each export of the prelude: every name the file
@@ -87,7 +87,7 @@ bind_prelude(res: *Resolved)
         Some(i) -> i
         None -> return
 
-    val md = current().modules.at(index)
+    val md = current().modules[index]
 
     if md.up == res.top_up then return
 
@@ -109,7 +109,7 @@ prelude_function(name: string) -> Result[Value, Fault]
         Some(i) -> i
         None -> return Err(Broken(s"the prelude's `$name` was wanted before the prelude was loaded"))
 
-    val md = v.modules.at(index)
+    val md = v.modules[index]
 
     for x in md.exports.view()
         if x.name == name
@@ -128,7 +128,7 @@ prolog_prelude(at: Span, report: *Report, goals: *Buf[LoadStep], why: Refusal) -
         Some(chunk) -> goals.push(RunChunk(chunk))
         None -> ()
 
-    val md = current().modules.at(prelude_index().unwrap())
+    val md = current().modules[prelude_index().unwrap()]
 
     for x in md.exports.view()
         val made = x.kind match
@@ -213,7 +213,7 @@ private zip_columns(args: *Buf[Value], what: string, cols: *Buf[Buf[Value]]) -> 
 
     for i in 0..<args.len()
         var c: Buf[Value] = buf()
-        val x = deref(args.at(i))
+        val x = deref(args[i])
         var open = false
 
         x match
@@ -237,10 +237,10 @@ private zip_columns(args: *Buf[Value], what: string, cols: *Buf[Buf[Value]]) -> 
         return Err(endless(first_open, s"$what was given only endless ranges, such as ${render(first_open)}, so it has no end"))
 
     for i in 0..<args.len()
-        deref(args.at(i)) match
+        deref(args[i]) match
             Range(r) ->
                 if r.endless
-                    var col = cols.at(i)
+                    var col = cols[i]
                     var k = r.from
 
                     for _ in 0..<len
@@ -317,11 +317,11 @@ private do_sort(base: usize, argc: usize) -> Result[Value, Fault]
 
             while k < hi
                 // The right run's element goes first only when it is strictly less: stable.
-                if j < hi && (i >= mid || arith(Lt, sort_key(a.at(j), by_key), sort_key(a.at(i), by_key))?.is_some())
-                    b.set(k, a.at(j))
+                if j < hi && (i >= mid || arith(Lt, sort_key(a[j], by_key), sort_key(a[i], by_key))?.is_some())
+                    b[k] = a[j]
                     j += 1
                 else
-                    b.set(k, a.at(i))
+                    b[k] = a[i]
                     i += 1
 
                 k += 1
@@ -342,8 +342,8 @@ private entries_of(m: *MapObj, out: *Buf[Value]) -> Result[bool, Fault]
     for i in 0..<m.keys.len()
         val t = new_tuple(2)?
 
-        t.items.set(0, m.keys.at(i))
-        t.items.set(1, m.vals.at(i))
+        t.items[0] = m.keys[i]
+        t.items[1] = m.vals[i]
         out.push(Tuple(t))
 
     Ok(true)
@@ -352,7 +352,7 @@ private entries_of(m: *MapObj, out: *Buf[Value]) -> Result[bool, Fault]
 private sort_key(x: Value, by_key: bool) -> Value
     if by_key
         deref(x) match
-            Tuple(t) -> return t.items.at(0)
+            Tuple(t) -> return t.items[0]
             _ -> ()
 
     x
@@ -401,7 +401,7 @@ private do_last(base: usize, argc: usize) -> Result[Value, Fault]
 
     if items.len() == 0 then return Err(no_clause("last", arg(base, 0)))
 
-    Ok(items.at(items.len() - 1))
+    Ok(items[items.len() - 1])
 
 // `init(xs)`: every element but the last; `init([])` is refused as `last([])` is.
 private do_init(base: usize, argc: usize) -> Result[Value, Fault]
@@ -458,7 +458,7 @@ private do_drop(base: usize, argc: usize) -> Result[Value, Fault]
             var rest: Buf[Value] = buf()
 
             for i in 0..<items.len()
-                if long(i) >= n then rest.push(items.at(i))
+                if long(i) >= n then rest.push(items[i])
 
             Ok(list_of(&rest, Nil)?)
 
@@ -483,7 +483,7 @@ private zipped(base: usize, n: usize) -> Result[Value, Fault]
         val t = new_tuple(n)?
 
         for i in 0..<n
-            t.items.set(i, cols.at(i).at(k))
+            t.items[i] = cols[i][k]
 
         rows.push(Tuple(t))
 
@@ -508,13 +508,13 @@ private held(items: *Buf[Value]) -> Result[Value, string]
 private slot_array(f: *FrameObj, i: usize) -> Result[*ArrayObj, Fault]
     slot_of(f, i)? match
         Array(o) -> Ok(o)
-        x -> Err(Broken(s"slot $i of '${current().chunks.at(f.chunk).name}' holds ${described(x)}, not its array"))
+        x -> Err(Broken(s"slot $i of '${current().chunks[f.chunk].name}' holds ${described(x)}, not its array"))
 
 // The count in slot `i`, which this file put there.
 private slot_count(f: *FrameObj, i: usize) -> Result[usize, Fault]
     slot_of(f, i)? match
         Int(n) -> Ok(usize(n))
-        x -> Err(Broken(s"slot $i of '${current().chunks.at(f.chunk).name}' holds ${described(x)}, not its count"))
+        x -> Err(Broken(s"slot $i of '${current().chunks[f.chunk].name}' holds ${described(x)}, not its count"))
 
 private set_count(f: *FrameObj, i: usize, n: usize) -> Result[unit, string] = set_slot(f, i, Int(long(n)))
 
@@ -592,8 +592,8 @@ private sort_by_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
         Begun ->
             var items: Buf[Value] = buf()
 
-            list_guard(f.args.at(1), "'sortBy'")?
-            elements(f.args.at(1), "'sortBy'", &items)?
+            list_guard(f.args[1], "'sortBy'")?
+            elements(f.args[1], "'sortBy'", &items)?
             set_slot(f, SortFrom, held(&items)?)?
             set_slot(f, SortTo, held(&items)?)?
             begin_run(&m, items.len())
@@ -629,7 +629,7 @@ private sort_by_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
 
             args.push(from.at(m.j))
             args.push(from.at(m.i))
-            return Ok(Calls(f.args.at(0), args))
+            return Ok(Calls(f.args[0], args))
         else
             take_next(&m, from, to, m.j < m.hi)
 end sort_by_turn
@@ -654,12 +654,12 @@ private zip_with_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
             var args: Buf[Value] = buf()
 
             for i in 0..<lists
-                args.push(f.args.at(i + 1))
+                args.push(f.args[i + 1])
 
             zip_columns(&args, what, &cols)?
 
             for i in 0..<lists
-                var c = cols.at(i)
+                var c = cols[i]
 
                 set_slot(f, i, held(&c)?)?
 
@@ -688,7 +688,7 @@ private zip_with_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
     for i in 0..<lists
         args.push(slot_array(f, i)?.at(at))
 
-    Ok(Calls(f.args.at(0), args))
+    Ok(Calls(f.args[0], args))
 
 // -- the source ------------------------------------------------------------------------------------
 

@@ -249,7 +249,7 @@ private target(c: Ctx, label: Option[string]) -> Result[Looping, string]
     while i > 0
         i -= 1
 
-        val l = c.loops.at(i)
+        val l = c.loops[i]
 
         val hit = label match
             None -> true

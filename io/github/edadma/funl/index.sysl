@@ -40,7 +40,7 @@ clause_key(p: &Expr) -> Option[Key] = p.kind match
 relation_index_arg(clauses: Buf[Clause]) -> Option[usize]
     if clauses.len() < 2 then return None
 
-    val n = clauses.at(0).params.len()
+    val n = clauses[0].params.len()
 
     for cl in clauses.view()
         if cl.params.len() != n then return None
@@ -49,7 +49,7 @@ relation_index_arg(clauses: Buf[Clause]) -> Option[usize]
         var tested = false
 
         for cl in clauses.view()
-            cl.params.at(j).kind match
+            cl.params[j].kind match
                 Ref(_) -> ()
                 Anon -> ()
                 _ -> tested = true
@@ -64,7 +64,7 @@ clause_keys(clauses: Buf[Clause], arg: usize) -> Buf[Option[Key]]
     var keys: Buf[Option[Key]] = buf()
 
     for cl in clauses.view()
-        keys.push(clause_key(cl.params.at(arg)))
+        keys.push(clause_key(cl.params[arg]))
 
     keys
 
@@ -108,7 +108,7 @@ arg_index(e: *Emit, arg: usize, keys: Buf[Option[Key]], starts: Buf[usize])
     e.op(SwitchArg(arg, unbound, other, distinct.len()))
 
     for j in 0..<distinct.len()
-        e.op(Case(distinct.at(j), targets.at(j)))
+        e.op(Case(distinct[j], targets[j]))
 
     var every: Buf[usize] = buf()
     var open: Buf[usize] = buf()
@@ -116,7 +116,7 @@ arg_index(e: *Emit, arg: usize, keys: Buf[Option[Key]], starts: Buf[usize])
     for i in 0..<keys.len()
         every.push(i)
 
-        keys.at(i) match
+        keys[i] match
             None -> open.push(i)
             Some(_) -> ()
 
@@ -129,13 +129,13 @@ arg_index(e: *Emit, arg: usize, keys: Buf[Option[Key]], starts: Buf[usize])
         var these: Buf[usize] = buf()
 
         for i in 0..<keys.len()
-            val takes = keys.at(i) match
+            val takes = keys[i] match
                 None -> true
-                Some(k) -> same_key(k, distinct.at(j))
+                Some(k) -> same_key(k, distinct[j])
 
             if takes then these.push(i)
 
-        e.place(targets.at(j))
+        e.place(targets[j])
         chain(e, starts, these)
 end arg_index
 
@@ -151,10 +151,10 @@ private chain(e: *Emit, starts: Buf[usize], which: Buf[usize])
             val next = e.label()
 
             e.op(Choice(next))
-            e.op(Branch(starts.at(which.at(i))))
+            e.op(Branch(starts[which[i]]))
             e.place(next)
         else
-            e.op(Branch(starts.at(which.at(i))))
+            e.op(Branch(starts[which[i]]))
 
 private holds_key(ks: Buf[Key], k: Key) -> bool
     for x in ks.view()
@@ -214,7 +214,7 @@ switch_arg(v: *Vm, arg: usize, unbound: usize, unkeyed: usize, other: usize, cas
 
     if arg >= args.len() then return Err(s"a switch on argument ${arg + 1} in a call with ${args.len()}")
 
-    val x = deref(args.at(arg))
+    val x = deref(args[arg])
 
     x match
         Var(_) ->
@@ -230,11 +230,11 @@ switch_arg(v: *Vm, arg: usize, unbound: usize, unkeyed: usize, other: usize, cas
             v.ip = unkeyed
             return Ok(())
 
-    val code = v.chunks.at(v.code).code
+    val code = v.chunks[v.code].code
     val start = v.ip
 
     for i in start..<start + cases
-        code.at(i) match
+        code[i] match
             Case(k, to) ->
                 if same_key(k, key)
                     v.ip = to
@@ -255,9 +255,9 @@ instantiated(v: *Vm, param: usize) -> Result[unit, Fault]
 
     if top == 0 then return Err(Broken("the operand stack is empty"))
 
-    deref(v.stack.at(top - 1)) match
+    deref(v.stack[top - 1]) match
         Var(_) ->
-            val name = v.chunks.at(v.code).name
+            val name = v.chunks[v.code].name
             val msg = s"instantiation error: `$name` was given an unbound variable as argument ${param + 1}, which its pattern has to look inside"
 
             Err(instantiation_error(msg))

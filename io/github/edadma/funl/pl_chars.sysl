@@ -67,8 +67,8 @@ set_conversion(from: Value, to: Value)
     val v = current()
 
     for i in 0..<v.pl_chars.len()
-        if v.pl_chars.at(i).0 == a
-            if a == b then v.pl_chars.remove(i) else v.pl_chars.set(i, (a, b))
+        if v.pl_chars[i].0 == a
+            if a == b then v.pl_chars.remove(i) else v.pl_chars[i] = (a, b)
 
             return
 
@@ -115,7 +115,7 @@ struct Converted
     at: Buf[usize]
 
 // Span `s` of converted text `c`, as a span of the text as written.
-written_span(c: Converted, s: Span) -> Span = Span(c.at.at(s.start), c.at.at(s.end))
+written_span(c: Converted, s: Span) -> Span = Span(c.at[s.start], c.at[s.end])
 
 // How many bytes the character at `b[i]` takes.
 private width_at(b: []const u8, i: usize) -> usize

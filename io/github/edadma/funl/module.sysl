@@ -161,7 +161,7 @@ left_out_export(file: string, name: string) -> Option[string]
     val said = s"`$name` of `funl:async` is not in this build"
 
     if missing.len() == 1
-        val f = missing.at(0)
+        val f = missing[0]
 
         return Some(s"$said -- it is behind the `$f` feature, so build with `--features $f`")
 
@@ -240,7 +240,7 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
 
                     load_module(file, i.at, report) match
                         Ok(l) ->
-                            if l.fresh then out.loads.push(current().modules.at(l.index).chunk)
+                            if l.fresh then out.loads.push(current().modules[l.index].chunk)
 
                             bind(&out, l.index, given, i.form, report)
                         Err(_) -> ()
@@ -258,7 +258,7 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
                         Some(FunlTarget(file)) ->
                             load_module(file, i.at, report) match
                                 Ok(l) ->
-                                    if l.fresh then out.loads.push(current().modules.at(l.index).chunk)
+                                    if l.fresh then out.loads.push(current().modules[l.index].chunk)
 
                                     bind(&out, l.index, name, i.form, report)
                                 Err(_) -> ()
@@ -284,7 +284,7 @@ imports_of(src: Source, prog: Program, report: *Report) -> Imports
                     Some(p) ->
                         val l = provided(p)
 
-                        if l.fresh then out.loads.push(current().modules.at(l.index).chunk)
+                        if l.fresh then out.loads.push(current().modules[l.index].chunk)
 
                         bind(&out, l.index, s"funl:$name", i.form, report)
                     None -> report.add(error(i.at, unknown_builtin(name)))
@@ -309,7 +309,7 @@ private provided(p: ModuleProvider) -> ModLoad
     val file = s"funl:${p.name}"
 
     for i in 0..<v.modules.len()
-        if v.modules.at(i).loaded && v.modules.at(i).file == file then return ModLoad(i, false)
+        if v.modules[i].loaded && v.modules[i].file == file then return ModLoad(i, false)
 
     if p.source == ""
         v.modules.push(FunlModule(file, TopUp, true, p.exports(), NoMap, 0, false))
@@ -321,7 +321,7 @@ private provided(p: ModuleProvider) -> ModLoad
         Ok(l) -> l
         Err(_) -> panic(s"`$file`'s FunL does not compile:\n${report.render(source_of(file, p.source))}")
 
-    var md = v.modules.at(l.index)
+    var md = v.modules[l.index]
 
     for x in p.exports().view()
         md.exports.push(x)
@@ -329,12 +329,12 @@ private provided(p: ModuleProvider) -> ModLoad
     // The map `import * as` names is made from the exports when it is used, natives included, rather
     // than kept in the top level's frame, which holds the source's names alone.
     md.map_slot = NoMap
-    v.modules.set(l.index, md)
+    v.modules[l.index] = md
     l
 
 // The names `form` takes from module `index`, which the import wrote as `given`.
 private bind(out: *Imports, index: usize, given: string, form: ImportForm, report: *Report)
-    val md = current().modules.at(index)
+    val md = current().modules[index]
 
     form match
         WholeForm -> ()
@@ -369,7 +369,7 @@ private exports_text(md: FunlModule) -> string
     for i in 0..<md.exports.len()
         if i > 0 then out.push(", ")
 
-        out.push(s"`${md.exports.at(i).name}`")
+        out.push(s"`${md.exports[i].name}`")
 
     out.finish()
 
@@ -380,7 +380,7 @@ load_module(file: string, at: Span, report: *Report) -> Result[ModLoad, Refusal]
     val v = current()
 
     for i in 0..<v.modules.len()
-        val md = v.modules.at(i)
+        val md = v.modules[i]
 
         if md.loaded && same_file(md.file, file) then return Ok(ModLoad(i, false))
 
@@ -427,13 +427,13 @@ module_from_text(file: string, text: string, at: Span, report: *Report) -> Resul
 
     made match
         Ok(out) ->
-            var md = v.modules.at(index)
+            var md = v.modules[index]
 
             md.loaded = true
             md.exports = out.exports
             md.map_slot = out.map_slot
             md.chunk = out.chunk
-            v.modules.set(index, md)
+            v.modules[index] = md
             Ok(ModLoad(index, true))
         Err(r) ->
             forget_since(mark)
@@ -466,14 +466,14 @@ private circle(file: string) -> string
     var from: usize = 0
 
     for i in 0..<chain.len()
-        if same_file(chain.at(i), file) then from = i
+        if same_file(chain[i], file) then from = i
 
     var out = str_builder()
 
     out.push("this import closes a circle: ")
 
     for i in from..<chain.len()
-        out.push(s"`${chain.at(i)}` imports ")
+        out.push(s"`${chain[i]}` imports ")
 
     out.push(s"`$file`")
     out.finish()
@@ -482,19 +482,19 @@ private circle(file: string) -> string
 // defines it too, or where two imports take it.
 bind_imports(res: *Resolved, im: Imports, report: *Report)
     for i in 0..<im.names.len()
-        val b = im.names.at(i)
+        val b = im.names[i]
 
         // Another arity of the name the binding before it took, from the same import, joins it.
-        val again = i > 0 && same_import(im.names.at(i - 1), b)
+        val again = i > 0 && same_import(im.names[i - 1], b)
 
         if again
-            export_meaning(res, current().modules.at(b.source), b.export) match
+            export_meaning(res, current().modules[b.source], b.export) match
                 Some(m) -> res.imported.put(b.local, with_member(b.local, res.imported.get(b.local), m))
                 None -> ()
 
             continue
 
-        if !free_to_import(res, b.local, b.at, current().modules.at(b.source).file, report) then continue
+        if !free_to_import(res, b.local, b.at, current().modules[b.source].file, report) then continue
 
         b.export.kind match
             ExType(id) ->
@@ -503,12 +503,12 @@ bind_imports(res: *Resolved, im: Imports, report: *Report)
             ExCtor(_, kin) -> see_kin(res, b.local, kin)
             _ -> ()
 
-        export_meaning(res, current().modules.at(b.source), b.export) match
+        export_meaning(res, current().modules[b.source], b.export) match
             Some(m) -> res.imported.put(b.local, m)
             None -> ()
 
     for a in im.aliases.view()
-        val md = current().modules.at(a.source)
+        val md = current().modules[a.source]
 
         if !free_to_import(res, a.alias, a.at, md.file, report) then continue
 
@@ -544,7 +544,7 @@ private see_kin(res: *Resolved, name: string, kin: Buf[usize])
 private free_to_import(res: *Resolved, n: string, at: Span, file: string, report: *Report) -> bool
     res.by_name.get(n) match
         Some(rs) ->
-            report.add(error(res.rels.at(rs.at(0)).clauses.at(0).head, s"`$n` is imported from `$file`, and this file cannot also define it")
+            report.add(error(res.rels[rs[0]].clauses[0].head, s"`$n` is imported from `$file`, and this file cannot also define it")
                 .with_note("`as` renames what an import declares: `import { x as y } from ...`, `import * as m from ...`"))
             return false
         None -> ()
@@ -581,7 +581,7 @@ qualified_name(res: *Resolved, g: string, gm: Meaning, name: string) -> Option[M
         Some(i) -> i
         None -> return None
 
-    val md = current().modules.at(index)
+    val md = current().modules[index]
 
     val same = gm match
         Local(d, s, _) -> md.map_slot != NoMap && d == md.up && s == md.map_slot
@@ -596,7 +596,7 @@ qualified_name(res: *Resolved, g: string, gm: Meaning, name: string) -> Option[M
 
 // The refusal of `g.name`, which module alias `g` does not export.
 not_exported(res: *Resolved, g: string, name: string, at: Span) -> Diagnostic
-    val md = current().modules.at(res.aliases.get(g).unwrap())
+    val md = current().modules[res.aliases.get(g).unwrap()]
 
     left_out_export(md.file, name) match
         Some(m) -> return error(at, m)
@@ -632,7 +632,7 @@ pattern_refusal(res: *Resolved, n: string, m: Meaning, argc: Option[usize], at: 
             Some(error(at, s"`$n` is not defined")
                 .with_note("a term in a pattern is a constructor a `data` declares, in this file or imported"))
         Constructor(id) ->
-            val fields = current().ctors.at(id).fields.len()
+            val fields = current().ctors[id].fields.len()
 
             argc match
                 Some(k) ->
@@ -650,7 +650,7 @@ pattern_refusal(res: *Resolved, n: string, m: Meaning, argc: Option[usize], at: 
 
 // The functor of the constructor `m` names, a pattern the resolver let through.
 pattern_functor(m: Option[Meaning]) -> Result[u32, string] = m match
-    Some(Constructor(id)) -> Ok(current().ctors.at(id).functor)
+    Some(Constructor(id)) -> Ok(current().ctors[id].functor)
     _ -> Err("a qualified pattern the resolver refused reached the compiler")
 
 // The exports of a module whose names `names` its `export` lines declare, resolved in `res`; the
@@ -659,7 +659,7 @@ pattern_functor(m: Option[Meaning]) -> Result[u32, string] = m match
 module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, report: *Report) -> ModuleOut
     var out = ModuleOut(buf(), buf(), buf(), NoMap, 0)
     var seen: Buf[string] = buf()
-    var top = res.scopes.at(res.top)
+    var top = res.scopes[res.top]
 
     for named in names.view()
         val n = named.value
@@ -676,8 +676,8 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
         res.by_name.get(n) match
             Some(rs) ->
                 for i in rs.view()
-                    val r = res.rels.at(i)
-                    val at = placed(res.places, r.clauses.at(0).head.start)
+                    val r = res.rels[i]
+                    val at = placed(res.places, r.clauses[0].head.start)
 
                     if r.variadic
                         out.exports.push(ModExport(n, ExVariadic(r.chunk, r.arity), s"the variadic FunL function `$n` at $at"))
@@ -719,7 +719,7 @@ module_exports(res: *Resolved, names: Buf[Spanned[string]], snapshot: bool, repo
 
     if snapshot then out.map_slot = top.declare(0, "export *", point(0), Anywhere, true)
 
-    res.scopes.set(res.top, top)
+    res.scopes[res.top] = top
     out
 end module_exports
 
@@ -739,7 +739,7 @@ prolog_builtin_module(name: string, at: Span, report: *Report, goals: *Buf[LoadS
     // A module with FunL source runs its top level where the directive stands, as the prelude does,
     // and each of its functions is `name:f/(n+1)` beside the natives.
     val l = provided(p)
-    val md = current().modules.at(l.index)
+    val md = current().modules[l.index]
 
     if l.fresh then goals.push(RunChunk(md.chunk))
 
@@ -768,7 +768,7 @@ end prolog_builtin_module
 // Export `x` of built-in module `owner`, builtin `id`, made the predicates `owner:f/(n+1)`. A builtin
 // whose trailing arguments are optional is one predicate per count it takes.
 native_predicates(owner: string, x: ModExport, id: usize) -> Result[unit, string]
-    val nat = current().natives.at(id)
+    val nat = current().natives[id]
 
     for arity in nat.least..nat.arity
         val key = pred_key(s"$owner:${x.name}", arity + 1)
@@ -801,7 +801,7 @@ native_predicates(owner: string, x: ModExport, id: usize) -> Result[unit, string
 // as a FunL importer sees them, and once. Answers why the import is refused, given `why` so far.
 prolog_exports(index: usize, at: Span, report: *Report, why: Refusal) -> Refusal
     val v = current()
-    var md = v.modules.at(index)
+    var md = v.modules[index]
 
     if md.in_prolog then return why
 
@@ -852,7 +852,7 @@ prolog_exports(index: usize, at: Span, report: *Report, why: Refusal) -> Refusal
 
     if !refused
         md.in_prolog = true
-        v.modules.set(index, md)
+        v.modules[index] = md
 
     now
 end prolog_exports

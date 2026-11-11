@@ -94,7 +94,7 @@ private pattern_head_key(c: Ctx, p: &Expr) -> Option[Key] = p.kind match
     BoolE(b) -> Some(KAtom(if b then TrueAtom else FalseAtom))
     CallE(n, at, args) ->
         val functor = c.meaning(n, at.start) match
-            Constructor(id) -> current().ctors.at(id).functor
+            Constructor(id) -> current().ctors[id].functor
             _ -> intern(n)
 
         Some(KFunctor(functor, args.len()))
@@ -114,7 +114,7 @@ private pattern_head_key(c: Ctx, p: &Expr) -> Option[Key] = p.kind match
 function_index_arg(heads: Buf[ClauseHead]) -> Option[usize]
     if heads.len() < 2 then return None
 
-    val n = heads.at(0).tests.len()
+    val n = heads[0].tests.len()
 
     for h in heads.view()
         if h.tests.len() != n then return None
@@ -123,7 +123,7 @@ function_index_arg(heads: Buf[ClauseHead]) -> Option[usize]
         var tested = false
 
         for h in heads.view()
-            if h.tests.at(j) then tested = true
+            if h.tests[j] then tested = true
 
         if tested
             return if worth_indexing(keys_at(heads, j)) then Some(j) else None
@@ -134,7 +134,7 @@ private keys_at(heads: Buf[ClauseHead], arg: usize) -> Buf[Option[Key]]
     var keys: Buf[Option[Key]] = buf()
 
     for h in heads.view()
-        keys.push(h.keys.at(arg))
+        keys.push(h.keys[arg])
 
     keys
 
@@ -152,7 +152,7 @@ clause_index(e: *Emit, heads: Buf[ClauseHead], starts: Buf[usize])
     var open: Buf[usize] = buf()
 
     for i in 0..<keys.len()
-        keys.at(i) match
+        keys[i] match
             None -> open.push(i)
             Some(_) -> ()
 
@@ -163,7 +163,7 @@ clause_index(e: *Emit, heads: Buf[ClauseHead], starts: Buf[usize])
         var these: Buf[usize] = buf()
 
         for i in 0..<keys.len()
-            val takes = keys.at(i) match
+            val takes = keys[i] match
                 None -> true
                 Some(x) -> same_key(x, k)
 
@@ -171,14 +171,14 @@ clause_index(e: *Emit, heads: Buf[ClauseHead], starts: Buf[usize])
 
         targets.push(chain_target(e, starts, these, &stubs, &chains))
 
-    e.op(SwitchClause(arg, starts.at(0), other, distinct.len()))
+    e.op(SwitchClause(arg, starts[0], other, distinct.len()))
 
     for j in 0..<distinct.len()
-        e.op(Case(distinct.at(j), targets.at(j)))
+        e.op(Case(distinct[j], targets[j]))
 
     for s in 0..<stubs.len()
-        e.place(stubs.at(s))
-        stub_chain(e, heads, starts, chains.at(s))
+        e.place(stubs[s])
+        stub_chain(e, heads, starts, chains[s])
 end clause_index
 
 // Where a chain of clauses `which` begins: `NoMatch` for none, the first clause itself where the
@@ -186,9 +186,9 @@ end clause_index
 private chain_target(e: *Emit, starts: Buf[usize], which: Buf[usize], stubs: *Buf[usize], chains: *Buf[Buf[usize]]) -> usize
     val n = starts.len() - 1
 
-    if which.len() == 0 then return starts.at(n)
+    if which.len() == 0 then return starts[n]
 
-    if suffix_from(which, 0, n) then return starts.at(which.at(0))
+    if suffix_from(which, 0, n) then return starts[which[0]]
 
     val l = e.label()
 
@@ -198,10 +198,10 @@ private chain_target(e: *Emit, starts: Buf[usize], which: Buf[usize], stubs: *Bu
 
 // Whether `which` from position `k` on is every clause from `which.at(k)` to the last of `n`.
 private suffix_from(which: Buf[usize], k: usize, n: usize) -> bool
-    if which.at(k) + (which.len() - k) != n then return false
+    if which[k] + (which.len() - k) != n then return false
 
     for m in k..<which.len()
-        if which.at(m) != which.at(k) + (m - k) then return false
+        if which[m] != which[k] + (m - k) then return false
 
     true
 
@@ -212,13 +212,13 @@ private stub_chain(e: *Emit, heads: Buf[ClauseHead], starts: Buf[usize], which: 
     val n = heads.len()
 
     for k in 0..<which.len()
-        val h = heads.at(which.at(k))
+        val h = heads[which[k]]
         val done = k + 1 == which.len() || suffix_from(which, k + 1, n)
 
         val next = if k + 1 == which.len()
-            starts.at(n)
+            starts[n]
         elif done
-            starts.at(which.at(k + 1))
+            starts[which[k + 1]]
         else
             e.label()
 

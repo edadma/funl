@@ -33,7 +33,7 @@ import sysl.slices.contains
 // `resume` its failure may take.
 reuse_slots(e: *Emit)
     for p in 0..<e.code.len()
-        e.code.at(p) match
+        e.code[p] match
             FrameHead(n, next, body, resume) ->
                 if resume == NoMark
                     val r = resume_at(e, p, next, body)
@@ -41,21 +41,21 @@ reuse_slots(e: *Emit)
                     if r != NoMark
                         val l = e.label()
 
-                        e.labels.set(l, r)
-                        e.code.set(p, FrameHead(n, next, body, l))
+                        e.labels[l] = r
+                        e.code[p] = FrameHead(n, next, body, l)
             _ -> ()
 
 // Where a failure of the head whose `FrameHead` is at `p` may resume the clause at label `next`, or
 // `NoMark` where it must run that clause from its start.
 private resume_at(e: *Emit, p: usize, next: usize, body: usize) -> usize
-    val t = e.labels.at(next)
+    val t = e.labels[next]
 
-    val until = e.code.at(t) match
-        FrameHead(_, _, b, _) -> e.labels.at(b)
+    val until = e.code[t] match
+        FrameHead(_, _, b, _) -> e.labels[b]
         _ -> return NoMark
 
     val a = head_start(e, p)
-    val end = e.labels.at(body)
+    val end = e.labels[body]
     val b = head_start(e, t)
     val k = shared_prefix(e, a, end, b, until)
 
@@ -67,8 +67,8 @@ private resume_at(e: *Emit, p: usize, next: usize, body: usize) -> usize
 // `Branch` goes. A clause's own head with parameters begins with `LoadArg`, never a `Branch`.
 private head_start(e: *Emit, p: usize) -> usize
     if p + 1 < e.code.len()
-        e.code.at(p + 1) match
-            Branch(h) -> return e.labels.at(h)
+        e.code[p + 1] match
+            Branch(h) -> return e.labels[h]
             _ -> ()
 
     p + 1
@@ -81,8 +81,8 @@ private shared_prefix(e: *Emit, a: usize, end: usize, b: usize, until: usize) ->
     var i: usize = 0
 
     while a + i < end && b + i < until
-        val x = e.code.at(a + i)
-        val y = e.code.at(b + i)
+        val x = e.code[a + i]
+        val y = e.code[b + i]
 
         val same = x match
             LoadArg(j) ->
@@ -116,12 +116,12 @@ private writes_only_prefix(e: *Emit, a: usize, end: usize, k: usize) -> bool
     var kept: Buf[usize] = buf()
 
     for i in a..<a + k
-        e.code.at(i) match
+        e.code[i] match
             StoreSlot(s) -> kept.push(s)
             _ -> ()
 
     for i in a + k..<end
-        val w = written_slot(e.code.at(i))
+        val w = written_slot(e.code[i])
 
         if w != NoMark && !contains(kept.view(), w) then return false
 

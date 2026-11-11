@@ -64,10 +64,10 @@ get_map(v: *Vm, n: usize, rest: bool, given: bool, exact: bool, src: Src) -> Res
             extra match
                 Some(r) ->
                     for i in 0..<r.keys.len()
-                        if map_find(m, r.keys.at(i))?.is_some() then return Ok(false)
+                        if map_find(m, r.keys[i])?.is_some() then return Ok(false)
 
-                        m.keys.push(r.keys.at(i))
-                        m.vals.push(r.vals.at(i))
+                        m.keys.push(r.keys[i])
+                        m.vals.push(r.vals[i])
                 None -> ()
 
             current().allocated += 2 * m.keys.len() * sizeof(Value)
@@ -96,7 +96,7 @@ private popped_keys(v: *Vm, n: usize) -> Result[Buf[Value], Fault]
     var keys: Buf[Value] = buf()
 
     for i in (top - n)..<top
-        val k = deref(v.stack.at(i))
+        val k = deref(v.stack[i])
 
         k match
             Var(_) -> return Err(instantiation_error("instantiation error: a map pattern's key is an unbound variable"))
@@ -131,8 +131,8 @@ private take_apart(v: *Vm, m: *MapObj, keys: Buf[Value], rest: bool, exact: bool
 
         for i in 0..<m.keys.len()
             if !named(at, i)
-                r.keys.push(m.keys.at(i))
-                r.vals.push(m.vals.at(i))
+                r.keys.push(m.keys[i])
+                r.vals.push(m.vals[i])
 
         current().allocated += 2 * r.keys.len() * sizeof(Value)
         v.stack.push(Map(r))
@@ -147,7 +147,7 @@ private push_values(v: *Vm, m: *MapObj, at: Buf[usize])
 
     while i > 0
         i -= 1
-        v.stack.push(m.vals.at(at.at(i)))
+        v.stack.push(m.vals[at[i]])
 
 private named(at: Buf[usize], i: usize) -> bool
     for j in at.view()

@@ -34,7 +34,7 @@ private fed(text: string, lines: []string) -> string
 private next_fed(f: &Feed) -> Option[string]
     if f.at >= f.lines.len() then return None
 
-    val l = f.lines.at(f.at)
+    val l = f.lines[f.at]
 
     f.at += 1
     f.said.pieces.push(s"read: $l\n")

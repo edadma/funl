@@ -18,7 +18,7 @@ private pop_args(v: *Vm, argc: usize) -> Result[Buf[Value], string]
     var args: Buf[Value] = buf()
 
     for i in n - argc..<n
-        args.push(v.stack.at(i))
+        args.push(v.stack[i])
 
     v.stack.truncate(n - argc)
     Ok(args)
@@ -28,7 +28,7 @@ private pop_args(v: *Vm, argc: usize) -> Result[Buf[Value], string]
 private check_target(v: *Vm, target: usize, argc: usize) -> Result[unit, Fault]
     if target >= v.chunks.len() then return Err(Broken(s"a call names chunk $target, and there are ${v.chunks.len()}"))
 
-    val c = v.chunks.at(target)
+    val c = v.chunks[target]
 
     if c.arity != AnyArity && c.arity != argc
         return Err(wrong_count(c.name, argc, s"'${c.name}' takes ${counted(c.arity, "argument")} and was given $argc"))
@@ -49,7 +49,7 @@ link(v: *Vm, up: usize) -> Result[*FrameObj, string]
 
     if up >= TopUp - FileUps
         val m = TopUp - 1 - up
-        val f = if m < v.funl_tops.len() then v.funl_tops.at(m) else null
+        val f = if m < v.funl_tops.len() then v.funl_tops[m] else null
 
         if f == null then return Err("a FunL file's function was called before the file's top level ran")
 
@@ -113,7 +113,7 @@ private statics_up(v: *Vm, target: usize, d: *FrameObj) -> Result[*FrameObj, str
 
 // Chunk `target`'s statics, as `Vm.chunk_statics` keeps them: none for a chunk it has no entry for.
 private statics_of_chunk(v: *Vm, target: usize) -> (usize, usize) =
-    if target < v.chunk_statics.len() then v.chunk_statics.at(target) else (0, NoHome)
+    if target < v.chunk_statics.len() then v.chunk_statics[target] else (0, NoHome)
 
 // A new frame for `target` over the top `argc` values, with static link `up`.
 //
@@ -126,7 +126,7 @@ private statics_of_chunk(v: *Vm, target: usize) -> (usize, usize) =
 private open_frame(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[unit, Fault]
     check_target(v, target, argc)?
 
-    if v.chunks.at(target).is_async then return start_async(v, target, argc, up)
+    if v.chunks[target].is_async then return start_async(v, target, argc, up)
 
     val f = new_frame(target)?
 
@@ -184,7 +184,7 @@ private tail_into(v: *Vm, target: usize, argc: usize, up: *FrameObj) -> Result[u
 
     Ok(())
 
-private is_async_chunk(v: *Vm, target: usize) -> bool = target < v.chunks.len() && v.chunks.at(target).is_async
+private is_async_chunk(v: *Vm, target: usize) -> bool = target < v.chunks.len() && v.chunks[target].is_async
 
 // Call the function value beneath the top `argc` values, in tail position when `tail`. False where
 // the callee was a collection and held nothing under the key: the call fails.
@@ -193,7 +193,7 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[bool, Fault]
 
     if argc >= n then return Err(Broken(s"a call wants a function and $argc arguments and the operand stack holds $n"))
 
-    val callee = deref(v.stack.at(n - argc - 1))
+    val callee = deref(v.stack[n - argc - 1])
 
     val c = callee match
         Func(p) -> p
@@ -201,7 +201,7 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[bool, Fault]
             // A constructor called through a value: its record, made of the arguments once the
             // callee's cell is gone from under them.
             for i in n - argc..<n
-                v.stack.set(i - 1, v.stack.at(i))
+                v.stack[i - 1] = v.stack[i]
 
             v.stack.truncate(n - 1)
             make_record(v, usize(id), argc)?
@@ -218,7 +218,7 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[bool, Fault]
             if argc != 1
                 return Err(domain_error("one_key", callee, s"${described(callee)} is indexed by one key, and was given $argc arguments"))
 
-            val found = element_get(callee, v.stack.at(n - 1))?
+            val found = element_get(callee, v.stack[n - 1])?
 
             v.stack.truncate(n - 2)
 
@@ -231,7 +231,7 @@ call_value(v: *Vm, argc: usize, tail: bool) -> Result[bool, Fault]
     // The callee's cell goes, the arguments close up over it; the closure stays reachable through
     // `c` for the frame being made, and nothing collects before the frame holds it.
     for i in n - argc..<n
-        v.stack.set(i - 1, v.stack.at(i))
+        v.stack[i - 1] = v.stack[i]
 
     v.stack.truncate(n - 1)
 
@@ -262,13 +262,13 @@ private indexable(x: Value) -> bool = x match
 // there for these arguments. The message shows the arguments.
 no_match(v: *Vm) -> Result[unit, Fault]
     val f = v.frame
-    val name = v.chunks.at(f.chunk).name
+    val name = v.chunks[f.chunk].name
     var shown = ""
 
     for i in 0..<f.args.len()
         if i > 0 then shown = shown + ", "
 
-        shown = shown + render(f.args.at(i))
+        shown = shown + render(f.args[i])
 
     val p = indicator(name, f.args.len())?
 
@@ -369,7 +369,7 @@ head_fails(v: *Vm) -> bool
     v.stack.truncate(f.head_floor)
 
     if f.resume != NoMark
-        v.chunks.at(v.code).code.at(f.fail_to) match
+        v.chunks[v.code].code[f.fail_to] match
             FrameHead(n, next, body, resume) ->
                 if f.slots.len() > n
                     f.slots.truncate(n)
@@ -405,10 +405,10 @@ frame_up(v: *Vm, depth: usize) -> Result[*FrameObj, string]
 slot_of(f: *FrameObj, slot: usize) -> Result[Value, string]
     if slot >= f.slots.len() then return Err(s"slot $slot of a frame with ${f.slots.len()}")
 
-    Ok(f.slots.at(slot))
+    Ok(f.slots[slot])
 
 set_slot(f: *FrameObj, slot: usize, x: Value) -> Result[unit, string]
     if slot >= f.slots.len() then return Err(s"slot $slot of a frame with ${f.slots.len()}")
 
-    f.slots.set(slot, x)
+    f.slots[slot] = x
     Ok(())

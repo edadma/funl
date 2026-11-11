@@ -101,8 +101,8 @@ private io_ready() -> Result[*Vm, Fault]
     v.pl_io.streams.push(standard_record(0, "user_input", "read", "reset")?)
     v.pl_io.streams.push(standard_record(1, "user_output", "write", "eof_code")?)
     v.pl_io.streams.push(standard_record(2, "user_error", "write", "eof_code")?)
-    v.pl_io.input = v.pl_io.streams.at(0).handle
-    v.pl_io.output = v.pl_io.streams.at(1).handle
+    v.pl_io.input = v.pl_io.streams[0].handle
+    v.pl_io.output = v.pl_io.streams[1].handle
     Ok(v)
 
 private standard_record(which: int, alias: string, mode: string, eof: string) -> Result[&PlStream, Fault]
@@ -130,7 +130,7 @@ private has_alias(s: &PlStream, id: u32) -> bool
 // `close()` -- has its record dropped.
 private record_of(v: *Vm, p: *HandleObj) -> Option[&PlStream]
     for i in 0..<v.pl_io.streams.len()
-        val s = v.pl_io.streams.at(i)
+        val s = v.pl_io.streams[i]
 
         if s.h == p
             if p.closed && s.which < 0
@@ -166,7 +166,7 @@ private not_stream_or_alias(t: Value, who: string) -> Fault =
     domain_error("stream_or_alias", t, s"$who wants a stream or an alias, and was given ${described(t)}")
 
 // What an error names a stream by when the program did not: its first alias, or the stream.
-private culprit_of(s: &PlStream) -> Value = if s.aliases.len() > 0 then Atom(s.aliases.at(0)) else s.handle
+private culprit_of(s: &PlStream) -> Value = if s.aliases.len() > 0 then Atom(s.aliases[0]) else s.handle
 
 // The current input's record; `user_input`'s where the current input has been closed.
 private current_in() -> Result[&PlStream, Fault]
@@ -179,8 +179,8 @@ private current_in() -> Result[&PlStream, Fault]
                 None -> ()
         _ -> ()
 
-    v.pl_io.input = v.pl_io.streams.at(0).handle
-    Ok(v.pl_io.streams.at(0))
+    v.pl_io.input = v.pl_io.streams[0].handle
+    Ok(v.pl_io.streams[0])
 
 // The current output's record; `user_output`'s where the current output has been closed.
 private current_out() -> Result[&PlStream, Fault]
@@ -193,8 +193,8 @@ private current_out() -> Result[&PlStream, Fault]
                 None -> ()
         _ -> ()
 
-    v.pl_io.output = v.pl_io.streams.at(1).handle
-    Ok(v.pl_io.streams.at(1))
+    v.pl_io.output = v.pl_io.streams[1].handle
+    Ok(v.pl_io.streams[1])
 
 // A stream `who` reads from: one it may read, and of the type it reads -- binary for bytes.
 private check_input(s: &PlStream, culprit: Value, who: string, binary: bool) -> Result[unit, Fault]
@@ -421,7 +421,7 @@ mark_past(s: &PlStream)
     s.past = true
 
 // What a diagnostic of a read from `s` names it by: its alias, or its file.
-stream_label(s: &PlStream) -> string = if s.aliases.len() > 0 then atom_name(s.aliases.at(0)) else s.file_name
+stream_label(s: &PlStream) -> string = if s.aliases.len() > 0 then atom_name(s.aliases[0]) else s.file_name
 
 // -- writing ----------------------------------------------------------------------------------------
 
@@ -496,7 +496,7 @@ private open_option(o: *OpenOptions, x: Value, who: string) -> Result[unit, Faul
 
     if args.len() != 1 then return Err(bad_open_option(x, who))
 
-    val a = deref(args.at(0))
+    val a = deref(args[0])
 
     if is_unbound(a) then return Err(instantiation_error(s"instantiation error: $who was given an option with an unbound argument"))
 
@@ -595,7 +595,7 @@ private pl_close(x: Value, options: Value, who: string) -> Result[Value, Fault]
         compound_parts(o) match
             Some((f, args)) ->
                 if atom_name(f) == "force" && args.len() == 1
-                    val a = deref(args.at(0))
+                    val a = deref(args[0])
 
                     if is_unbound(a) then return Err(instantiation_error(s"instantiation error: $who was given force/1 with an unbound argument"))
 
@@ -619,13 +619,13 @@ private pl_close(x: Value, options: Value, who: string) -> Result[Value, Fault]
     val v = current()
 
     for i in 0..<v.pl_io.streams.len()
-        if v.pl_io.streams.at(i).h == s.h
+        if v.pl_io.streams[i].h == s.h
             v.pl_io.streams.remove(i)
             break
 
-    if same_handle(v.pl_io.input, s.h) then v.pl_io.input = v.pl_io.streams.at(0).handle
+    if same_handle(v.pl_io.input, s.h) then v.pl_io.input = v.pl_io.streams[0].handle
 
-    if same_handle(v.pl_io.output, s.h) then v.pl_io.output = v.pl_io.streams.at(1).handle
+    if same_handle(v.pl_io.output, s.h) then v.pl_io.output = v.pl_io.streams[1].handle
 
     val flushed = if s.mode == "read" then Ok(()) else file_flush_handle(s.h)
 
@@ -848,7 +848,7 @@ private pl_set_position(x: Value, p: Value) -> Result[Value, Fault]
                 good = true
 
                 for i in 0..<args.len()
-                    deref(args.at(i)) match
+                    deref(args[i]) match
                         Int(k) -> if k >= 0 then n[i] = k else good = false
                         _ -> good = false
         None -> ()
@@ -1051,7 +1051,7 @@ private pl_capture_end(base: usize) -> Result[Answer, Fault]
     deref(arg(base, 1)) match
         Handle(p) ->
             for i in 0..<v.pl_io.streams.len()
-                val s = v.pl_io.streams.at(i)
+                val s = v.pl_io.streams[i]
 
                 if s.h == p && s.which == MemoryStream
                     text = text_of_bytes(s.held.view())

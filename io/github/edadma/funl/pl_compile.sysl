@@ -71,7 +71,7 @@ private clause_ctx(nvars: usize, t: &Term) -> ClauseCtx
 
 private count_vars(t: &Term, counts: *Buf[usize])
     t.kind match
-        TVar(n) -> counts.set(n, counts.at(n) + 1)
+        TVar(n) -> counts[n] += 1
         TCons(h, tl) ->
             count_vars(h, counts)
             count_vars(tl, counts)
@@ -84,7 +84,7 @@ private count_vars(t: &Term, counts: *Buf[usize])
 clause_parts(t: &Term) -> (&Term, Option[&Term])
     t.kind match
         TComp(f, args) ->
-            if args.len() == 2 && atom_name(f) == ":-" then return (args.at(0), Some(args.at(1)))
+            if args.len() == 2 && atom_name(f) == ":-" then return (args[0], Some(args[1]))
         _ -> ()
 
     (t, None)
@@ -116,13 +116,13 @@ compile_predicate(name: string, arity: usize, clauses: Buf[ReadClause]) -> Resul
     if index then first_arg_index(&e, keys, starts)
 
     for i in 0..<clauses.len()
-        val c = clauses.at(i)
+        val c = clauses[i]
         val last = index || i + 1 == clauses.len()
         val next = e.label()
 
         if !last then e.op(Choice(next))
 
-        e.place(starts.at(i))
+        e.place(starts[i])
         clause_code(&e, c)?
 
         if !last then e.place(next)
@@ -131,7 +131,7 @@ compile_predicate(name: string, arity: usize, clauses: Buf[ReadClause]) -> Resul
 end compile_predicate
 
 private first_arg_key(head: &Term) -> Option[Key] = head.kind match
-    TComp(_, args) -> term_key(args.at(0))
+    TComp(_, args) -> term_key(args[0])
     _ -> None
 
 // One clause: its frame, its head, its body in tail position.
@@ -145,7 +145,7 @@ private clause_code(e: *Emit, c: ReadClause) -> Result[unit, PlError]
     head.kind match
         TComp(_, args) ->
             for i in 0..<args.len()
-                head_arg(e, &cx, args.at(i), Arg(i))?
+                head_arg(e, &cx, args[i], Arg(i))?
         _ -> ()
 
     fresh_vars(e, &cx)
@@ -156,7 +156,7 @@ private clause_code(e: *Emit, c: ReadClause) -> Result[unit, PlError]
             e.op(PushUnit)
             e.op(Return)
 
-    e.code.set(frame_at, Frame(cx.slots))
+    e.code[frame_at] = Frame(cx.slots)
     Ok(())
 end clause_code
 
@@ -177,7 +177,7 @@ compile_query(name: string, c: ReadClause) -> Result[Emit, PlError]
     e.op(Frame(0))
     fresh_vars(&e, &cx)
     goal(&e, &cx, c.t, true, ToClause)?
-    e.code.set(0, Frame(cx.slots))
+    e.code[0] = Frame(cx.slots)
     Ok(e)
 
 // A query typed at the top level, `?- G.`, as a chunk run as the top of a run (`toplevel.sysl`):
@@ -213,10 +213,10 @@ compile_toplevel(c: ReadClause, shown: []usize) -> Result[Emit, PlError]
     e.op(Pop)
 
     for i in 1..<parts.len()
-        build(&e, &cx, parts.at(i))?
+        build(&e, &cx, parts[i])?
 
     e.op(Halt)
-    e.code.set(0, Frame(cx.slots))
+    e.code[0] = Frame(cx.slots)
     Ok(e)
 end compile_toplevel
 
@@ -224,20 +224,20 @@ end compile_toplevel
 // once.
 private fresh_vars(e: *Emit, cx: *ClauseCtx)
     for n in 0..<cx.counts.len()
-        if cx.counts.at(n) > 1 && !cx.seen.at(n) then e.op(NewVar(n))
+        if cx.counts[n] > 1 && !cx.seen[n] then e.op(NewVar(n))
 
 // One head argument, unified with what `src` reads.
 private head_arg(e: *Emit, cx: *ClauseCtx, t: &Term, src: Src) -> Result[unit, PlError]
     t.kind match
         TVar(n) ->
-            if cx.counts.at(n) == 1
+            if cx.counts[n] == 1
                 src match
                     Popped -> e.op(Pop)
                     Arg(_) -> ()
-            elif cx.seen.at(n)
+            elif cx.seen[n]
                 e.op(GetValue(n, src))
             else
-                cx.seen.set(n, true)
+                cx.seen[n] = true
                 e.op(GetVar(n, src))
         TAtom(id) -> e.op(GetConst(e.constant(Atom(id)), src))
         TInt(n) -> e.op(GetConst(e.constant(Int(n)), src))
@@ -265,7 +265,7 @@ private made(x: Result[Value, string], at: Span) -> Result[Value, PlError] = x m
 // Push the term `t` builds, its variables read from their slots.
 private build(e: *Emit, cx: *ClauseCtx, t: &Term) -> Result[unit, PlError]
     t.kind match
-        TVar(n) -> e.op(if cx.counts.at(n) == 1 then PushVar else LoadSlot(0, n))
+        TVar(n) -> e.op(if cx.counts[n] == 1 then PushVar else LoadSlot(0, n))
         TAtom(id) -> e.op(PushConst(e.constant(Atom(id))))
         TInt(n) -> e.op(PushInt(n))
         TNum(text) -> e.op(PushConst(e.constant(made(prolog_literal_value(text), t.span)?)))
@@ -342,7 +342,7 @@ goal(e: *Emit, cx: *ClauseCtx, t: &Term, tail: bool, cut: CutTarget) -> Result[u
     val n = args.len()
 
     if name == ":" && n == 2
-        qualified_goal(args.at(0), args.at(1)) match
+        qualified_goal(args[0], args[1]) match
             Some(q) -> return goal(e, cx, q, tail, cut)
             None -> ()
 
@@ -427,43 +427,43 @@ private control(e: *Emit, cx: *ClauseCtx, t: &Term, name: string, args: Buf[&Ter
 
         unit(e, tail)
     elif name == ","
-        goal(e, cx, args.at(0), false, cut)?
+        goal(e, cx, args[0], false, cut)?
         e.op(Pop)
-        goal(e, cx, args.at(1), tail, cut)?
+        goal(e, cx, args[1], tail, cut)?
     elif name == ";" || name == "|"
         // A bar between goals, `'|'(A, B)` as the reader keeps it, is a disjunction, as in SWI-Prolog.
-        disjunction(e, cx, args.at(0), args.at(1), tail, cut)?
+        disjunction(e, cx, args[0], args[1], tail, cut)?
     elif name == "->"
-        if_then(e, cx, args.at(0), args.at(1), None, false, tail, cut)?
+        if_then(e, cx, args[0], args[1], None, false, tail, cut)?
     elif name == "*->"
-        if_then(e, cx, args.at(0), args.at(1), None, true, tail, cut)?
+        if_then(e, cx, args[0], args[1], None, true, tail, cut)?
     elif name == "\\+" || name == "not"
-        negation(e, cx, args.at(0), tail)?
+        negation(e, cx, args[0], tail)?
     elif name == "once"
-        if_then(e, cx, args.at(0), atom_term("true", t.span), None, false, tail, cut)?
+        if_then(e, cx, args[0], atom_term("true", t.span), None, false, tail, cut)?
     elif name == "ignore"
         val yes = atom_term("true", t.span)
 
-        if_then(e, cx, args.at(0), yes, Some(yes), false, tail, cut)?
+        if_then(e, cx, args[0], yes, Some(yes), false, tail, cut)?
     elif name == "forall"
         // `forall(C, A)` is `\+ (C, \+ A)`: no solution of `C` for which `A` fails.
-        val inner = compound_term("\\+", one_term(args.at(1)), t.span)
+        val inner = compound_term("\\+", one_term(args[1]), t.span)
         var both: Buf[&Term] = buf()
 
-        both.push(args.at(0))
+        both.push(args[0])
         both.push(inner)
         negation(e, cx, compound_term(",", both, t.span), tail)?
     elif name == "="
-        build(e, cx, args.at(0))?
-        build(e, cx, args.at(1))?
+        build(e, cx, args[0])?
+        build(e, cx, args[1])?
         e.op(Unify)
         settle(e, tail)
     elif name == "\\="
         // `A \= B` is `\+ A = B`: the unification is tried inside a mark and undone either way.
         var both: Buf[&Term] = buf()
 
-        both.push(args.at(0))
-        both.push(args.at(1))
+        both.push(args[0])
+        both.push(args[1])
         negation(e, cx, compound_term("=", both, t.span), tail)?
     elif name == "call"
         for a in args.view()
@@ -471,7 +471,7 @@ private control(e: *Emit, cx: *ClauseCtx, t: &Term, name: string, args: Buf[&Ter
 
         meta_call(e, n - 1, tail)?
     elif name == "consult"
-        build(e, cx, args.at(0))?
+        build(e, cx, args[0])?
         e.op(Consult)
         settle(e, tail)
     elif name == "$findall"
@@ -490,14 +490,14 @@ private all_found(e: *Emit, cx: *ClauseCtx, args: Buf[&Term], tail: bool) -> Res
 
     e.op(PushNil)
     e.op(Mark(done))
-    goal(e, cx, args.at(1), false, local_cut(e, cx, args.at(1)))?
+    goal(e, cx, args[1], false, local_cut(e, cx, args[1]))?
     e.op(Pop)
-    build(e, cx, args.at(0))?
+    build(e, cx, args[0])?
     e.op(CollectCopy)
     e.op(Fail)
     e.place(done)
     e.op(Gathered(AllFound))
-    build(e, cx, args.at(2))?
+    build(e, cx, args[2])?
     e.op(Unify)
     settle(e, tail)
     Ok(())
@@ -516,8 +516,8 @@ private one_term(t: &Term) -> Buf[&Term]
 private disjunction(e: *Emit, cx: *ClauseCtx, a: &Term, b: &Term, tail: bool, cut: CutTarget) -> Result[unit, PlError]
     a.kind match
         TComp(f, xs) ->
-            if xs.len() == 2 && atom_name(f) == "->" then return if_then(e, cx, xs.at(0), xs.at(1), Some(b), false, tail, cut)
-            if xs.len() == 2 && atom_name(f) == "*->" then return if_then(e, cx, xs.at(0), xs.at(1), Some(b), true, tail, cut)
+            if xs.len() == 2 && atom_name(f) == "->" then return if_then(e, cx, xs[0], xs[1], Some(b), false, tail, cut)
+            if xs.len() == 2 && atom_name(f) == "*->" then return if_then(e, cx, xs[0], xs[1], Some(b), true, tail, cut)
         _ -> ()
 
     val other = e.label()
@@ -602,7 +602,7 @@ private has_cut(g: &Term) -> bool
             val n = atom_name(f)
 
             if args.len() == 2 && (n == "," || n == ";" || n == "|" || n == "->" || n == "*->")
-                return has_cut(args.at(0)) || has_cut(args.at(1))
+                return has_cut(args[0]) || has_cut(args[1])
 
             false
         _ -> false

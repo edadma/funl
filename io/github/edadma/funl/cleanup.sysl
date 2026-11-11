@@ -113,10 +113,10 @@ push_cleanup(v: *Vm, to: usize)
 exit_cleanup(v: *Vm, slot: usize) -> Result[unit, string]
     val h = saved_height(v, slot)?
 
-    if h >= v.control.len() || v.control.at(h).kind != Cleanup then return Ok(())
+    if h >= v.control.len() || v.control[h].kind != Cleanup then return Ok(())
 
     for i in h + 1..<v.control.len()
-        val k = v.control.at(i).kind
+        val k = v.control[i].kind
 
         if k == Choice || k == Mark then return Ok(())
 
@@ -131,9 +131,9 @@ queue_cleanups(v: *Vm, h: usize)
     while i > h
         i -= 1
 
-        val e = v.control.at(i)
+        val e = v.control[i]
 
-        if e.kind == Cleanup && e.frame.args.len() == 2 then v.cleanups.pending.push(e.frame.args.at(1))
+        if e.kind == Cleanup && e.frame.args.len() == 2 then v.cleanups.pending.push(e.frame.args[1])
 
 // Whether commits have queued cleanups that have not run.
 cleanups_pending(v: *Vm) -> bool = v.cleanups.pending.len() > 0
@@ -212,7 +212,7 @@ resume_throw(v: *Vm) -> Result[Value, string]
     if n == 0 then return Err("ResumeThrow with no throw set aside")
 
     v.cleanups.resuming = true
-    Ok(v.cleanups.unwinds.at(n - 1).ball)
+    Ok(v.cleanups.unwinds[n - 1].ball)
 
 // The throw `throw_ball` is to take up, if it is one set aside: popped, and the next throw is a new one.
 resumed_throw(v: *Vm) -> Option[Unwind]

@@ -72,7 +72,7 @@ push_catch(v: *Vm, to: usize)
 exit_catch(v: *Vm, slot: usize) -> Result[unit, string]
     val h = saved_height(v, slot)?
 
-    if v.control.len() == h + 1 && v.control.at(h).kind == Catch then cut_to(v, h, false)
+    if v.control.len() == h + 1 && v.control[h].kind == Catch then cut_to(v, h, false)
 
     Ok(())
 
@@ -121,7 +121,7 @@ push_trap(v: *Vm, to: usize)
 exit_trap(v: *Vm, slot: usize) -> Result[unit, string]
     val h = saved_height(v, slot)?
 
-    if h >= v.control.len() || v.control.at(h).kind != Trap then return Ok(())
+    if h >= v.control.len() || v.control[h].kind != Trap then return Ok(())
 
     if v.control.len() == h + 1
         cut_to(v, h, false)
@@ -165,7 +165,7 @@ throw_ball(v: *Vm, thrown: Value) -> Result[bool, string]
             v.ip = e.ip
             return Ok(true)
         elif e.kind == Catch && encloses(inside, e.frame)
-            if e.frame.args.len() == 3 && unify(e.frame.args.at(1), copy_term(ball)?)
+            if e.frame.args.len() == 3 && unify(e.frame.args[1], copy_term(ball)?)
                 v.ip = e.ip
                 return Ok(true)
 end throw_ball

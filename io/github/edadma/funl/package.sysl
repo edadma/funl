@@ -173,7 +173,7 @@ package_graph(importer: string) -> PackageGraph
         Some(g) -> return g
         None -> ()
 
-    val entry = if v.loading.len() > 0 then v.loading.at(0) else importer
+    val entry = if v.loading.len() > 0 then v.loading[0] else importer
     val g = resolve_graph(project_of(entry))
 
     v.graph = Some(g)
@@ -213,7 +213,7 @@ resolve_graph_of(root: string, m: Manifest) -> PackageGraph
     var next: usize = 0
 
     while next < pending.len() && next < 4096
-        val want = pending.at(next)
+        val want = pending[next]
 
         next += 1
 
@@ -230,7 +230,7 @@ end resolve_graph_of
 // Record one wanted package, answering whether its manifest is still to be read.
 private take_package(g: *PackageGraph, want: Dependency) -> bool
     for i in 0..<g.found.len()
-        val have = g.found.at(i)
+        val have = g.found[i]
 
         if have.git != want.git then continue
 
@@ -238,7 +238,7 @@ private take_package(g: *PackageGraph, want: Dependency) -> bool
 
         if newer_version(want.version, have.version)
             g.notes.push(conflict_note(have.name, have.version, want.version))
-            g.found.set(i, Package(have.name, want.git, want.version, package_home(g.root, want.git, want.version)))
+            g.found[i] = Package(have.name, want.git, want.version, package_home(g.root, want.git, want.version))
             return true
 
         g.notes.push(conflict_note(have.name, want.version, have.version))
@@ -402,7 +402,7 @@ private listed(names: Buf[string], prefix: string) -> string
     for i in 0..<names.len()
         if i > 0 then out = out + (if i == names.len() - 1 then " and " else ", ")
 
-        out = out + s"`$prefix${names.at(i)}`"
+        out = out + s"`$prefix${names[i]}`"
 
     out
 

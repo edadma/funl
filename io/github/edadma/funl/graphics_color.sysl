@@ -150,7 +150,7 @@ private numbered(s: string) -> Option[Option[Rgb]]
     for x in parts.view()
         if x < 0.0 || x > 65535.0 then return Some(None)
 
-    Some(Some(Rgb(long(parts.at(0)), long(parts.at(1)), long(parts.at(2)))))
+    Some(Some(Rgb(long(parts[0]), long(parts[1]), long(parts[2]))))
 
 // The decimal number at `i` of `s`, an optional sign, digits and a fraction, and where it ends.
 private number_at(s: string, at: usize) -> Option[(real, usize)]
@@ -275,20 +275,20 @@ private phrase(s: string) -> Option[Rgb]
     var lgt: f32 = -1.0
     var sat: f32 = 1.0
 
-    if words.at(0) == "very"
+    if words[0] == "very"
         very = true
         i += 1
         if i >= n then return None
 
-    lightness(words.at(i)) match
+    lightness(words[i]) match
         Some(l) ->
-            if words.at(i) == "pale" || words.at(i) == "deep" then very = true
+            if words[i] == "pale" || words[i] == "deep" then very = true
             i += 1
             if i >= n then return None
             if l != 50 then lgt = f32(l) / 100.0
         None -> if very then return None
 
-    saturation(words.at(i)) match
+    saturation(words[i]) match
         Some(v) ->
             sat = f32(v) / 100.0
             i += 1
@@ -301,10 +301,10 @@ private phrase(s: string) -> Option[Rgb]
     var s1: f32 = 0.0
 
     if i + 1 < n
-        val (first, weight) = hue_named(words.at(i)) match
+        val (first, weight) = hue_named(words[i]) match
             Some(h) -> (h, f32(0.5))
             None ->
-                hue_ish(words.at(i)) match
+                hue_ish(words[i]) match
                     Some(h) -> (h, f32(0.25))
                     None -> return None
 
@@ -316,7 +316,7 @@ private phrase(s: string) -> Option[Rgb]
 
     if i + 1 != n then return None
 
-    val second = hue_named(words.at(i)) match
+    val second = hue_named(words[i]) match
         Some(h) -> h
         None -> return None
 

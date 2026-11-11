@@ -128,7 +128,7 @@ private class_holds(k: RxClass, c: char) -> bool
     var i: usize = 0
 
     while i + 1 < k.ranges.len()
-        if u >= k.ranges.at(i) && u <= k.ranges.at(i + 1) then return true
+        if u >= k.ranges[i] && u <= k.ranges[i + 1] then return true
 
         i += 2
 

@@ -55,7 +55,7 @@ declare_ctor(name: string, fields: Buf[string], origin: string) -> usize
 make_record(v: *Vm, id: usize, n: usize) -> Result[unit, Fault]
     if id >= v.ctors.len() then return Err(Broken(s"there is no constructor $id"))
 
-    val d = v.ctors.at(id)
+    val d = v.ctors[id]
     val name = atom_name(d.functor)
 
     if n != d.fields.len()
@@ -74,7 +74,7 @@ make_record(v: *Vm, id: usize, n: usize) -> Result[unit, Fault]
     c.record = u32(id) + 1
 
     for i in 0..<n
-        c.args.set(i, v.stack.at(top - n + i))
+        c.args[i] = v.stack[top - n + i]
 
     v.stack.truncate(top - n)
     v.stack.push(Compound(c))
@@ -92,7 +92,7 @@ make_map(v: *Vm, n: usize) -> Result[unit, Fault]
     val base = top - 2 * n
 
     for i in 0..<n
-        map_put(m, v.stack.at(base + 2 * i), v.stack.at(base + 2 * i + 1))?
+        map_put(m, v.stack[base + 2 * i], v.stack[base + 2 * i + 1])?
 
     v.stack.truncate(base)
     v.stack.push(Map(m))
@@ -107,7 +107,7 @@ make_set(v: *Vm, n: usize) -> Result[unit, Fault]
     val s = new_set()?
 
     for i in 0..<n
-        set_add(s, v.stack.at(top - n + i))?
+        set_add(s, v.stack[top - n + i])?
 
     v.stack.truncate(top - n)
     v.stack.push(Set(s))
@@ -118,14 +118,14 @@ make_set(v: *Vm, n: usize) -> Result[unit, Fault]
 // Where key `k` is in map `m`.
 map_find(m: *MapObj, k: Value) -> Result[Option[usize], Fault]
     for i in 0..<m.keys.len()
-        if equal_values(k, m.keys.at(i), "a map key")? then return Ok(Some(i))
+        if equal_values(k, m.keys[i], "a map key")? then return Ok(Some(i))
 
     Ok(None)
 
 // Where the string key `s` is in map `m`: what `m.name` looks up, with no string made to look with.
 private text_key(m: *MapObj, s: string) -> Option[usize]
     for i in 0..<m.keys.len()
-        deref(m.keys.at(i)) match
+        deref(m.keys[i]) match
             Str(p) -> if p.s == s then return Some(i)
             _ -> ()
 
@@ -134,7 +134,7 @@ private text_key(m: *MapObj, s: string) -> Option[usize]
 // `x` under key `k`, the key added at the end when it is new.
 map_put(m: *MapObj, k: Value, x: Value) -> Result[unit, Fault]
     map_find(m, k)? match
-        Some(i) -> m.vals.set(i, x)
+        Some(i) -> m.vals[i] = x
         None ->
             m.keys.push(k)
             m.vals.push(x)
@@ -147,8 +147,8 @@ private copy_map(m: *MapObj) -> Result[*MapObj, string]
     val o = new_map()?
 
     for i in 0..<m.keys.len()
-        o.keys.push(m.keys.at(i))
-        o.vals.push(m.vals.at(i))
+        o.keys.push(m.keys[i])
+        o.vals.push(m.vals[i])
 
     current().allocated += 2 * m.keys.len() * sizeof(Value)
     Ok(o)
@@ -158,8 +158,8 @@ same_map(p: *MapObj, q: *MapObj) -> Result[bool, Fault]
     if p.keys.len() != q.keys.len() then return Ok(false)
 
     for i in 0..<p.keys.len()
-        map_find(q, p.keys.at(i))? match
-            Some(j) -> if !equal_values(p.vals.at(i), q.vals.at(j), "==")? then return Ok(false)
+        map_find(q, p.keys[i])? match
+            Some(j) -> if !equal_values(p.vals[i], q.vals[j], "==")? then return Ok(false)
             None -> return Ok(false)
 
     Ok(true)
@@ -182,7 +182,7 @@ element_get(c: Value, key: Value) -> Result[Option[Value], Fault]
             deref(key) match
                 Str(s) ->
                     return field_index(p, intern(s.s)) match
-                        Some(i) -> Ok(Some(p.args.at(i)))
+                        Some(i) -> Ok(Some(p.args[i]))
                         None -> Ok(None)
                 _ -> ()
         _ -> ()
@@ -197,7 +197,7 @@ element_get(c: Value, key: Value) -> Result[Option[Value], Fault]
     x match
         Array(a) -> Ok(if in_range(i, a.len()) then Some(a.at(usize(i))) else None)
         Buffer(a) -> Ok(if in_range(i, a.len()) then Some(a.at(usize(i))) else None)
-        Compound(p) -> Ok(if in_range(i, p.args.len()) then Some(p.args.at(usize(i))) else None)
+        Compound(p) -> Ok(if in_range(i, p.args.len()) then Some(p.args[usize(i)]) else None)
         _ -> element_at(x, Int(i))
 end element_get
 
@@ -205,7 +205,7 @@ end element_get
 // has neither.
 private value_under(m: *MapObj, key: Value) -> Result[Option[Value], Fault]
     map_find(m, key)? match
-        Some(i) -> Ok(Some(m.vals.at(i)))
+        Some(i) -> Ok(Some(m.vals[i]))
         None -> Ok(map_default(m))
 
 // What a lookup of a key map `m` does not hold answers: its default, without adding the key, or
@@ -233,7 +233,7 @@ private checked_index(x: Value, i: long, n: usize) -> Result[usize, Fault]
 private field_index(c: *CompoundObj, name: u32) -> Option[usize]
     val v = current()
 
-    if c.record != 0 then return field_named(v.ctors.at(usize(c.record - 1)), name)
+    if c.record != 0 then return field_named(v.ctors[usize(c.record - 1)], name)
 
     for d in v.ctors.view()
         if d.functor == c.functor && d.fields.len() == c.args.len() then return field_named(d, name)
@@ -243,7 +243,7 @@ private field_index(c: *CompoundObj, name: u32) -> Option[usize]
 // Which of constructor `d`'s fields is called `name`.
 private field_named(d: CtorDef, name: u32) -> Option[usize]
     for i in 0..<d.fields.len()
-        if d.fields.at(i) == name then return Some(i)
+        if d.fields[i] == name then return Some(i)
 
     None
 
@@ -257,7 +257,7 @@ data_field(x: Value, name: u32) -> Result[Option[Value], Fault]
     y match
         Compound(p) ->
             field_index(p, name) match
-                Some(i) -> return Ok(Some(p.args.at(i)))
+                Some(i) -> return Ok(Some(p.args[i]))
                 None -> ()
         Map(m) -> return named_key(m, n)
         MutMap(m) -> return named_key(m, n)
@@ -290,15 +290,15 @@ record_with(r: Value, changes: Value) -> Result[Value, Fault]
     d.record = c.record
 
     for i in 0..<c.args.len()
-        d.args.set(i, c.args.at(i))
+        d.args[i] = c.args[i]
 
     for j in 0..<ms.keys.len()
-        val k = deref(ms.keys.at(j))
+        val k = deref(ms.keys[j])
 
         k match
             Str(p) ->
                 field_index(c, intern(p.s)) match
-                    Some(i) -> d.args.set(i, ms.vals.at(j))
+                    Some(i) -> d.args[i] = ms.vals[j]
                     None -> return Err(existence_error("field", k, s"'with' was given the field '${p.s}', which ${described(y)} does not have"))
             _ -> return Err(kind_error(k, "string", s"'with' names a field by a string key and was given ${described(k)}"))
 
@@ -346,7 +346,7 @@ section_set(c: Value, key: Value, t: Value) -> Result[Option[Value], Fault]
 // `m.name`: what the map holds under the string `name`, or `None` where it holds nothing there.
 private named_key(m: *MapObj, n: string) -> Result[Option[Value], Fault]
     text_key(m, n) match
-        Some(i) -> Ok(Some(m.vals.at(i)))
+        Some(i) -> Ok(Some(m.vals[i]))
         None -> Ok(None)
 
 // -- writing an element --------------------------------------------------------------------------------
@@ -362,9 +362,9 @@ element_set(c: Value, key: Value, x: Value, back: bool) -> Result[unit, Fault]
         MutMap(m) ->
             map_find(m, key)? match
                 Some(i) ->
-                    if back then trailed(col, key, m.vals.at(i), true)
+                    if back then trailed(col, key, m.vals[i], true)
 
-                    m.vals.set(i, x)
+                    m.vals[i] = x
                 None ->
                     if back then trailed(col, key, Undefined, false)
 
@@ -413,7 +413,7 @@ put_element_back(c: Value, key: Value, old: Value, had: bool)
                 _ -> return
 
             if had
-                m.vals.set(i, old)
+                m.vals[i] = old
             else
                 m.keys.remove(i)
                 m.vals.remove(i)
@@ -431,10 +431,10 @@ swap_elements(v: *Vm) -> Result[bool, Fault]
 
     if top < 4 then return Err(Broken("a swap wants two collections and two keys, and the stack holds fewer"))
 
-    val c1 = v.stack.at(top - 4)
-    val k1 = v.stack.at(top - 3)
-    val c2 = v.stack.at(top - 2)
-    val k2 = v.stack.at(top - 1)
+    val c1 = v.stack[top - 4]
+    val k1 = v.stack[top - 3]
+    val c2 = v.stack[top - 2]
+    val k2 = v.stack[top - 1]
 
     val x1 = element_get(c1, k1)? match
         Some(x) -> x
@@ -582,7 +582,7 @@ combined(x: Value, y: Value) -> Result[Value, Fault]
                 Tuple(t) ->
                     if t.items.len() != 2 then return Err(not_an_entry(other))
 
-                    map_put(o, t.items.at(0), t.items.at(1))?
+                    map_put(o, t.items[0], t.items[1])?
                 _ -> return Err(not_an_entry(other))
 
             Ok(Map(o))
@@ -657,7 +657,7 @@ private copy_set(s: *SetObj) -> Result[*SetObj, string]
 
 private put_all(o: *MapObj, t: *MapObj) -> Result[unit, Fault]
     for i in 0..<t.keys.len()
-        map_put(o, t.keys.at(i), t.vals.at(i))?
+        map_put(o, t.keys[i], t.vals[i])?
 
     Ok(())
 
@@ -681,7 +681,7 @@ concat(v: *Vm, n: usize) -> Result[unit, string]
     var out = str_builder()
 
     for i in 0..<n
-        out.push(render(v.stack.at(top - n + i)))
+        out.push(render(v.stack[top - n + i]))
 
     v.stack.truncate(top - n)
     v.stack.push(new_str(out.finish())?)

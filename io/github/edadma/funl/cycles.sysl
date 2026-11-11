@@ -119,17 +119,17 @@ put_new(t: *AddrTable, a: usize, b: usize, v: usize) -> bool
 
     val i = slot_for(t, a, b)
 
-    if t.slots.at(i) != 0 then return false
+    if t.slots[i] != 0 then return false
 
-    t.slots.set(i, a)
-    t.slots.set(i + 1, b)
-    t.slots.set(i + 2, v)
+    t.slots[i] = a
+    t.slots[i + 1] = b
+    t.slots[i + 2] = v
     t.count += 1
     true
 
 // Store `v` under `a`, `b`, replacing what was there.
 put_at(t: *AddrTable, a: usize, b: usize, v: usize)
-    if !put_new(t, a, b, v) then t.slots.set(slot_for(t, a, b) + 2, v)
+    if !put_new(t, a, b, v) then t.slots[slot_for(t, a, b) + 2] = v
 
 // What is stored under `a`, `b`.
 get_at(t: *AddrTable, a: usize, b: usize) -> Option[usize]
@@ -137,7 +137,7 @@ get_at(t: *AddrTable, a: usize, b: usize) -> Option[usize]
 
     val i = slot_for(t, a, b)
 
-    if t.slots.at(i) == 0 then None else Some(t.slots.at(i + 2))
+    if t.slots[i] == 0 then None else Some(t.slots[i + 2])
 
 // The slot holding `a`, `b`, or the empty one where it would go.
 private slot_for(t: *AddrTable, a: usize, b: usize) -> usize
@@ -147,9 +147,9 @@ private slot_for(t: *AddrTable, a: usize, b: usize) -> usize
 
     loop
         val at = i * 3
-        val k = t.slots.at(at)
+        val k = t.slots[at]
 
-        if k == 0 || (k == a && t.slots.at(at + 1) == b) then return at
+        if k == 0 || (k == a && t.slots[at + 1] == b) then return at
 
         i = (i + 1) & mask
 
@@ -170,7 +170,7 @@ private grow(t: *AddrTable)
     var i: usize = 0
 
     while i < old.len()
-        if old.at(i) != 0 then put_new(t, old.at(i), old.at(i + 1), old.at(i + 2))
+        if old[i] != 0 then put_new(t, old[i], old[i + 1], old[i + 2])
 
         i += 3
 
@@ -206,12 +206,12 @@ cycles_of(x: Value) -> Cycles
 
     while nodes.len() > 0
         val top = nodes.len() - 1
-        val i = next.at(top)
-        val y = nodes.at(top)
+        val i = next[top]
+        val y = nodes[top]
 
         part_of(y, i) match
             Some(p) ->
-                next.set(top, i + 1)
+                next[top] = i + 1
                 enter(&c, &colour, &nodes, &next, deref(p))
             None ->
                 put_at(&colour, node_of(y), 0, Black)
@@ -244,8 +244,8 @@ private enter(c: *Cycles, colour: *AddrTable, nodes: *Buf[Value], next: *Buf[usi
 
 // Part `i` of node `y`, in left-to-right order.
 part_of(y: Value, i: usize) -> Option[Value] = y match
-    Compound(p) -> if i < p.args.len() then Some(p.args.at(i)) else None
-    Tuple(p) -> if i < p.items.len() then Some(p.items.at(i)) else None
+    Compound(p) -> if i < p.args.len() then Some(p.args[i]) else None
+    Tuple(p) -> if i < p.items.len() then Some(p.items[i]) else None
     Cons(p) -> if i == 0 then Some(p.head) elif i == 1 then Some(p.tail) else None
     _ -> None
 

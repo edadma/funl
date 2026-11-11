@@ -59,7 +59,7 @@ private index_shape(v: *Vm, name: string) -> string
 private no_match_at(code: Buf[Op], at: usize) -> bool
     if at >= code.len() then return false
 
-    code.at(at) match
+    code[at] match
         NoMatch -> true
         _ -> false
 

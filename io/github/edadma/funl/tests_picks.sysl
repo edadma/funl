@@ -26,11 +26,11 @@ TWO_CALLS_AT_ONE_POSITION_KEEP_WHAT_EACH_REACHES()
 
     var said = ""
 
-    prog.stmts.at(0) match
+    prog.stmts[0] match
         ExprS(e) -> e.kind match
             ScanE(_, outer) -> outer.kind match
                 CallE(tab, tab_at, args) ->
-                    val inner = args.at(0)
+                    val inner = args[0]
 
                     inner.kind match
                         CallE(m, m_at, _) ->

@@ -136,10 +136,10 @@ register_stepping(v: *Vm, name: string, arity: usize, start: StartGo, step: Step
 // Let a call of builtin `id` leave out its arguments past the first `least`, as `register_between`
 // does for a plain builtin: for one that generates, `run(program)` beside `run(program, args)`.
 optional_past(v: *Vm, id: usize, least: usize)
-    var n = v.natives.at(id)
+    var n = v.natives[id]
 
     n.least = least
-    v.natives.set(id, n)
+    v.natives[id] = n
 
 // Add a builtin that may hand its call on to a function value.
 register_forwarding(v: *Vm, name: string, arity: usize, go: ForwardGo) -> usize
@@ -162,7 +162,7 @@ register_calling(v: *Vm, name: string, arity: usize, slots: usize, go: TurnGo) -
 // calls, so the callee returns to the `UnmarkKeep`.
 driver_chunk(id: usize) -> Result[usize, string]
     val v = current()
-    val n = v.natives.at(id)
+    val n = v.natives[id]
 
     val (go, slots) = n.how match
         Calling(g, k, d) ->
@@ -184,7 +184,7 @@ driver_chunk(id: usize) -> Result[usize, string]
 
     val c = finish(e)?
 
-    v.natives.set(id, Native(n.name, n.least, n.arity, Calling(go, slots, Some(c))))
+    v.natives[id] = Native(n.name, n.least, n.arity, Calling(go, slots, Some(c)))
     Ok(c)
 
 // Where a calling builtin's callee returns to, and where its failure resumes (`driver_chunk`).
@@ -207,12 +207,12 @@ takes_text(n: Native) -> string
     s"${n.least} to ${n.arity} arguments"
 
 // Whether builtin `id` names a value rather than something to call.
-is_constant(id: usize) -> bool = current().natives.at(id).how match
+is_constant(id: usize) -> bool = current().natives[id].how match
     Constant(_) -> true
     _ -> false
 
 // Whether builtin `id` is run by `NativeGen`.
-is_generator(id: usize) -> bool = current().natives.at(id).how match
+is_generator(id: usize) -> bool = current().natives[id].how match
     Generating(_) -> true
     Stepping(_, _) -> true
     _ -> false
@@ -220,7 +220,7 @@ is_generator(id: usize) -> bool = current().natives.at(id).how match
 // Whether builtin `id`, named without a call, is a function value: every builtin but Prolog's
 // `consult` and the constants.
 is_function_value(id: usize) -> bool
-    val n = current().natives.at(id)
+    val n = current().natives[id]
 
     n.how match
         Constant(_) -> return false
@@ -240,7 +240,7 @@ value_chunk(id: usize) -> Result[usize, string]
         Some(c) -> return Ok(c)
         None -> ()
 
-    val n = v.natives.at(id)
+    val n = v.natives[id]
     var e = emit_function(n.name, if n.arity == Variadic then AnyArity else n.arity)
 
     if n.arity == Variadic
@@ -267,12 +267,12 @@ native_id(name: string) -> Option[usize]
     val v = current()
 
     for i in 0..<v.natives.len()
-        if v.natives.at(i).name == name then return Some(i)
+        if v.natives[i].name == name then return Some(i)
 
     None
 
 // Argument `i` of a builtin whose arguments start at `base`.
-arg(base: usize, i: usize) -> Value = current().stack.at(base + i)
+arg(base: usize, i: usize) -> Value = current().stack[base + i]
 
 // Ask that `a` and `b` be unified once a generating builtin has answered: after the choice point a
 // `GivesMore` pushes, so failure back into the builtin undoes the bindings of the answer it gave.

@@ -71,7 +71,7 @@ var_names() -> VarNames = VarNames(buf(), buf(), buf())
 // The name `names` gives the variable numbered `id`, if it gives one.
 var_named(names: *VarNames, id: u64) -> Option[string]
     for i in 0..<names.ids.len()
-        if names.ids.at(i) == id then return Some(names.names.at(i))
+        if names.ids[i] == id then return Some(names.names[i])
 
     None
 
@@ -111,10 +111,10 @@ term_text(x: Value, o: WriteOpts) -> string
 
         if o.ignore_ops then emit(&w, "=(")
 
-        emit(&w, names.at(k))
+        emit(&w, names[k])
         emit(&w, if o.ignore_ops then "," else "=")
         w.open = true
-        put_term(&w, c.heads.at(k), if o.ignore_ops then 999 else 699, 0)
+        put_term(&w, c.heads[k], if o.ignore_ops then 999 else 699, 0)
 
         if o.ignore_ops then emit(&w, ")")
 
@@ -165,7 +165,7 @@ private name_of(w: *Writer, x: Value) -> Option[string]
     if a == 0 then return None
 
     get_at(&w.cyc.index, a, 0) match
-        Some(k) -> Some(w.names.at(k - 1))
+        Some(k) -> Some(w.names[k - 1])
         None -> None
 
 private emit(w: *Writer, s: string)
@@ -413,14 +413,14 @@ private put_compound(w: *Writer, c: *CompoundObj, max: u16, depth: long)
 
     if name == "{}" && n == 1
         emit(w, "{")
-        put_term(w, c.args.at(0), 1200, depth + 1)
+        put_term(w, c.args[0], 1200, depth + 1)
         emit(w, "}")
         return
 
     // As SWI-Prolog writes them: `'$VAR'(N)` as its letter name, `'$VAR'(-N)` as `S_N`, and
     // `'$VAR'(Name)` as `Name` where `Name` is spelled as a variable is.
     if w.o.numbervars && name == "$VAR" && n == 1
-        deref(c.args.at(0)) match
+        deref(c.args[0]) match
             Int(k) ->
                 emit(w, if k >= 0 then var_name(k) else s"S_${-k}")
                 return
@@ -441,14 +441,14 @@ private put_compound(w: *Writer, c: *CompoundObj, max: u16, depth: long)
         if n == 1
             prefix_op(name) match
                 Some(o) ->
-                    put_prefix(w, name, o, c.args.at(0), max, depth)
+                    put_prefix(w, name, o, c.args[0], max, depth)
                     return
                 None -> ()
 
             postfix_op(name) match
                 Some(o) ->
                     open_if(w, o.priority > max)
-                    put_operand(w, c.args.at(0), left_max(o), depth)
+                    put_operand(w, c.args[0], left_max(o), depth)
                     put_atom(w, name, false)
                     close_if(w, o.priority > max)
                     return
@@ -492,7 +492,7 @@ private put_infix(w: *Writer, name: string, o: PlOp, c: *CompoundObj, max: u16, 
     val right_max: u16 = if o.kind == Xfy then o.priority else o.priority - 1
 
     open_if(w, bracket)
-    put_operand(w, c.args.at(0), left_max(o), depth)
+    put_operand(w, c.args[0], left_max(o), depth)
 
     if name == ","
         put_comma(w)
@@ -510,7 +510,7 @@ private put_infix(w: *Writer, name: string, o: PlOp, c: *CompoundObj, max: u16, 
             w.out.push(" ")
             w.last = u8(' ')
 
-    put_operand(w, c.args.at(1), right_max, depth)
+    put_operand(w, c.args[1], right_max, depth)
     close_if(w, bracket)
 
 // A prefix operator applied, as ISO has it and GNU Prolog writes it. An operand that begins with a
@@ -557,13 +557,13 @@ private leads_with_digit(w: *Writer, x: Value) -> bool
         Rat(p) -> dal.sign(p.n) >= 0
         Real(r) -> r >= 0.0 || r.is_nan()
         Compound(c) ->
-            if is_op_atom(c.args.at(0)) then return false
+            if is_op_atom(c.args[0]) then return false
 
             val name = atom_name(c.functor)
             val n = c.args.len()
 
             if (n == 2 && infix_for_write(name).is_some()) || (n == 1 && postfix_op(name).is_some() && prefix_op(name).is_none())
-                return leads_with_digit(w, c.args.at(0))
+                return leads_with_digit(w, c.args[0])
 
             false
         _ -> false

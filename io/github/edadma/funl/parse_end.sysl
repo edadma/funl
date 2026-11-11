@@ -53,7 +53,7 @@ closes(p: *Parser, what: Closes)
 
     // A marker is only ever judged where the cursor is now or later, so nothing that ended earlier
     // can be named by one any more.
-    while p.closers.len() > 0 && p.closers.at(p.closers.len() - 1).at < at
+    while p.closers.len() > 0 && p.closers[p.closers.len() - 1].at < at
         p.closers.pop()
 
     p.closers.push(Closer(at, what, block))

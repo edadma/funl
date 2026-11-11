@@ -48,10 +48,10 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
     val st = statics_of(res, r)
 
     if st != NoScope
-        e.statics = res.scopes.at(st).count()
+        e.statics = res.scopes[st].count()
 
         if r.outer != NoScope
-            e.home = res.scopes.at(r.outer).declared(0, statics_home(r.chunk)) match
+            e.home = res.scopes[r.outer].declared(0, statics_home(r.chunk)) match
                 Some(s) -> s
                 None -> NoHome
 
@@ -60,8 +60,8 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
     if r.variadic then e.op(PackRest(r.arity - 1))
 
     for i in 0..<r.clauses.len()
-        val cl = r.clauses.at(i)
-        val sid = r.scopes.at(i)
+        val cl = r.clauses[i]
+        val sid = r.scopes[i]
         var loops: Buf[Looping] = buf()
         val c = context(res, sid, &loops)
 
@@ -69,7 +69,7 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
             FunctionC(b) -> b
             _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
 
-        heads.push(clause_head(&e, c, cl.params, res.scopes.at(sid).count(), clean_head(c, cl.params, b)))
+        heads.push(clause_head(&e, c, cl.params, res.scopes[sid].count(), clean_head(c, cl.params, b)))
 
     var starts: Buf[usize] = buf()
 
@@ -79,19 +79,19 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
     clause_index(&e, heads, starts)
 
     for i in 0..<r.clauses.len()
-        val cl = r.clauses.at(i)
-        val sid = r.scopes.at(i)
+        val cl = r.clauses[i]
+        val sid = r.scopes[i]
         var loops: Buf[Looping] = buf()
         val c = context(res, sid, &loops)
-        val h = heads.at(i)
-        val next = starts.at(i + 1)
+        val h = heads[i]
+        val next = starts[i + 1]
         var seen = unseen(h.slots)
 
         val b = cl.kind match
             FunctionC(b) -> b
             _ -> return Err(s"'${r.name}' is a function with a clause that is not a function clause")
 
-        e.place(starts.at(i))
+        e.place(starts[i])
         e.at_line(line_of(c, cl.head.start))
 
         if h.clean
@@ -104,14 +104,14 @@ compile_function(res: *Resolved, r: Rel) -> Result[unit, string]
 
         for j in 0..<cl.params.len()
             e.op(LoadArg(j))
-            pattern(&e, c, cl.params.at(j), &seen, j)?
+            pattern(&e, c, cl.params[j], &seen, j)?
 
         clause_body(&e, c, b, h.clean, next, h.body)?
 
-    e.place(starts.at(r.clauses.len()))
+    e.place(starts[r.clauses.len()])
 
     // No clause matching is put down to where the function begins.
-    if r.clauses.len() > 0 then e.at_line(u32(res.src.locate(r.clauses.at(0).head.start).line))
+    if r.clauses.len() > 0 then e.at_line(u32(res.src.locate(r.clauses[0].head.start).line))
 
     e.op(NoMatch)
     reuse_slots(&e)
@@ -142,7 +142,7 @@ private clause_body(e: *Emit, c: Ctx, b: FnBody, clean: bool, next: usize, body:
             _ -> ()
 
     for i in 0..<b.guards.len()
-        val g = b.guards.at(i)
+        val g = b.guards[i]
         val other = e.label()
         val last = i + 1 == b.guards.len()
 
@@ -180,9 +180,9 @@ end clause_body
 private statics_of(res: *Resolved, r: Rel) -> usize
     if r.scopes.len() == 0 then return NoScope
 
-    val p = res.scopes.at(r.scopes.at(0)).parent
+    val p = res.scopes[r.scopes[0]].parent
 
-    if p != NoScope && res.scopes.at(p).statics then p else NoScope
+    if p != NoScope && res.scopes[p].statics then p else NoScope
 
 // The head of a body that is a block with `static` initializers or `initial` statements among its
 // statements: `Initial` over them all, in the order written, each run bounded as a statement is and
@@ -194,11 +194,11 @@ private body_head(e: *Emit, c: Ctx, body: &Expr) -> Result[unit, string]
         BlockE(id, stmts) -> (id, stmts)
         _ -> return Ok(())
 
-    val sc = c.res.scopes.at(c.sc)
+    val sc = c.res.scopes[c.sc]
 
     if sc.parent == NoScope then return Ok(())
 
-    val st = c.res.scopes.at(sc.parent)
+    val st = c.res.scopes[sc.parent]
 
     if !st.statics then return Ok(())
 
@@ -328,7 +328,7 @@ body_tail(e: *Emit, c: Ctx, x: &Expr) -> Result[unit, string]
             val inner = c.in_block(id)?
 
             for i in 0..<stmts.len()
-                val s = stmts.at(i)
+                val s = stmts[i]
 
                 if i + 1 < stmts.len()
                     compile_stmt(e, inner, s)?
@@ -362,7 +362,7 @@ end body_tail
 
 // Whether the clause being compiled generates by `yield`: then a loop that is the last thing it does
 // ends with no value of its own on a bare `break`, as the function would on running out.
-private yielding(c: Ctx) -> bool = c.res.scopes.at(c.sc).yields
+private yielding(c: Ctx) -> bool = c.res.scopes[c.sc].yields
 
 // The value on the stack, in tail position, returned with the scans around it left open.
 private left(e: *Emit, c: Ctx)
@@ -389,7 +389,7 @@ private unseen(n: usize) -> Buf[bool]
 
 // Match the top of the stack against `p`, every name in it a new binding.
 match_fresh(e: *Emit, c: Ctx, p: &Expr) -> Result[unit, string]
-    var seen = unseen(c.res.scopes.at(c.sc).count())
+    var seen = unseen(c.res.scopes[c.sc].count())
 
     pattern(e, c, p, &seen, NoParam)
 
@@ -482,7 +482,7 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
             // The functor is the constructor's own, which an import's `as` does not rename; in a
             // `catch`'s pattern a name no constructor has is a functor of its own.
             val functor = c.meaning(n, at.start) match
-                Constructor(id) -> current().ctors.at(id).functor
+                Constructor(id) -> current().ctors[id].functor
                 _ -> intern(n)
 
             inspect(e, param)
@@ -530,7 +530,7 @@ private pattern(e: *Emit, c: Ctx, p: &Expr, seen: *Buf[bool], param: usize) -> R
             pattern(e, c, b, &also, param)?
 
             for i in 0..<also.len()
-                if also.at(i) then seen.set(i, true)
+                if also[i] then seen[i] = true
 
             e.place(end)
         AsE(n, x) ->
@@ -598,13 +598,13 @@ private inspect(e: *Emit, param: usize)
 private bind_name(e: *Emit, c: Ctx, n: string, seen: *Buf[bool], param: usize) -> Result[unit, string]
     val s = slot_of_name(c, n)?
 
-    if seen.at(s)
+    if seen[s]
         inspect(e, param)
         e.op(LoadSlot(0, s))
         e.op(TestEq)
         e.op(Pop)
     else
-        seen.set(s, true)
+        seen[s] = true
         e.op(StoreSlot(s))
 
     Ok(())

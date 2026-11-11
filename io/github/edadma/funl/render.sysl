@@ -57,10 +57,10 @@ private rendered(v: Value, src: bool) -> string
     for k in 0..<c.heads.len()
         if k > 0 then out.push(", ")
 
-        out.push(names.at(k))
+        out.push(names[k])
         out.push(" = ")
         n.open = true
-        write_value(&out, &n, c.heads.at(k), 1)
+        write_value(&out, &n, c.heads[k], 1)
 
     out.push("])")
     out.finish()
@@ -75,7 +75,7 @@ private name_of(n: *Named, x: Value) -> Option[string]
     if a == 0 then return None
 
     get_at(&n.cyc.index, a, 0) match
-        Some(k) -> Some(n.names.at(k - 1))
+        Some(k) -> Some(n.names[k - 1])
         None -> None
 
 private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
@@ -122,7 +122,7 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
         Tuple(p) -> write_items(out, n, p.items.view(), depth, "(", ")")
         Func(p) ->
             out.push("<function ")
-            out.push(current().chunks.at(p.chunk).name)
+            out.push(current().chunks[p.chunk].name)
             out.push(">")
         Range(r) -> write_range(out, r)
         Set(s) -> write_items(out, n, s.items.view(), depth, "{", "}")
@@ -131,7 +131,7 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
         MutMap(m) -> write_entries(out, n, m, depth, "MutableMap(", ")")
         Array(a) -> write_items(out, n, a.view(), depth, "Array(", ")")
         Buffer(a) -> write_items(out, n, a.view(), depth, "Buffer(", ")")
-        Ctor(id) -> write_ctor(out, current().ctors.at(usize(id)))
+        Ctor(id) -> write_ctor(out, current().ctors[usize(id)])
         CSet(p) ->
             // As `cset` would make it, its characters in ascending order; a complement as
             // `complement` would make it of those it leaves out.
@@ -149,7 +149,7 @@ private write_value(out: *StrBuilder, n: *Named, v: Value, depth: usize)
             for i in 0..<p.b.len()
                 if i > 0 then out.push(", ")
 
-                out.push_int(long(p.b.at(i)))
+                out.push_int(long(p.b[i]))
 
             out.push("])")
         Handle(p) ->
@@ -187,9 +187,9 @@ private write_entries(out: *StrBuilder, n: *Named, m: *MapObj, depth: usize, ope
     for i in 0..<m.keys.len()
         if i > 0 then out.push(", ")
 
-        write_value(out, n, m.keys.at(i), depth + 1)
+        write_value(out, n, m.keys[i], depth + 1)
         out.push(": ")
-        write_value(out, n, m.vals.at(i), depth + 1)
+        write_value(out, n, m.vals[i], depth + 1)
 
     out.push(close)
 
@@ -202,7 +202,7 @@ private write_ctor(out: *StrBuilder, d: CtorDef)
     for i in 0..<d.fields.len()
         if i > 0 then out.push(", ")
 
-        out.push(atom_name(d.fields.at(i)))
+        out.push(atom_name(d.fields[i]))
 
     out.push(")>")
 

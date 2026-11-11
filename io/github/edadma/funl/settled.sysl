@@ -77,9 +77,9 @@ private all_settle(c: Ctx, xs: Buf[&Expr]) -> bool
 // Whether builtin `id`, named `n`, is one a settling call may call: on the allow-list, and run
 // directly as one value.
 private settling_builtin(id: usize, n: string) -> bool
-    if !settling_builtins(n) || current().natives.at(id).name != n then return false
+    if !settling_builtins(n) || current().natives[id].name != n then return false
 
-    current().natives.at(id).how match
+    current().natives[id].how match
         Plain(_) -> true
         _ -> false
 
@@ -117,7 +117,7 @@ settles(c: Ctx, x: &Expr) -> bool
 // Whether a call of definition `r` with `argc` arguments reaches a function that settles: one called
 // at its own arity, not as the relation of one more -- for a variadic one, any count it takes.
 private settled_function(res: *Resolved, r: usize, argc: usize) -> bool =
-    r < res.settled.len() && res.settled.at(r) && rel_takes(res.rels.at(r), argc)
+    r < res.settled.len() && res.settled[r] && rel_takes(res.rels[r], argc)
 
 // Whether block `id`, of statements `stmts`, settles -- in tail position when `tail`: its last
 // statement is an expression that does, or is a statement, after which the block's value is `()`.
@@ -128,7 +128,7 @@ private block_settles(c: Ctx, id: usize, stmts: Buf[Stmt], tail: bool) -> bool
         Ok(b) -> b
         Err(_) -> return false
 
-    stmts.at(stmts.len() - 1) match
+    stmts[stmts.len() - 1] match
         ExprS(last) -> if tail then tail_settles(inner, last) else settles(inner, last)
         _ -> true
 
@@ -165,8 +165,8 @@ settle_functions(res: *Resolved)
         changed = false
 
         for i in 0..<res.rels.len()
-            if res.settled.at(i) && !function_settles(res, res.rels.at(i))
-                res.settled.set(i, false)
+            if res.settled[i] && !function_settles(res, res.rels[i])
+                res.settled[i] = false
                 changed = true
 
 // Whether `r` may settle at all: a function this file resolved, neither `async` nor `yield`ing nor
@@ -176,7 +176,7 @@ private candidate(res: *Resolved, r: Rel) -> bool
         return false
 
     for sid in r.scopes.view()
-        val sc = res.scopes.at(sid)
+        val sc = res.scopes[sid]
 
         if sc.yields || sc.returns then return false
 
@@ -187,9 +187,9 @@ private candidate(res: *Resolved, r: Rel) -> bool
 private function_settles(res: *Resolved, r: Rel) -> bool
     for i in 0..<r.clauses.len()
         var loops: Buf[Looping] = buf()
-        val c = context(res, r.scopes.at(i), &loops)
+        val c = context(res, r.scopes[i], &loops)
 
-        r.clauses.at(i).kind match
+        r.clauses[i].kind match
             FunctionC(b) ->
                 if b.guards.len() == 0 then return false
 

@@ -87,7 +87,7 @@ private alternation(p: *RxParser) -> Result[&Pat, RxError]
         p.at += 1
         alts.push(sequence(p)?)
 
-    if alts.len() == 1 then Ok(alts.at(0)) else Ok(PAlt(alts))
+    if alts.len() == 1 then Ok(alts[0]) else Ok(PAlt(alts))
 
 private sequence(p: *RxParser) -> Result[&Pat, RxError]
     var items: Buf[&Pat] = buf()
@@ -107,7 +107,7 @@ private sequence(p: *RxParser) -> Result[&Pat, RxError]
 
     if items.len() == 0 then return Ok(PEmpty)
 
-    if items.len() == 1 then Ok(items.at(0)) else Ok(PSeq(items))
+    if items.len() == 1 then Ok(items[0]) else Ok(PSeq(items))
 
 // Under `x`, whitespace and `#` comments between items are not part of the pattern.
 private skip_extended(p: *RxParser)
@@ -188,14 +188,14 @@ private quantified(p: *RxParser, a: &Pat) -> Result[&Pat, RxError]
     elif b == u8('{')
         braces(p) match
             Some(bounds) ->
-                if bounds.at(0) == Unbounded || (bounds.at(1) != Unbounded && bounds.at(1) > MaxRepeat) || bounds.at(0) > MaxRepeat
+                if bounds[0] == Unbounded || (bounds[1] != Unbounded && bounds[1] > MaxRepeat) || bounds[0] > MaxRepeat
                     return fail_at(start, p.at - start, s"a repeat count is at most $MaxRepeat", "")
 
-                if bounds.at(1) < bounds.at(0)
+                if bounds[1] < bounds[0]
                     return fail_at(start, p.at - start, "this quantifier's bounds are out of order", "`{n,m}` repeats at least `n` and at most `m` times")
 
-                lo = bounds.at(0)
-                hi = bounds.at(1)
+                lo = bounds[0]
+                hi = bounds[1]
             None -> return Ok(a)
     else
         return Ok(a)
@@ -492,7 +492,7 @@ private escape(p: *RxParser) -> Result[Option[&Pat], RxError]
 
         if !p.at_end() then p.at += 2
 
-        return Ok(if items.len() == 0 then None elif items.len() == 1 then Some(items.at(0)) else Some(PSeq(items)))
+        return Ok(if items.len() == 0 then None elif items.len() == 1 then Some(items[0]) else Some(PSeq(items)))
 
     if b == u8('E')
         p.at += 1

@@ -96,7 +96,7 @@ end_trial(h: usize) -> Buf[(Value, Value)]
     var i = h
 
     while i < v.trail.len()
-        v.trail.at(i) match
+        v.trail[i] match
             Bind(x) -> bound.push((Var(x), x.value))
             _ -> ()
 
@@ -110,7 +110,7 @@ end end_trial
 private needs_trail(v: *Vm, x: *VarObj) -> bool
     val n = v.control.len()
 
-    n > 0 && older_than(v, x, v.control.at(n - 1).stamp)
+    n > 0 && older_than(v, x, v.control[n - 1].stamp)
 
 // Whether `x` is older than the choice point stamped `top` on the running machine's control stack. A
 // variable another machine made -- a co-expression's activator's, or a co-expression's own bound by
@@ -173,9 +173,9 @@ set_capture(v: *Vm, n: usize, g: GroupSpan)
     while v.captures.len() <= n
         v.captures.push(GroupSpan(0, 0))
 
-    if v.control.len() > 0 then v.trail.push(Capture(n, v.captures.at(n)))
+    if v.control.len() > 0 then v.trail.push(Capture(n, v.captures[n]))
 
-    v.captures.set(n, g)
+    v.captures[n] = g
 
 // Undo every trail entry above height `h`, newest first.
 undo_trail_to(v: *Vm, h: usize)
@@ -184,16 +184,16 @@ undo_trail_to(v: *Vm, h: usize)
             Some(Bind(x)) ->
                 x.bound = false
                 x.value = Undefined
-            Some(Assign(f, slot, old)) -> if slot < f.slots.len() then f.slots.set(slot, old)
+            Some(Assign(f, slot, old)) -> if slot < f.slots.len() then f.slots[slot] = old
             Some(Elem(c, key, old, had)) -> put_element_back(c, key, old, had)
             Some(Scan(subject, pos)) ->
                 v.subject = subject
                 v.pos = pos
             Some(ScanOpened) -> v.scans.pop()
             Some(ScanClosed(subject, pos)) -> v.scans.push(ScanSaved(subject, pos))
-            Some(Capture(group, old)) -> v.captures.set(group, old)
+            Some(Capture(group, old)) -> v.captures[group] = old
             Some(Global(key, old, had)) -> put_element_back(v.pl_globals, key, old, had)
-            Some(Setarg(c, i, old)) -> c.args.set(i, old)
+            Some(Setarg(c, i, old)) -> c.args[i] = old
             None -> return
 
 // Keep only the trail entries above `h` that something still on the control stack could need undone.
@@ -213,11 +213,11 @@ commit_trail(v: *Vm, h: usize, ends: bool)
         v.trail.clear()
         return
 
-    val top = v.control.at(n - 1).stamp
+    val top = v.control[n - 1].stamp
     var kept = h
 
     for i in h..<v.trail.len()
-        val u = v.trail.at(i)
+        val u = v.trail[i]
 
         val keep = u match
             Bind(x) -> older_than(v, x, top)
@@ -231,7 +231,7 @@ commit_trail(v: *Vm, h: usize, ends: bool)
             Setarg(_, _, _) -> true
 
         if keep
-            v.trail.set(kept, u)
+            v.trail[kept] = u
             kept += 1
 
     v.trail.truncate(kept)

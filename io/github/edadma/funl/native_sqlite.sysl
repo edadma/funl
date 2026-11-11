@@ -62,7 +62,7 @@ private kind_named(name: string) -> u32
     val kinds = current().handle_kinds
 
     for i in 0..<kinds.len()
-        if kinds.at(i).name == name then return u32(i)
+        if kinds[i].name == name then return u32(i)
 
     panic("funl:sqlite is not installed on this VM")
 
@@ -74,8 +74,8 @@ sqlite_exports() -> Buf[ModExport] = native_exports("sqlite", SqliteNames)
 // The first free place in `databases`, holding `db`.
 private keep_database(db: &sqlite.Db) -> long
     for i in 0..<databases.len()
-        if databases.at(i).is_none()
-            databases.set(i, Some(db))
+        if databases[i].is_none()
+            databases[i] = Some(db)
             return long(i)
 
     databases.push(Some(db))
@@ -84,8 +84,8 @@ private keep_database(db: &sqlite.Db) -> long
 // The first free place in `running`, holding `r`.
 private keep_running(r: Running) -> long
     for i in 0..<running.len()
-        if running.at(i).is_none()
-            running.set(i, Some(r))
+        if running[i].is_none()
+            running[i] = Some(r)
             return long(i)
 
     running.push(Some(r))
@@ -97,16 +97,16 @@ private[funl] release_database(h: *HandleObj)
     val at = usize.wrap(h.n)
 
     for i in 0..<running.len()
-        running.at(i) match
-            Some(r) -> if r.db == at then running.set(i, None)
+        running[i] match
+            Some(r) -> if r.db == at then running[i] = None
             None -> ()
 
-    if at < databases.len() then databases.set(at, None)
+    if at < databases.len() then databases[at] = None
 
 private[funl] release_rows(h: *HandleObj)
     val at = usize.wrap(h.n)
 
-    if at < running.len() then running.set(at, None)
+    if at < running.len() then running[at] = None
 
 // -- arguments and errors ------------------------------------------------------------------------
 
@@ -116,7 +116,7 @@ private database_arg(base: usize, name: string) -> Result[&sqlite.Db, Fault]
     val at = usize.wrap(h.n)
 
     if at < databases.len()
-        databases.at(at) match
+        databases[at] match
             Some(db) -> return Ok(db)
             None -> ()
 
@@ -236,7 +236,7 @@ private[funl] step_query(h: *HandleObj) -> Result[Option[Value], Fault]
 
     if at >= running.len() then return Ok(None)
 
-    val q = running.at(at) match
+    val q = running[at] match
         Some(r) -> r.q
         None -> return Ok(None)
 

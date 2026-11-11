@@ -35,7 +35,7 @@ private counted_resumes(v: *Vm, name: string) -> string
                         if resume == NoMark
                             out = out + "-"
                         else
-                            val head = ch.code.at(next + 1) match
+                            val head = ch.code[next + 1] match
                                 Branch(h) -> h
                                 _ -> next + 1
 

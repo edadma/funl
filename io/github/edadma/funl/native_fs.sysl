@@ -165,7 +165,7 @@ private listing_kind() -> u32
     val kinds = current().handle_kinds
 
     for i in 0..<kinds.len()
-        if kinds.at(i).name == ListingKind then return u32(i)
+        if kinds[i].name == ListingKind then return u32(i)
 
     panic("funl:fs is not installed on this VM")
 
@@ -201,7 +201,7 @@ private start_lines(base: usize, argc: usize) -> Result[Option[Value], Fault]
     Ok(Some(listing(vals)?))
 
 private[funl] step_lines(h: *HandleObj) -> Result[Option[Value], Fault]
-    val text = h.vals.at(0) match
+    val text = h.vals[0] match
         Str(p) -> p.s
         _ -> return Ok(None)
 
@@ -267,7 +267,7 @@ private[funl] step_read_dir(h: *HandleObj) -> Result[Option[Value], Fault]
     if i >= h.vals.len() then return Ok(None)
 
     h.n += 1
-    Ok(Some(h.vals.at(i)))
+    Ok(Some(h.vals[i]))
 
 // -- questions about a path ----------------------------------------------------------------------
 

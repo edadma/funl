@@ -70,7 +70,7 @@ private write_option(o: *WriteOpts, x: Value, who: string) -> Result[unit, Fault
         _ -> return Err(bad_option(x, who))
 
     val name = atom_name(c.functor)
-    val a = deref(c.args.at(0))
+    val a = deref(c.args[0])
 
     if is_unbound(a)
         return Err(instantiation_error(s"instantiation error: $who's option $name was given an unbound variable"))

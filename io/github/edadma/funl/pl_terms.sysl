@@ -110,12 +110,12 @@ compound_parts(x: Value) -> Option[(u32, Buf[Value])]
 
 // The term `name(args)`: a list cell for `'[|]'` of two, and otherwise a compound.
 build_compound(name: u32, args: Buf[Value]) -> Result[Value, Fault]
-    if args.len() == 2 && atom_name(name) == "[|]" then return Ok(new_cons(args.at(0), args.at(1))?)
+    if args.len() == 2 && atom_name(name) == "[|]" then return Ok(new_cons(args[0], args[1])?)
 
     val c = new_compound(name, args.len())?
 
     for i in 0..<args.len()
-        c.args.set(i, args.at(i))
+        c.args[i] = args[i]
 
     Ok(Compound(c))
 
@@ -196,7 +196,7 @@ private pl_arg(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     if n < 1 || n > long(args.len()) then return Ok(Refuses)
 
-    unified(arg(base, 2), args.at(usize(n - 1)))
+    unified(arg(base, 2), args[usize(n - 1)])
 
 // `T =.. L`: `L` is `[Name|Args]`.
 private pl_univ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
@@ -221,7 +221,7 @@ private pl_univ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     if items.len() == 0 then return Err(domain_error("non_empty_list", Nil, "=../2 wants a non-empty list, and was given []"))
 
-    val head = deref(items.at(0))
+    val head = deref(items[0])
 
     if is_unbound(head) then return Err(instantiation_error("instantiation error: =../2 was given a list whose name is an unbound variable"))
 
@@ -241,7 +241,7 @@ private pl_univ(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
     var args: Buf[Value] = buf()
 
     for i in 1..<items.len()
-        args.push(items.at(i))
+        args.push(items[i])
 
     unified(t, build_compound(f, args)?)
 end pl_univ
@@ -315,7 +315,7 @@ variables_of(x: Value, first: bool) -> Buf[Value]
 
                         while i > 0
                             i -= 1
-                            work.push(args.at(i))
+                            work.push(args[i])
                     None -> ()
 
         pushed(&w, work.len() - before, d, work.len())
@@ -348,7 +348,7 @@ private variable_uses(x: Value) -> Map[u64, long]
 
                         while i > 0
                             i -= 1
-                            work.push(args.at(i))
+                            work.push(args[i])
                     None -> ()
 
         pushed(&w, work.len() - before, d, work.len())
@@ -423,7 +423,7 @@ private pl_unifiable(base: usize, argc: usize, cursor: long) -> Result[Answer, F
     while i > 0
         i -= 1
 
-        val (x, value) = bound.at(i)
+        val (x, value) = bound[i]
         var parts: Buf[Value] = buf()
 
         parts.push(x)
@@ -477,7 +477,7 @@ private pl_numbervars(base: usize, argc: usize, cursor: long) -> Result[Answer, 
                         Compound(c) ->
                             if c.args.len() == 1
                                 val name = atom_name(c.functor)
-                                val x = deref(c.args.at(0))
+                                val x = deref(c.args[0])
 
                                 if name == "functor_name" || name == "singletons" || name == "attvar"
                                     x match

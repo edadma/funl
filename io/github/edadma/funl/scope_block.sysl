@@ -146,7 +146,7 @@ loop_target(w: *Walk, label: Option[string], at: Span, word: string)
     while i > 0
         i -= 1
 
-        val l = w.loops.at(i)
+        val l = w.loops[i]
 
         if labelled_as(l.label, label)
             if w.res.loops.get(l.id).is_none()
@@ -246,9 +246,9 @@ written_in_block(w: *Walk, clauses: Buf[Clause])
         w.sc.fns.get(c.name) match
             Some(rs) ->
                 for i in rs.view()
-                    var r = w.res.rels.at(i)
+                    var r = w.res.rels[i]
 
                     if joins(r, c)
                         r.outer_block = w.blk
-                        w.res.rels.set(i, r)
+                        w.res.rels[i] = r
             None -> ()
