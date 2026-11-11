@@ -22,7 +22,7 @@ package {
   // A container field in zeroed `gc` storage reads as empty and `release()` on it is a no-op, which
   // the collector's finalizers rely on; the heap objects' makers assign their container fields, as
   // containers are reference types.
-  sysl = "0.9.19"
+  sysl = "0.9.20"
 }
 
 workspace = ["funl"]
@@ -52,7 +52,7 @@ workspace = ["funl"]
 dependencies {
   dal     { git = "github.com/sysl-lang/dal", version = "0.1.3" }
   gc      { git = "github.com/sysl-lang/gc", version = "0.3.1" }
-  json    { git = "github.com/sysl-lang/json", version = "0.2.4" }
+  json    { git = "github.com/sysl-lang/json", version = "0.2.5" }
   parsing { git = "github.com/sysl-lang/parsing", version = "0.14.2" }
 
   // `funl:sqlite`. Not a feature: SQLite is the system's own library on macOS and a standard
@@ -65,14 +65,14 @@ dependencies {
 
   // `async`'s loop. Its timers and its host driver need no library, so kairos itself is not behind a
   // feature; its libuv driver is, through `async` below.
-  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.17" }
+  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.18" }
 
   curl   { git = "github.com/sysl-lang/curl", version = "0.1.4", optional = true }
 
   // `funl:async`'s `run` starts its child with libuv directly, kairos wrapping no process, and
   // `fetch` waits for libcurl on libuv's thread pool -- so libuv is named here as well as under
   // kairos, behind the same feature.
-  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.20", optional = true }
+  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.21", optional = true }
 
   // `funl:graphics`'s windows on screen, behind the `graphics` feature: SDL is a library the machine
   // has to have installed, where a hidden canvas needs nothing, so a build without the feature keeps
