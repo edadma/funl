@@ -235,15 +235,15 @@ has a FunL translation as a string literal in a unit test that prints what Icon 
 
 ## 12. Graphics
 
-**Rests on:** [Graphics](graphics.md) (user, 2026-10-15: I21 in scope); milestone 9's handles and
-generators; milestone 10's loop; milestone 11's `&name` keywords (item 10) and stream methods (item
-9); **answers needed first:** G1–G12, and two org findings built and released before the items that
-name them: **F1** (plutovg's font-face cache bound) and **F2** (a kairos driver that waits on a
-second source).
+**Rests on:** [the graphics library page](../library/graphics.md) (user, 2026-10-15: I21 in scope);
+milestone 9's handles and generators; milestone 10's loop; milestone 11's `&name` keywords (item 10)
+and stream methods (item 9); **answers needed first:** G1–G12, and two org findings built and
+released before the items that name them: **F1** (plutovg's font-face cache bound) and **F2** (a
+kairos driver that waits on a second source). **Done.**
 
 Each item is one agent's deliverable, built, tested on hidden canvases with string-literal programs
 (an error path included), its part of `docs/library/graphics.md` written with programs the suite
-runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In dependency order:
+runs, its part of the design chapter removed, and fast-forwarded onto `dev`. In dependency order:
 
 1. **The canvas and the context**: `funl:graphics` in the module table, the `window` handle kind
    (canvas plus context), `open` with `canvas: #hidden` over plutovg, `set`/`get`/`attributes` with
@@ -285,4 +285,7 @@ runs, its section of `graphics.md` removed, and fast-forwarded onto `dev`. In de
 click-and-drag sketcher, a text window that echoes what is typed, an image read, annotated and
 written — have FunL translations as string literals in unit tests that run on hidden canvases and
 check the pixels and events Icon's would give; an example under `examples/` opens a real window from
-a console shell; and `graphics.md` is gone, replaced by the library page.
+a console shell; and `graphics.md` is gone, replaced by the library page. **Met**: the rubber band
+is in `tests_graphics_draw.sysl`, the echoing text window in `tests_graphics_read.sysl`, the
+click-and-drag sketcher and the annotated image in `tests_graphics_programs.sysl`,
+`examples/graphics.funl` opens a real window, and `docs/design/graphics.md` is gone.

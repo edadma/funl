@@ -178,7 +178,8 @@ hidden
 | `displaywidth`, `displayheight` | read-only: the size of the display the window is on, in points |
 
 A hidden canvas keeps a `pos` it is given for when it is shown; it has no pointer and no display, so
-those read `undefined` and setting `pointer` fails.
+those read `undefined` and setting `pointer` fails. **`pointer` is a position**: there is no
+attribute for the cursor's shape.
 
 ```funl
 import { open } from funl:graphics

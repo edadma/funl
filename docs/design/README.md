@@ -38,7 +38,6 @@ Read them in order; each leans on the one before it.
 | [The sysl implementation](implementation.md) | the repository and module layout, the parser, the collector and its roots, what is reused and what is written fresh, and how it is tested |
 | [Modules and native modules](modules.md) | modules and `import` as slate has them, `funl:` modules over sysl packages, features, values that cross, the first batch, and `async`/`await` |
 | [Packages](packages.md) | the manifest, specifiers and what they resolve to, exact versions and `funl.sum`, the cache and `vendor/`, offline use, `funl add`, and what a package can and cannot bring |
-| [Graphics](graphics.md) | Icon's graphics facilities as `funl:graphics`: the window handle, canvas and context, attributes as a map, drawing, colours, fonts, images, events and the loop, hidden canvases for testing, and the sysl packages under it |
 | [Milestones](milestones.md) | the order the work is done in, and what proves each step |
 
 ## Conventions on these pages
@@ -146,7 +145,7 @@ Each is argued where it arises; this is the list.
 | I2 A `case` expression | postfix `e match` over a clause block, the subject bounded, committed choice; no match fails; `(e)` in a clause's pattern compares with `e`'s first value (user, 2026-10-15) | [functions](../reference/functions.md#match) |
 | I6 Reflection by name | `proc(name)` and `proc(name, n)` over top-level names and builtins (the prelude too), and over every value-producing operator by its source spelling (the count defaults to 1, as Icon's); fails for an unknown name or a control structure; no `variable`/`name`, no string invocation (user, 2026-10-15) | [functions](../reference/functions.md#calling-by-name) |
 | I3 Limitation, `\` being integer division | the infix word `e limit n`, Icon's semantics (a generating `n` re-limits); `\` stays division (user, 2026-10-15) | [generators](../reference/generators.md#limit-takes-the-first-few-values) |
-| I21 Are Icon's graphics facilities in scope? | yes, as the native module `funl:graphics`, designed in its own chapter; its questions are G1–G12 (user, 2026-10-15) | [graphics](graphics.md) |
+| I21 Are Icon's graphics facilities in scope? | yes, as the native module `funl:graphics`, built as milestone 12; its questions are G1–G12 (user, 2026-10-15) | [graphics](../library/graphics.md) |
 | G1 Methods on the window, or functions taking it | methods; `&window` an assignable keyword, no implicit-window forms (user, 2026-10-15) | [graphics](../library/graphics.md) |
 | G2 What `close()` closes | the canvas, as `WClose`, and every handle on it; `uncouple()` closes one (user, 2026-10-15) | [graphics](../library/graphics.md#clones-couples-and-closing) |
 | G3 How attributes are read and set | a map with natural values: `set(m)`, `get(name)`, `attributes()` (user, 2026-10-15) | [graphics](../library/graphics.md#attributes) |

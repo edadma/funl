@@ -21,3 +21,4 @@ comments in each file say what it prints.
 | `shop.pl` | the Prolog half: `:- import("shop.funl")`, run with `./funl/funl examples/shop.pl` |
 | `calculator.pl` | standard Prolog with no FunL in it (a DCG, `catch/3`), run with `fprolog examples/calculator.pl` |
 | `family_tree.funl`, `family_tree.pl` | the family tree in FunL and in Prolog |
+| `graphics.funl` | a window on screen to sketch in: `funl:graphics`, mouse and key events, drawing on the canvas; needs a console on a display |

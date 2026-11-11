@@ -1472,7 +1472,7 @@ decision, the decision was asked as one of I1–I21, all now decided, and all bu
 | `&error`, `runerr` | `catch`, `throw` (I19) | [above](#every-expression-succeeds-or-fails) |
 | `$define`, `$ifdef`, `$include` and the rest | Icon's whole preprocessor (I20) | [source files](../reference/source-files.md#the-preprocessor) |
 | `loadfunc`, `callout` | native modules | [modules](modules.md#built-in-modules-funlname) |
-| the graphics facilities | `funl:graphics` (I21) | [graphics](graphics.md) |
+| the graphics facilities | `funl:graphics` (I21) | [graphics](../library/graphics.md) |
 | a call with too few arguments gets `&null`, extra ones are dropped | not adopted: a call is resolved by its count, decided; two arities or a variadic `def` say it | [above](#one-name-several-arities) |
 | `&fail`, `&null` as values | `fail`, `undefined` | |
 
@@ -1550,7 +1550,7 @@ decision, the decision was asked as one of I1–I21, all now decided, and all bu
 > call still takes its caller's place, so the caller's return is not shown — a deliberate difference.
 > `&storage` and `&regions` are one number each over the one region FunL allocates in, where Icon's
 > generate one per region. `&error`, `&errornumber`, `&errortext` and `&errorvalue` are not adopted
-> (I19); the graphics keywords are [Graphics](graphics.md#events)'s.
+> (I19); the graphics keywords are [graphics](../library/graphics.md#events)'s.
 
 > **Decided (user, 2026-10-15) — I19: nothing more.** `catch` covers `&error` (`e catch _ -> fail`
 > is Icon's `&error` for one expression), `throw` covers `runerr`, and the error keywords are not
@@ -1563,7 +1563,7 @@ decision, the decision was asked as one of I1–I21, all now decided, and all bu
 > in a literate file's tangled program (`preproc.sysl`).
 
 > **Decided (user, 2026-10-15) — I21, the graphics facilities: in scope**, as the native module
-> `funl:graphics`, with a design of its own: [Graphics](graphics.md), built as milestone 12.
+> `funl:graphics`, documented on [its library page](../library/graphics.md), built as milestone 12.
 
 ## Rough edges, and what FunL does about each
 

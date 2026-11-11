@@ -1,0 +1,40 @@
+;; A window you can sketch in: graphics events, and what is drawn on the canvas.
+;;
+;; `open` with `canvas: #normal` shows a real window, so this needs a console session on a screen
+;; and the `graphics` feature, which a default build has. Press the left button and drag to draw;
+;; the right button clears the canvas; `c` turns the pen blue, `r` red, and `q` or the window's
+;; close button ends the program.
+;;
+;; `w.event()` waits for the next event and answers its code: a key's character, or a symbol for a
+;; mouse event. It also sets the keywords `&x` and `&y` to where the pointer was. The picture is
+;; drawn on the canvas as events arrive, and shown whenever the program waits for the next one.
+
+import { open } from funl:graphics
+
+val w = open( "sketch", {canvas: #normal, size: (400, 300), bg: "white", fg: "red", linewidth: 3} )
+
+w.draw_string( 10, 20, "drag to draw, right button clears, q quits" )
+
+var px = 0
+var py = 0
+
+while true
+  val code = w.event()
+
+  if code == #close | code == "q" then break
+
+  if code == #lpress then
+    px = &x
+    py = &y
+    w.draw_point( px, py )
+
+  if code == #ldrag then
+    w.draw_line( px, py, &x, &y )
+    px = &x
+    py = &y
+
+  if code == #rpress then w.erase_area( 0, 0, 400, 300 )
+  if code == "c" then w.set( {fg: "blue"} )
+  if code == "r" then w.set( {fg: "red"} )
+
+w.close()

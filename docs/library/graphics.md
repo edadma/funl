@@ -1020,3 +1020,29 @@ await e
 ```error
 'next_event' was awaited on the handle <closed window handle>, which was closed while it waited
 ```
+
+## What is not here
+
+**A closed canvas is closed for every handle on it.** A clone kept after `close()` faults on its next
+call rather than drawing into a freed surface.
+
+**Prolog sees a window as an opaque handle** and cannot call its methods, as with
+[SQLite](sqlite.md); `funl:graphics` is a FunL module.
+
+**Icon's X11 specifics are not adopted**, because SDL has no meaning for them: `WDefault` (X
+resources), and the attributes `display` (an X server's name), `gamma`, `iconpos`, `iconlabel`,
+`iconimage` and a `windowlabel` separate from `label`. There are no colour maps: `new_color` fails,
+as on any true-colour display, and `free_color` and `color` find no mutable colour. Icon's `pointer`
+attribute, the pointer's *shape*, is not built: `pointer`, with `pointerx` and `pointery`, reads where
+the pointer is, and there is no cursor-shape attribute.
+
+**Icon's program library is not built in**: the `vidgets`, VIB, the dialogs (`Notice`,
+`OpenDialog`, `TextDialog`, `ColorDialog`, `SelectDialog`, `ToggleDialog`) and the turtle procedures
+are Icon programs rather than facilities, and any of them can be written in FunL over this module.
+Also left out are writing GIF or JPEG (`write_image` writes PNG) and reading the frames of an
+animated GIF after its first, Unicon's additions (3D graphics, `WSection`, textures, alpha in
+colours), and printing and every non-raster output.
+
+**The drawing is `plutovg`, vendored, and the window on screen is `sdl3`.** The drawing links
+nothing, so a hidden canvas works in every build, tests included; only a window on screen needs the
+`graphics` feature.
