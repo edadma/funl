@@ -73,12 +73,14 @@ struct WinCanvas
     // On screen (`graphics_screen.sysl`): `state` is the `canvas` attribute, `"hidden"` or `"normal"`;
     // `screen` the place of its window on screen, or -1 while it has none; `density` device pixels per
     // point; `pos` where the window is, `None` until set or shown; `pointer` where the pointer was last
-    // seen over it, `None` until it has been; `fill` the colour a resize paints the new area with.
+    // seen over it, `None` until it has been; `shape` the `pointer` attribute, the name of the shape
+    // the pointer takes over it, as it was given; `fill` the colour a resize paints the new area with.
     state: string
     screen: long
     density: long
     pos: Option[(long, long)]
     pointer: Option[(long, long)]
+    shape: string
     fill: Rgb
 
     // The text cursor, on the canvas as Icon keeps it: `x` the left of the next character, `y` its

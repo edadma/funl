@@ -43,22 +43,23 @@ A_CANVAS_THAT_IS_NOT_HIDDEN_IS_SHOWN_IN_A_WINDOW()
 POS_PLACES_THE_WINDOW_AND_POINTER_MOVES_THE_POINTER()
     assert_eq(on_screen("w.set( {pos: (30, 40)} )\nwrite( w.get(\"pos\"), w.get(\"posx\"), w.get(\"posy\") )\n" +
             "w.set( {posx: 50} )\nwrite( w.get(\"pos\") )\nw.set( {posy: 60} )\nwrite( w.get(\"pos\") )\n" +
-            "write( w.get(\"pointer\"), w.get(\"pointerx\") )\n" +
-            "w.set( {pointer: (2, 1)} )\nwrite( w.get(\"pointer\") )\nw.set( {pointery: 2} )\nwrite( w.get(\"pointer\"), w.get(\"pointerx\"), w.get(\"pointery\") )\n" +
+            "write( w.get(\"pointerx\"), w.get(\"pointery\") )\n" +
+            "w.set( {pointerx: 2, pointery: 1} )\nwrite( w.get(\"pointerx\"), w.get(\"pointery\") )\nw.set( {pointery: 2} )\nwrite( w.get(\"pointerx\"), w.get(\"pointery\") )\n" +
             "v = open( \"placed\", {pos: (70, 80), size: (5, 5)} )\nwrite( v.get(\"pos\") )\nv.close()\nw.close()\n"),
-        "(30, 40), 30, 40\n(50, 40)\n(50, 60)\nundefined, undefined\n(2, 1)\n(2, 2), 2, 2\n(70, 80)\nsucceeded")
+        "(30, 40), 30, 40\n(50, 40)\n(50, 60)\nundefined, undefined\n2, 1\n2, 2\n(70, 80)\nsucceeded")
 
 @test
-A_POS_OR_POINTER_THAT_IS_NO_PAIR_OF_INTEGERS_FAILS_AND_DISPLAY_SIZE_IS_READ_ONLY()
-    assert_eq(on_screen("for v <- [{pos: (1, 2, 3)}, {pos: 5}, {posx: 1.5}, {pointer: (\"1\", 2)}, {pointery: #top}] do write( w.set(v) | #failed )\n" +
+A_POS_OR_POINTER_POSITION_THAT_IS_NO_INTEGER_FAILS_AND_DISPLAY_SIZE_IS_READ_ONLY()
+    assert_eq(on_screen("for v <- [{pos: (1, 2, 3)}, {pos: 5}, {posx: 1.5}, {pointer: (2, 1)}, {pointerx: \"1\"}, {pointery: #top}] do write( w.set(v) | #failed )\n" +
+            "write( w.get(\"pointer\"), w.get(\"pointerx\") )\n" +
             "write( w.set({displaywidth: 9}) catch e -> e )\nw.close()\n"),
-        "failed\nfailed\nfailed\nfailed\nfailed\n" +
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\nleft ptr, undefined\n" +
         "error(permission_error(modify, window_attribute, displaywidth), context(_G2, \"'set': `displaywidth` is read-only\"))\nsucceeded")
 
 @test
-A_HIDDEN_CANVAS_KEEPS_ITS_POS_UNTIL_SHOWN_AND_HAS_NO_POINTER()
+A_HIDDEN_CANVAS_KEEPS_ITS_POS_UNTIL_SHOWN_AND_HAS_NO_POINTER_POSITION()
     assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"later\", {canvas: #hidden, size: (8, 6), pos: (11, 12)} )\n" +
-            "write( w.get(\"pos\"), w.get(\"pointer\"), w.get(\"displaywidth\") )\nwrite( w.set({pointer: (1, 1)}) | #failed )\n" +
+            "write( w.get(\"pos\"), w.get(\"pointerx\"), w.get(\"displaywidth\") )\nwrite( w.set({pointerx: 1}) | #failed )\n" +
             "w.set( {canvas: #normal} )\nwrite( w.get(\"canvas\"), w.get(\"pos\"), w.get(\"size\") )\n" +
             "if w.get(\"displaywidth\") > 0 then write( #display )\n" +
             "w.set( {canvas: #hidden} )\nwrite( w.get(\"canvas\") )\nw.close()\n"),
@@ -214,6 +215,65 @@ A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT()
     dispose_vm(&v)
     leave(was)
 end A_WINDOW_RESIZED_BY_ITS_USER_KEEPS_ITS_PICTURE_AND_ITS_CLOSE_ENDS_THE_WAIT
+
+@test
+THE_POINTER_TAKES_THE_SHAPE_OF_THE_WINDOW_IT_ENTERS()
+    headless_video()
+
+    var v = new_vm(RoomyHeap, RoomyFloor, 2)
+    val was = enter(&v)
+    val streams = capture_streams(&v)
+    val chunk = compiled_text("import { open } from funl:graphics\n" +
+        "a = open( \"shape a\", {size: (4, 3), pointer: \"xterm\"} )\nb = open( \"shape b\", {size: (4, 3)} )\n" +
+        "write( a.get(\"pointer\"), b.get(\"pointer\") )\n").unwrap()
+
+    assert_eq(outcome_text(run(&v, chunk)), "succeeded", transcript(streams))
+
+    val a = shown_canvas("shape a").expect("window a is still open")
+    val b = shown_canvas("shape b").expect("and window b")
+    val sa = usize(canvases[a].unwrap().screen)
+    val sb = usize(canvases[b].unwrap().screen)
+
+    assert_eq(screens[sa].unwrap().shape, pointer_shape("text").unwrap(), "a's window has the I-beam `xterm` names")
+    assert_eq(screens[sb].unwrap().shape, pointer_shape("left ptr").unwrap(), "and b's the default")
+
+    // SDL's dummy driver makes no system cursor, so which shape is active stays as it was; what the
+    // suite sees is the window the pointer is over and the shape each window keeps for it.
+    assert(sdl.create_system_cursor(sdl.SystemCursor.Text).is_none(), "the dummy driver makes no cursor")
+    shape_shown = -1
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_MOUSE_ENTER, screen_id(sa), 0, 0)), "the pointer enters a")
+    show_screens()
+    assert(pointer_over == Some(sa), "the pointer is over a")
+
+    screen_shape(sb, pointer_shape("hand2").unwrap())
+    assert_eq(screens[sb].unwrap().shape, pointer_shape("pointer").unwrap(), "b keeps the hand it is given while the pointer is elsewhere")
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_MOUSE_LEAVE, screen_id(sa), 0, 0)), "the pointer leaves a")
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_MOUSE_LEAVE, screen_id(sb), 0, 0)), "and a leave of b, which it was not over")
+    show_screens()
+    assert(pointer_over.is_none(), "the pointer is over neither")
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_MOUSE_ENTER, screen_id(sb), 0, 0)), "the pointer enters b")
+    show_screens()
+    assert(pointer_over == Some(sb), "the pointer is over b")
+    assert_eq(shape_shown, -1, "and no cursor the driver cannot make is counted as shown")
+
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, screen_id(sa), 0, 0)), "a is closed")
+    assert(sdl.push_event(window_event(sdl.EVENT_WINDOW_CLOSE_REQUESTED, screen_id(sb), 0, 0)), "and b, under the pointer")
+    wait_for_screens()
+    assert(pointer_over.is_none(), "a closed window is not under the pointer")
+
+    dispose_vm(&v)
+    leave(was)
+end THE_POINTER_TAKES_THE_SHAPE_OF_THE_WINDOW_IT_ENTERS
+
+@test
+A_WINDOW_ON_SCREEN_TAKES_A_POINTER_SHAPE_AND_REFUSES_ONE_THAT_IS_NONE()
+    assert_eq(on_screen("write( w.get(\"pointer\") )\nw.set( {pointer: \"crosshair\"} )\nwrite( w.get(\"pointer\") )\n" +
+            "write( w.set({pointer: \"no such shape\"}) | #failed, w.set({pointer: (1, 1)}) | #failed )\nwrite( w.get(\"pointer\") )\n" +
+            "w.set( {pointer: \"fleur\", pointerx: 1, pointery: 2} )\nwrite( w.get(\"pointer\"), w.get(\"pointerx\"), w.get(\"pointery\") )\nw.close()\n"),
+        "left ptr\ncrosshair\nfailed, failed\ncrosshair\nfleur, 1, 2\nsucceeded")
 
 // A program that ends with two windows on screen, `back` opened first and `front` opened over it and
 // then lowered behind it, run to its end in `v`: the places of their canvases, `back`'s first.
@@ -557,10 +617,10 @@ end A_READ_WITH_CURSOR_ON_READS_AND_LEAVES_NO_CARET_BEHIND
 
 @test
 EVENT_READS_WHAT_THE_SCREEN_QUEUED_AND_MOTION_IS_QUEUED_ONLY_UNDER_INPUTMASK_M()
-    // Moving the pointer with `pointer` makes SDL report the motion, as a user's would be.
-    assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"moved\", {size: (40, 30)} )\nw.set( {pointer: (3, 2)} )\nwrite( w.pending() | \"none\" )\n" +
-            "w.set( {inputmask: \"m\", pointer: (5, 4)} )\nwrite( w.event(), &x, &y, w.get(\"pointer\") )\nw.close()\n"),
-        "none\nmove, 5, 4, (5, 4)\nsucceeded")
+    // Moving the pointer with `pointerx` and `pointery` makes SDL report the motion, as a user's would be.
+    assert_eq(ran_funl("import { open } from funl:graphics\nw = open( \"moved\", {size: (40, 30)} )\nw.set( {pointerx: 3, pointery: 2} )\nwrite( w.pending() | \"none\" )\n" +
+            "w.set( {inputmask: \"m\", pointerx: 5, pointery: 4} )\nwrite( w.event(), &x, &y, w.get(\"pointerx\"), w.get(\"pointery\") )\nw.close()\n"),
+        "none\nmove, 5, 4, 5, 4\nsucceeded")
 
 // What a window's user does while the program waits: after `delay_ms`, `first` and then `second` put on
 // SDL's queue from another thread, as the window system puts its events there.

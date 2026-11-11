@@ -73,7 +73,7 @@ write( w.attributes() )
 
 ```output
 red, 3, dashed
-{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "image": undefined, "canvas": hidden, "resize": false, "pos": undefined, "posx": undefined, "posy": undefined, "pointer": undefined, "pointerx": undefined, "pointery": undefined, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "displaywidth": undefined, "displayheight": undefined, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
+{"size": (40, 30), "width": 40, "height": 30, "label": "attrs", "image": undefined, "canvas": hidden, "resize": false, "pos": undefined, "posx": undefined, "posy": undefined, "pointer": "left ptr", "pointerx": undefined, "pointery": undefined, "cursor": false, "echo": true, "inputmask": "", "fg": "red", "bg": "white", "reverse": false, "linewidth": 3, "linestyle": dashed, "fillstyle": solid, "pattern": "black", "drawop": copy, "clipx": undefined, "clipy": undefined, "clipw": undefined, "cliph": undefined, "dx": 0, "dy": 0, "depth": 24, "density": 1, "displaywidth": undefined, "displayheight": undefined, "font": "fixed", "leading": 13, "ascent": 10, "descent": 3, "fheight": 13, "fwidth": 6, "x": 0, "y": 10, "row": 1, "col": 1}
 ```
 
 | attribute | value | default |
@@ -85,7 +85,8 @@ red, 3, dashed
 | `canvas` | `#hidden`, or `#normal` for a window on screen | `#normal` |
 | `resize` | whether the user may resize the window | `false` |
 | `pos`, `posx`, `posy` | where the window is on its display, `(x, y)`; a hidden canvas keeps it for when it is shown | `undefined` until set or shown |
-| `pointer`, `pointerx`, `pointery` | where the pointer is over the window, `(x, y)`; setting it moves the pointer; a hidden canvas has none, and setting it fails | `undefined` until known |
+| `pointer` | the pointer's [shape](graphics-screen.md#where-the-window-is-and-the-pointer) over the window, a name such as `"xterm"` or `"crosshair"`; a hidden canvas keeps it for when it is shown | `"left ptr"` |
+| `pointerx`, `pointery` | where the pointer is over the window; setting them moves the pointer; a hidden canvas has none, and setting them fails | `undefined` until known |
 | `cursor` | whether a window on screen shows a [caret](graphics-screen.md#events-from-the-screen) at the text cursor while the program waits on its keys | `false` |
 | `echo` | whether keys read as text are drawn as they are typed | `true` |
 | `inputmask` | the events reported beyond the usual: `"m"` motion with no button held, `"k"` a key's release ([events](#events)) | `""` |
@@ -1032,9 +1033,10 @@ call rather than drawing into a freed surface.
 **Icon's X11 specifics are not adopted**, because SDL has no meaning for them: `WDefault` (X
 resources), and the attributes `display` (an X server's name), `gamma`, `iconpos`, `iconlabel`,
 `iconimage` and a `windowlabel` separate from `label`. There are no colour maps: `new_color` fails,
-as on any true-colour display, and `free_color` and `color` find no mutable colour. Icon's `pointer`
-attribute, the pointer's *shape*, is not built: `pointer`, with `pointerx` and `pointery`, reads where
-the pointer is, and there is no cursor-shape attribute.
+as on any true-colour display, and `free_color` and `color` find no mutable colour. `pointer` takes
+SDL's twenty system shapes and the X11 cursor-font names that map onto them
+([the list](graphics-screen.md#where-the-window-is-and-the-pointer)); an X11 cursor with no system
+shape near it, and a cursor drawn from a bitmap, is not built.
 
 **Icon's program library is not built in**: the `vidgets`, VIB, the dialogs (`Notice`,
 `OpenDialog`, `TextDialog`, `ColorDialog`, `SelectDialog`, `ToggleDialog`) and the turtle procedures

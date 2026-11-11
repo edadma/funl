@@ -174,12 +174,41 @@ hidden
 | attribute | value |
 |---|---|
 | `pos`, `posx`, `posy` | where the window is on its display, `(x, y)`, in points; setting it moves the window |
-| `pointer`, `pointerx`, `pointery` | where the pointer is over the window, `(x, y)`; setting it moves the pointer there |
+| `pointerx`, `pointery` | where the pointer is over the window, in points; setting them moves the pointer there |
+| `pointer` | the pointer's shape over the window, a string; `"left ptr"` to begin with |
 | `displaywidth`, `displayheight` | read-only: the size of the display the window is on, in points |
 
-A hidden canvas keeps a `pos` it is given for when it is shown; it has no pointer and no display, so
-those read `undefined` and setting `pointer` fails. **`pointer` is a position**: there is no
-attribute for the cursor's shape.
+A hidden canvas keeps a `pos` it is given for when it is shown; it has no pointer position and no
+display, so those read `undefined` and setting `pointerx` or `pointery` fails. **`pointer` is the
+pointer's shape, as in Icon**, and the position is only `pointerx` and `pointery`: there is no pair.
+The shape is one of SDL's twenty system cursors -- `"default"`, `"text"`, `"wait"`, `"crosshair"`,
+`"progress"`, `"nwse resize"`, `"nesw resize"`, `"ew resize"`, `"ns resize"`, `"move"`,
+`"not allowed"`, `"pointer"` (the hand), and the edge and corner arrows `"n resize"`, `"ne resize"`,
+`"e resize"`, `"se resize"`, `"s resize"`, `"sw resize"`, `"w resize"` and `"nw resize"` -- or one of
+the X11 cursor-font names Icon's programs use, written with spaces as Icon writes them, each shown as
+the system cursor nearest it:
+
+| X11 names | shown as |
+|---|---|
+| `"left ptr"`, `"arrow"`, `"top left arrow"` | `"default"` |
+| `"xterm"` | `"text"` |
+| `"watch"` | `"wait"` |
+| `"cross"`, `"tcross"` | `"crosshair"` |
+| `"hand1"`, `"hand2"` | `"pointer"` |
+| `"fleur"` | `"move"` |
+| `"pirate"` | `"not allowed"` |
+| `"sb h double arrow"` | `"ew resize"` |
+| `"sb v double arrow"`, `"double arrow"` | `"ns resize"` |
+| `"sizing"` | `"nwse resize"` |
+| `"top left corner"`, `"ul angle"`; `"top right corner"`, `"ur angle"` | `"nw resize"`; `"ne resize"` |
+| `"bottom right corner"`, `"lr angle"`; `"bottom left corner"`, `"ll angle"` | `"se resize"`; `"sw resize"` |
+| `"top side"`, `"right side"`, `"bottom side"`, `"left side"` | `"n resize"`, `"e resize"`, `"s resize"`, `"w resize"` |
+
+`get` answers the name the shape was set with, and a name that is none of these fails the `set`, as
+any value Icon's `WAttrib` refuses does. The pointer's shape is each window's: the pointer takes a
+window's shape when it enters the window, and at once when the shape is set on the window it is over.
+A hidden canvas keeps the shape it is given, which it shows once it is shown. There are no cursors
+drawn from a bitmap.
 
 ```funl
 import { open } from funl:graphics
@@ -188,8 +217,12 @@ w = open( "placed", {size: (80, 60), pos: (40, 50)} )
 write( w.get("pos") )
 w.set( {posx: 90} )
 write( w.get("pos"), w.get("posy") )
-w.set( {pointer: (10, 20)} )
+w.set( {pointerx: 10, pointery: 20} )
+write( w.get("pointerx"), w.get("pointery") )
 write( w.get("pointer") )
+w.set( {pointer: "xterm"} )
+write( w.get("pointer") )
+write( w.set({pointer: "no such shape"}) | "no such shape" )
 if w.get("displaywidth") > 80 then write( "the display is wider than the window" )
 w.close()
 ```
@@ -197,7 +230,10 @@ w.close()
 ```output
 (40, 50)
 (90, 50), 50
-(10, 20)
+10, 20
+left ptr
+xterm
+no such shape
 the display is wider than the window
 ```
 

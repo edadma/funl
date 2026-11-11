@@ -89,8 +89,30 @@ private[funl] struct Screen
     py: long
     last: u64
 
+    // The pointer's shape over the window, by its place in `PointerShapes`.
+    shape: usize
+
 // process-wide: every window on screen by place, `None` once closed; a canvas holds its place.
 private[funl] var screens: Buf[Option[Screen]] = buf()
+
+// SDL's system cursors in the order of `PointerShapes`, whose names are theirs.
+private val SystemCursors: [20]sdl.SystemCursor = [sdl.SystemCursor.Default, sdl.SystemCursor.Text,
+    sdl.SystemCursor.Wait, sdl.SystemCursor.Crosshair, sdl.SystemCursor.Progress, sdl.SystemCursor.NwseResize,
+    sdl.SystemCursor.NeswResize, sdl.SystemCursor.EwResize, sdl.SystemCursor.NsResize, sdl.SystemCursor.Move,
+    sdl.SystemCursor.NotAllowed, sdl.SystemCursor.Pointer, sdl.SystemCursor.NwResize, sdl.SystemCursor.NResize,
+    sdl.SystemCursor.NeResize, sdl.SystemCursor.EResize, sdl.SystemCursor.SeResize, sdl.SystemCursor.SResize,
+    sdl.SystemCursor.SwResize, sdl.SystemCursor.WResize]
+
+// process-wide: each system cursor made so far, by its place in `PointerShapes`, made the first time
+// a window shows it and kept. SDL's cursor is the whole program's, where Icon's is a window's, so the
+// shape of the window the pointer enters is made the active one then.
+private var cursors: Buf[Option[&sdl.Cursor]] = buf()
+
+// process-wide: the place of the window the pointer is over, as SDL last said it entered one.
+private[funl] var pointer_over: Option[usize] = None
+
+// process-wide: the shape last made active, by its place in `PointerShapes`; -1 before any.
+private[funl] var shape_shown: long = -1
 
 // process-wide: whether SDL's video has been brought up, which the first window does.
 private var video_up: bool = false
@@ -135,7 +157,7 @@ screen_open(title: string, w: long, h: long, resizable: bool, shown: bool) -> Re
         Some(made) -> made
         None -> return Err(s"the window could not be drawn in: ${sdl.error()}")
 
-    val s = Screen(win, Some(r), None, 0, 0, win.id(), false, 0, 0, 0)
+    val s = Screen(win, Some(r), None, 0, 0, win.id(), false, 0, 0, 0, 0)
 
     for i in 0..<screens.len()
         if screens[i].is_none()
@@ -157,6 +179,8 @@ screen_close(at: usize)
     screens[at] = None
     s.texture = None
     s.renderer = None
+
+    if pointer_over == Some(at) then pointer_over = None
 
 // Device pixels per point of the window at `at`, a whole number at least 1: 2 on a retina display.
 screen_density(at: usize) -> long
@@ -293,6 +317,30 @@ screen_position(at: usize) -> (long, long)
 // The pointer moved to `x`, `y` of the window at `at`.
 screen_warp(at: usize, x: long, y: long) = sdl.warp_mouse(screen_at(at).window, f32(x), f32(y))
 
+// The pointer over the window at `at` given shape `shape`, its place in `PointerShapes`: shown at
+// once when the pointer is over that window, and whenever it enters it.
+screen_shape(at: usize, shape: usize)
+    var s = screen_at(at)
+
+    s.shape = shape
+    screens[at] = Some(s)
+
+    if pointer_over == Some(at) then show_shape(shape)
+
+// Shape `shape` made the pointer's, its system cursor made the first time. A platform that cannot
+// make the cursor leaves the pointer as it was.
+private show_shape(shape: usize)
+    if long(shape) == shape_shown then return
+
+    while cursors.len() <= shape
+        cursors.push(None)
+
+    if cursors[shape].is_none() then cursors[shape] = sdl.create_system_cursor(SystemCursors[shape])
+
+    cursors[shape] match
+        Some(c) -> if c.set() then shape_shown = long(shape)
+        None -> ()
+
 // The size of the display the window at `at` is on, in points; `None` when SDL cannot say.
 screen_display(at: usize) -> Option[(long, long)]
     val b = sdl.display_bounds(screen_at(at).window.display())?
@@ -370,6 +418,15 @@ private news_of(at: usize, e: sdl.Event, out: *Buf[ScreenNews])
         s.close_asked = true
         screens[at] = Some(s)
         out.push(Closing(id))
+        return
+
+    if kind == sdl.EventKind.WindowMouseEnter
+        pointer_over = Some(at)
+        show_shape(s.shape)
+        return
+
+    if kind == sdl.EventKind.WindowMouseLeave
+        if pointer_over == Some(at) then pointer_over = None
         return
 
     if kind == sdl.EventKind.WindowResized
@@ -521,6 +578,8 @@ screen_place(at: usize, x: long, y: long) = ()
 screen_position(at: usize) -> (long, long) = (0, 0)
 
 screen_warp(at: usize, x: long, y: long) = ()
+
+screen_shape(at: usize, shape: usize) = ()
 
 screen_display(at: usize) -> Option[(long, long)] = None
 

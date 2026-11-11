@@ -86,7 +86,7 @@ do_open(base: usize, argc: usize, cursor: long) -> Result[Answer, Fault]
 
     // A canvas is shown unless `canvas: #hidden` says otherwise; its window is made once every
     // attribute is in, so it opens at the size and place they ask for.
-    val at = keep_canvas(WinCanvas(s, drawn, 1, title, "", wd, ht, false, "normal", -1, 1, None, None, start.bg_rgb, 0,
+    val at = keep_canvas(WinCanvas(s, drawn, 1, title, "", wd, ht, false, "normal", -1, 1, None, None, DefaultPointer, start.bg_rgb, 0,
         face_at(start.face).ascent, false, true, "", buf(), wins, current()))
     val k = keep_context(start)
 

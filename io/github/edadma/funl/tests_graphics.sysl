@@ -20,7 +20,7 @@ OPEN_WITH_A_HIDDEN_CANVAS_ANSWERS_A_WINDOW_HANDLE()
 EVERY_ATTRIBUTE_HAS_ICONS_DEFAULT()
     assert_eq(on_canvas("write( w.attributes() )\n"),
         "{\"size\": (4, 3), \"width\": 4, \"height\": 3, \"label\": \"test\", \"image\": undefined, \"canvas\": hidden, \"resize\": false, " +
-        "\"pos\": undefined, \"posx\": undefined, \"posy\": undefined, \"pointer\": undefined, \"pointerx\": undefined, \"pointery\": undefined, " +
+        "\"pos\": undefined, \"posx\": undefined, \"posy\": undefined, \"pointer\": \"left ptr\", \"pointerx\": undefined, \"pointery\": undefined, " +
         "\"cursor\": false, \"echo\": true, \"inputmask\": \"\", \"fg\": \"black\", \"bg\": \"white\", \"reverse\": false, \"linewidth\": 1, \"linestyle\": solid, \"fillstyle\": solid, " +
         "\"pattern\": \"black\", \"drawop\": copy, \"clipx\": undefined, \"clipy\": undefined, \"clipw\": undefined, \"cliph\": undefined, \"dx\": 0, \"dy\": 0, " +
         "\"depth\": 24, \"density\": 1, \"displaywidth\": undefined, \"displayheight\": undefined, \"font\": \"fixed\", \"leading\": 13, \"ascent\": 10, \"descent\": 3, \"fheight\": 13, \"fwidth\": 6, " +
@@ -54,6 +54,47 @@ SET_FAULTS_ON_A_KEY_THAT_IS_NO_ATTRIBUTE_OR_IS_READ_ONLY()
         "error(type_error(map, 42), context(_G14, \"'set' wants a map of attributes and was given the integer 42\"))\n" +
         "error(domain_error(window_attribute, colour), context(_G17, \"'get': `colour` is no window attribute\"))\n" +
         "error(type_error(string, 7), context(_G20, \"'get' wants an attribute's name, a string, and was given the integer 7\"))\nsucceeded")
+
+@test
+POINTER_IS_THE_POINTERS_SHAPE_AND_A_HIDDEN_CANVAS_KEEPS_IT()
+    assert_eq(on_canvas("write( w.get(\"pointer\") )\nw.set( {pointer: \"crosshair\"} )\nwrite( w.get(\"pointer\") )\n" +
+            "w.set( {pointer: \"nwse resize\"} )\nwrite( w.get(\"pointer\") )\n" +
+            "write( open(\"two\", {canvas: #hidden, pointer: \"wait\"}).get(\"pointer\"), w.get(\"pointer\") )\n"),
+        "left ptr\ncrosshair\nnwse resize\nwait, nwse resize\nsucceeded")
+
+@test
+EVERY_SYSTEM_SHAPE_AND_ICONS_X11_NAMES_ARE_TAKEN_AND_READ_BACK_AS_GIVEN()
+    assert_eq(on_canvas("for s <- [\"default\", \"text\", \"wait\", \"crosshair\", \"progress\", \"nwse resize\", \"nesw resize\", \"ew resize\", \"ns resize\", \"move\", " +
+            "\"not allowed\", \"pointer\", \"nw resize\", \"n resize\", \"ne resize\", \"e resize\", \"se resize\", \"s resize\", \"sw resize\", \"w resize\"] do " +
+            "write( w.set({pointer: s}).get(\"pointer\") )\n" +
+            "for s <- [\"left ptr\", \"arrow\", \"xterm\", \"watch\", \"cross\", \"hand2\", \"fleur\", \"sb h double arrow\", \"sb v double arrow\", \"top left corner\", \"bottom right corner\", \"left side\"] do " +
+            "write( w.set({pointer: s}).get(\"pointer\") )\n"),
+        "default\ntext\nwait\ncrosshair\nprogress\nnwse resize\nnesw resize\new resize\nns resize\nmove\n" +
+        "not allowed\npointer\nnw resize\nn resize\nne resize\ne resize\nse resize\ns resize\nsw resize\nw resize\n" +
+        "left ptr\narrow\nxterm\nwatch\ncross\nhand2\nfleur\nsb h double arrow\nsb v double arrow\ntop left corner\nbottom right corner\nleft side\nsucceeded")
+
+@test
+A_POINTER_THAT_IS_NO_SHAPE_FAILS_AND_KEEPS_THE_SHAPE_IT_HAD()
+    assert_eq(on_canvas("w.set( {pointer: \"xterm\"} )\n" +
+            "for v <- [{pointer: \"no such shape\"}, {pointer: \"\"}, {pointer: \"Left Ptr\"}, {pointer: \"left_ptr\"}, {pointer: #crosshair}, {pointer: (2, 1)}, {pointer: 3}] do write( w.set(v) | #failed )\n" +
+            "write( w.set({pointer: \"watch\", fg: \"bogus\"}) | #failed )\nwrite( w.get(\"pointer\") )\n"),
+        "failed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nfailed\nxterm\nsucceeded")
+
+@test
+AN_X11_NAME_IS_SHOWN_AS_THE_SYSTEM_SHAPE_IT_MAPS_TO()
+    assert(pointer_shape("default") == Some(0) && pointer_shape("left ptr") == Some(0) && pointer_shape("arrow") == Some(0),
+        "the arrow")
+    assert(pointer_shape("xterm") == pointer_shape("text"), "the I-beam")
+    assert(pointer_shape("hand2") == pointer_shape("pointer"), "the hand")
+    assert(pointer_shape("sb h double arrow") == pointer_shape("ew resize"), "the sideways arrows")
+    assert(pointer_shape("ll angle") == pointer_shape("sw resize"), "a corner")
+    assert(pointer_shape("w resize") == Some(19), "the last system shape")
+    assert(pointer_shape("bogus").is_none() && pointer_shape("").is_none(), "no shape")
+
+@test
+A_HIDDEN_CANVAS_HAS_NO_POINTER_POSITION()
+    assert_eq(on_canvas("write( w.get(\"pointerx\"), w.get(\"pointery\") )\nwrite( w.set({pointerx: 1}) | #failed, w.set({pointery: 1}) | #failed )\n"),
+        "undefined, undefined\nfailed, failed\nsucceeded")
 
 // Without the `graphics` feature; `tests_screen.sysl` has the window on screen in a build with it.
 #if !feature_graphics

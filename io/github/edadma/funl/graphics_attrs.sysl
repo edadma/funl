@@ -94,8 +94,8 @@ private live_state(c: WinCanvas) -> WinCanvas
     out
 
 // Canvas `c`, which was `was`, carried onto the screen: a window made for it when it is first shown,
-// at the display's density, and every change to its title, size, resizing, visibility, position and
-// pointer handed to the window it has.
+// at the display's density, and every change to its title, size, resizing, visibility, position,
+// pointer and pointer shape handed to the window it has.
 onto_screen(c: WinCanvas, was: WinCanvas, name: string) -> Result[WinCanvas, Fault]
     var out = c
 
@@ -142,8 +142,47 @@ onto_screen(c: WinCanvas, was: WinCanvas, name: string) -> Result[WinCanvas, Fau
             Some((x, y)) -> screen_warp(usize(out.screen), x, y)
             None -> ()
 
+    // A window just made shows the default shape until it is given the canvas's.
+    if out.shape != was.shape || was.screen < 0
+        screen_shape(usize(out.screen), pointer_shape(out.shape).unwrap_or(0))
+
     Ok(out)
 end onto_screen
+
+// The pointer shapes `pointer` takes: SDL's system cursors, by the names the sdl3 binding's
+// `SystemCursor` displays and in its order, so that a shape's place here is its place there.
+val PointerShapes: [20]string = ["default", "text", "wait", "crosshair", "progress", "nwse resize", "nesw resize",
+    "ew resize", "ns resize", "move", "not allowed", "pointer", "nw resize", "n resize", "ne resize", "e resize",
+    "se resize", "s resize", "sw resize", "w resize"]
+
+// The X11 cursor-font names Icon's programs give `pointer`, `_` written as a space as Icon writes
+// them, each with the system shape it is shown as.
+private val X11Shapes: [27](string, string) = [("left ptr", "default"), ("arrow", "default"),
+    ("top left arrow", "default"), ("xterm", "text"), ("watch", "wait"), ("cross", "crosshair"),
+    ("tcross", "crosshair"), ("hand1", "pointer"), ("hand2", "pointer"), ("fleur", "move"),
+    ("pirate", "not allowed"), ("sb h double arrow", "ew resize"), ("sb v double arrow", "ns resize"),
+    ("double arrow", "ns resize"), ("sizing", "nwse resize"), ("top left corner", "nw resize"),
+    ("top side", "n resize"), ("top right corner", "ne resize"), ("right side", "e resize"),
+    ("bottom right corner", "se resize"), ("bottom side", "s resize"), ("bottom left corner", "sw resize"),
+    ("left side", "w resize"), ("ul angle", "nw resize"), ("ur angle", "ne resize"), ("lr angle", "se resize"),
+    ("ll angle", "sw resize")]
+
+// The pointer shape a canvas starts with: Icon's default reading on X11.
+const DefaultPointer: string = "left ptr"
+
+// The place in `PointerShapes` of the shape `name` is shown as, or `None` when `name` is no shape.
+pointer_shape(name: string) -> Option[usize]
+    var shown = name
+
+    for pair in X11Shapes
+        val (x11, shape) = pair
+
+        if x11 == name then shown = shape
+
+    for i in 0..<PointerShapes.len
+        if PointerShapes[i] == shown then return Some(i)
+
+    None
 
 // Pair attribute `k` -- `base` itself, a tuple of two integers, or `base` with `x` or `y` after it,
 // one integer -- set to `x` over the pair `was`; `None` when `x` is no value it takes.
@@ -250,7 +289,11 @@ private assigned(p: Pending, k: string, x: Value, name: string) -> Result[Option
         q.cv.pos = paired(k, "pos", q.cv.pos.unwrap_or((0, 0)), x) match
             Some(at) -> Some(at)
             None -> return Ok(None)
-    else if k == "pointer" || k == "pointerx" || k == "pointery"
+    else if k == "pointer"
+        q.cv.shape = x match
+            Str(s) -> if pointer_shape(s.s).is_some() then s.s else return Ok(None)
+            _ -> return Ok(None)
+    else if k == "pointerx" || k == "pointery"
         if q.cv.state == "hidden" then return Ok(None)
 
         q.cv.pointer = paired(k, "pointer", q.cv.pointer.unwrap_or((0, 0)), x) match
@@ -393,7 +436,7 @@ attribute(c: WinCanvas, ctx: WinContext, k: string) -> Result[Value, Fault]
     val shown = if c.screen >= 0 then screen_display(usize(c.screen)) else None
 
     if k == "pos" then return pair_value(pos)
-    if k == "pointer" then return pair_value(c.pointer)
+    if k == "pointer" then return Ok(new_str(c.shape)?)
 
     val clip = ctx.clipw >= 0
 
