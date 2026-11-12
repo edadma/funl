@@ -573,10 +573,10 @@ private begin_run(m: *Merge, n: usize)
 // Write the next element of the merge: the right run's when `right`, else the left's.
 private take_next(m: *Merge, from: *ArrayObj, to: *ArrayObj, right: bool)
     if right
-        to.set(m.k, from.at(m.j))
+        to[m.k] = from[m.j]
         m.j += 1
     else
-        to.set(m.k, from.at(m.i))
+        to[m.k] = from[m.i]
         m.i += 1
 
     m.k += 1
@@ -627,8 +627,8 @@ private sort_by_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
 
             var args: Buf[Value] = buf()
 
-            args.push(from.at(m.j))
-            args.push(from.at(m.i))
+            args.push(from[m.j])
+            args.push(from[m.i])
             return Ok(Calls(f.args[0], args))
         else
             take_next(&m, from, to, m.j < m.hi)
@@ -686,7 +686,7 @@ private zip_with_turn(f: *FrameObj, called: Called) -> Result[Turn, Fault]
     var args: Buf[Value] = buf()
 
     for i in 0..<lists
-        args.push(slot_array(f, i)?.at(at))
+        args.push(slot_array(f, i)?[at])
 
     Ok(Calls(f.args[0], args))
 

@@ -158,7 +158,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = a.at(usize(at))
+            elem = a[usize(at)]
             rest = v.stack[top - 2]
             next = at + 1
             spent = next >= long(a.len())
@@ -167,7 +167,7 @@ gen_next(v: *Vm) -> Result[bool, Fault]
                 v.stack.truncate(top - 2)
                 return Ok(false)
 
-            elem = a.at(usize(at))
+            elem = a[usize(at)]
             rest = v.stack[top - 2]
             next = at + 1
             spent = next >= long(a.len())

@@ -27,7 +27,7 @@ private do_array(base: usize, argc: usize) -> Result[Value, Fault]
                 val a = new_array(usize(n))?
 
                 for i in 0..<usize(n)
-                    a.set(i, arg(base, 1))
+                    a[i] = arg(base, 1)
 
                 return Ok(Array(a))
             _ -> return Err(kind_error(x, "integer", s"'array' with a value to fill it with wants the number of elements as an integer, and was given ${described(x)}"))

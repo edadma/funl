@@ -128,20 +128,13 @@ struct MapObj
 // `Undefined`, so a buffer takes from and adds to its front in amortised constant time, as it does at
 // its back. An array never moves its front and keeps `head` at 0. Only the collector reads `cells`
 // directly (the gap is `Undefined`, so marking it is harmless, and the finalizer releases it); every
-// other reader goes through `len`, `at`, `set` and `view`, which see the logical order.
+// other reader goes through `len`, `x[i]` and `view`, which see the logical order.
 struct ArrayObj
     cells: Buf[Value]
     head: usize
 
     // How many elements there are.
     len(self) -> usize = self.cells.len() - self.head
-
-    // Element `i`, counting from the front.
-    at(self, i: usize) -> Value = self.cells[self.head + i]
-
-    // Store `x` as element `i`, counting from the front.
-    set(self, i: usize, x: Value)
-        self.cells[self.head + i] = x
 
     // The elements, front to back.
     view(self) -> []const Value = self.cells.view()[self.head..]
@@ -205,6 +198,15 @@ struct ArrayObj
         self.cells = fresh
         self.head = gap
         current().allocated += gap * sizeof(Value)
+
+// Element `i`, counting from the front.
+impl Index[usize, Value] for ArrayObj
+    index(self, i: usize) -> Value = self.cells[self.head + i]
+
+// Store `x` as element `i`, counting from the front.
+impl IndexSet[usize, Value] for ArrayObj
+    index_set(self, i: usize, x: Value)
+        self.cells[self.head + i] = x
 
 // A logic variable.
 //

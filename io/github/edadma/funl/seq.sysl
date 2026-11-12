@@ -410,7 +410,7 @@ private picked(a: *ArrayObj, first: long, count: long, step: long) -> Result[*Ar
     val o = new_array(usize(count))?
 
     for k in 0..<count
-        o.set(usize(k), a.at(usize(first + k * step)))
+        o[usize(k)] = a[usize(first + k * step)]
 
     Ok(o)
 
