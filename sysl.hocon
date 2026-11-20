@@ -22,7 +22,7 @@ package {
   // A container field in zeroed `gc` storage reads as empty and `release()` on it is a no-op, which
   // the collector's finalizers rely on; the heap objects' makers assign their container fields, as
   // containers are reference types.
-  sysl = "0.10.2"
+  sysl = "0.11.13"
 }
 
 workspace = ["funl"]
@@ -65,20 +65,20 @@ dependencies {
 
   // `async`'s loop. Its timers and its host driver need no library, so kairos itself is not behind a
   // feature; its libuv driver is, through `async` below.
-  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.18" }
+  kairos { git = "github.com/sysl-lang/kairos", version = "0.1.19" }
 
   curl   { git = "github.com/sysl-lang/curl", version = "0.1.4", optional = true }
 
   // `funl:async`'s `run` starts its child with libuv directly, kairos wrapping no process, and
   // `fetch` waits for libcurl on libuv's thread pool -- so libuv is named here as well as under
   // kairos, behind the same feature.
-  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.21", optional = true }
+  libuv  { git = "github.com/sysl-lang/libuv", version = "0.1.22", optional = true }
 
   // `funl:graphics`'s windows on screen, behind the `graphics` feature: SDL is a library the machine
   // has to have installed, where a hidden canvas needs nothing, so a build without the feature keeps
   // every hidden canvas and links no SDL. Its `kairos` feature is the pump that lets the event loop
   // wait on SDL's queue beside its timers and libuv, turned on by the `graphics` feature below.
-  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.25", optional = true }
+  sdl3   { git = "github.com/sysl-lang/sdl3", version = "0.3.27", optional = true }
 }
 
 // **A feature is named for the FunL module it serves, never for the library under it** (`modules.md`

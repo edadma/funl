@@ -16,11 +16,13 @@ github.com/sysl-lang/kairos v0.1.7 sha256:a27857296d5ab66d57a784f7ab5cd46dacd062
 github.com/sysl-lang/kairos v0.1.16 sha256:475b6c73b0e5f12bc626a1d1e43c208dec211d2fec23b50a506e3dd762b43479
 github.com/sysl-lang/kairos v0.1.17 sha256:3d0d2128ba6d3c852f7ec00062cc0a79600ace0d6a31af785219d8eea5504771
 github.com/sysl-lang/kairos v0.1.18 sha256:b63b7fc33d8830d9b418b22e0713149f4a61e40a0c1ff3c7ad047f5c0731c3f3
+github.com/sysl-lang/kairos v0.1.19 sha256:6730236a0cf6f0db17edf6b484fcb5353b9a2720cf3f70b1bf9bea0251eedd07
 github.com/sysl-lang/libuv v0.1.9 sha256:56a5d115bd0d514a559b6df2c2976445221861c4a368f95be6f75960ebd38cee
 github.com/sysl-lang/libuv v0.1.14 sha256:393936290ca7e6dc64505414663928bcb3742c90975f1cca62f056e59b8a23ac
 github.com/sysl-lang/libuv v0.1.19 sha256:4acd825511ec54547e35489affe1a0a5808cb7dc0eef1473586aa708ce2d30db
 github.com/sysl-lang/libuv v0.1.20 sha256:321384db13e72c905249f318e0be102d3fef7580b203880833546bec6857a5aa
 github.com/sysl-lang/libuv v0.1.21 sha256:355da6217ec5833bd3332beb3d1f2a863d737f2eb3ae85745205a12c7b92c571
+github.com/sysl-lang/libuv v0.1.22 sha256:559fcca3844edc1fffd4032c97b3fe9dd8e1cda26178d94f277b4f7dae78fe9f
 github.com/sysl-lang/linenoise v0.3.0 sha256:197bc94c99c40b089d45115fa59bfe52fb7293bf935feeaecc5c8294aa24b940
 github.com/sysl-lang/linenoise v0.3.1 sha256:32212b7a1efcd03dba0948a661c3880b66f25a2aed522725c90619a58a0eccc1
 github.com/sysl-lang/parsing v0.13.0 sha256:d392b5d4449238ba518b59699b211298d7b33dc8f4abe78de8bfda57ac61e065
@@ -39,5 +41,6 @@ github.com/sysl-lang/sdl3 v0.3.10 sha256:80a5abf2ab683f7e75cb1b8e610d826e93f2d83
 github.com/sysl-lang/sdl3 v0.3.12 sha256:9c8d6c353b186bcd16e37d6e6a9c381d7fc78f1e6bc1bcdde9b4d95f63bd60e1
 github.com/sysl-lang/sdl3 v0.3.24 sha256:ebc146f3729c58e3c8a1bdac7d4849d1f667f410eeb3027b1cd9cbb625540e98
 github.com/sysl-lang/sdl3 v0.3.25 sha256:a3b370f7b3919c82fbe71e69a9bd848a308c82c45c23cef9bdfe963d775f2405
+github.com/sysl-lang/sdl3 v0.3.27 sha256:009968ed7e555e168342590c9e34e1254f9338f03f736b1135da7a0fd8b8fd99
 github.com/sysl-lang/sqlite3 v0.7.0 sha256:5ad09d7ce307300ae132220e49b911a351a4b7074417f99ff068a892226b97e5
 github.com/sysl-lang/sqlite3 v0.7.1 sha256:d99158392c6e124266e84f03261b05bf7a5111f8f38633b170681fed5b091a27
